@@ -11,6 +11,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     notes: []
   },
   {
+    version: '0.0.2',
+    date: '2026-09-17',
+    notes: []
+  },
+  {
     version: '0.27.3',
     date: '2026-06-25',
     notes: [
