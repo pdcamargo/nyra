@@ -124,6 +124,23 @@ const theme = EditorView.theme({
     color: 'transparent',
     animation: 'cm-ultrathink-pan 4s linear infinite'
   },
+  // An @-mention, collapsed to the filename. Clicking opens the previewer.
+  '.cm-file-chip': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.25em',
+    padding: '0.05em 0.45em',
+    borderRadius: '4px',
+    backgroundColor: 'color-mix(in oklab, var(--info) 18%, transparent)',
+    color: 'var(--info)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.88em',
+    cursor: 'pointer',
+    verticalAlign: 'baseline'
+  },
+  '.cm-file-chip:hover': {
+    backgroundColor: 'color-mix(in oklab, var(--info) 28%, transparent)'
+  },
   '@keyframes cm-ultrathink-pan': {
     '0%': { backgroundPosition: '0% 50%' },
     '100%': { backgroundPosition: '200% 50%' }

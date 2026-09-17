@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { findCommand, findUltrathink } from '../../renderer/src/lib/composerDecorations'
+import {
+  findCommand,
+  findFileMentions,
+  findUltrathink,
+  mentionLabel
+} from '../../renderer/src/lib/composerDecorations'
 
 describe('findCommand', () => {
   it('matches a known command at the start', () => {
@@ -44,5 +49,43 @@ describe('findUltrathink', () => {
 
   it('returns nothing when absent', () => {
     expect(findUltrathink('just think about it')).toEqual([])
+  })
+})
+
+describe('findFileMentions', () => {
+  it('finds a mention and its span', () => {
+    const [m] = findFileMentions('see @src/app.ts here')
+    expect(m.path).toBe('src/app.ts')
+    expect('see @src/app.ts here'.slice(m.from, m.to)).toBe('@src/app.ts')
+  })
+
+  it('finds a mention at the very start', () => {
+    expect(findFileMentions('@a/b.ts please')[0].from).toBe(0)
+  })
+
+  it('finds several', () => {
+    expect(findFileMentions('@a.ts and @b.ts')).toHaveLength(2)
+  })
+
+  it('leaves an email alone — the @ has to start a word', () => {
+    expect(findFileMentions('mail me at pat@example.com')).toEqual([])
+  })
+
+  it('stops at whitespace', () => {
+    expect(findFileMentions('@src/app.ts and more')[0].path).toBe('src/app.ts')
+  })
+})
+
+describe('mentionLabel', () => {
+  it('shows just the filename', () => {
+    expect(mentionLabel('src/renderer/components/ChatInput.tsx')).toBe('ChatInput.tsx')
+  })
+
+  it('shows a bare name unchanged', () => {
+    expect(mentionLabel('README.md')).toBe('README.md')
+  })
+
+  it('names a folder by its last segment, trailing slash and all', () => {
+    expect(mentionLabel('src/renderer/components/')).toBe('components')
   })
 })
