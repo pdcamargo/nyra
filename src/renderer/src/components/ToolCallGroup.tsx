@@ -5,6 +5,7 @@ import { inlineLabel, buildGroupSummary, formatToolName } from '../utils/toolSum
 import { useFilePreviewStore } from '../store/filePreview'
 import AskUserQuestionCard from './AskUserQuestionCard'
 import PlanCard, { type PlanAnswer } from './PlanCard'
+import FinishedChecklist from './FinishedChecklist'
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write'])
 
@@ -81,6 +82,9 @@ export default function ToolCallGroup({
     }
     if (only.tool_name === 'ExitPlanMode') {
       return <PlanCard message={only} onAnswer={onPlanAnswer} />
+    }
+    if (only.tool_name === 'TaskChecklist') {
+      return <FinishedChecklist message={only} />
     }
     return (
       <div className="py-0.5">

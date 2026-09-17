@@ -692,24 +692,35 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
     return () => window.removeEventListener('nyra:drop-file', handler)
   }, [processAttachedFile])
 
-  // Paste handler for images
+  /**
+   * Paste an attachment, of any kind.
+   *
+   * It used to take images only — the clipboard was filtered to
+   * `SUPPORTED_TYPES` — so a PDF copied in Finder pasted as nothing, or as
+   * whatever text representation it happened to carry. `processAttachedFile`
+   * has always handled every type the picker and drag-drop accept; paste simply
+   * never reached it.
+   *
+   * Copied *text* is left alone even when it looks like a path. Pasting a path
+   * into a message is a thing people do on purpose, and silently turning it into
+   * an attachment would take the words out of what they were writing.
+   */
   useEffect(() => {
     const target = editorRef.current?.contentDom
     if (!target) return
     const handlePaste = async (e: ClipboardEvent): Promise<void> => {
-      const items = Array.from(e.clipboardData?.items ?? [])
-      for (const item of items) {
-        if (item.kind === 'file' && SUPPORTED_TYPES.includes(item.type)) {
-          e.preventDefault()
-          const file = item.getAsFile()
-          if (file) await processImageFile(file)
-        }
-      }
+      const files = Array.from(e.clipboardData?.items ?? [])
+        .filter((item) => item.kind === 'file')
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file != null)
+      if (files.length === 0) return
+      e.preventDefault()
+      for (const file of files) await processAttachedFile(file)
     }
     const onPaste = (e: Event): void => void handlePaste(e as ClipboardEvent)
     target.addEventListener('paste', onPaste)
     return () => target.removeEventListener('paste', onPaste)
-  }, [processImageFile])
+  }, [processAttachedFile])
 
   return (
     <div className="relative py-3">

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitBranch, GitFork, GitMerge, Info, Search, SquarePen, Trash2, TriangleAlert } from 'lucide-react'
-import { useSessionsStore, activeCwd, activeProjectCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type AgentStatus } from '../store/sessions'
+import { useSessionsStore, activeCwd, activeProjectCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type AgentStatus } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
@@ -82,7 +82,7 @@ type ClaudeEvent = ClaudeEventBase & (
  * not the fixed one it used to assume.
  */
 /** Tool calls that are a card to answer, not a line in a trace. */
-const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
+const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist'])
 
 /** What "auto-accept edits" actually waives — file writes, nothing else. */
 const EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit']
@@ -398,6 +398,30 @@ export default function Chat(): React.JSX.Element {
     return null
   }, [pendingPlans, activeSessionId, messages])
 
+  /**
+   * Re-read the branch this chat is on.
+   *
+   * It used to be written once, when a worktree was created, and never again —
+   * so a plain chat never had one at all, and a `git checkout` the agent ran was
+   * invisible everywhere in the UI. Cheap enough to ask after every turn, which
+   * catches a checkout however it happened: the agent, a terminal, a script.
+   */
+  const refreshBranch = useCallback((sid: string): void => {
+    const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)
+    if (!session?.cwd) return
+    void window.api.git
+      .branch(session.cwd)
+      .then((branch) => {
+        const store = useSessionsStore.getState()
+        const current = store.sessions.find((s) => s.id === sid)
+        if (!current || current.branch === branch) return
+        store.setGitInfo(sid, { isGitRepo: !!branch, branch })
+      })
+      .catch(() => {
+        /* not a repo, or git is unavailable — leave what we had */
+      })
+  }, [])
+
   /** False once the user scrolls up — their position is theirs until they come back. */
   const stuckToBottomRef = useRef(true)
 
@@ -412,6 +436,10 @@ export default function Chat(): React.JSX.Element {
    * empty space. `measure()` drops the cache so the new list is measured as
    * itself.
    */
+  useEffect(() => {
+    if (activeSessionId) refreshBranch(activeSessionId)
+  }, [activeSessionId, refreshBranch])
+
   useEffect(() => {
     stuckToBottomRef.current = true
     virtualizer.measure()
@@ -734,7 +762,7 @@ export default function Chat(): React.JSX.Element {
         // The checklist comes out first: a task block is the whole list restated,
         // so it replaces what is there rather than adding to it.
         const withoutTasks = extractTaskBlocks(event.text)
-        if (withoutTasks.tasks) setTasks(sid, withoutTasks.tasks)
+        if (withoutTasks.tasks) foldOrSetTasks(sid, withoutTasks.tasks)
         const { text, questions } = extractAskBlocks(withoutTasks.text)
         if (text) {
           streamedTextRef.current.add(sid)
@@ -842,6 +870,7 @@ export default function Chat(): React.JSX.Element {
           }
         }
         useRunningStore.getState().endRun(sid)
+        refreshBranch(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
 
         // Send the next queued message, if any. One per turn, in order.
@@ -1178,6 +1207,38 @@ export default function Chat(): React.JSX.Element {
       useSessionsStore.getState().addMessage(sid, { id: Date.now().toString(), role: 'error', text: String(err) })
       useRunningStore.getState().endRun(sid)
     }
+  }, [])
+
+  /**
+   * Keep the checklist while there is work in it, then let it go.
+   *
+   * Pinned above the composer it was useful; pinned there forever, ticked, it is
+   * just a box you cannot close. When the last item completes it drops into the
+   * transcript as a record of what was done and the strip clears.
+   *
+   * On the *transition* into finished, not on every finished list — Claude
+   * restates the whole block on each status change, so an all-done list arrives
+   * more than once and each one would leave another copy behind.
+   */
+  const foldOrSetTasks = useCallback((sid: string, next: Task[]): void => {
+    const store = useSessionsStore.getState()
+    const before = store.sessions.find((s) => s.id === sid)?.tasks ?? []
+    const finished = next.length > 0 && next.every((t) => t.status === 'completed')
+    const wasFinished = before.length > 0 && before.every((t) => t.status === 'completed')
+
+    if (finished && !wasFinished) {
+      store.addMessage(sid, {
+        id: `${Date.now()}-checklist`,
+        role: 'tool_call',
+        tool_id: `checklist-${Date.now()}`,
+        tool_name: 'TaskChecklist',
+        input: { tasks: next },
+        result: 'done'
+      })
+      store.setTasks(sid, [])
+      return
+    }
+    store.setTasks(sid, next)
   }, [])
 
   /** Answer a question card: record it on the message, then say it. */
@@ -1823,7 +1884,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
   if (message.role === 'user') {
     const textMsg = message as TextMessage
     return (
-      <div className="flex justify-end group/msg">
+      <div className="flex flex-col items-end group/msg">
         <div className="relative max-w-[85%] rounded-2xl bg-secondary px-4 py-2.5 text-secondary-foreground">
           {onEdit && (
             <button
@@ -1866,14 +1927,14 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
             </div>
           )}
           <div className="whitespace-pre-wrap wrap-break-word wrap-anywhere">{textMsg.text}</div>
-          {/* Under the bubble rather than beside the edit and fork icons, which
-              are already stacked out to the left. Mirrors the assistant side. */}
-          {message.timestamp && (
-            <div className="mt-1 text-right text-[10px] text-secondary-foreground/50 opacity-0 transition-opacity group-hover/msg:opacity-100">
-              {formatMessageTime(message.timestamp)}
-            </div>
-          )}
         </div>
+        {/* Outside the bubble, or the bubble reserves a line for a timestamp
+            nobody is looking at and sits taller than its own text. */}
+        {message.timestamp && (
+          <div className="mt-1 text-[10px] text-muted-foreground/60 opacity-0 transition-opacity group-hover/msg:opacity-100">
+            {formatMessageTime(message.timestamp)}
+          </div>
+        )}
       </div>
     )
   }

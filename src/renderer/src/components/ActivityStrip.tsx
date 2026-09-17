@@ -46,11 +46,11 @@ export default function ActivityStrip({
   )
 
   const outstanding = agents?.length ?? 0
-  // A plain running turn is the composer's job — it already shows a stop, and a
-  // second one above it that says only "Working" is a row with nothing in it.
-  // This strip earns its space when it can say what is being carried out, or
-  // that work is still going after the turn has ended.
-  const busy = execution != null || outstanding > 0
+  // Only for a plan being carried out: its name and how long it has been going,
+  // neither of which the composer can say. "N subagents working" was a row you
+  // could not act on, next to a stop you already have — the agents say it
+  // themselves in the summary, a line each, where the stop can mean one of them.
+  const busy = execution != null
   const now = useTicker(busy && (running || outstanding > 0))
 
   if (!busy) return null
@@ -60,14 +60,11 @@ export default function ActivityStrip({
       <div className="flex items-center gap-2 px-3 py-2">
         <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-info" />
         <span className="min-w-0 flex-1 truncate text-xs text-foreground/80">
-          {execution?.title ??
-            `${outstanding} subagent${outstanding === 1 ? '' : 's'} still working`}
+          {execution.title}
         </span>
-        {execution && (
-          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-            {formatElapsed(now - execution.startedAt)}
-          </span>
-        )}
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+          {formatElapsed(now - execution.startedAt)}
+        </span>
         <button
           type="button"
           onClick={onStop}
@@ -78,7 +75,7 @@ export default function ActivityStrip({
         </button>
       </div>
 
-      {execution && outstanding > 0 && (
+      {outstanding > 0 && (
         <p className="border-t border-border/55 px-3 py-1.5 text-[10px] text-muted-foreground">
           {outstanding} subagent{outstanding === 1 ? '' : 's'} working — see the summary
         </p>
