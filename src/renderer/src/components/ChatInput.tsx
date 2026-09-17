@@ -8,6 +8,7 @@ import ComposerBar from './ComposerBar'
 import NewChatEnvironment from './NewChatEnvironment'
 import AttachmentStrip, { type PendingAttachment } from './AttachmentStrip'
 import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
+import { BUILT_IN_COMMANDS } from '../data/commands'
 import {
   continueListOnEnter,
   insertLink,
@@ -22,6 +23,8 @@ import type { Agent } from '../store/sessions'
 
 const EMPTY_AGENTS: Agent[] = []
 const EMPTY_QUEUE: QueuedMessage[] = []
+/** Commands the composer runs itself rather than passing to Claude as text. */
+const KNOWN_COMMAND_NAMES = new Set(BUILT_IN_COMMANDS.map((c) => c.name.slice(1).split(' ')[0]))
 
 const SUPPORTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 
@@ -319,15 +322,22 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
     })
   }, [input, mentionStart])
 
+  /**
+   * Picking from the dropdown writes the command into the composer rather than
+   * running it. Running on selection meant a command fired the instant you
+   * arrowed onto it, with no chance to add arguments or change your mind —
+   * Enter runs it, the same as any other message.
+   */
   const handleAutocompleteSelect = useCallback((item: AutocompleteItem): void => {
-    if (item.type === 'skill') {
-      // Insert into input so user can add arguments before sending
-      setInput('/' + item.name + ' ')
-      editorRef.current?.focus()
-    } else {
-      executeCommand(item.name)
-    }
-  }, [executeCommand])
+    setInput('/' + item.name + ' ')
+    requestAnimationFrame(() => {
+      const editor = editorRef.current
+      if (!editor) return
+      editor.focus()
+      const end = Number.MAX_SAFE_INTEGER
+      editor.setSelectionRange(end, end)
+    })
+  }, [])
 
   // Read queued message for current session
   // Selected as raw fields and assembled here: a selector that builds the array
@@ -380,6 +390,14 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
       return
     }
 
+    // A bare slash command runs the command. Until now only the dropdown could
+    // run one, so sending `/context` by hand just posted the literal text.
+    const bareCommand = /^\/([a-z][\w-]*)$/i.exec(text.trim())
+    if (bareCommand && KNOWN_COMMAND_NAMES.has(bareCommand[1].toLowerCase())) {
+      executeCommand(bareCommand[1].toLowerCase())
+      return
+    }
+
     // Intercept /rename <title> before sending to CLI
     if (text.trim().startsWith('/rename ')) {
       const newTitle = text.trim().slice('/rename '.length).trim()
@@ -409,7 +427,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
     }
 
     await sendMessage(text.trim(), images.length > 0 ? images : undefined, files.length > 0 ? files : undefined)
-  }, [input, stagedImages, stagedFiles, sendMessage, isLoading])
+  }, [input, stagedImages, stagedFiles, sendMessage, isLoading, executeCommand])
 
 
   const handleStash = useCallback((): void => {
