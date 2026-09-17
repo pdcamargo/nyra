@@ -188,6 +188,7 @@ type SessionsStore = {
   setActiveSession: (id: string) => void
   addMessage: (sessionId: string, message: Message) => void
   updateToolResult: (sessionId: string, toolId: string, content: string) => void
+  markToolDenied: (sessionId: string, toolId: string) => void
   updateClaudeSessionId: (sessionId: string, claudeSessionId: string | null) => void
   updateSessionCwd: (sessionId: string, cwd: string) => void
   clearMessages: (sessionId: string) => void
@@ -353,6 +354,23 @@ export const useSessionsStore = create<SessionsStore>()(
               messages: s.messages.map((m) =>
                 m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId
                   ? { ...m, result: content }
+                  : m
+              )
+            }
+          })
+        }))
+      },
+
+      /** For a tool call the user turned down after the fact, like a plan. */
+      markToolDenied: (sessionId: string, toolId: string) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            return {
+              ...s,
+              messages: s.messages.map((m) =>
+                m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId
+                  ? { ...m, denied: true }
                   : m
               )
             }

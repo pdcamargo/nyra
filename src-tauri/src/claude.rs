@@ -191,6 +191,10 @@ struct SessionInner {
     line_buffer: String,
     stale_resume_detected: bool,
     retry_in_flight: bool,
+    /// tool_id -> path, for writes into `.claude/plans/` made while planning.
+    /// Held only between a write being announced and its result arriving, which
+    /// is the point the file is actually on disk and can be read back.
+    plan_writes: HashMap<String, String>,
 }
 
 /// What answering one queued prompt did to the permission gate.
@@ -221,6 +225,7 @@ impl SessionInner {
             line_buffer: String::new(),
             stale_resume_detected: false,
             retry_in_flight: false,
+            plan_writes: HashMap::new(),
         }
     }
 
@@ -557,6 +562,7 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                 json!({ "type": "tool_result", "tool_id": tool_id, "content": result_content }),
             );
             processes::note_tool_result(nyra_session_id, tool_id, &result_content);
+            emit_plan_ready(nyra_session_id, tool_id);
         }
     }
 
@@ -657,11 +663,8 @@ fn build_spawn_args(
     cwd: &str,
     settings: &SpawnSettings,
     worktree_name: Option<&str>,
+    resume_session_id: Option<&str>,
 ) -> (Vec<String>, String) {
-    // `--input-format stream-json` doesn't support `--resume` the way `--print`
-    // does (it expects "deferred" sessions, which Nyra never creates). History
-    // lives in Nyra's own store instead; each session gets a process that spans
-    // turns but not app restarts.
     let mut args: Vec<String> = vec![
         "-p".into(),
         "--input-format".into(),
@@ -710,8 +713,19 @@ fn build_spawn_args(
         args.push(name.to_string());
     }
 
-    // The fingerprint deliberately excludes the resume id — resume only applies to
-    // the first spawn after an app restart.
+    // Carrying the conversation across a respawn. Every spawn-relevant setting is
+    // in the fingerprint below, so changing one — plan mode, the model, the
+    // effort — tears the child down and starts another. Without this the new
+    // process begins blank while the transcript on screen says otherwise, and
+    // the next message lands in a session that has never heard of it.
+    //
+    // The id stays out of the fingerprint on purpose: it names a conversation,
+    // not a process shape, so it must never be the reason we respawn.
+    if let Some(id) = resume_session_id {
+        args.push("--resume".into());
+        args.push(id.to_string());
+    }
+
     let fingerprint = json!([
         cwd,
         settings.model,
@@ -780,7 +794,7 @@ pub async fn run_claude(
         return Err("Empty prompt".into());
     }
 
-    let (_, fingerprint) = build_spawn_args(&cwd, &settings, worktree_name.as_deref());
+    let (_, fingerprint) = build_spawn_args(&cwd, &settings, worktree_name.as_deref(), None);
 
     // Reuse the live process when nothing spawn-relevant changed; otherwise tear
     // down and start fresh.
@@ -838,7 +852,7 @@ async fn spawn_session(
     fingerprint: String,
 ) -> Result<Arc<Session>, String> {
     let claude_bin = resolve_claude_binary(&settings.claude_binary_path);
-    let (args, _) = build_spawn_args(cwd, settings, worktree_name);
+    let (args, _) = build_spawn_args(cwd, settings, worktree_name, resume_session_id.as_deref());
 
     crate::logf!(
         "Spawning Claude [{}]: {claude_bin} {}",
@@ -881,6 +895,7 @@ async fn spawn_session(
             line_buffer: String::new(),
             stale_resume_detected: false,
             retry_in_flight: false,
+            plan_writes: HashMap::new(),
         }),
         stdin: AsyncMutex::new(Some(stdin)),
     });
@@ -890,15 +905,27 @@ async fn spawn_session(
         .insert(nyra_session_id.to_string(), sess.clone());
     processes::attach_claude_pid(nyra_session_id, pid);
 
-    // stderr: log only.
+    // stderr: logged, and watched for the one line that says our `--resume` names
+    // a conversation the CLI has never heard of. It arrives here rather than on
+    // stdout, so the retry has to be armed from this task — and because the two
+    // are separate tasks it may lose the race with the result event, which is why
+    // `stale_resume` below does not rely on it alone.
     {
         let session_id = nyra_session_id.to_string();
+        let sess = sess.clone();
         tauri::async_runtime::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 let text = line.trim();
-                if !text.is_empty() {
-                    crate::logf!("stderr [{}]: {}", util::short(&session_id), clip(text, 400));
+                if text.is_empty() {
+                    continue;
+                }
+                crate::logf!("stderr [{}]: {}", util::short(&session_id), clip(text, 400));
+                if text.contains(STALE_RESUME_MARKER) {
+                    let mut inner = sess.inner.lock();
+                    if inner.resume_session_id.is_some() {
+                        inner.stale_resume_detected = true;
+                    }
                 }
             }
         });
@@ -965,14 +992,27 @@ async fn consume_stdout(sess: &Arc<Session>, nyra_session_id: &str, data: &str) 
             Err(_) => {
                 crate::logf!("Non-JSON line: {}", clip(trimmed, 120));
                 let mut inner = sess.inner.lock();
-                if inner.resume_session_id.is_some()
-                    && trimmed.contains("No conversation found with session ID")
-                {
+                if inner.resume_session_id.is_some() && trimmed.contains(STALE_RESUME_MARKER) {
                     inner.stale_resume_detected = true;
                 }
             }
         }
     }
+}
+
+/// What the CLI prints when `--resume` names a conversation it does not have.
+const STALE_RESUME_MARKER: &str = "No conversation found with session ID";
+
+/// Whether a failed turn is a `--resume` that missed, and so worth replaying
+/// without one.
+///
+/// The marker itself lands on stderr while this decision is made from stdout, so
+/// waiting for it would be a race. A resumed turn that failed without completing
+/// a single turn is the same thing said on the channel we are already reading.
+/// Over-reading it costs one extra spawn, because the replay carries no resume id
+/// and so can never ask for a second.
+fn stale_resume(resuming: bool, marker_seen: bool, is_error: bool, num_turns: Option<u64>) -> bool {
+    resuming && is_error && (marker_seen || num_turns == Some(0))
 }
 
 /// Returns true when the caller should stop feeding this session lines.
@@ -988,7 +1028,12 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
         let is_error = raw.get("is_error").and_then(Value::as_bool).unwrap_or(false);
         let should_retry = {
             let inner = sess.inner.lock();
-            inner.resume_session_id.is_some() && inner.stale_resume_detected && is_error
+            stale_resume(
+                inner.resume_session_id.is_some(),
+                inner.stale_resume_detected,
+                is_error,
+                raw.get("num_turns").and_then(Value::as_u64),
+            )
         };
         if should_retry {
             retry_without_resume(sess, nyra_session_id);
@@ -1158,13 +1203,37 @@ fn requires_prompt(
 }
 
 /// A path under Claude's own `plans` directory, whoever's home it lives in.
-fn is_plan_file(input: &Value) -> bool {
+fn plan_file_path(input: &Value) -> Option<&str> {
     let path = input
         .get("file_path")
         .or_else(|| input.get("path"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    path.contains("/.claude/plans/")
+        .and_then(Value::as_str)?;
+    path.contains("/.claude/plans/").then_some(path)
+}
+
+fn is_plan_file(input: &Value) -> bool {
+    plan_file_path(input).is_some()
+}
+
+/// Turn a finished write into `.claude/plans/` into a plan the renderer can show.
+///
+/// Read from disk rather than from the tool input: a plan is as often edited as
+/// written whole, and only the file has the complete text either way. A write
+/// that failed leaves nothing to read, which is also the answer.
+fn emit_plan_ready(nyra_session_id: &str, tool_id: &str) {
+    let Some(path) = get_session(nyra_session_id)
+        .and_then(|sess| sess.inner.lock().plan_writes.remove(tool_id))
+    else {
+        return;
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(plan) if !plan.trim().is_empty() => emit_event(
+            nyra_session_id,
+            json!({ "type": "plan_ready", "tool_id": tool_id, "path": path, "plan": plan }),
+        ),
+        Ok(_) => crate::logf!("Plan file {path} is empty — nothing to show"),
+        Err(e) => crate::logf!("Plan file {path} could not be read: {e}"),
+    }
 }
 
 /// Announce the tool calls in an assistant message, gating any that need approval.
@@ -1175,11 +1244,12 @@ async fn process_tool_blocks(
     nyra_session_id: &str,
     tool_blocks: &[Value],
 ) -> bool {
-    let (skip_permissions, auto_approve) = {
+    let (skip_permissions, auto_approve, plan_mode) = {
         let inner = sess.inner.lock();
         (
             inner.settings.skip_permissions,
             inner.settings.auto_approve_tools.clone(),
+            inner.settings.plan_mode,
         )
     };
 
@@ -1187,6 +1257,7 @@ async fn process_tool_blocks(
     // takes — a revert needs them whether the edit was approved or auto-approved.
     let mut prompts: Vec<PendingPermission> = Vec::new();
     let mut immediate: Vec<PendingPermission> = Vec::new();
+    let mut plan_writes: Vec<(String, String)> = Vec::new();
     for block in tool_blocks {
         let tool_name = block.get("name").and_then(Value::as_str).unwrap_or_default();
         let input = block.get("input").cloned().unwrap_or(json!({}));
@@ -1196,11 +1267,25 @@ async fn process_tool_blocks(
             input: input.clone(),
             original_content: capture_original_content(tool_name, &input).await,
         };
+        // Headless Claude has no ExitPlanMode — see `build_spawn_args`. What it
+        // does instead is write the plan to `.claude/plans/`, so that write is
+        // the signal a plan is ready. Only while planning: the same path gets
+        // written during ordinary work too, and that is not a plan to approve.
+        if plan_mode {
+            if let Some(path) = plan_file_path(&input) {
+                plan_writes.push((info.tool_id.clone(), path.to_string()));
+            }
+        }
         if requires_prompt(tool_name, &input, skip_permissions, &auto_approve) {
             prompts.push(info);
         } else {
             immediate.push(info);
         }
+    }
+
+    if !plan_writes.is_empty() {
+        let mut inner = sess.inner.lock();
+        inner.plan_writes.extend(plan_writes);
     }
 
     let announce = |info: &PendingPermission| {
@@ -1544,17 +1629,60 @@ mod tests {
             plan_mode: true,
             ..SpawnSettings::default()
         };
-        let (args, fp) = build_spawn_args("/tmp/x", &s, None);
+        let (args, fp) = build_spawn_args("/tmp/x", &s, None, None);
         assert!(args.windows(2).any(|w| w == ["--model", "opus"]));
         assert!(args.windows(2).any(|w| w == ["--permission-mode", "plan"]));
         assert!(fp.contains("/tmp/x"));
     }
 
     #[test]
+    fn a_resume_that_missed_is_replayed_without_one() {
+        // The marker arrives on stderr, so the stdout side must decide without it.
+        assert!(stale_resume(true, false, true, Some(0)));
+        assert!(stale_resume(true, true, true, None));
+
+        // A turn that actually ran and then failed is a real error, not a bad
+        // resume — replaying it would repeat whatever went wrong.
+        assert!(!stale_resume(true, false, true, Some(3)));
+        // Nothing to retry when we never asked to resume, or nothing failed.
+        assert!(!stale_resume(false, true, true, Some(0)));
+        assert!(!stale_resume(true, true, false, Some(0)));
+    }
+
+    #[test]
+    fn plan_paths_are_recognised_under_any_home() {
+        let plan = json!({ "file_path": "/Users/someone/.claude/plans/x.md" });
+        assert_eq!(
+            plan_file_path(&plan),
+            Some("/Users/someone/.claude/plans/x.md")
+        );
+        // `path` is the key some tools use instead of `file_path`.
+        assert!(plan_file_path(&json!({ "path": "/home/u/.claude/plans/y.md" })).is_some());
+        // Ordinary work is not a plan, and neither is a lookalike directory.
+        assert!(plan_file_path(&json!({ "file_path": "/repo/src/main.rs" })).is_none());
+        assert!(plan_file_path(&json!({ "file_path": "/repo/plans/z.md" })).is_none());
+        assert!(plan_file_path(&json!({})).is_none());
+    }
+
+    #[test]
+    fn resume_id_reaches_argv_but_never_the_fingerprint() {
+        // A respawn mid-conversation has to carry the session, and must not be
+        // *caused* by it — two spawns that differ only in resume id are the
+        // same process shape and must reuse the live child.
+        let s = SpawnSettings::default();
+        let (args, fp) = build_spawn_args("/tmp/x", &s, None, Some("abc-123"));
+        assert!(args.windows(2).any(|w| w == ["--resume", "abc-123"]));
+
+        let (bare, bare_fp) = build_spawn_args("/tmp/x", &s, None, None);
+        assert!(!bare.iter().any(|a| a == "--resume"));
+        assert_eq!(fp, bare_fp);
+    }
+
+    #[test]
     fn fingerprint_ignores_prompt_but_tracks_worktree() {
         let s = SpawnSettings::default();
-        let (_, a) = build_spawn_args("/tmp/x", &s, None);
-        let (_, b) = build_spawn_args("/tmp/x", &s, Some("feat"));
+        let (_, a) = build_spawn_args("/tmp/x", &s, None, None);
+        let (_, b) = build_spawn_args("/tmp/x", &s, Some("feat"), None);
         assert_ne!(a, b);
     }
 
@@ -1564,8 +1692,8 @@ mod tests {
         // model must not reuse the live process.
         let a = SpawnSettings { model: "opus".into(), ..SpawnSettings::default() };
         let b = SpawnSettings { model: "haiku".into(), ..SpawnSettings::default() };
-        let (_, fa) = build_spawn_args("/tmp/x", &a, None);
-        let (_, fb) = build_spawn_args("/tmp/x", &b, None);
+        let (_, fa) = build_spawn_args("/tmp/x", &a, None, None);
+        let (_, fb) = build_spawn_args("/tmp/x", &b, None, None);
         assert_ne!(fa, fb);
     }
 

@@ -46,6 +46,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'stream_end' }
   | { type: 'system'; subtype: string; mcp_servers?: { name: string; status: string }[]; tools?: string[] }
   | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string }
+  | { type: 'plan_ready'; tool_id: string; path: string; plan: string }
   | { type: 'session_reset'; reason: string }
   | { type: 'auth_required'; message: string }
 )
@@ -575,6 +576,30 @@ export default function Chat(): React.JSX.Element {
         }
       }
 
+      if (event.type === 'plan_ready') {
+        // Headless Claude cannot call ExitPlanMode, so the plan arrives as a file
+        // it just wrote. Shaped like the tool call it would have been, so one card
+        // renders both — whichever way the plan reaches us.
+        addMessage(sid, {
+          id: event.tool_id,
+          role: 'tool_call',
+          tool_id: event.tool_id,
+          tool_name: 'ExitPlanMode',
+          input: { plan: event.plan, path: event.path }
+        })
+        // A revised plan supersedes the draft above it. Marking the old card
+        // "kept planning" is what actually happened — planning carried on — and
+        // stops two cards both claiming to be waiting on an answer.
+        const planStore = usePlanApprovalStore.getState()
+        for (const [priorToolId, priorSid] of Object.entries(planStore.pending)) {
+          if (priorSid !== sid || priorToolId === event.tool_id) continue
+          useSessionsStore.getState().markToolDenied(sid, priorToolId)
+          planStore.resolve(priorToolId)
+        }
+        planStore.add(event.tool_id, sid)
+        return
+      }
+
       if (event.type === 'tool_denied') {
         addMessage(sid, {
           id: event.tool_id,
@@ -951,6 +976,34 @@ export default function Chat(): React.JSX.Element {
       useRunningStore.getState().endRun(sid)
     }
   }, [])
+
+  /**
+   * Answer a plan that came in as a file.
+   *
+   * Approving means leaving plan mode, because plan mode is what stops Claude
+   * writing — and leaving it respawns the child, which is only survivable
+   * because the spawn now carries `--resume`.
+   */
+  const handlePlanAnswer = useCallback(
+    (toolId: string, approved: boolean, planPath?: string): void => {
+      const sid = useSessionsStore.getState().activeSessionId
+      usePlanApprovalStore.getState().resolve(toolId)
+      if (!sid) return
+      if (!approved) {
+        useSessionsStore.getState().markToolDenied(sid, toolId)
+        return
+      }
+      useSettingsStore.getState().updateSettings({ planMode: false })
+      const where = planPath ? ` at ${planPath}` : ''
+      void sendMessageRef.current?.(
+        `Approved — implement the plan${where}.`,
+        undefined,
+        undefined,
+        sid
+      )
+    },
+    []
+  )
 
   /** Abort the running turn. Also drops any permission prompts still queued for it. */
   const handleStopTurn = useCallback(() => {
@@ -1332,6 +1385,7 @@ export default function Chat(): React.JSX.Element {
                       isLoading={isLoading}
                       onEdit={msg.role === 'user' && !isLoading ? handleStartEdit : undefined}
                       onFork={msg.role === 'user' && !isLoading ? handleForkFromMessage : undefined}
+                      onPlanAnswer={handlePlanAnswer}
                     />
                   </div>
                 </div>
@@ -1500,7 +1554,7 @@ function ThinkingIndicator({ startTime }: { startTime: number }): React.JSX.Elem
   )
 }
 
-const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, onFork }: { message: Message; isLoading?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (id: string) => void }): React.JSX.Element {
+const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, onFork, onPlanAnswer }: { message: Message; isLoading?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (id: string) => void; onPlanAnswer?: (toolId: string, approved: boolean, planPath?: string) => void }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
 
@@ -1510,7 +1564,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
       return <AskUserQuestionCard message={tc} />
     }
     if (tc.tool_name === 'ExitPlanMode') {
-      return <PlanCard message={tc} />
+      return <PlanCard message={tc} onAnswer={onPlanAnswer} />
     }
     return <ToolCallCard message={tc} isLoading={isLoading} />
   }

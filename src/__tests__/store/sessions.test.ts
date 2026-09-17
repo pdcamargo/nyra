@@ -15,6 +15,36 @@ function createTestSession(): string {
 describe('Sessions Store', () => {
   beforeEach(resetStore)
 
+  describe('markToolDenied', () => {
+    it('marks the matching tool call and leaves the rest alone', () => {
+      const id = createTestSession()
+      const store = useSessionsStore.getState()
+      store.addMessage(id, {
+        id: 'a', role: 'tool_call', tool_id: 't1',
+        tool_name: 'ExitPlanMode', input: { plan: '# one' }
+      })
+      store.addMessage(id, {
+        id: 'b', role: 'tool_call', tool_id: 't2',
+        tool_name: 'ExitPlanMode', input: { plan: '# two' }
+      })
+      useSessionsStore.getState().markToolDenied(id, 't1')
+
+      const [first, second] = session(id).messages
+      expect((first as { denied?: boolean }).denied).toBe(true)
+      expect((second as { denied?: boolean }).denied).toBeUndefined()
+    })
+
+    it('is a no-op for an unknown session or tool', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().addMessage(id, {
+        id: 'a', role: 'tool_call', tool_id: 't1', tool_name: 'Write', input: {}
+      })
+      useSessionsStore.getState().markToolDenied('nope', 't1')
+      useSessionsStore.getState().markToolDenied(id, 'nope')
+      expect((session(id).messages[0] as { denied?: boolean }).denied).toBeUndefined()
+    })
+  })
+
   describe('createSession', () => {
     it('creates a session and sets it as active', () => {
       const id = createTestSession()

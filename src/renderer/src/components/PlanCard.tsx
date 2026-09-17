@@ -9,7 +9,7 @@ import type { ToolCallMessage } from '../store/sessions'
  * The plan's own title, lifted out so the collapsed card says what it is — and
  * removed from the body, so expanding doesn't print the same line twice.
  */
-function splitPlan(plan: string): { title: string; body: string } {
+export function splitPlan(plan: string): { title: string; body: string } {
   const lines = plan.split('\n')
   const idx = lines.findIndex((line) => /^#{1,3}\s+\S/.test(line))
   // Only lift a heading that opens the plan. One further down names a section
@@ -33,9 +33,12 @@ function splitPlan(plan: string): { title: string; body: string } {
  * collapsible once answered, and still there to re-read afterwards.
  */
 export default function PlanCard({
-  message
+  message,
+  onAnswer
 }: {
   message: ToolCallMessage
+  /** Approve or keep planning, for a plan that arrived as a file. */
+  onAnswer?: (toolId: string, approved: boolean, planPath?: string) => void
 }): React.JSX.Element {
   // Both are subscriptions, not one-off reads: the card has to repaint the
   // moment the plan is answered, and a pending plan may carry no session id.
@@ -52,9 +55,19 @@ export default function PlanCard({
   const [expanded, setExpanded] = useState(isPending)
   const denied = message.denied === true
 
+  // Two ways a plan gets here. Headless Claude writes it to a file, and the card
+  // answers by talking to Claude like the user would. A permission-gated
+  // ExitPlanMode would park the stream instead, and has to be answered on the
+  // wire — no CLI ships that in headless mode today, but the branch costs little.
+  const planPath = typeof message.input.path === 'string' ? message.input.path : undefined
+
   const answer = (approved: boolean): void => {
-    void window.api.claude.respondPermission(approved, pendingSession)
-    resolve(message.tool_id)
+    if (planPath) {
+      onAnswer?.(message.tool_id, approved, planPath)
+    } else {
+      void window.api.claude.respondPermission(approved, pendingSession)
+      resolve(message.tool_id)
+    }
     setExpanded(false)
   }
 
