@@ -34,15 +34,16 @@ function rpc(ws, method, params, sessionId) {
   })
 }
 
+const CHANNEL = process.argv[2] ?? 'chromium'
 const browser = await chromium.launch({
-  channel: 'chromium',           // the full binary => NEW headless, not the shell
+  channel: CHANNEL,              // the full binary => NEW headless, not the shell
   headless: true,
   args: [
     `--remote-debugging-port=${PORT}`,
     '--remote-allow-origins=tauri://localhost,http://localhost:1420'
   ]
 })
-console.log('launched:', browser.version())
+console.log(`launched: ${CHANNEL} ${browser.version()}`)
 
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } })
 const page = await ctx.newPage()

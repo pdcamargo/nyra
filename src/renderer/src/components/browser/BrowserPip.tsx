@@ -1,5 +1,5 @@
-import React from 'react'
-import { Globe, X } from 'lucide-react'
+import React, { useState } from 'react'
+import { ChevronDown, Globe, X } from 'lucide-react'
 import BrowserCanvas from './BrowserCanvas'
 import { EMPTY_BROWSER, useBrowserStore, type BrowserPhase } from '../../store/browser'
 import { useSessionsStore } from '../../store/sessions'
@@ -67,8 +67,21 @@ export default function BrowserPip(): React.JSX.Element | null {
   const dismissPip = useBrowserStore((s) => s.dismissPip)
   const toggleBrowserPanel = useUiStore((s) => s.toggleBrowserPanel)
   const visible = usePipVisible()
+  const [expanded, setExpanded] = useState(false)
 
   if (!visible || !sessionId) return null
+
+  // One tab at a time by default. Five live miniatures cost 0.09 MB/s, so this
+  // is about the conversation underneath rather than the frame budget — the
+  // stack is a click away when you want to compare two pages.
+  const active = chat.tabs.find((t) => t.tabId === chat.activeTabId) ?? chat.tabs[0]
+  const shown = expanded ? chat.tabs : [active]
+  const others = chat.tabs.length - 1
+
+  const open = (tabId: string): void => {
+    setActiveTab(sessionId, tabId)
+    toggleBrowserPanel()
+  }
 
   return (
     <div className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-secondary/80 shadow-xl backdrop-blur-xl backdrop-saturate-150">
@@ -77,6 +90,16 @@ export default function BrowserPip(): React.JSX.Element | null {
         <span className="flex-1 truncate text-[10px] font-medium uppercase tracking-widest text-muted-foreground/70">
           Browser
         </span>
+        {others > 0 && (
+          <button
+            aria-expanded={expanded}
+            onClick={() => setExpanded((e) => !e)}
+            className="flex items-center gap-0.5 rounded-sm bg-accent/60 px-1 py-px text-[9px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {expanded ? 'Less' : `+${others}`}
+            <ChevronDown className={`size-2.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          </button>
+        )}
         <button
           // Codex ships a preview that cannot be reliably dismissed, and it is
           // the single loudest complaint about their browser. This one closes.
@@ -89,25 +112,18 @@ export default function BrowserPip(): React.JSX.Element | null {
         </button>
       </div>
 
-      {/* One per tab, as asked — but bounded, so eight tabs cannot bury the
-          conversation they are meant to sit beside. */}
       <div className="max-h-[46vh] space-y-px overflow-y-auto">
-        {chat.tabs.map((tab) => (
+        {shown.filter(Boolean).map((tab) => (
           <button
             key={tab.tabId}
-            onClick={() => {
-              setActiveTab(sessionId, tab.tabId)
-              toggleBrowserPanel()
-            }}
+            onClick={() => open(tab.tabId)}
             title={`${tab.title || tab.url}\nClick to open in the panel`}
             className="block w-full cursor-default text-left transition-opacity hover:opacity-90"
           >
             <BrowserCanvas
               targetId={tab.targetId}
               width={MINIATURE_WIDTH}
-              // Five of these measured at 0.09 MB/s all told, so the limit is
-              // the screen rather than the wire — but a preview does not need
-              // sixty frames a second to read as live.
+              // A preview does not need sixty frames a second to read as live.
               everyNthFrame={4}
             />
             <span className="block truncate border-b border-border/40 px-2.5 py-1 text-[10px] text-muted-foreground">

@@ -18,8 +18,13 @@ const log = (...parts) => process.stderr.write(`[sidecar] ${parts.join(' ')}\n`)
 
 /** Config Nyra pushes down before anything is launched. */
 let config = {
-  /** 'chromium' is Playwright's own build; 'chrome' is the user's installed one. */
-  channel: 'chromium',
+  /**
+   * `auto` prefers the Chrome the user already has and falls back to
+   * Playwright's own build. Most developers on a machine like this have Chrome,
+   * and using it means no 182 MB download on first run and a page that renders
+   * exactly the way it will for them. `chromium` and `chrome` pin it.
+   */
+  channel: 'auto',
   executablePath: null,
   viewport: { width: 1280, height: 800 },
   allowedOrigins: ['tauri://localhost']
@@ -99,14 +104,20 @@ function launchOptions() {
   ]
   const options = { headless: true, args }
   if (config.executablePath) options.executablePath = config.executablePath
-  else options.channel = config.channel
+  else options.channel = resolvedChannel ?? config.channel
   return options
 }
+
+/** What probeExecutable settled on, so the launch and the status agree. */
+let resolvedChannel = null
 
 async function ensureBrowser() {
   if (browser?.isConnected()) return cdpUrl
   if (launching) return launching
   launching = (async () => {
+    const probe = await probeExecutable()
+    if (!probe.ok) throw new Error(probe.error)
+    resolvedChannel = probe.channel
     cdpPort = await freePort()
     emit('browser', { state: 'launching' })
     browser = await chromium.launch(launchOptions())
@@ -135,15 +146,50 @@ async function ensureBrowser() {
  * exist" message rather than exposing a predicate, so this is the predicate.
  */
 async function probeExecutable() {
-  if (config.executablePath) return { ok: true, path: config.executablePath }
-  try {
-    const path = chromium.executablePath({ channel: config.channel })
-    const { access } = await import('node:fs/promises')
-    await access(path)
-    return { ok: true, path }
-  } catch (err) {
-    return { ok: false, error: String(err?.message ?? err) }
+  if (config.executablePath) return { ok: true, path: config.executablePath, channel: null }
+
+  const { access } = await import('node:fs/promises')
+  const exists = async (path) => {
+    try {
+      await access(path)
+      return true
+    } catch {
+      return false
+    }
   }
+
+  // `channel: 'chrome'` launches the Chrome the user installed, but
+  // `executablePath({ channel: 'chrome' })` answers with Playwright's own build
+  // either way — it reports the registry, not what a launch would pick. So
+  // Chrome gets located the honest way.
+  const SYSTEM_CHROME = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    `${process.env.HOME}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
+  ]
+
+  const usable = async (channel) => {
+    if (channel === 'chrome') {
+      for (const path of SYSTEM_CHROME) {
+        if (await exists(path)) return { ok: true, path, channel }
+      }
+      return { ok: false, error: 'Google Chrome is not installed.', channel }
+    }
+    try {
+      const path = chromium.executablePath({ channel })
+      if (await exists(path)) return { ok: true, path, channel }
+      return { ok: false, error: `No Chromium at ${path}`, channel }
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err), channel }
+    }
+  }
+
+  if (config.channel !== 'auto') return usable(config.channel)
+
+  // The user's own Chrome first: nothing to download, and what it renders is
+  // literally what their users will see. Playwright's build is the fallback for
+  // a machine without one.
+  const chrome = await usable('chrome')
+  return chrome.ok ? chrome : usable('chromium')
 }
 
 const CLI = fileURLToPath(new URL('./node_modules/playwright-core/cli.js', import.meta.url))
@@ -396,6 +442,7 @@ const methods = {
     const probe = await probeExecutable()
     return {
       chromium: probe.ok ? 'ready' : 'missing',
+      channel: probe.channel ?? null,
       executablePath: probe.path ?? null,
       error: probe.error ?? null,
       running: Boolean(browser?.isConnected()),

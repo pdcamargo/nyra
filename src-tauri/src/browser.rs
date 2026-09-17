@@ -171,6 +171,30 @@ async fn start() -> Result<Arc<Sidecar>, String> {
     });
     *SIDECAR.lock() = Some(Arc::clone(&sidecar));
     crate::log!("browser", "sidecar started (pid {pid})");
+
+    // Chromium answers a WebSocket with an unlisted Origin with a 403, and the
+    // webview's origin is not the same in a packaged build as under the dev
+    // server. Only the origin this build actually runs from is allowed: with a
+    // wider list, a page the browser visits could open a socket to its own
+    // debugging port and drive every chat's context.
+    //
+    // Written straight to the pipe rather than through `call`, which would
+    // route back through `ensure` and make this function recursive. Nothing
+    // waits on the reply; the reader drops an id nobody registered.
+    let handshake = format!(
+        "{}\n",
+        json!({
+            "id": NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            "method": "configure",
+            "params": { "patch": { "allowedOrigins": allowed_origins() } }
+        })
+    );
+    {
+        let mut pipe = sidecar.stdin.lock().await;
+        let _ = pipe.write_all(handshake.as_bytes()).await;
+        let _ = pipe.flush().await;
+    }
+
     Ok(sidecar)
 }
 
@@ -183,6 +207,20 @@ pub fn stop() {
     if sidecar.pid > 0 {
         let _ = crate::processes::kill_by_pid(sidecar.pid as i32);
     }
+}
+
+/// Where the webview loads from, which is the only origin allowed to open a CDP
+/// socket. Tauri serves `tauri://localhost` on macOS and `http://tauri.localhost`
+/// on Windows; a debug build runs off the Vite dev server instead.
+fn allowed_origins() -> Vec<String> {
+    let mut origins = vec![
+        "tauri://localhost".to_string(),
+        "http://tauri.localhost".to_string(),
+    ];
+    if cfg!(debug_assertions) {
+        origins.push("http://localhost:1420".to_string());
+    }
+    origins
 }
 
 // ---------------------------------------------------------------------------
