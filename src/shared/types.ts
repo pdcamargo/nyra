@@ -19,6 +19,9 @@ export type NyraSettings = {
   worktreeLimit: number
   /** Off means worktrees are only ever removed by hand. */
   worktreeAutoDelete: boolean
+  /** Whether Claude gets the browser tools. Every chat carries their
+   *  definitions whether or not it ever browses, so this is a switch. */
+  browserTools: boolean
 }
 
 /**
@@ -67,5 +70,6 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   theme: 'dark',
   autoApproveTools: [],
   worktreeLimit: 15,
-  worktreeAutoDelete: true
+  worktreeAutoDelete: true,
+  browserTools: true
 }

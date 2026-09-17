@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, Download, Globe, RotateCw } from 'lucide-react'
+import AgentCursor from './AgentCursor'
 import BrowserCanvas from './BrowserCanvas'
 import BrowserTabStrip from './BrowserTabStrip'
 import { displayUrl, toUrl } from './url'
@@ -16,6 +17,7 @@ export default function BrowserPanel(): React.JSX.Element {
   const chat = useBrowserStore((s) => (sessionId ? s.bySession[sessionId] : null) ?? EMPTY_BROWSER)
   const install = useBrowserStore((s) => s.install)
   const panelWidth = usePanelLayoutStore((s) => s.rightPanelWidth)
+  const viewport = useBrowserStore((s) => s.viewport)
   const [busy, setBusy] = useState(false)
 
   const activeTab = chat.tabs.find((t) => t.tabId === chat.activeTabId) ?? null
@@ -148,12 +150,15 @@ export default function BrowserPanel(): React.JSX.Element {
 
       <div className="min-h-0 flex-1 overflow-auto p-2">
         {activeTab ? (
-          <BrowserCanvas
-            targetId={activeTab.targetId}
-            width={Math.max(320, panelWidth - 16)}
-            interactive
-            className="rounded-md border border-border/55"
-          />
+          <div className="relative">
+            <BrowserCanvas
+              targetId={activeTab.targetId}
+              width={Math.max(320, panelWidth - 16)}
+              interactive
+              className="rounded-md border border-border/55"
+            />
+            <AgentCursor cursor={chat.cursor} tabId={activeTab.tabId} viewport={viewport} />
+          </div>
         ) : (
           <Empty>No tabs open.</Empty>
         )}

@@ -53,6 +53,10 @@ pub struct NyraSettings {
     pub worktree_limit: u32,
     /// Off means worktrees are only ever removed by hand.
     pub worktree_auto_delete: bool,
+    /// Whether Claude gets the browser tools. On by default, but every chat
+    /// carries their definitions whether or not it browses, so it is a switch
+    /// rather than a given.
+    pub browser_tools: bool,
 }
 
 impl Default for NyraSettings {
@@ -74,6 +78,7 @@ impl Default for NyraSettings {
             auto_approve_tools: Vec::new(),
             worktree_limit: default_worktree_limit(),
             worktree_auto_delete: default_true(),
+            browser_tools: default_true(),
         }
     }
 }

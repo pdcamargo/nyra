@@ -17,8 +17,14 @@ import { createScreencastHub, type ScreencastHub } from '../lib/browser/screenca
 
 export type BrowserPhase = 'off' | 'starting' | 'ready' | 'needs-chromium' | 'error'
 
+/** Where the agent's pointer last landed, and when. The panel draws a ghost
+ *  there and fades it, which is the only thing that distinguishes a page being
+ *  driven from a page moving on its own. */
+export type AgentCursor = { tabId: string; x: number; y: number; at: number }
+
 export type ChatBrowser = {
   phase: BrowserPhase
+  cursor: AgentCursor | null
   error: string | null
   tabs: BrowserTab[]
   activeTabId: string | null
@@ -29,6 +35,7 @@ export type ChatBrowser = {
 
 export const EMPTY_BROWSER: ChatBrowser = {
   phase: 'off',
+  cursor: null,
   error: null,
   tabs: [],
   activeTabId: null,
@@ -46,6 +53,7 @@ type BrowserStore = {
   setTabs: (sessionId: string, tabs: BrowserTab[]) => void
   setActiveTab: (sessionId: string, tabId: string | null) => void
   setEndpoint: (cdpUrl: string | null, viewport?: { width: number; height: number }) => void
+  setCursor: (sessionId: string, cursor: AgentCursor) => void
   setInstall: (install: { percent: number; totalMb: number } | null) => void
   dismissPip: (sessionId: string, dismissed: boolean) => void
   /** Everything about a chat that no longer exists. */
@@ -84,6 +92,7 @@ export const useBrowserStore = create<BrowserStore>()((set) => ({
   setActiveTab: (sessionId, activeTabId) => set((s) => patch(s, sessionId, { activeTabId })),
   setEndpoint: (cdpUrl, viewport) =>
     set((s) => ({ cdpUrl, viewport: viewport ?? s.viewport })),
+  setCursor: (sessionId, cursor) => set((s) => patch(s, sessionId, { cursor })),
   setInstall: (install) => set({ install }),
   dismissPip: (sessionId, pipDismissed) => set((s) => patch(s, sessionId, { pipDismissed })),
   forget: (sessionId) =>

@@ -4,8 +4,8 @@
 //! authorisation story, so the socket must not be reachable off-box.
 
 use axum::extract::{Path, Query};
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
 use once_cell::sync::Lazy;
@@ -18,6 +18,9 @@ use crate::workflow::triggers;
 
 /// 64 KB — plenty for a small JSON payload of trigger inputs.
 const MAX_BODY_BYTES: usize = 64 * 1024;
+
+/// MCP carries tool arguments, which can be a page's worth of text.
+const MAX_MCP_BYTES: usize = 4 * 1024 * 1024;
 
 static PORT: Lazy<Mutex<Option<u16>>> = Lazy::new(|| Mutex::new(None));
 static SHUTDOWN: Lazy<Mutex<Option<tokio::sync::oneshot::Sender<()>>>> =
@@ -73,6 +76,54 @@ async fn webhook(
     }
 }
 
+/// Claude's end of the browser tools.
+///
+/// The whole of MCP's streamable-HTTP transport we need: a POST carrying one
+/// JSON-RPC message, answered with one JSON-RPC response. There is no SSE
+/// stream because nothing here is server-initiated — the browser tools only
+/// ever answer. Serving it from Nyra rather than the sidecar is what makes a
+/// sidecar restart invisible to a session already holding this URL.
+async fn browser_mcp(
+    method: axum::http::Method,
+    Path(chat_id): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    // After initialising, an MCP client opens a GET for a server-to-client SSE
+    // stream, and sends DELETE to end a session. We offer neither — nothing
+    // here is server-initiated — and the spec's answer for that is 405. A 404
+    // would read as "wrong URL" and take the client down with it.
+    if method != axum::http::Method::POST {
+        return (
+            StatusCode::METHOD_NOT_ALLOWED,
+            Json(json!({ "error": "This endpoint answers POST only" })),
+        )
+            .into_response();
+    }
+
+    let token = headers.get("x-nyra-token").and_then(|v| v.to_str().ok());
+    if token != Some(crate::browser::mcp_token()) {
+        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Unauthorised" }))).into_response();
+    }
+    if body.len() > MAX_MCP_BYTES {
+        return (StatusCode::PAYLOAD_TOO_LARGE, Json(json!({ "error": "Body too large" }))).into_response();
+    }
+    let Ok(message) = serde_json::from_slice::<Value>(&body) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Malformed JSON-RPC" }))).into_response();
+    };
+
+    match crate::browser::mcp_message(&chat_id, message).await {
+        // A notification has no reply, and MCP wants 202 rather than an empty body.
+        Ok(Value::Null) => StatusCode::ACCEPTED.into_response(),
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
 async fn not_found() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, Json(json!({ "error": "Not found" })))
 }
@@ -81,6 +132,7 @@ pub async fn start(preferred_port: u16) -> Option<u16> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/webhook/{workflow_id}/{trigger_id}", any(webhook))
+        .route("/browser/mcp/{chat_id}", any(browser_mcp))
         .fallback(not_found);
 
     // Walk forward from the preferred port when it's already taken.

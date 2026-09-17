@@ -15,3 +15,16 @@ Pixels do **not** go through here. The renderer holds its own CDP WebSocket
 straight to Chromium and runs `Page.startScreencast` on its own flat sessions;
 this process only launches the browser, owns one `BrowserContext` per chat, and
 keeps the tab registry.
+
+## Checks
+
+Neither runs in CI — both launch a real browser, and the point of them is the
+things a unit test cannot see.
+
+- `node check-browser.mjs` — does `Page.startScreencast` stream continuously in
+  new headless, and can a second CDP client screencast and dispatch input while
+  Playwright drives the same page? Both were load-bearing assumptions.
+- `node check-mcp.mjs` — does a real MCP streamable-HTTP client accept the
+  response shape Nyra's axum handler produces? It answers a POST with one
+  JSON-RPC response and 405s the SSE GET, which is the whole of the transport
+  we implement. This is how we learned the GET has to be a 405 and not a 404.

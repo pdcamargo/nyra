@@ -783,6 +783,7 @@ fn build_spawn_args(
     settings: &SpawnSettings,
     worktree_name: Option<&str>,
     resume_session_id: Option<&str>,
+    nyra_session_id: Option<&str>,
 ) -> (Vec<String>, String) {
     let mut args: Vec<String> = vec![
         "-p".into(),
@@ -846,6 +847,29 @@ fn build_spawn_args(
     if let Some(id) = resume_session_id {
         args.push("--resume".into());
         args.push(id.to_string());
+    }
+
+    // The chat's browser, on the same terms as --resume and for the same
+    // reason: the URL names a conversation, not a process shape, so it must
+    // never be what makes us respawn. Nyra serves it from a port that is up
+    // before any of this, so it is live whether or not a browser ever is.
+    if let Some((url, token)) = nyra_session_id
+        .filter(|_| util::settings().browser_tools)
+        .and_then(crate::browser::mcp_endpoint)
+    {
+        args.push("--mcp-config".into());
+        args.push(
+            json!({
+                "mcpServers": {
+                    "nyra-browser": {
+                        "type": "http",
+                        "url": url,
+                        "headers": { "x-nyra-token": token }
+                    }
+                }
+            })
+            .to_string(),
+        );
     }
 
     let fingerprint = json!([
@@ -916,7 +940,8 @@ pub async fn run_claude(
         return Err("Empty prompt".into());
     }
 
-    let (_, fingerprint) = build_spawn_args(&cwd, &settings, worktree_name.as_deref(), None);
+    let (_, fingerprint) =
+        build_spawn_args(&cwd, &settings, worktree_name.as_deref(), None, None);
 
     // Reuse the live process when nothing spawn-relevant changed; otherwise tear
     // down and start fresh.
@@ -974,7 +999,13 @@ async fn spawn_session(
     fingerprint: String,
 ) -> Result<Arc<Session>, String> {
     let claude_bin = resolve_claude_binary(&settings.claude_binary_path);
-    let (args, _) = build_spawn_args(cwd, settings, worktree_name, resume_session_id.as_deref());
+    let (args, _) = build_spawn_args(
+        cwd,
+        settings,
+        worktree_name,
+        resume_session_id.as_deref(),
+        Some(nyra_session_id),
+    );
 
     crate::logf!(
         "Spawning Claude [{}]: {claude_bin} {}",
@@ -1766,7 +1797,7 @@ mod tests {
             plan_mode: true,
             ..SpawnSettings::default()
         };
-        let (args, fp) = build_spawn_args("/tmp/x", &s, None, None);
+        let (args, fp) = build_spawn_args("/tmp/x", &s, None, None, None);
         assert!(args.windows(2).any(|w| w == ["--model", "opus"]));
         assert!(args.windows(2).any(|w| w == ["--permission-mode", "plan"]));
         assert!(fp.contains("/tmp/x"));
@@ -1876,10 +1907,10 @@ mod tests {
         // *caused* by it — two spawns that differ only in resume id are the
         // same process shape and must reuse the live child.
         let s = SpawnSettings::default();
-        let (args, fp) = build_spawn_args("/tmp/x", &s, None, Some("abc-123"));
+        let (args, fp) = build_spawn_args("/tmp/x", &s, None, Some("abc-123"), None);
         assert!(args.windows(2).any(|w| w == ["--resume", "abc-123"]));
 
-        let (bare, bare_fp) = build_spawn_args("/tmp/x", &s, None, None);
+        let (bare, bare_fp) = build_spawn_args("/tmp/x", &s, None, None, None);
         assert!(!bare.iter().any(|a| a == "--resume"));
         assert_eq!(fp, bare_fp);
     }
@@ -1887,8 +1918,8 @@ mod tests {
     #[test]
     fn fingerprint_ignores_prompt_but_tracks_worktree() {
         let s = SpawnSettings::default();
-        let (_, a) = build_spawn_args("/tmp/x", &s, None, None);
-        let (_, b) = build_spawn_args("/tmp/x", &s, Some("feat"), None);
+        let (_, a) = build_spawn_args("/tmp/x", &s, None, None, None);
+        let (_, b) = build_spawn_args("/tmp/x", &s, Some("feat"), None, None);
         assert_ne!(a, b);
     }
 
@@ -1898,8 +1929,8 @@ mod tests {
         // model must not reuse the live process.
         let a = SpawnSettings { model: "opus".into(), ..SpawnSettings::default() };
         let b = SpawnSettings { model: "haiku".into(), ..SpawnSettings::default() };
-        let (_, fa) = build_spawn_args("/tmp/x", &a, None, None);
-        let (_, fb) = build_spawn_args("/tmp/x", &b, None, None);
+        let (_, fa) = build_spawn_args("/tmp/x", &a, None, None, None);
+        let (_, fb) = build_spawn_args("/tmp/x", &b, None, None, None);
         assert_ne!(fa, fb);
     }
 

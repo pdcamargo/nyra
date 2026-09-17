@@ -148,5 +148,6 @@ export type BrowserEvent =
   | { event: 'browser'; params: { state: 'launching' | 'ready' | 'gone'; cdpUrl?: string } }
   | { event: 'install'; params: { state: 'downloading' | 'done' | 'failed'; percent?: number; totalMb?: number } }
   | { event: 'tabs'; params: { chatId: string; tabs: BrowserTab[] } }
+  | { event: 'cursor'; params: { chatId: string; tabId: string; x: number; y: number } }
   | { event: 'evicted'; params: { chatId: string } }
   | { event: 'exit'; params: { code: number } }

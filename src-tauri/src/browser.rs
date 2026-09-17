@@ -294,6 +294,41 @@ pub async fn tab_history(chat_id: &str, tab_id: &str, action: &str) -> Value {
     settle(call(method, json!({ "chatId": chat_id, "tabId": tab_id })).await)
 }
 
+// ---------------------------------------------------------------------------
+// The agent's half
+// ---------------------------------------------------------------------------
+//
+// Claude reaches the browser through an MCP server per chat, which Nyra serves
+// from its own loopback port and relays down this pipe. The endpoint belongs to
+// Nyra rather than to the sidecar on purpose: Claude Code resolves MCP servers
+// when a session starts, so the URL has to be live before anything is launched
+// and has to survive the sidecar being restarted underneath it.
+
+/// One secret per run. The port is loopback-only, but every process on the
+/// machine can reach a loopback port, and this endpoint drives a browser.
+static MCP_TOKEN: Lazy<String> = Lazy::new(|| util::rand_hex(16));
+
+pub fn mcp_token() -> &'static str {
+    &MCP_TOKEN
+}
+
+/// The `--mcp-config` Claude is spawned with, or nothing if the local server
+/// never came up.
+pub fn mcp_endpoint(chat_id: &str) -> Option<(String, String)> {
+    let port = crate::webhook_server::port()?;
+    Some((
+        format!("http://127.0.0.1:{port}/browser/mcp/{chat_id}"),
+        MCP_TOKEN.clone(),
+    ))
+}
+
+/// Relay one JSON-RPC message. `Null` back means it was a notification and
+/// there is nothing to answer with.
+pub async fn mcp_message(chat_id: &str, message: Value) -> Result<Value, String> {
+    let result = call("mcp.message", json!({ "chatId": chat_id, "message": message })).await?;
+    Ok(result.get("message").cloned().unwrap_or(Value::Null))
+}
+
 pub async fn tab_list(chat_id: &str) -> Value {
     settle(call("tab.list", json!({ "chatId": chat_id })).await)
 }

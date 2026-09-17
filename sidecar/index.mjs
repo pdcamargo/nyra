@@ -6,6 +6,7 @@
 // the browser, owns one BrowserContext per chat, and keeps the tab registry.
 
 import { chromium } from 'playwright-core'
+import { ChatMcp } from './mcp.mjs'
 import { spawn } from 'node:child_process'
 import net from 'node:net'
 import readline from 'node:readline'
@@ -31,6 +32,10 @@ let launching = null
 
 /** chatId -> { context, tabs: Map<tabId, Tab>, touchedAt } */
 const chats = new Map()
+
+/** chatId -> ChatMcp. Outlives the context: Claude's connection is per session,
+ *  and an evicted context is rebuilt by the tool call that needs it. */
+const mcpByChat = new Map()
 
 /** A context with a real page in it measured at 220-490 MB, so three or four
  *  chats browsing at once is the whole budget. A chat nobody has looked at in
@@ -285,6 +290,30 @@ async function doAdoptPage(chatId, entry, page) {
   return tab
 }
 
+/** Where the pointer last went on any of this chat's tabs, newest first. */
+async function readPointer(chatId) {
+  const entry = chats.get(chatId)
+  if (!entry) return null
+  for (const tab of [...entry.tabs.values()].reverse()) {
+    try {
+      const seen = await tab.page.evaluate(() => window.__nyraPointer ?? null)
+      if (seen) return { ...seen, tabId: tab.tabId }
+    } catch {
+      // Mid-navigation, or the tab went away.
+    }
+  }
+  return null
+}
+
+/** Tell the panel where the agent's cursor ended up, if it moved at all. */
+async function reportPointer(chatId, before) {
+  const after = await readPointer(chatId)
+  if (!after) return
+  // Only a move that happened during the tool call was the agent's.
+  if (before && before.seq === after.seq && before.tabId === after.tabId) return
+  emit('cursor', { chatId, tabId: after.tabId, x: after.x, y: after.y })
+}
+
 async function openChat(chatId) {
   await ensureBrowser()
   let entry = chats.get(chatId)
@@ -292,6 +321,23 @@ async function openChat(chatId) {
     // A context per chat, not a process per chat: contexts isolate cookies and
     // storage for a fraction of the memory. Verified isolated in the spike.
     const context = await browser.newContext({ viewport: { ...config.viewport } })
+    // Codex shows a cursor while its agent drives, and it is the thing that
+    // makes the browser feel co-driven rather than haunted. Nothing at the CDP
+    // layer can tell the agent's synthetic click from the user's — they are the
+    // same kind of event — so the page records where the pointer went and the
+    // MCP handler reads it either side of a tool call. What moved during the
+    // call was the agent.
+    await context.addInitScript(() => {
+      const record = (event) => {
+        window.__nyraPointer = {
+          x: event.clientX,
+          y: event.clientY,
+          seq: (window.__nyraPointer?.seq ?? 0) + 1
+        }
+      }
+      addEventListener('pointerdown', record, true)
+      addEventListener('pointermove', record, true)
+    })
     entry = { context, tabs: new Map(), touchedAt: Date.now() }
     chats.set(chatId, entry)
     startSweeper()
@@ -310,7 +356,9 @@ function startSweeper() {
     for (const [chatId, entry] of [...chats]) {
       if (entry.touchedAt > cutoff) continue
       emit('evicted', { chatId })
-      void closeChat(chatId)
+      // The chat still exists and Claude still holds a connection to its
+      // tools; only the memory goes.
+      void closeChat(chatId, { keepMcp: true })
     }
     if (chats.size === 0) {
       clearInterval(sweeper)
@@ -320,7 +368,11 @@ function startSweeper() {
   sweeper.unref?.()
 }
 
-async function closeChat(chatId) {
+async function closeChat(chatId, { keepMcp = false } = {}) {
+  if (!keepMcp) {
+    await mcpByChat.get(chatId)?.close()
+    mcpByChat.delete(chatId)
+  }
   const entry = chats.get(chatId)
   if (!entry) return { closed: false }
   chats.delete(chatId)
@@ -412,6 +464,37 @@ const methods = {
     return { url: tab?.page.url() ?? null }
   },
 
+  /**
+   * One MCP JSON-RPC message, for the chat named in the URL Rust served.
+   *
+   * The server is created on the first message rather than with the chat: a
+   * chat that never browses should not build a tool surface, and Claude sends
+   * `initialize` before anything else, so the first message is always the one
+   * that can afford to wait.
+   */
+  async 'mcp.message'({ chatId, message }) {
+    let mcp = mcpByChat.get(chatId)
+    if (!mcp) {
+      mcp = await ChatMcp.open(async () => {
+        await openChat(chatId)
+        return chatEntry(chatId).context
+      })
+      mcpByChat.set(chatId, mcp)
+    }
+    // Two different nulls: "this was not a tool call" and "the pointer had not
+    // moved yet". Conflating them means the agent's very first click never
+    // reports, which is the one you most want to see.
+    const isToolCall = message.method === 'tools/call'
+    const before = isToolCall ? await readPointer(chatId) : null
+    const response = await mcp.handle(message)
+    if (isToolCall) void reportPointer(chatId, before)
+    // The agent using this chat's browser is exactly the thing the idle
+    // sweeper must not read as idle.
+    const entry = chats.get(chatId)
+    if (entry) entry.touchedAt = Date.now()
+    return { message: response }
+  },
+
   async 'tab.list'({ chatId }) {
     const entry = chats.get(chatId)
     if (!entry) return { tabs: [] }
@@ -452,7 +535,14 @@ rl.on('line', async (line) => {
 // stdin closing is Nyra going away. Take Chromium with us rather than leaving a
 // headless browser and 300 MB a chat behind with nothing to talk to it.
 rl.on('close', async () => {
-  await methods.shutdown().catch(() => {})
+  // On a deadline. A tidy shutdown that never finishes is worse than an abrupt
+  // one: the process stays resident with nothing to talk to, which is how three
+  // of these ended up lying around during development. Chromium is a child of
+  // this process, so exiting takes it down either way.
+  await Promise.race([
+    methods.shutdown().catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, 3000))
+  ])
   process.exit(0)
 })
 

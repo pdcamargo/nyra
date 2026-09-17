@@ -6,6 +6,8 @@
   "description": "Owns the Chromium that Nyra's browser panel shows and Claude drives.",
   "main": "index.mjs",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@playwright/mcp": "^0.0.81",
     "playwright-core": "^1.63.0"
   }
 }

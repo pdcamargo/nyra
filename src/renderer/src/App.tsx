@@ -103,6 +103,14 @@ export default function App(): React.JSX.Element {
               : null
           )
           break
+        case 'cursor':
+          store.setCursor(event.params.chatId, {
+            tabId: event.params.tabId,
+            x: event.params.x,
+            y: event.params.y,
+            at: Date.now()
+          })
+          break
         case 'evicted':
           // The context is gone but the chat is not; it starts again on the
           // next look.
