@@ -7,6 +7,7 @@ import AtMentionAutocomplete, { useAtMentionItems, type MentionItem } from './At
 import ComposerBar from './ComposerBar'
 import NewChatEnvironment from './NewChatEnvironment'
 import AttachmentStrip, { type PendingAttachment } from './AttachmentStrip'
+import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
 import {
   continueListOnEnter,
   insertLink,
@@ -44,18 +45,22 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
       return prev + sep + pendingPrefill
     })
     consumePrefill()
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current
-      if (ta) {
-        ta.focus()
-        ta.setSelectionRange(ta.value.length, ta.value.length)
-      }
-    })
+    // Two frames: one for the controlled value to reach the editor, one for the
+    // caret to land at the end of it.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const editor = editorRef.current
+        if (!editor) return
+        editor.focus()
+        const end = Number.MAX_SAFE_INTEGER
+        editor.setSelectionRange(end, end)
+      })
+    )
   }, [pendingPrefill, consumePrefill])
   /** Drop a slash command into the field rather than firing it blind — most take an argument. */
   const insertCommand = useCallback((command: string): void => {
     setInput((prev) => (prev.trim() ? `${prev.trimEnd()} ` : '') + command + ' ')
-    requestAnimationFrame(() => textareaRef.current?.focus())
+    requestAnimationFrame(() => editorRef.current?.focus())
   }, [])
 
   const [stagedImages, setStagedImages] = useState<ImageAttachment[]>([])
@@ -66,7 +71,9 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [acSelectedIndex, setAcSelectedIndex] = useState(0)
   const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Named for what it is now, but shaped like a textarea on purpose — see
+  // MarkdownEditorHandle. Everything below reads offsets off it as before.
+  const editorRef = useRef<MarkdownEditorHandle>(null)
   const [mentionAnchorLeft, setMentionAnchorLeft] = useState(0)
   const stashRef = useRef<string>('')
   const [hasStash, setHasStash] = useState(false)
@@ -74,17 +81,10 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
   // Collect all past user prompts across sessions
   const sessions = useSessionsStore((s) => s.sessions)
 
-  // Reset textarea height when input is cleared
-  useEffect(() => {
-    if (!input && textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-    }
-  }, [input])
-
   // Focus textarea on session switch
   const activeSessionId = useSessionsStore((s) => s.activeSessionId)
   useEffect(() => {
-    textareaRef.current?.focus()
+    editorRef.current?.focus()
   }, [activeSessionId])
 
   // Consume pending actions from Sidebar (skills run / command insert)
@@ -96,7 +96,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
       sendMessage(pendingAction.text)
     } else {
       setInput(pendingAction.text)
-      textareaRef.current?.focus()
+      editorRef.current?.focus()
     }
   }, [pendingAction, sendMessage])
 
@@ -111,7 +111,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
 
   // @-mention autocomplete: detect @query at cursor position
   const [mentionQuery, mentionStart] = useMemo((): [string | null, number] => {
-    const textarea = textareaRef.current
+    const textarea = editorRef.current
     if (!textarea || autocompleteVisible) return [null, -1]
     const cursor = textarea.selectionStart ?? input.length
     // Walk backward from cursor to find unescaped @
@@ -171,6 +171,12 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
     return [...liveAgentItems, ...defAgentItems, ...fsMentionItems]
   }, [mentionQuery, sessionAgents, agentDefs, fsMentionItems])
   const mentionVisible = mentionQuery !== null && mentionQuery.length > 0 && !isLoading && mentionItems.length > 0
+  // The popup used to anchor at 0 because nothing ever set this. The editor can
+  // say where the caret actually is, so it now opens under the @ you typed.
+  useEffect(() => {
+    if (!mentionVisible) return
+    setMentionAnchorLeft(editorRef.current?.caretLeft() ?? 0)
+  }, [mentionVisible])
 
   useEffect(() => {
     setMentionSelectedIndex(0)
@@ -299,7 +305,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
 
   const handleMentionSelect = useCallback((item: MentionItem): void => {
     if (mentionStart < 0) return
-    const textarea = textareaRef.current
+    const textarea = editorRef.current
     const cursor = textarea?.selectionStart ?? input.length
     const before = input.slice(0, mentionStart)
     const after = input.slice(cursor)
@@ -317,7 +323,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
     if (item.type === 'skill') {
       // Insert into input so user can add arguments before sending
       setInput('/' + item.name + ' ')
-      textareaRef.current?.focus()
+      editorRef.current?.focus()
     } else {
       executeCommand(item.name)
     }
@@ -411,7 +417,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
       setInput(stashRef.current)
       stashRef.current = ''
       setHasStash(false)
-      requestAnimationFrame(() => textareaRef.current?.focus())
+      requestAnimationFrame(() => editorRef.current?.focus())
     } else {
       if (!input.trim()) return
       stashRef.current = input
@@ -424,18 +430,18 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
   const applyEdit = useCallback((edit: Edit): void => {
     setInput(edit.text)
     requestAnimationFrame(() => {
-      const ta = textareaRef.current
+      const ta = editorRef.current
       if (!ta) return
       ta.focus()
       ta.setSelectionRange(edit.selectionStart, edit.selectionEnd)
-      ta.style.height = 'auto'
-      ta.style.height = Math.min(ta.scrollHeight, 300) + 'px'
     })
   }, [])
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    const ta = e.currentTarget
-    const sel = (): [number, number] => [ta.selectionStart, ta.selectionEnd]
+  const handleKeyDown = (e: KeyboardEvent): void => {
+    const sel = (): [number, number] => [
+      editorRef.current?.selectionStart ?? input.length,
+      editorRef.current?.selectionEnd ?? input.length
+    ]
 
     // Markdown shortcuts. Cmd on macOS, Ctrl elsewhere; Alt+digit for headings
     // because Cmd+digit is taken by the OS.
@@ -525,7 +531,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
         e.preventDefault()
         // Remove the @ trigger to dismiss
         const before = input.slice(0, mentionStart)
-        const cursor = textareaRef.current?.selectionStart ?? input.length
+        const cursor = editorRef.current?.selectionStart ?? input.length
         const after = input.slice(cursor)
         setInput(before + after)
         return
@@ -670,8 +676,8 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
 
   // Paste handler for images
   useEffect(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
+    const target = editorRef.current?.contentDom
+    if (!target) return
     const handlePaste = async (e: ClipboardEvent): Promise<void> => {
       const items = Array.from(e.clipboardData?.items ?? [])
       for (const item of items) {
@@ -682,8 +688,9 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
         }
       }
     }
-    textarea.addEventListener('paste', handlePaste)
-    return () => textarea.removeEventListener('paste', handlePaste)
+    const onPaste = (e: Event): void => void handlePaste(e as ClipboardEvent)
+    target.addEventListener('paste', onPaste)
+    return () => target.removeEventListener('paste', onPaste)
   }, [processImageFile])
 
   return (
@@ -782,22 +789,12 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
           onRemoveImage={removeImage}
           onRemoveFile={removeFile}
         />
-        <textarea
-          ref={textareaRef}
+        <MarkdownEditor
+          ref={editorRef}
           value={input}
-          onChange={(e) => {
-            setInput(e.target.value)
-            const el = e.target
-            requestAnimationFrame(() => {
-              el.style.height = 'auto'
-              el.style.height = Math.min(el.scrollHeight, 300) + 'px'
-            })
-          }}
+          onChange={setInput}
           onKeyDown={handleKeyDown}
           placeholder={isLoading ? 'Type to queue next message…' : 'Message Claude…'}
-          rows={1}
-          className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder-muted-foreground/70 outline-hidden"
-          style={{ maxHeight: '300px', overflow: 'auto' }}
         />
         <ComposerBar
           isLoading={isLoading}
