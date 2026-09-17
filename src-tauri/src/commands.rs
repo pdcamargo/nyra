@@ -262,6 +262,11 @@ pub async fn fs_read_file(file_path: String) -> Value {
 }
 
 #[tauri::command(rename_all = "camelCase")]
+pub async fn fs_read_image(file_path: String) -> Value {
+    fs_ops::read_image(&file_path).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
 pub async fn fs_revert_file(file_path: String, original_content: Option<String>) -> Value {
     fs_ops::revert_file(&file_path, original_content).await
 }

@@ -96,6 +96,7 @@ pub fn run() {
             commands::memory_delete,
             commands::settings_sync,
             commands::fs_read_file,
+            commands::fs_read_image,
             commands::fs_revert_file,
             commands::fs_list_files,
             commands::system_homedir,

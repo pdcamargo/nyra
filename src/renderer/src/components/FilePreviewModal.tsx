@@ -5,16 +5,10 @@ import * as monaco from 'monaco-editor'
 import { useFilePreviewStore } from '../store/filePreview'
 import { useSessionsStore } from '../store/sessions'
 import { detectLanguage } from '../utils/diff'
+import { resolvePath } from '../utils/paths'
 import { useMonacoNyraTheme } from '../hooks/useMonacoNyraTheme'
 
 loader.config({ monaco })
-
-function resolvePath(filePath: string, cwd: string): string {
-  if (filePath.startsWith('/')) return filePath
-  // Strip leading ./ if present
-  const cleaned = filePath.startsWith('./') ? filePath.slice(2) : filePath
-  return `${cwd.replace(/\/$/, '')}/${cleaned}`
-}
 
 export default function FilePreviewModal(): React.JSX.Element | null {
   const filePath = useFilePreviewStore((s) => s.filePath)

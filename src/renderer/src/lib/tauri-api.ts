@@ -22,6 +22,7 @@ import type {
   McpEntry,
   MemoryListResult,
   ProcessFileResult,
+  ReadImageResult,
   Scope,
   ScopedList,
   SkillInfo
@@ -177,6 +178,8 @@ export const api = {
   fs: {
     readFile: (filePath: string) =>
       call<{ content?: string; error?: string }>('fs_read_file', { filePath }),
+    readImage: (filePath: string) =>
+      call<ReadImageResult>('fs_read_image', { filePath }),
     revertFile: (filePath: string, originalContent: string | null) =>
       call<{ success?: boolean; error?: string }>('fs_revert_file', {
         filePath,

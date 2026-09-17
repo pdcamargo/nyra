@@ -91,6 +91,18 @@ export type ProcessedFile = {
  */
 export type ProcessFileResult = Partial<ProcessedFile> & { error?: string }
 
+/**
+ * `fs_read_image` answers with base64 bytes or `{ error }`. `missing` marks the
+ * one error worth retrying — a file Claude referenced before it wrote it — so
+ * callers don't have to string-match an OS message.
+ */
+export type ReadImageResult = {
+  base64?: string
+  mediaType?: string
+  error?: string
+  missing?: boolean
+}
+
 export type FileEntry = {
   path: string
   type: 'file' | 'folder'

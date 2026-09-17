@@ -7,6 +7,9 @@ import { useFilePreviewStore } from '../store/filePreview'
 import { useSettingsStore } from '../store/settings'
 import { Check, Copy, WrapText } from 'lucide-react'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
+import { useSessionsStore, activeCwd } from '../store/sessions'
+import { resolvePath } from '../utils/paths'
+import { cachedImage, loadImage, type ImageEntry } from '../lib/imageCache'
 
 const THEME_DARK = 'github-dark-dimmed'
 const THEME_LIGHT = 'github-light-default'
@@ -144,6 +147,96 @@ function isFilePath(text: string): boolean {
   return FILE_PATH_RE.test(text)
 }
 
+// PNG and JPEG only, matching what `fs_read_image` will hand back. Checked here
+// as well so an obvious non-image never becomes an IPC call at all.
+const RENDERABLE_IMAGE_RE = /\.(png|jpe?g)$/i
+
+// Anything carrying a scheme. In practice only http(s) reaches us: react-markdown's
+// default urlTransform blanks `data:` and `file:` before the component sees them.
+const HAS_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i
+
+/**
+ * An image Claude referenced with ordinary markdown, `![alt](/abs/path.png)`.
+ *
+ * Everything here fails closed, because the src is a string Claude typed and the
+ * convention that produces it gets followed unevenly — expect it on prose that
+ * did not need it, and absent where it would have helped. A bad src should read
+ * as plain text, never as a broken-image icon.
+ */
+function MarkdownImage({ src, alt }: { src?: string; alt?: string }): React.JSX.Element {
+  const cwd = useSessionsStore(activeCwd)
+  const label = alt || 'image'
+
+  const resolved = useMemo(() => {
+    if (!src || HAS_SCHEME_RE.test(src)) return null
+    // A relative path only means something beside the dir the chat runs in, and
+    // MarkdownRenderer also draws plan cards and the memory preview, where there
+    // may be no session to resolve against.
+    if (!src.startsWith('/') && !cwd) return null
+    const full = resolvePath(src, cwd)
+    return RENDERABLE_IMAGE_RE.test(full.split(/[?#]/)[0]) ? full : null
+  }, [src, cwd])
+
+  const [entry, setEntry] = useState<ImageEntry | undefined>(() =>
+    resolved ? cachedImage(resolved) : undefined
+  )
+
+  useEffect(() => {
+    if (!resolved) return
+    const hit = cachedImage(resolved)
+    if (hit) {
+      setEntry(hit)
+      return
+    }
+    setEntry(undefined)
+    let alive = true
+    void loadImage(resolved).then((next) => {
+      if (alive) setEntry(next)
+    })
+    return () => {
+      alive = false
+    }
+  }, [resolved])
+
+  // A remote image cannot render: the CSP allows `data:` and `blob:` but not
+  // `https:`, and widening it would let a README Claude quotes phone home. The
+  // link is the honest fallback.
+  if (src && HAS_SCHEME_RE.test(src)) {
+    return (
+      <a href={src} className="text-info/80 hover:text-info underline underline-offset-2 transition-colors" target="_blank" rel="noreferrer">
+        {label}
+      </a>
+    )
+  }
+
+  // Not a path we will read — wrong extension, or relative with no cwd.
+  if (!resolved) return <span className="text-muted-foreground">{label}</span>
+
+  if (entry?.status === 'ready') {
+    return (
+      <img
+        src={entry.dataUrl}
+        alt={label}
+        title={resolved}
+        className="my-1 max-h-[32rem] max-w-full h-auto w-auto rounded-lg border border-border/55"
+      />
+    )
+  }
+
+  if (entry?.status === 'error') {
+    return (
+      <span className="my-1 inline-block rounded-lg border border-border/55 bg-muted px-3 py-2 text-xs text-muted-foreground">
+        {label} — {entry.message}
+      </span>
+    )
+  }
+
+  // Reserve some height so the virtualiser's re-measure when bytes land nudges
+  // the row rather than snapping it. Inline-block on purpose: a standalone
+  // `![...]` lands inside a `<p>`, which a block element would break out of.
+  return <span className="my-1 inline-block h-32 w-48 animate-pulse rounded-lg border border-border/55 bg-muted" />
+}
+
 function MarkdownRendererInner({ children }: { children: string }): React.JSX.Element {
 
   const components = useMemo(() => ({
@@ -209,6 +302,9 @@ function MarkdownRendererInner({ children }: { children: string }): React.JSX.El
     },
     a({ href, children }: { href?: string; children: React.ReactNode }) {
       return <a href={href} className="text-info/80 hover:text-info underline underline-offset-2 transition-colors" target="_blank" rel="noreferrer">{children}</a>
+    },
+    img({ src, alt }: { src?: string; alt?: string }) {
+      return <MarkdownImage src={src} alt={alt} />
     },
     hr() { return <hr className="border-border-strong my-4" /> },
     table({ children }: { children: React.ReactNode }) {

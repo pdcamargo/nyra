@@ -684,6 +684,27 @@ const ASK_CONVENTION: &str = concat!(
     "asking about a decision the user has already made."
 );
 
+/// Claude can already produce a PNG — matplotlib, sharp, `screencapture`, a
+/// headless-browser screenshot — and until now had no way to put one on screen.
+/// The renderer resolves the path through `fs_read_image`; see `MarkdownRenderer.tsx`.
+///
+/// Display only, which is what the closing sentence is for: the bytes go to the
+/// webview and never back into the conversation.
+///
+/// Narrow on purpose. A broad "you can show images" fires on prose that read fine
+/// as text, and the render path is best-effort, so an instruction that
+/// over-triggers costs more than one that under-triggers.
+const IMAGE_CONVENTION: &str = concat!(
+    "\n\nNyra shows images inline, so a PNG or JPEG you generate can be displayed ",
+    "rather than described: write the file to disk, then reference it on its own line ",
+    "as `![alt](/absolute/path.png)`. The path must be absolute and free of spaces, and ",
+    "the file must already exist when you write that line. Use it for output that is ",
+    "only legible as a picture — a chart you plotted, a screenshot you captured, a ",
+    "rendered visual diff — and not to decorate an answer that reads fine as text. PNG ",
+    "and JPEG only; other formats, including SVG, will not render. You cannot see what ",
+    "Nyra displays, so if it matters whether the image came out right, read the file back."
+);
+
 fn build_spawn_args(
     cwd: &str,
     settings: &SpawnSettings,
@@ -710,6 +731,7 @@ fn build_spawn_args(
         "Never say \"here it is\" or \"see above\" without actually showing the content in your message.",
         &format!("The current working directory is: {cwd}. When the user says \"your directory\" or \"this directory\", they mean this path."),
         ASK_CONVENTION,
+        IMAGE_CONVENTION,
     ]
     .join(" ");
     let full_system_prompt = if settings.system_prompt.is_empty() {
