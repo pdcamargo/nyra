@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { FileDiff, GitBranch, Laptop, RotateCw, TerminalSquare } from 'lucide-react'
-import { useSessionsStore, findProject, type TextMessage } from '../store/sessions'
+import { useSessionsStore, findProject, type TextMessage, type ToolCallMessage } from '../store/sessions'
 import { useUiStore } from '../store/ui'
 import { collectAttachments, formatSize } from '../lib/summary'
 import { useProcessesStore, type BgProcess } from '../store/processes'
+import Modal from './Modal'
+import MarkdownRenderer from './MarkdownRenderer'
 import { formatElapsed } from './ActivityStrip'
 
 type Stat = { filesChanged: number; insertions: number; deletions: number }
@@ -69,6 +71,45 @@ function Row({
  * every time you glanced at it, and it is separate from the workspace panel,
  * which is about the project rather than this chat.
  */
+/**
+ * What a subagent actually reported.
+ *
+ * Its whole answer comes back as the `Task` tool's result and has been sitting in
+ * the store all along — collapsed inside a tool strip nobody opens, filed under a
+ * name like "Task". Here it is under the agent that produced it.
+ */
+function AgentReport({ toolId, onClose }: { toolId: string; onClose: () => void }): React.JSX.Element {
+  const agent = useSessionsStore((s) => {
+    const session = s.sessions.find((x) => x.id === s.activeSessionId)
+    return session?.agents?.find((a) => a.toolId === toolId) ?? null
+  })
+  const report = useSessionsStore((s) => {
+    const session = s.sessions.find((x) => x.id === s.activeSessionId)
+    const msg = session?.messages.find(
+      (m) => m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId
+    )
+    return (msg as ToolCallMessage | undefined)?.result ?? null
+  })
+
+  return (
+    <Modal open onClose={onClose} title={agent?.name ?? 'Subagent'} className="max-w-2xl">
+      <div className="max-h-[70vh] overflow-y-auto px-5 pb-5 text-xs">
+        {agent?.status === 'running' ? (
+          <p className="italic text-info/70">
+            {agent.activity ? agent.activity : 'Still working — nothing reported yet.'}
+          </p>
+        ) : report ? (
+          <MarkdownRenderer>{report}</MarkdownRenderer>
+        ) : (
+          <p className="italic text-muted-foreground/60">
+            It finished without leaving a report.
+          </p>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 export default function SummaryPanel(): React.JSX.Element | null {
   const open = useUiStore((s) => s.summaryOpen)
   const session = useSessionsStore((s) => s.sessions.find((x) => x.id === s.activeSessionId) ?? null)
@@ -126,6 +167,8 @@ export default function SummaryPanel(): React.JSX.Element | null {
   // not in a summary of what this conversation has in flight.
   const liveProcesses = processes.filter((p) => p.status === 'running')
   const now = useClock(open && liveProcesses.length > 0)
+  /** Which subagent's report is open, if any. */
+  const [openAgent, setOpenAgent] = useState<string | null>(null)
 
   if (!open || !session) return null
 
@@ -134,7 +177,6 @@ export default function SummaryPanel(): React.JSX.Element | null {
   )
   const shown = attachments.slice(0, 4)
   const agents = session.agents ?? []
-  const doneAgents = agents.filter((a) => a.status !== 'running').length
 
   // Glass: this is the one panel with real content behind it to blur. The
   // workspace rail is docked with nothing underneath, so the same treatment
@@ -210,13 +252,45 @@ export default function SummaryPanel(): React.JSX.Element | null {
         </Section>
       )}
 
+      {openAgent && <AgentReport toolId={openAgent} onClose={() => setOpenAgent(null)} />}
+
+      {/* One line each rather than a count. A count tells you two agents exist;
+          this tells you which one is still going and what it is doing, which is
+          the question you actually had. */}
       {agents.length > 0 && (
         <Section label="Subagents">
-          <p className="text-[11px] text-foreground/80">
-            {doneAgents === agents.length
-              ? `${agents.length} done`
-              : `${agents.length - doneAgents} running · ${doneAgents} done`}
-          </p>
+          {agents.map((agent) => (
+            <button
+              key={agent.toolId}
+              type="button"
+              onClick={() => setOpenAgent(agent.toolId)}
+              title="Show what it reported"
+              className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+            >
+              <span
+                className={`mt-1 size-1.5 shrink-0 rounded-full ${
+                  agent.status === 'running'
+                    ? 'bg-info animate-pulse'
+                    : agent.status === 'failed'
+                      ? 'bg-danger/60'
+                      : 'bg-success'
+                }`}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11px] text-foreground/80">{agent.name}</span>
+                {agent.status === 'running' && agent.activity && (
+                  <span className="block truncate text-[10px] italic text-info/60">
+                    {agent.activity}
+                  </span>
+                )}
+              </span>
+              {agent.durationMs != null && (
+                <span className="shrink-0 text-[10px] text-muted-foreground/40">
+                  {formatElapsed(agent.durationMs)}
+                </span>
+              )}
+            </button>
+          ))}
         </Section>
       )}
 

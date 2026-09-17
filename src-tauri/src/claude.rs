@@ -684,7 +684,11 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                     // and `description` is what it is doing rather than what it
                     // is — `task_id` is the only thing that names the agent.
                     "task_id": raw.get("task_id").and_then(Value::as_str).unwrap_or_default(),
+                    // The Task call that spawned it — what `session.agents` is
+                    // keyed by, so one signal can drive the roster and the tree.
+                    "tool_use_id": raw.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
                     "activity": raw.get("description").and_then(Value::as_str).unwrap_or_default(),
+                    "duration_ms": raw.get("usage").and_then(|u| u.get("duration_ms")).and_then(Value::as_u64).unwrap_or(0),
                     "last_tool_name": raw.get("last_tool_name").and_then(Value::as_str).unwrap_or_default(),
                     "subagent_type": raw.get("subagent_type").and_then(Value::as_str).unwrap_or_default(),
                 }),

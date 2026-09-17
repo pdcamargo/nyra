@@ -71,6 +71,8 @@ export type Agent = {
   startedAt: number
   durationMs?: number
   totalTokens?: number
+  /** The latest line from the CLI — what it is doing, not what it was asked. */
+  activity?: string
 }
 
 export type McpServerInfo = {
@@ -168,6 +170,9 @@ export type Session = {
   pendingWorktree?: PendingWorktree | null
   /** Set when a managed worktree was pruned but its work was snapshotted. */
   worktreeSnapshotted?: boolean
+  /** A question Claude asked that nobody has answered yet, so the chat list can
+   *  say so without walking every message of every session on each render. */
+  needsAnswer?: boolean
   /** The plan being carried out, so the composer can say what and for how long.
    *  Set when a plan is approved, cleared when the work stops. */
   executing?: { title: string; startedAt: number } | null
@@ -199,6 +204,7 @@ type SessionsStore = {
   markToolDenied: (sessionId: string, toolId: string) => void
   setAutoAcceptEdits: (sessionId: string, value: boolean) => void
   setExecuting: (sessionId: string, executing: { title: string; startedAt: number } | null) => void
+  setNeedsAnswer: (sessionId: string, value: boolean) => void
   updateClaudeSessionId: (sessionId: string, claudeSessionId: string | null) => void
   updateSessionCwd: (sessionId: string, cwd: string) => void
   clearMessages: (sessionId: string) => void
@@ -385,6 +391,14 @@ export const useSessionsStore = create<SessionsStore>()(
               )
             }
           })
+        }))
+      },
+
+      setNeedsAnswer: (sessionId, value) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId ? { ...s, needsAnswer: value } : s
+          )
         }))
       },
 

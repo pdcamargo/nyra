@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Bot, Square } from 'lucide-react'
+import { Square } from 'lucide-react'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
 import { useSessionsStore } from '../store/sessions'
 import { useRunningStore } from '../store/running'
@@ -45,8 +45,13 @@ export default function ActivityStrip({
     sessionId ? s.sessions.find((x) => x.id === sessionId)?.executing : undefined
   )
 
-  const busy = running || (agents?.length ?? 0) > 0
-  const now = useTicker(busy)
+  const outstanding = agents?.length ?? 0
+  // A plain running turn is the composer's job — it already shows a stop, and a
+  // second one above it that says only "Working" is a row with nothing in it.
+  // This strip earns its space when it can say what is being carried out, or
+  // that work is still going after the turn has ended.
+  const busy = execution != null || outstanding > 0
+  const now = useTicker(busy && (running || outstanding > 0))
 
   if (!busy) return null
 
@@ -55,7 +60,8 @@ export default function ActivityStrip({
       <div className="flex items-center gap-2 px-3 py-2">
         <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-info" />
         <span className="min-w-0 flex-1 truncate text-xs text-foreground/80">
-          {execution?.title ?? (running ? 'Working' : 'Finishing up')}
+          {execution?.title ??
+            `${outstanding} subagent${outstanding === 1 ? '' : 's'} still working`}
         </span>
         {execution && (
           <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
@@ -72,29 +78,10 @@ export default function ActivityStrip({
         </button>
       </div>
 
-      {(agents?.length ?? 0) > 0 && (
-        <ul className="border-t border-border/55 px-2 py-1.5">
-          {agents?.map((agent) => (
-            <li key={agent.taskId} className="flex items-start gap-2 px-1 py-0.5">
-              <Bot className="mt-0.5 size-3 shrink-0 text-info/70" />
-              <div className="min-w-0 flex-1">
-                <span className="text-xs leading-snug text-foreground/80">
-                  {agent.description}
-                </span>
-                {/* The live line, when the CLI gives one — what it is doing, not
-                    what it was asked to do. */}
-                {agent.activity && agent.activity !== agent.description && (
-                  <p className="mt-0.5 truncate text-[10px] italic text-info/60">
-                    {agent.activity}
-                  </p>
-                )}
-              </div>
-              {agent.kind && (
-                <span className="shrink-0 text-[10px] text-muted-foreground">{agent.kind}</span>
-              )}
-            </li>
-          ))}
-        </ul>
+      {execution && outstanding > 0 && (
+        <p className="border-t border-border/55 px-3 py-1.5 text-[10px] text-muted-foreground">
+          {outstanding} subagent{outstanding === 1 ? '' : 's'} working — see the summary
+        </p>
       )}
     </div>
   )

@@ -1,3 +1,4 @@
+import { formatToolName } from '../utils/toolSummary'
 import React, { useState, useEffect, useMemo } from 'react'
 import type { ToolCallMessage } from '../store/sessions'
 import { useSessionsStore } from '../store/sessions'
@@ -138,7 +139,7 @@ function ToolCallCardInner({
 
         {/* Tool name */}
         <span className={`font-medium shrink-0 ${denied ? 'text-danger/60' : 'text-foreground/80'}`}>
-          {message.tool_name}
+          {formatToolName(message.tool_name)}
         </span>
 
         {/* Status labels for file ops */}

@@ -6,6 +6,11 @@ export function formatToolName(name: string): string {
   return m ? `${m[1]}:${m[2]}` : name
 }
 
+/** The server behind an MCP tool, or null for anything built in. */
+export function mcpServer(name: string): string | null {
+  return name.match(/^mcp__(.+?)__/)?.[1] ?? null
+}
+
 /** One-line label for a single tool call */
 export function inlineLabel(name: string, input: Record<string, unknown>, done: boolean): string {
   const verb = done ? pastTense(name) : presentTense(name)
@@ -26,12 +31,20 @@ function pastTense(name: string): string {
     case 'TodoWrite': return 'Updated todos'
     case 'Task': return 'Task'
     case 'Agent': return 'Agent'
-    default: return name
+    case 'Skill': return 'Used skill'
+    case 'ToolSearch': return 'Looked up tools'
+    case 'Workflow': return 'Ran workflow'
+    case 'Monitor': return 'Watched'
+    default: return formatToolName(name)
   }
 }
 
 function presentTense(name: string): string {
   switch (name) {
+    case 'Skill': return 'Using skill'
+    case 'ToolSearch': return 'Looking up tools'
+    case 'Workflow': return 'Running workflow'
+    case 'Monitor': return 'Watching'
     case 'Read': return 'Reading'
     case 'Write': return 'Writing'
     case 'Edit': return 'Editing'
@@ -59,6 +72,13 @@ function toolDetail(name: string, input: Record<string, unknown>): string {
     case 'WebSearch': return String(input.url ?? input.query ?? '').slice(0, 60)
     case 'Task':
     case 'Agent': return String(input.description ?? input.prompt ?? '').slice(0, 60)
+    // Named fields rather than "whichever key the model serialised first" —
+    // Skill's args can be a paragraph, and it read as if the skill were called
+    // "Edit a task prompt I'm about to hand to…".
+    case 'Skill': return String(input.skill ?? input.name ?? '')
+    case 'ToolSearch': return String(input.query ?? '').slice(0, 50)
+    case 'Workflow': return String(input.name ?? input.title ?? '').slice(0, 50)
+    case 'Monitor': return String(input.description ?? '').slice(0, 50)
     case 'TodoWrite': return ''
     case 'AskUserQuestion': {
       const qs = input.questions
@@ -113,8 +133,23 @@ export function buildGroupSummary(messages: ToolCallMessage[]): string {
   const todos = todoKeys.reduce((sum, k) => sum + (counts[k] ?? 0), 0)
   if (todos > 0) parts.push('updated todo list')
 
+  // An MCP call says which server it reached rather than disappearing into
+  // "3 other tools", which is the whole thing you wanted to know about it.
+  const servers: Record<string, number> = {}
+  let mcpTotal = 0
+  for (const m of messages) {
+    const server = mcpServer(m.tool_name)
+    if (!server) continue
+    servers[server] = (servers[server] ?? 0) + 1
+    mcpTotal++
+  }
+  for (const [server, n] of Object.entries(servers)) {
+    parts.push(`${n} ${server} call${n > 1 ? 's' : ''}`)
+  }
+
   const known = ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', ...todoKeys]
-  const other = messages.length - known.reduce((sum, k) => sum + (counts[k] ?? 0), 0)
+  const other =
+    messages.length - mcpTotal - known.reduce((sum, k) => sum + (counts[k] ?? 0), 0)
   if (other > 0) parts.push(`${other} other tool${other > 1 ? 's' : ''}`)
 
   return parts.join(', ')

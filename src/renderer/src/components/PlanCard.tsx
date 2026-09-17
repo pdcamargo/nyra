@@ -42,25 +42,30 @@ export function splitPlan(plan: string): { title: string; body: string } {
  */
 export default function PlanCard({
   message,
-  onAnswer
+  onAnswer,
+  pinned = false
 }: {
   message: ToolCallMessage
   /** Approve or keep planning, for a plan that arrived as a file. */
   onAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void
-}): React.JSX.Element {
+  /** Rendered above the composer rather than in the transcript. */
+  pinned?: boolean
+}): React.JSX.Element | null {
   // Both are subscriptions, not one-off reads: the card has to repaint the
   // moment the plan is answered, and a pending plan may carry no session id.
   const pendingSession = usePlanApprovalStore((s) => s.pending[message.tool_id])
   const isPending = usePlanApprovalStore((s) => message.tool_id in s.pending)
   const resolve = usePlanApprovalStore((s) => s.resolve)
 
+  // While it waits on you it lives above the composer, where it cannot be
+  // scrolled past. Rendering it in both places would ask the same question twice.
   const plan = useMemo(() => extractPlan(message.input), [message.input])
   const { title, body } = useMemo(() => splitPlan(plan), [plan])
 
-  // Open while it waits on you — a plan you have to approve is a plan you have
-  // to read. Anything already answered, including every plan in a reloaded
-  // transcript, starts collapsed so it stops dominating the conversation.
-  const [expanded, setExpanded] = useState(isPending)
+  // Pinned, it opens to a few lines: enough to know what you are approving,
+  // little enough that a long plan does not become the whole screen. In the
+  // transcript it starts closed, because by then it is a record.
+  const [expanded, setExpanded] = useState(false)
   // Non-null once "Keep planning" is clicked: turning it down is rarely the
   // whole answer, and the reason is worth the least effort to give at the
   // moment you have it rather than after hunting for the composer.
@@ -84,8 +89,14 @@ export default function PlanCard({
     setExpanded(false)
   }
 
+  if (isPending && !pinned) return null
+
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-border bg-card">
+    <div
+      className={`overflow-hidden rounded-lg border bg-card ${
+        pinned ? 'mb-2 border-info/40' : 'my-2 border-border'
+      }`}
+    >
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -106,9 +117,20 @@ export default function PlanCard({
         </span>
       </button>
 
-      {expanded && (
-        <div className="border-t border-border/55 px-4 py-3 text-xs">
+      {/* Pinned and closed, the plan shows its first few lines under a fade — a
+          plan is written to be read, and a title alone is not enough to approve
+          on. Open, it is capped and scrolls rather than pushing the composer off
+          the bottom of the window. */}
+      {(expanded || pinned) && (
+        <div
+          className={`relative border-t border-border/55 px-4 py-3 text-xs ${
+            expanded ? 'max-h-[45vh] overflow-y-auto' : 'max-h-28 overflow-hidden'
+          }`}
+        >
           <MarkdownRenderer>{body}</MarkdownRenderer>
+          {!expanded && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-card to-transparent" />
+          )}
         </div>
       )}
 

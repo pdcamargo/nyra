@@ -67,10 +67,29 @@ describe('usePlanApprovalStore', () => {
 describe('PlanCard actions', () => {
   beforeEach(() => usePlanApprovalStore.setState({ pending: { t1: 's1' } }))
 
+  it('stays out of the transcript while it is pinned above the composer', () => {
+    // Otherwise the same plan asks the same question in two places at once.
+    const { container } = render(<PlanCard message={plan} onAnswer={vi.fn()} />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('comes back to the transcript once answered', () => {
+    usePlanApprovalStore.setState({ pending: {} })
+    render(<PlanCard message={{ ...plan, result: 'ok' }} onAnswer={vi.fn()} />)
+    expect(screen.getByText('Do the thing')).toBeInTheDocument()
+  })
+
+  it('shows the plan under a fade rather than only its title', () => {
+    // A title is not enough to approve on, and a long plan should not become the
+    // whole screen either.
+    render(<PlanCard message={plan} onAnswer={vi.fn()} pinned />)
+    expect(screen.getByText(/First this, then that/)).toBeInTheDocument()
+  })
+
   it('carries the reason along when the plan is turned down', async () => {
     const user = userEvent.setup()
     const onAnswer = vi.fn()
-    render(<PlanCard message={plan} onAnswer={onAnswer} />)
+    render(<PlanCard message={plan} onAnswer={onAnswer} pinned />)
 
     await user.click(screen.getByRole('button', { name: /keep planning/i }))
     await user.type(screen.getByPlaceholderText(/what should change/i), 'Phase 2 is wrong')
@@ -82,7 +101,7 @@ describe('PlanCard actions', () => {
   it('sends no note when none was written', async () => {
     const user = userEvent.setup()
     const onAnswer = vi.fn()
-    render(<PlanCard message={plan} onAnswer={onAnswer} />)
+    render(<PlanCard message={plan} onAnswer={onAnswer} pinned />)
 
     await user.click(screen.getByRole('button', { name: /keep planning/i }))
     // The button stays honest about what it will do while the box is empty.
@@ -94,7 +113,7 @@ describe('PlanCard actions', () => {
   it('offers both ways of saying yes, and tells them apart', async () => {
     const user = userEvent.setup()
     const onAnswer = vi.fn()
-    render(<PlanCard message={plan} onAnswer={onAnswer} />)
+    render(<PlanCard message={plan} onAnswer={onAnswer} pinned />)
 
     await user.click(screen.getByRole('button', { name: /^approve$/i }))
     expect(onAnswer).toHaveBeenCalledWith('t1', 'approve', '/p.md', undefined)
@@ -103,7 +122,7 @@ describe('PlanCard actions', () => {
   it('auto-edit is a separate yes, not the same button', async () => {
     const user = userEvent.setup()
     const onAnswer = vi.fn()
-    render(<PlanCard message={plan} onAnswer={onAnswer} />)
+    render(<PlanCard message={plan} onAnswer={onAnswer} pinned />)
 
     await user.click(screen.getByRole('button', { name: /auto-edit/i }))
     expect(onAnswer).toHaveBeenCalledWith('t1', 'approve-auto', '/p.md', undefined)

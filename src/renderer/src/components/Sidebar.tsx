@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSessionsStore, activeProjectCwd, sortProjects } from '../store/sessions'
 import type { Project, Session } from '../store/sessions'
+import { usePlanApprovalStore } from '../store/planApprovals'
 import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useSkillEditorStore } from '../store/skillEditor'
 import { useWorkflowStore } from '../store/workflow'
@@ -171,7 +172,23 @@ const VISIBLE_PER_PROJECT = 6
 
 function Spinner({ title }: { title: string }): React.JSX.Element {
   return (
-    <LoaderCircle className="size-3 animate-spin text-warning/80 shrink-0" />
+    <span title={title} className="flex shrink-0 items-center">
+      <LoaderCircle className="size-3 animate-spin text-warning/80" />
+    </span>
+  )
+}
+
+/**
+ * A chat that is waiting on you, said in the list rather than only inside it.
+ *
+ * A spinner says Claude is busy. This says the opposite — it has stopped, and it
+ * stopped on you. Without it the two look identical from the sidebar: quiet.
+ */
+function WaitingChip({ label }: { label: string }): React.JSX.Element {
+  return (
+    <span className="shrink-0 rounded-sm bg-info/15 px-1 py-px text-[9px] font-medium uppercase tracking-wide text-info">
+      {label}
+    </span>
   )
 }
 
@@ -297,6 +314,8 @@ function SessionsList(): React.JSX.Element {
   const projects = useMemo(() => sortProjects(rawProjects), [rawProjects])
   const activeSessionId = useSessionsStore((state) => state.activeSessionId)
   const running = useRunningStore((s) => s.running)
+  const pendingPlans = usePlanApprovalStore((s) => s.pending)
+  const planPending = useMemo(() => new Set(Object.values(pendingPlans)), [pendingPlans])
   const { setActiveSession, deleteSession, renameSession, toggleFavorite, reorderFavorites } =
     useSessionsStore()
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -365,6 +384,13 @@ function SessionsList(): React.JSX.Element {
     const isPinned = !!session.favorite
     const isActive = session.id === activeSessionId
     const isRunning = running[session.id] === true
+    // A plan outranks a question: it is the bigger decision, and a session
+    // rarely has both.
+    const waiting = planPending.has(session.id)
+      ? 'Pending approval'
+      : session.needsAnswer
+        ? 'Needs answer'
+        : null
     return (
       <ContextMenu key={session.id}>
       <ContextMenuTrigger
@@ -428,6 +454,7 @@ function SessionsList(): React.JSX.Element {
             <div className="flex items-center gap-1.5 min-w-0">
               {isRunning && <Spinner title="Agent running" />}
               <p className="text-xs truncate">{session.title}</p>
+              {waiting && <WaitingChip label={waiting} />}
             </div>
           )}
           <div className="flex items-center gap-1.5 mt-0.5">

@@ -13,6 +13,7 @@ import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
 import { extractAskBlocks } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
+import { formatMessageTime } from '../lib/messageTime'
 import { extractPlan } from '../utils/permission'
 import ToolCallGroup from './ToolCallGroup'
 import PermissionDialog, { type PermissionRequest } from './PermissionDialog'
@@ -54,7 +55,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string }
   | { type: 'assistant_text'; text: string }
   | { type: 'background_tasks'; tasks: { task_id: string; description: string; task_type?: string }[] }
-  | { type: 'background_task_progress'; task_id: string; activity: string; last_tool_name: string; subagent_type: string }
+  | { type: 'background_task_progress'; task_id: string; tool_use_id: string; activity: string; last_tool_name: string; subagent_type: string; duration_ms: number }
   | { type: 'plan_ready'; tool_id: string; path: string; plan: string }
   | { type: 'session_reset'; reason: string }
   | { type: 'auth_required'; message: string }
@@ -357,6 +358,10 @@ export default function Chat(): React.JSX.Element {
     overscan: 5,
     getItemKey: (index) => {
       const item = virtualItems[index]
+      // The virtualizer can ask about an index that no longer exists — during a
+      // session switch it still holds the previous conversation's count for a
+      // render. Reading `.kind` off nothing throws and takes the chat with it.
+      if (!item) return `gone-${index}`
       if (item.kind === 'separator') return `sep-${index}`
       if (item.kind === 'loading') return 'loading'
       if (item.kind === 'tool_group') return `tg-${item.firstId}`
@@ -364,12 +369,46 @@ export default function Chat(): React.JSX.Element {
     },
   })
 
+  /**
+   * The plan waiting on an answer, if any.
+   *
+   * Pinned above the composer rather than left in the transcript: the card is
+   * raised when the plan file is written, which is mid-turn, so anything Claude
+   * says afterwards pushes it out of view — and the transcript now follows to the
+   * bottom, so it scrolls straight past the one thing that wants you.
+   */
+  const pendingPlans = usePlanApprovalStore((s) => s.pending)
+  const pendingPlan = useMemo(() => {
+    if (!activeSessionId) return null
+    const owed = Object.keys(pendingPlans).filter((id) => pendingPlans[id] === activeSessionId)
+    if (owed.length === 0) return null
+    // Newest wins: a revised plan supersedes the draft it replaced.
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role === 'tool_call' && owed.includes((m as ToolCallMessage).tool_id)) {
+        return m as ToolCallMessage
+      }
+    }
+    return null
+  }, [pendingPlans, activeSessionId, messages])
+
   /** False once the user scrolls up — their position is theirs until they come back. */
   const stuckToBottomRef = useRef(true)
 
-  // Scroll to bottom on session switch
+  /**
+   * Start the list from nothing when the conversation changes.
+   *
+   * Measured heights are cached per item, and that cache outlived the session it
+   * was measured in: switching chats left the scrollbar sized for the previous
+   * transcript, items positioned at its offsets, and any row the virtualizer
+   * still reported keeping the DOM node it had rendered there — one stray tool
+   * call from a conversation you were not looking at, floating in a screen of
+   * empty space. `measure()` drops the cache so the new list is measured as
+   * itself.
+   */
   useEffect(() => {
     stuckToBottomRef.current = true
+    virtualizer.measure()
     if (virtualItems.length > 0) {
       virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end' })
     }
@@ -672,6 +711,16 @@ export default function Chat(): React.JSX.Element {
           kind: event.subagent_type,
           lastTool: event.last_tool_name
         })
+        // The same line, against the agent in the tree. A backgrounded Task's
+        // tool_result is a handle that returns in two seconds, so this is the
+        // only thing that knows it is still going, and for how long.
+        if (event.tool_use_id) {
+          updateAgent(sid, event.tool_use_id, {
+            status: 'running',
+            activity: event.activity,
+            ...(event.duration_ms > 0 ? { durationMs: event.duration_ms } : {})
+          })
+        }
         return
       }
 
@@ -694,6 +743,7 @@ export default function Chat(): React.JSX.Element {
             tool_name: 'AskUserQuestion',
             input: { questions }
           })
+          useSessionsStore.getState().setNeedsAnswer(sid, true)
         }
         return
       }
@@ -782,6 +832,7 @@ export default function Chat(): React.JSX.Element {
               tool_name: 'AskUserQuestion',
               input: { questions }
             })
+            useSessionsStore.getState().setNeedsAnswer(sid, true)
           }
         }
         useRunningStore.getState().endRun(sid)
@@ -984,6 +1035,8 @@ export default function Chat(): React.JSX.Element {
     }
 
     useRunningStore.getState().startRun(sid!)
+    // Whatever was asked, saying something is an answer to it.
+    useSessionsStore.getState().setNeedsAnswer(sid!, false)
 
     const imgs = images ?? []
     const fls = files ?? []
@@ -1593,6 +1646,9 @@ export default function Chat(): React.JSX.Element {
       {/* Input */}
       {/* The composer lines up with the conversation, same geometry. */}
       <div style={{ ...columnGeometry, width: 'var(--col-w)', marginLeft: COLUMN_OFFSET } as React.CSSProperties}>
+        {pendingPlan && (
+          <PlanCard message={pendingPlan} onAnswer={handlePlanAnswer} pinned />
+        )}
         <ActivityStrip sessionId={activeSessionId} onStop={handleStopTurn} />
         <TaskStrip />
         <ChatInput
@@ -1798,6 +1854,13 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
             </div>
           )}
           <div className="whitespace-pre-wrap wrap-break-word wrap-anywhere">{textMsg.text}</div>
+          {/* Under the bubble rather than beside the edit and fork icons, which
+              are already stacked out to the left. Mirrors the assistant side. */}
+          {message.timestamp && (
+            <div className="mt-1 text-right text-[10px] text-secondary-foreground/50 opacity-0 transition-opacity group-hover/msg:opacity-100">
+              {formatMessageTime(message.timestamp)}
+            </div>
+          )}
         </div>
       </div>
     )
@@ -1846,6 +1909,11 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           {copied ? 'Copied' : 'Copy'}
         </button>
+        {message.timestamp && (
+          <span className="flex items-center px-1.5 text-xs text-muted-foreground/60">
+            {formatMessageTime(message.timestamp)}
+          </span>
+        )}
       </div>
     </div>
   )
