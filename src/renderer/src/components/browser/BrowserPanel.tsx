@@ -151,6 +151,7 @@ export default function BrowserPanel(): React.JSX.Element {
           <BrowserCanvas
             targetId={activeTab.targetId}
             width={Math.max(320, panelWidth - 16)}
+            interactive
             className="rounded-md border border-border/55"
           />
         ) : (
