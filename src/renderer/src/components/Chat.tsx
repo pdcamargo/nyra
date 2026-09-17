@@ -8,6 +8,8 @@ import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
 import MarkdownRenderer from './MarkdownRenderer'
 import ToolCallCard from './ToolCallCard'
 import AskUserQuestionCard from './AskUserQuestionCard'
+import PlanCard from './PlanCard'
+import { usePlanApprovalStore } from '../store/planApprovals'
 import ToolCallGroup from './ToolCallGroup'
 import PermissionDialog, { type PermissionRequest } from './PermissionDialog'
 import ChatInput from './ChatInput'
@@ -615,6 +617,7 @@ export default function Chat(): React.JSX.Element {
         }
         useRunningStore.getState().endRun(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
+        usePlanApprovalStore.getState().clearSession(sid)
 
         // Send the next queued message, if any. One per turn, in order.
         const queued = useSessionsStore.getState().dequeueMessage(sid)
@@ -636,6 +639,7 @@ export default function Chat(): React.JSX.Element {
         addMessage(sid, { id: Date.now().toString(), role: 'error', text: event.result })
         useRunningStore.getState().endRun(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
+        usePlanApprovalStore.getState().clearSession(sid)
         // Mark any still-running agents as failed
         const errSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         errSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
@@ -646,6 +650,7 @@ export default function Chat(): React.JSX.Element {
       if (event.type === 'stream_end') {
         useRunningStore.getState().endRun(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
+        usePlanApprovalStore.getState().clearSession(sid)
         // Mark any still-running agents as failed
         const endSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         endSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
@@ -665,6 +670,13 @@ export default function Chat(): React.JSX.Element {
       // Per-tool auto-approve
       if (settings.autoApproveTools.includes(perm.tool_name)) {
         window.api.claude.respondPermission(true, perm.nyraSessionId)
+        return
+      }
+      // A plan is something you read, so it goes in the transcript as a card
+      // rather than behind a modal that hides the conversation and then takes
+      // the plan with it when you answer.
+      if (perm.tool_name === 'ExitPlanMode') {
+        usePlanApprovalStore.getState().add(perm.tool_id, perm.nyraSessionId)
         return
       }
       setPermissionQueue((q) => [...q, perm])
@@ -944,6 +956,7 @@ export default function Chat(): React.JSX.Element {
   const handleStopTurn = useCallback(() => {
     window.api.claude.abort(activeSessionId ?? undefined)
     setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== activeSessionId))
+    if (activeSessionId) usePlanApprovalStore.getState().clearSession(activeSessionId)
   }, [activeSessionId])
 
   const copyConversation = useCallback(() => {
@@ -1495,6 +1508,9 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
     const tc = message as ToolCallMessage
     if (tc.tool_name === 'AskUserQuestion') {
       return <AskUserQuestionCard message={tc} />
+    }
+    if (tc.tool_name === 'ExitPlanMode') {
+      return <PlanCard message={tc} />
     }
     return <ToolCallCard message={tc} isLoading={isLoading} />
   }
