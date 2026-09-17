@@ -40,7 +40,14 @@ const highlightStyle = HighlightStyle.define([
   { tag: t.link, color: 'var(--info)', textDecoration: 'underline' },
   { tag: t.url, color: 'var(--info)' },
   { tag: t.quote, color: 'var(--muted-foreground)', fontStyle: 'italic' },
-  { tag: t.monospace, color: 'var(--info)' },
+  // Grey, not blue: blue means "file" now, and inline code is not one.
+  {
+    tag: t.monospace,
+    color: 'var(--foreground)',
+    backgroundColor: 'var(--accent)',
+    borderRadius: '3px',
+    padding: '0.05em 0.3em'
+  },
   { tag: t.list, color: 'var(--muted-foreground)' },
   // The markers themselves stay visible for now but recede, so what you typed is
   // still what you see. Hiding them is the live-preview pass.
@@ -137,6 +144,18 @@ const theme = EditorView.theme({
     fontSize: '0.88em',
     cursor: 'pointer',
     verticalAlign: 'baseline'
+  },
+  '.cm-file-chip-icon': {
+    display: 'inline-block',
+    width: '0.85em',
+    height: '0.85em',
+    backgroundColor: 'currentColor',
+    // A document glyph, drawn as a mask so it takes the chip's colour.
+    maskImage:
+      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3C/svg%3E\")",
+    maskSize: 'contain',
+    maskRepeat: 'no-repeat',
+    maskPosition: 'center'
   },
   '.cm-file-chip:hover': {
     backgroundColor: 'color-mix(in oklab, var(--info) 28%, transparent)'

@@ -88,7 +88,11 @@ class FileChipWidget extends WidgetType {
   toDOM(): HTMLElement {
     const el = document.createElement('span')
     el.className = 'cm-file-chip'
-    el.textContent = mentionLabel(this.path)
+    const icon = document.createElement('span')
+    icon.className = 'cm-file-chip-icon'
+    icon.setAttribute('aria-hidden', 'true')
+    el.appendChild(icon)
+    el.appendChild(document.createTextNode(mentionLabel(this.path)))
     el.title = this.path
     el.setAttribute('role', 'button')
     el.tabIndex = 0

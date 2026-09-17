@@ -1082,14 +1082,6 @@ export default function Chat(): React.JSX.Element {
               </button>
             </>
           )}
-          {isLoading && (
-            <button
-              onClick={handleStopTurn}
-              className="rounded-md border border-danger/20 px-2 py-0.5 text-[11px] text-danger/80 hover:bg-danger/10 transition-colors"
-            >
-              Stop
-            </button>
-          )}
           {usagePct >= 70 && (() => {
             const total = usage!.inputTokens + usage!.outputTokens
             const fmt = (n: number): string => n >= 1000 ? Math.round(n / 1000) + 'k' : String(n)
