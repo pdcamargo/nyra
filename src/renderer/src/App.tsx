@@ -28,6 +28,11 @@ const HookEditorModal = React.lazy(() => import('./components/HookEditorModal'))
 const WelcomeModal = React.lazy(() => import('./components/WelcomeModal'))
 const LoginModal = React.lazy(() => import('./components/LoginModal'))
 
+/** Both stores feed the same two variables; unsubscribe from both together. */
+function combineUnsubscribe(...offs: (() => void)[]): () => void {
+  return () => offs.forEach((off) => off())
+}
+
 export default function App(): React.JSX.Element {
   // Both side panels live in the ui store now, next to bottomPanelOpen — the
   // summary toggle in the chat header needs to reach one of them from there.
@@ -50,23 +55,32 @@ export default function App(): React.JSX.Element {
     applyThemeClass(resolvedTheme)
   }, [resolvedTheme])
 
-  // Publish --rail: how much of the window sits to the left of the conversation.
+  // Publish --rail and --right: how much of the window the panels take, so the
+  // conversation can work out what is left for it.
   //
   // Chat centres its column on the window rather than on its own container, so
-  // this is the one part of the geometry CSS cannot work out for itself. Written
+  // these are the parts of the geometry CSS cannot work out for itself. Written
   // from a subscription rather than rendered, so dragging the rail does not
   // reconcile the whole conversation sixty times a second — Chat just inherits it.
   //
   // Layout effect, not effect: this has to land before the first paint, or the
   // column is briefly centred as though no rail were open and visibly jumps.
   useLayoutEffect(() => {
-    const publish = (width: number): void => {
-      shellRef.current?.style.setProperty('--rail', `${width}px`)
+    const publish = (rail: number, right: number): void => {
+      shellRef.current?.style.setProperty('--rail', `${rail}px`)
+      shellRef.current?.style.setProperty('--right', `${right}px`)
     }
-    publish(usePanelLayoutStore.getState().sidebarWidth)
-    return usePanelLayoutStore.subscribe((state, prev) => {
-      if (state.sidebarWidth !== prev.sidebarWidth) publish(state.sidebarWidth)
-    })
+    const read = (): [number, number] => {
+      const { sidebarWidth, rightPanelWidth } = usePanelLayoutStore.getState()
+      const ui = useUiStore.getState()
+      return [ui.projectsPanelOpen ? sidebarWidth : 0, ui.rightPanelOpen ? rightPanelWidth : 0]
+    }
+    publish(...read())
+    const republish = (): void => publish(...read())
+    return combineUnsubscribe(
+      usePanelLayoutStore.subscribe(republish),
+      useUiStore.subscribe(republish)
+    )
   }, [])
 
   // Subscribe to background-process updates from main

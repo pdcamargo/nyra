@@ -104,8 +104,8 @@ function spawnSettingsForSession(sessionId: string): SpawnSettings {
 
 const COLUMN_OFFSET =
   'clamp(var(--gap),' +
-  ' calc(50vw - var(--col-w) / 2 - var(--rail, 0px)),' +
-  ' calc(100% - var(--gutter) - var(--col-w)))'
+  ' calc((100vw - var(--right, 0px)) / 2 - var(--col-w) / 2 - var(--rail, 0px)),' +
+  ' calc(100% - var(--gap) - var(--gutter) - var(--col-w)))'
 
 function columnVars(gutterOpen: boolean): React.CSSProperties {
   return {
@@ -118,8 +118,11 @@ function columnVars(gutterOpen: boolean): React.CSSProperties {
     // workspace panel is dragged.
     '--gutter': gutterOpen ? '20rem' : '0rem',
     '--gap': '1.5rem',
+    // Two gaps, not one. With a single gap the column exactly filled the space a
+    // wide browser panel left behind — the offset clamped to its minimum and the
+    // text sat flush against the panel with nothing between them.
     '--col-w':
-      'min(var(--col-max), 100%, max(var(--col-min), calc(100% - var(--gap) - var(--gutter))))'
+      'min(var(--col-max), 100%, max(var(--col-min), calc(100% - 2 * var(--gap) - var(--gutter))))'
   } as React.CSSProperties
 }
 
