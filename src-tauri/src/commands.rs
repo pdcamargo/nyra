@@ -13,7 +13,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::workflow::helpers::{build_marketplace_share_url, marketplace_repo_url};
 use crate::workflow::types::{MarketplaceEntry, TriggerSource};
 use crate::workflow::{engine, marketplace, store, triggers};
-use crate::{claude, file_extractor, fs_ops, git, hooks, login, mcp, memory, processes, skills};
+use crate::{browser, claude, file_extractor, fs_ops, git, hooks, login, mcp, memory, processes, skills};
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
 
 // ---- claude ----
@@ -675,4 +675,40 @@ pub fn terminal_resize(id: String, cols: u16, rows: u16) {
 #[tauri::command]
 pub fn terminal_kill(id: String) {
     terminal::kill_terminal(&id);
+}
+
+// ---- browser ----
+//
+// Every one of these returns `{ ok }` or `{ ok: false, error }` rather than
+// rejecting: the panel renders the failure as a state, and a rejected promise
+// would just become an unhandled one somewhere in the renderer.
+
+#[tauri::command]
+pub async fn browser_status() -> Value {
+    browser::status().await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn browser_ensure(chat_id: String) -> Value {
+    browser::ensure(&chat_id).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn browser_release(chat_id: String) -> Value {
+    browser::release(&chat_id).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn browser_touch(chat_id: String) -> Value {
+    browser::touch(&chat_id).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn browser_open_tab(chat_id: String, url: String) -> Value {
+    browser::open_tab(&chat_id, &url).await
+}
+
+#[tauri::command]
+pub async fn browser_install_chromium() -> Value {
+    browser::install_chromium().await
 }

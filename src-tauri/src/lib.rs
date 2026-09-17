@@ -1,5 +1,6 @@
 //! Nyra — a desktop GUI for Claude Code, on Tauri.
 
+mod browser;
 mod claude;
 mod commands;
 mod file_extractor;
@@ -25,6 +26,7 @@ use tauri::{Manager, RunEvent, WindowEvent};
 /// window close and again on exit, so it has to be idempotent.
 fn shutdown() {
     terminal::kill_all_terminals();
+    browser::stop();
     login::cancel_login();
     claude::dispose_all();
     workflow::triggers::stop_trigger_runtime();
@@ -155,6 +157,12 @@ pub fn run() {
             commands::terminal_write,
             commands::terminal_resize,
             commands::terminal_kill,
+            commands::browser_status,
+            commands::browser_ensure,
+            commands::browser_release,
+            commands::browser_touch,
+            commands::browser_open_tab,
+            commands::browser_install_chromium,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Nyra")

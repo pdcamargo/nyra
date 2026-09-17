@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run vite:dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run vite:build",
+    "beforeBuildCommand": "npm run sidecar:install && npm run vite:build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -28,13 +28,18 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:* http://localhost:*",
-      "capabilities": ["default"]
+      "csp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:* http://localhost:* ws://127.0.0.1:* http://127.0.0.1:*",
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -49,6 +54,9 @@
     "macOS": {
       "entitlements": "entitlements.plist",
       "minimumSystemVersion": "13.3"
+    },
+    "resources": {
+      "../sidecar": "sidecar"
     }
   }
 }

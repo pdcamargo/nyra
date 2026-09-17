@@ -350,26 +350,34 @@ mod tests {
         assert!(!out[0].contains('~'));
     }
 
+    /// The ordering guarantee fnm depends on: a per-shell directory that is
+    /// really a symlink resolves to its stable target, and the stable target
+    /// comes first so that is what a lookup finds.
+    #[test]
+    fn path_entries_put_the_canonical_form_first() {
+        let base = temp_dir().join(format!("nyra-path-{}", rand_suffix(8)));
+        let real = base.join("real-bin");
+        let link = base.join("link-bin");
+        std::fs::create_dir_all(&real).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        push_entry(&mut out, &mut seen, &link.to_string_lossy());
+
+        let real = std::fs::canonicalize(&real).unwrap().to_string_lossy().to_string();
+        assert_eq!(out.first().map(String::as_str), Some(real.as_str()));
+        assert_eq!(out.len(), 2, "the original is kept behind the canonical form");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn child_path_carries_the_system_directories() {
         let path = build_child_path();
         assert!(path.split(':').any(|p| p == "/usr/bin"), "{path}");
         assert!(path.split(':').any(|p| p == "/bin"), "{path}");
-    }
-
-    #[test]
-    fn debug_dump_child_path() {
-        let path = build_child_path();
-        for entry in path.split(':') {
-            let has_node = std::path::Path::new(entry).join("node").exists();
-            let has_npx = std::path::Path::new(entry).join("npx").exists();
-            let has_bun = std::path::Path::new(entry).join("bun").exists();
-            if has_node || has_npx || has_bun {
-                eprintln!("TOOLS {entry}  node={has_node} npx={has_npx} bun={has_bun}");
-            }
-        }
-        assert!(path.split(':').any(|e| std::path::Path::new(e).join("node").exists()), "no node on the resolved PATH");
-        assert!(!path.contains("fnm_multishells"), "a per-shell fnm path survived canonicalisation");
     }
 
     #[test]
