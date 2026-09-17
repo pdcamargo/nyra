@@ -1,6 +1,17 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { splitPlan } from '../../renderer/src/components/PlanCard'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import PlanCard, { splitPlan } from '../../renderer/src/components/PlanCard'
 import { usePlanApprovalStore } from '../../renderer/src/store/planApprovals'
+import type { ToolCallMessage } from '../../renderer/src/store/sessions'
+
+const plan: ToolCallMessage = {
+  id: 'm1',
+  role: 'tool_call',
+  tool_id: 't1',
+  tool_name: 'ExitPlanMode',
+  input: { plan: '## Do the thing\n\nFirst this, then that.', path: '/p.md' }
+}
 
 describe('splitPlan', () => {
   it('lifts the opening heading out so the card does not print it twice', () => {
@@ -50,5 +61,43 @@ describe('usePlanApprovalStore', () => {
     expect(Object.keys(usePlanApprovalStore.getState().pending)).toEqual(['t2', 't3'])
     clearSession('s1')
     expect(Object.keys(usePlanApprovalStore.getState().pending)).toEqual(['t3'])
+  })
+})
+
+describe('PlanCard actions', () => {
+  beforeEach(() => usePlanApprovalStore.setState({ pending: { t1: 's1' } }))
+
+  it('carries the reason along when the plan is turned down', async () => {
+    const user = userEvent.setup()
+    const onAnswer = vi.fn()
+    render(<PlanCard message={plan} onAnswer={onAnswer} />)
+
+    await user.click(screen.getByRole('button', { name: /keep planning/i }))
+    await user.type(screen.getByPlaceholderText(/what should change/i), 'Phase 2 is wrong')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    expect(onAnswer).toHaveBeenCalledWith('t1', false, '/p.md', 'Phase 2 is wrong')
+  })
+
+  it('sends no note when none was written', async () => {
+    const user = userEvent.setup()
+    const onAnswer = vi.fn()
+    render(<PlanCard message={plan} onAnswer={onAnswer} />)
+
+    await user.click(screen.getByRole('button', { name: /keep planning/i }))
+    // The button stays honest about what it will do while the box is empty.
+    await user.click(screen.getByRole('button', { name: /^keep planning$/i }))
+
+    expect(onAnswer).toHaveBeenCalledWith('t1', false, '/p.md', undefined)
+  })
+
+  it('approving asks no questions', async () => {
+    const user = userEvent.setup()
+    const onAnswer = vi.fn()
+    render(<PlanCard message={plan} onAnswer={onAnswer} />)
+
+    await user.click(screen.getByRole('button', { name: /approve plan/i }))
+
+    expect(onAnswer).toHaveBeenCalledWith('t1', true, '/p.md', undefined)
   })
 })

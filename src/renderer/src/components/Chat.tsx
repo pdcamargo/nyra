@@ -1000,12 +1000,14 @@ export default function Chat(): React.JSX.Element {
    * because the spawn now carries `--resume`.
    */
   const handlePlanAnswer = useCallback(
-    (toolId: string, approved: boolean, planPath?: string): void => {
+    (toolId: string, approved: boolean, planPath?: string, note?: string): void => {
       const sid = useSessionsStore.getState().activeSessionId
       usePlanApprovalStore.getState().resolve(toolId)
       if (!sid) return
       if (!approved) {
         useSessionsStore.getState().markToolDenied(sid, toolId)
+        // Plan mode stays on, so nothing respawns and Claude keeps the thread.
+        if (note) void sendMessageRef.current?.(note, undefined, undefined, sid)
         return
       }
       useSettingsStore.getState().updateSettings({ planMode: false })

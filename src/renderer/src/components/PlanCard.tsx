@@ -38,7 +38,7 @@ export default function PlanCard({
 }: {
   message: ToolCallMessage
   /** Approve or keep planning, for a plan that arrived as a file. */
-  onAnswer?: (toolId: string, approved: boolean, planPath?: string) => void
+  onAnswer?: (toolId: string, approved: boolean, planPath?: string, note?: string) => void
 }): React.JSX.Element {
   // Both are subscriptions, not one-off reads: the card has to repaint the
   // moment the plan is answered, and a pending plan may carry no session id.
@@ -53,6 +53,10 @@ export default function PlanCard({
   // to read. Anything already answered, including every plan in a reloaded
   // transcript, starts collapsed so it stops dominating the conversation.
   const [expanded, setExpanded] = useState(isPending)
+  // Non-null once "Keep planning" is clicked: turning it down is rarely the
+  // whole answer, and the reason is worth the least effort to give at the
+  // moment you have it rather than after hunting for the composer.
+  const [note, setNote] = useState<string | null>(null)
   const denied = message.denied === true
 
   // Two ways a plan gets here. Headless Claude writes it to a file, and the card
@@ -61,13 +65,14 @@ export default function PlanCard({
   // wire — no CLI ships that in headless mode today, but the branch costs little.
   const planPath = typeof message.input.path === 'string' ? message.input.path : undefined
 
-  const answer = (approved: boolean): void => {
+  const answer = (approved: boolean, text?: string): void => {
     if (planPath) {
-      onAnswer?.(message.tool_id, approved, planPath)
+      onAnswer?.(message.tool_id, approved, planPath, text?.trim() || undefined)
     } else {
       void window.api.claude.respondPermission(approved, pendingSession)
       resolve(message.tool_id)
     }
+    setNote(null)
     setExpanded(false)
   }
 
@@ -99,21 +104,46 @@ export default function PlanCard({
         </div>
       )}
 
-      {isPending && (
+      {isPending && note === null && (
         <div className="flex items-center justify-end gap-2 border-t border-border/55 px-3 py-2">
           <button
-            onClick={() => answer(false)}
+            type="button"
+            onClick={() => setNote('')}
             className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
           >
             <X className="size-3.5" />
             Keep planning
           </button>
           <button
+            type="button"
             onClick={() => answer(true)}
             className="flex items-center gap-1.5 rounded-md bg-success px-2.5 py-1 text-xs font-medium text-success-foreground transition-opacity hover:opacity-85"
           >
             <Check className="size-3.5" />
             Approve plan
+          </button>
+        </div>
+      )}
+
+      {isPending && note !== null && (
+        <div className="flex items-center gap-2 border-t border-border/55 px-3 py-2">
+          <input
+            autoFocus
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') answer(false, note)
+              if (e.key === 'Escape') setNote(null)
+            }}
+            placeholder="What should change? (optional)"
+            className="h-7 min-w-0 flex-1 rounded-md border border-input bg-input/20 px-2.5 text-xs outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
+          />
+          <button
+            type="button"
+            onClick={() => answer(false, note)}
+            className="shrink-0 rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground transition-opacity hover:opacity-85"
+          >
+            {note.trim() ? 'Send' : 'Keep planning'}
           </button>
         </div>
       )}
