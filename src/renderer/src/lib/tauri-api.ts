@@ -18,6 +18,10 @@ import { listen } from '@tauri-apps/api/event'
 import type {
   AgentInfo,
   BgProcessRow,
+  BrowserEvent,
+  BrowserReply,
+  BrowserStatus,
+  BrowserTab,
   FileEntry,
   McpEntry,
   MemoryListResult,
@@ -43,7 +47,8 @@ const EVENT_NAMES = [
   'login:data',
   'login:exit',
   'terminal:data',
-  'terminal:exit'
+  'terminal:exit',
+  'browser:event'
 ] as const
 
 type EventName = (typeof EVENT_NAMES)[number]
@@ -323,6 +328,33 @@ export const api = {
     onData: (callback: (event: { data: string }) => void) => on('login:data', callback),
     onExit: (callback: (event: { exitCode: number; success: boolean }) => void) =>
       on('login:exit', callback)
+  },
+
+  browser: {
+    /** What the sidecar can see. Starts it, but launches no Chromium — the
+     *  panel asks this first so a first run reads as setup, not as an error. */
+    status: () => call<BrowserReply<BrowserStatus>>('browser_status'),
+    configure: (patch: Record<string, unknown>) => call<BrowserReply>('browser_configure', { patch }),
+    install: () => call<BrowserReply>('browser_install'),
+    openChat: (chatId: string) =>
+      call<BrowserReply<{ cdpUrl: string; viewport: { width: number; height: number } }>>(
+        'browser_open_chat',
+        { chatId }
+      ),
+    closeChat: (chatId: string) => call<BrowserReply<{ closed: boolean }>>('browser_close_chat', { chatId }),
+    /** Ping while a surface for this chat is on screen, or the sidecar evicts
+     *  its context to reclaim the ~300 MB it costs. */
+    touch: (chatId: string) => call<BrowserReply<{ touched: boolean }>>('browser_touch', { chatId }),
+    tabCreate: (chatId: string, url: string) =>
+      call<BrowserReply<{ tab: BrowserTab }>>('browser_tab_create', { chatId, url }),
+    tabClose: (chatId: string, tabId: string) =>
+      call<BrowserReply<{ closed: boolean }>>('browser_tab_close', { chatId, tabId }),
+    tabNavigate: (chatId: string, tabId: string, url: string) =>
+      call<BrowserReply<{ url: string }>>('browser_tab_navigate', { chatId, tabId, url }),
+    tabHistory: (chatId: string, tabId: string, action: 'back' | 'forward' | 'reload') =>
+      call<BrowserReply<{ url: string | null }>>('browser_tab_history', { chatId, tabId, action }),
+    tabList: (chatId: string) => call<BrowserReply<{ tabs: BrowserTab[] }>>('browser_tab_list', { chatId }),
+    onEvent: (callback: (event: BrowserEvent) => void) => on('browser:event', callback)
   },
 
   terminal: {

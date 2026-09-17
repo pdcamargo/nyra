@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { createIdbStorage } from './idbStorage'
 import { useRunningStore } from './running'
+import { useBrowserStore } from './browser'
 import { backfillProjects, nameForPath } from './projects-migration'
 import { homedir } from '../lib/homedir'
 import { useTerminalsStore } from './terminals'
@@ -497,6 +498,10 @@ export const useSessionsStore = create<SessionsStore>()(
         // Drop any in-flight flag too, or a session deleted mid-turn leaves a
         // spinner behind on a row that no longer exists.
         useRunningStore.getState().forget(sessionId)
+        // And the chat's browser. A context costs real memory, so a deleted
+        // chat must not keep one alive with nothing left to show it in.
+        try { window.api.browser.closeChat(sessionId) } catch { /* ignore */ }
+        useBrowserStore.getState().forget(sessionId)
         // Take the chat's managed worktree with it, snapshotting first — a
         // permanent one is shared with other chats and stays put. Fire-and-forget
         // so deleting a chat never blocks on git.

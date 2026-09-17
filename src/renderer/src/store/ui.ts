@@ -2,15 +2,22 @@ import { create } from 'zustand'
 
 export type RightPanelTab = 'agents' | 'context' | 'mcp' | 'memory'
 
+/** What the right panel is showing. The browser takes the whole panel rather
+ *  than becoming a fifth tab: it has its own tab strip, and nesting one strip
+ *  inside another reads as a mistake. */
+export type RightPanelMode = 'workspace' | 'browser'
+
 type UiStore = {
   rightPanelTab: RightPanelTab
+  rightPanelMode: RightPanelMode
   pendingMemoryFilePath: string | null
   pendingInputPrefill: string | null
   bottomPanelOpen: boolean
   bottomPanelFocusNonce: number
   /** The projects rail. The title bar toggles it; Codex hides it the same way. */
   projectsPanelOpen: boolean
-  /** The workspace panel — agents, context, MCP, memory. */
+  /** The workspace panel — agents, context, MCP, memory — or the browser,
+   *  depending on `rightPanelMode`. */
   rightPanelOpen: boolean
   /** The conversation's own environment. Spec calls it the Pinned Summary, but
    *  "pinned" now means something else in the sidebar, so it is just Summary.
@@ -30,6 +37,7 @@ type UiStore = {
   toggleBottomPanel: () => void
   focusProcessesTab: () => void
   toggleRightPanel: () => void
+  toggleBrowserPanel: () => void
   toggleSummary: () => void
   toggleProjectsPanel: () => void
   setSettingsOpen: (open: boolean) => void
@@ -39,6 +47,7 @@ type UiStore = {
 
 export const useUiStore = create<UiStore>()((set, get) => ({
   rightPanelTab: 'agents',
+  rightPanelMode: 'workspace',
   pendingMemoryFilePath: null,
   pendingInputPrefill: null,
   bottomPanelOpen: false,
@@ -66,7 +75,21 @@ export const useUiStore = create<UiStore>()((set, get) => ({
       bottomPanelOpen: true,
       bottomPanelFocusNonce: s.bottomPanelFocusNonce + 1
     })),
-  toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
+  // Each title-bar button owns one surface, so "active" can mean "this is what
+  // you are looking at". Pressing Workspace while the browser is up shows the
+  // workspace rather than closing the panel out from under you.
+  toggleRightPanel: () =>
+    set((s) =>
+      s.rightPanelOpen && s.rightPanelMode === 'browser'
+        ? { rightPanelMode: 'workspace' }
+        : { rightPanelOpen: !s.rightPanelOpen, rightPanelMode: 'workspace' }
+    ),
+  toggleBrowserPanel: () =>
+    set((s) =>
+      s.rightPanelOpen && s.rightPanelMode === 'browser'
+        ? { rightPanelMode: 'workspace' }
+        : { rightPanelOpen: true, rightPanelMode: 'browser' }
+    ),
   toggleSummary: () => set((s) => ({ summaryOpen: !s.summaryOpen })),
   toggleProjectsPanel: () => set((s) => ({ projectsPanelOpen: !s.projectsPanelOpen })),
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),

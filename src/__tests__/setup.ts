@@ -41,7 +41,7 @@ if (!globalThis.crypto?.randomUUID) {
   })
 }
 
-// `window.api` stub — all 13 namespaces.
+// `window.api` stub — all 14 namespaces.
 //
 // It used to cover 5, which was enough for the store tests but meant rendering
 // <App/> threw: it calls processes.onUpdate on mount. Component tests need the
@@ -81,6 +81,12 @@ Object.defineProperty(globalThis, 'api', {
     system: { homedir: () => Promise.resolve('/home/test') },
     appWindow: { startDragging: noop, toggleMaximize: noop },
     terminal: { spawn: noop, write: noop, resize: noop, kill: noop, onData: unsub, onExit: unsub },
+    browser: {
+      status: noop, configure: noop, install: noop,
+      openChat: noop, closeChat: noop, touch: noop,
+      tabCreate: noop, tabClose: noop, tabNavigate: noop, tabHistory: noop, tabList: noop,
+      onEvent: unsub
+    },
     agents: { list: () => Promise.resolve([]) },
     memory: {
       list: () => Promise.resolve([]),

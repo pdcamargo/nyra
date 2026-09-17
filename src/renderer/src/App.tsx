@@ -16,6 +16,7 @@ import { primeHomedir } from './lib/homedir'
 import { useWorkflowStore } from './store/workflow'
 import { useProcessesStore, type BgProcess } from './store/processes'
 import { useUiStore } from './store/ui'
+import { dropBrowserHub, useBrowserStore } from './store/browser'
 import { handleBinding, usePanelLayoutStore } from './store/panelLayout'
 import { usePanelSizesStore } from './store/panelSizes'
 
@@ -74,6 +75,46 @@ export default function App(): React.JSX.Element {
       useProcessesStore.getState().setForSession(nyraSessionId, processes as BgProcess[])
     })
     return unsub
+  }, [])
+
+  // Browser news from the sidecar. Routed here rather than in the panel because
+  // a chat's browser keeps running while its panel is closed — that is the
+  // whole point of it — so the tab list has to stay current with nothing
+  // mounted to receive it.
+  useEffect(() => {
+    return window.api.browser.onEvent((event) => {
+      const store = useBrowserStore.getState()
+      switch (event.event) {
+        case 'tabs':
+          store.setTabs(event.params.chatId, event.params.tabs)
+          break
+        case 'browser':
+          if (event.params.state === 'ready' && event.params.cdpUrl) {
+            store.setEndpoint(event.params.cdpUrl)
+          } else if (event.params.state === 'gone') {
+            dropBrowserHub()
+            store.browserGone()
+          }
+          break
+        case 'install':
+          store.setInstall(
+            event.params.state === 'downloading'
+              ? { percent: event.params.percent ?? 0, totalMb: event.params.totalMb ?? 0 }
+              : null
+          )
+          break
+        case 'evicted':
+          // The context is gone but the chat is not; it starts again on the
+          // next look.
+          store.setPhase(event.params.chatId, 'off')
+          store.setTabs(event.params.chatId, [])
+          break
+        case 'exit':
+          dropBrowserHub()
+          store.browserGone()
+          break
+      }
+    })
   }, [])
 
   // Toggle bottom panel with Cmd+J

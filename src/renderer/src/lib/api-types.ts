@@ -107,3 +107,46 @@ export type FileEntry = {
   path: string
   type: 'file' | 'folder'
 }
+
+// ---------------------------------------------------------------------------
+// Browser
+// ---------------------------------------------------------------------------
+
+/** One tab in one chat's browser, as the sidecar sees it. */
+export type BrowserTab = {
+  tabId: string
+  /** The CDP target. The renderer attaches its own session to this to get
+   *  pixels — the sidecar is not in the frame path. */
+  targetId: string
+  url: string
+  title: string
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+}
+
+export type BrowserStatus = {
+  /** `missing` is a first run, not a failure: Chromium is a download, not part
+   *  of the bundle. */
+  chromium: 'ready' | 'missing'
+  executablePath: string | null
+  error: string | null
+  running: boolean
+  cdpUrl: string | null
+  viewport: { width: number; height: number }
+  chats: string[]
+}
+
+/** Every browser command answers with a state rather than rejecting. */
+export type BrowserResult<T = Record<string, never>> = { ok: true } & T
+export type BrowserFailure = { ok: false; error: string }
+export type BrowserReply<T = Record<string, never>> = BrowserResult<T> | BrowserFailure
+
+/** Sidecar news, forwarded verbatim. `event` names the kind. */
+export type BrowserEvent =
+  | { event: 'ready'; params?: Record<string, unknown> }
+  | { event: 'browser'; params: { state: 'launching' | 'ready' | 'gone'; cdpUrl?: string } }
+  | { event: 'install'; params: { state: 'downloading' | 'done' | 'failed'; percent?: number; totalMb?: number } }
+  | { event: 'tabs'; params: { chatId: string; tabs: BrowserTab[] } }
+  | { event: 'evicted'; params: { chatId: string } }
+  | { event: 'exit'; params: { code: number } }

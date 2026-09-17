@@ -3,6 +3,7 @@ import { List, RefreshCw, Rows3, Wrench, X } from 'lucide-react'
 import { useSessionsStore, type Agent, type ToolCallMessage, type SessionUsage, type Message, type McpServerInfo } from '../store/sessions'
 import { useRateLimitStore, type RateLimitWindow } from '../store/rateLimit'
 import { useUiStore } from '../store/ui'
+import BrowserPanel from './browser/BrowserPanel'
 import { usePanelLayoutStore } from '../store/panelLayout'
 import FileChangelog from './FileChangelog'
 import AvailableAgents from './AvailableAgents'
@@ -20,52 +21,62 @@ const TABS: Tab[] = ['agents', 'context', 'mcp', 'memory']
 export default function RightPanel(): React.JSX.Element {
   const activeTab = useUiStore((s) => s.rightPanelTab)
   const setActiveTab = useUiStore((s) => s.setRightPanelTab)
+  const mode = useUiStore((s) => s.rightPanelMode)
   const width = usePanelLayoutStore((s) => s.rightPanelWidth)
 
   return (
     <aside style={{ width }} className="flex h-full shrink-0 flex-col bg-card border-l border-border/55">
-      {/* Header — matches sidebar and chat header height */}
-      <div className="flex items-end border-b border-border/55 px-3 py-2">
-        <div className="flex gap-0.5">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`rounded-md px-2 py-1 text-[11px] font-medium capitalize transition-colors ${
-                activeTab === tab
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:text-foreground/80 hover:bg-accent/50'
-              }`}
-            >
-              {tab === 'mcp' ? 'MCP' : tab}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* The browser takes the panel rather than becoming a fifth tab: it has a
+          tab strip of its own, and one strip inside another reads as a bug.
+          Toggling back lands on whichever workspace tab was last open. */}
+      {mode === 'browser' ? (
+        <BrowserPanel />
+      ) : (
+        <>
+          {/* Header — matches sidebar and chat header height */}
+          <div className="flex items-end border-b border-border/55 px-3 py-2">
+            <div className="flex gap-0.5">
+              {TABS.map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`rounded-md px-2 py-1 text-[11px] font-medium capitalize transition-colors ${
+                    activeTab === tab
+                      ? 'bg-accent text-foreground'
+                      : 'text-muted-foreground hover:text-foreground/80 hover:bg-accent/50'
+                  }`}
+                >
+                  {tab === 'mcp' ? 'MCP' : tab}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      {/* Content */}
-      <div className="flex-1 min-h-0 flex flex-col">
-        {activeTab === 'agents' && (
-          <div className="flex-1 overflow-y-auto p-3">
-            <AgentsTab />
+          {/* Content */}
+          <div className="flex-1 min-h-0 flex flex-col">
+            {activeTab === 'agents' && (
+              <div className="flex-1 overflow-y-auto p-3">
+                <AgentsTab />
+              </div>
+            )}
+            {activeTab === 'context' && (
+              <div className="flex-1 overflow-y-auto p-3">
+                <ContextTab />
+              </div>
+            )}
+            {activeTab === 'mcp' && (
+              <div className="flex-1 overflow-y-auto p-3">
+                <McpPanel />
+              </div>
+            )}
+            {activeTab === 'memory' && (
+              <Suspense fallback={<div className="p-3 text-[11px] text-muted-foreground/70">Loading…</div>}>
+                <MemoryTab />
+              </Suspense>
+            )}
           </div>
-        )}
-        {activeTab === 'context' && (
-          <div className="flex-1 overflow-y-auto p-3">
-            <ContextTab />
-          </div>
-        )}
-        {activeTab === 'mcp' && (
-          <div className="flex-1 overflow-y-auto p-3">
-            <McpPanel />
-          </div>
-        )}
-        {activeTab === 'memory' && (
-          <Suspense fallback={<div className="p-3 text-[11px] text-muted-foreground/70">Loading…</div>}>
-            <MemoryTab />
-          </Suspense>
-        )}
-      </div>
+        </>
+      )}
     </aside>
   )
 }
