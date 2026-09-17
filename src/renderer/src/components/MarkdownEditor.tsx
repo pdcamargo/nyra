@@ -6,6 +6,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { markdown } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { tags as t } from '@lezer/highlight'
+import { livePreview } from '../lib/livePreview'
 
 /**
  * The surface ChatInput talks to.
@@ -62,7 +63,31 @@ const theme = EditorView.theme({
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
     backgroundColor: 'color-mix(in oklab, var(--info) 30%, transparent)'
   },
-  '.cm-selectionMatch': { backgroundColor: 'transparent' }
+  '.cm-selectionMatch': { backgroundColor: 'transparent' },
+
+  // Live preview: what the markdown means, drawn in place of its syntax.
+  '.cm-md-h1': { fontSize: '1.5em', fontWeight: '600', lineHeight: '1.3' },
+  '.cm-md-h2': { fontSize: '1.3em', fontWeight: '600', lineHeight: '1.35' },
+  '.cm-md-h3': { fontSize: '1.15em', fontWeight: '600' },
+  '.cm-md-h4': { fontWeight: '600' },
+  '.cm-md-h5': { fontWeight: '600', color: 'var(--muted-foreground)' },
+  '.cm-md-h6': { fontWeight: '600', color: 'var(--muted-foreground)' },
+  '.cm-md-quote': {
+    borderLeft: '2px solid var(--border-strong)',
+    paddingLeft: '0.75em',
+    color: 'var(--muted-foreground)'
+  },
+  '.cm-md-codeinfo': {
+    fontSize: '0.8em',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: 'var(--muted-foreground)'
+  },
+  '.cm-md-code': {
+    backgroundColor: 'var(--background)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.92em'
+  }
 })
 
 export default function MarkdownEditor({
@@ -99,6 +124,7 @@ export default function MarkdownEditor({
       keymap.of([...historyKeymap, ...defaultKeymap]),
       markdown({ codeLanguages: languages }),
       syntaxHighlighting(highlightStyle),
+      livePreview,
       EditorView.lineWrapping,
       theme,
       EditorView.theme({ '.cm-scroller': { maxHeight: `${maxHeight}px` } }),
