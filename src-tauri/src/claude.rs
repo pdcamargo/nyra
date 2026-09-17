@@ -778,6 +778,65 @@ const TASKS_CONVENTION: &str = concat!(
     "or anything conversational: a checklist of one item is noise."
 );
 
+/// Taught only when the browser tools are actually attached.
+///
+/// The MCP tools describe themselves, so the model can work out *how* to click
+/// something without being told. What it cannot work out is that the page is on
+/// screen — that this is a surface the user is watching and can grab, rather
+/// than a headless scratchpad that happens to render. That changes when it is
+/// worth opening at all, and what to do when the page moves underneath it.
+const BROWSER_CONVENTION: &str = concat!(
+    "\n\nThis conversation has a real browser, and the user can see it. Pages you ",
+    "open show up in their tab strip and in the Pinned Summary, and a miniature ",
+    "floats over the chat when the panel is closed — so opening a page is a visible ",
+    "act, not a private one. They can click and type in it while you work, so the ",
+    "page may have moved since you last looked: take a fresh `browser_snapshot` ",
+    "rather than trusting an old one. The browser belongs to this conversation ",
+    "alone; other chats have their own and cannot see these tabs.\n",
+    "Use it to look at your own work. When you change anything with a rendered ",
+    "surface — a component, a stylesheet, a page served by a dev server — open it ",
+    "and check, rather than describing what it should now do. `browser_snapshot` ",
+    "reads the page as structured text and is the one to reach for by default; ",
+    "`browser_take_screenshot` is for when the question is genuinely visual, and ",
+    "it comes back as an image you can look at.\n",
+    "The viewport is a fixed 1280x800 however narrow the panel is, so what you see ",
+    "is the desktop layout and not a phone one. Close a tab when you are done with ",
+    "it: each one costs real memory, and the user is looking at the list."
+);
+
+/// Everything Nyra has to teach a session about itself, plus whatever the user
+/// added.
+///
+/// Split out because one clause here is conditional and that is exactly the kind
+/// of thing that rots quietly: a session told it has a browser when it has none
+/// will invent tool calls that fail, and a session with a browser and no mention
+/// of it will never think to look at its own work.
+fn compose_system_prompt(cwd: &str, user_prompt: &str, has_browser: bool) -> String {
+    let mut parts: Vec<&str> = vec![
+        "You are running inside Nyra, a desktop GUI for Claude Code.",
+        "Tool call results are NOT shown inline — they are hidden inside collapsible cards the user may not open.",
+        "You MUST always include relevant output (file contents, command results, directory listings, etc.) directly in your text response.",
+        "Never say \"here it is\" or \"see above\" without actually showing the content in your message.",
+    ];
+    let cwd_line = format!(
+        "The current working directory is: {cwd}. When the user says \"your directory\" or \"this directory\", they mean this path."
+    );
+    parts.push(&cwd_line);
+    parts.push(ASK_CONVENTION);
+    parts.push(IMAGE_CONVENTION);
+    parts.push(TASKS_CONVENTION);
+    if has_browser {
+        parts.push(BROWSER_CONVENTION);
+    }
+
+    let nyra = parts.join(" ");
+    if user_prompt.is_empty() {
+        nyra
+    } else {
+        format!("{nyra}\n\n{user_prompt}")
+    }
+}
+
 fn build_spawn_args(
     cwd: &str,
     settings: &SpawnSettings,
@@ -798,22 +857,15 @@ fn build_spawn_args(
         args.push(settings.model.clone());
     }
 
-    let nyra_system_prompt = [
-        "You are running inside Nyra, a desktop GUI for Claude Code.",
-        "Tool call results are NOT shown inline — they are hidden inside collapsible cards the user may not open.",
-        "You MUST always include relevant output (file contents, command results, directory listings, etc.) directly in your text response.",
-        "Never say \"here it is\" or \"see above\" without actually showing the content in your message.",
-        &format!("The current working directory is: {cwd}. When the user says \"your directory\" or \"this directory\", they mean this path."),
-        ASK_CONVENTION,
-        IMAGE_CONVENTION,
-        TASKS_CONVENTION,
-    ]
-    .join(" ");
-    let full_system_prompt = if settings.system_prompt.is_empty() {
-        nyra_system_prompt
-    } else {
-        format!("{nyra_system_prompt}\n\n{}", settings.system_prompt)
-    };
+    // Resolved once: the same condition decides whether the tools are attached
+    // and whether the prompt is allowed to talk about them. Teaching a browser
+    // to a session that has none is worse than saying nothing.
+    let browser_mcp = nyra_session_id
+        .filter(|_| util::settings().browser_tools)
+        .and_then(crate::browser::mcp_endpoint);
+
+    let full_system_prompt =
+        compose_system_prompt(cwd, &settings.system_prompt, browser_mcp.is_some());
     args.push("--append-system-prompt".into());
     args.push(full_system_prompt);
 
@@ -853,10 +905,7 @@ fn build_spawn_args(
     // reason: the URL names a conversation, not a process shape, so it must
     // never be what makes us respawn. Nyra serves it from a port that is up
     // before any of this, so it is live whether or not a browser ever is.
-    if let Some((url, token)) = nyra_session_id
-        .filter(|_| util::settings().browser_tools)
-        .and_then(crate::browser::mcp_endpoint)
-    {
+    if let Some((url, token)) = browser_mcp {
         args.push("--mcp-config".into());
         args.push(
             json!({
@@ -1976,5 +2025,30 @@ mod tests {
             inner.settings.skip_permissions,
             &inner.settings.auto_approve_tools
         ));
+    }
+
+    #[test]
+    fn the_browser_is_only_taught_to_a_session_that_has_one() {
+        let with = compose_system_prompt("/tmp/x", "", true);
+        let without = compose_system_prompt("/tmp/x", "", false);
+
+        assert!(with.contains("This conversation has a real browser"));
+        // The failure that matters: a session with no browser tools must not be
+        // told it has a browser, or it will invent calls that cannot work.
+        assert!(!without.contains("real browser"));
+        assert!(!without.contains("browser_snapshot"));
+
+        // Everything else is taught either way.
+        for shared in ["```nyra-ask", "```nyra-tasks", "![alt](/absolute/path.png)"] {
+            assert!(with.contains(shared), "{shared}");
+            assert!(without.contains(shared), "{shared}");
+        }
+    }
+
+    #[test]
+    fn the_users_own_prompt_comes_last() {
+        let composed = compose_system_prompt("/tmp/x", "Always speak in haiku.", true);
+        assert!(composed.ends_with("Always speak in haiku."));
+        assert!(composed.contains("running inside Nyra"));
     }
 }
