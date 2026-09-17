@@ -158,6 +158,7 @@ export default function CommandPalette(): React.JSX.Element {
       onOpenChange={(next) => !next && closePalette()}
       title="Command palette"
       description="Search chats and past prompts, or run an action"
+      className="max-w-xl"
     >
       {/* CommandDialog drops its children straight into the dialog, so the
           cmdk root is ours to supply — which is also where filtering is turned

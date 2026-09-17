@@ -1138,11 +1138,33 @@ fn buffer_event(sess: &Arc<Session>, raw: Value) {
 /// They used to be read from the process-global so that "always allow" took
 /// effect mid-session; refreshing per turn keeps that while letting two projects
 /// hold different answers.
-fn requires_prompt(tool_name: &str, skip_permissions: bool, auto_approve: &[String]) -> bool {
+fn requires_prompt(
+    tool_name: &str,
+    input: &Value,
+    skip_permissions: bool,
+    auto_approve: &[String],
+) -> bool {
     if !PERMISSION_REQUIRED.contains(&tool_name) || skip_permissions {
         return false;
     }
+    // Writing the plan file is plan mode's own plumbing, not a change to the
+    // user's project. The CLI does not ask before writing it, and the plan is
+    // approved as a whole at ExitPlanMode — prompting here asked twice for one
+    // decision, the first time about a file the user never chose to touch.
+    if is_plan_file(input) {
+        return false;
+    }
     !auto_approve.iter().any(|t| t == tool_name)
+}
+
+/// A path under Claude's own `plans` directory, whoever's home it lives in.
+fn is_plan_file(input: &Value) -> bool {
+    let path = input
+        .get("file_path")
+        .or_else(|| input.get("path"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    path.contains("/.claude/plans/")
 }
 
 /// Announce the tool calls in an assistant message, gating any that need approval.
@@ -1174,7 +1196,7 @@ async fn process_tool_blocks(
             input: input.clone(),
             original_content: capture_original_content(tool_name, &input).await,
         };
-        if requires_prompt(tool_name, skip_permissions, &auto_approve) {
+        if requires_prompt(tool_name, &input, skip_permissions, &auto_approve) {
             prompts.push(info);
         } else {
             immediate.push(info);
@@ -1367,20 +1389,33 @@ mod tests {
 
     #[test]
     fn ungated_tools_never_prompt() {
-        assert!(!requires_prompt("Read", false, &[]));
-        assert!(!requires_prompt("Grep", false, &[]));
+        assert!(!requires_prompt("Read", &json!({}), false, &[]));
+        assert!(!requires_prompt("Grep", &json!({}), false, &[]));
     }
 
     #[test]
     fn gated_tools_prompt_by_default() {
         for tool in ["Bash", "Edit", "Write", "ExitPlanMode"] {
-            assert!(requires_prompt(tool, false, &[]), "{tool} should prompt");
+            assert!(requires_prompt(tool, &json!({}), false, &[]), "{tool} should prompt");
         }
     }
 
     #[test]
     fn skip_permissions_silences_everything() {
-        assert!(!requires_prompt("Bash", true, &[]));
+        assert!(!requires_prompt("Bash", &json!({}), true, &[]));
+    }
+
+    #[test]
+    fn writing_the_plan_file_does_not_prompt() {
+        // Plan mode writes its plan file through Write. The CLI never asks, and
+        // the plan is approved at ExitPlanMode, so asking here made the user
+        // approve a file they never chose to touch before seeing the plan.
+        let plan = json!({ "file_path": "/Users/x/.claude/plans/some-plan.md" });
+        assert!(!requires_prompt("Write", &plan, false, &[]));
+
+        // A write anywhere else still prompts.
+        let project = json!({ "file_path": "/Users/x/dev/app/src/main.rs" });
+        assert!(requires_prompt("Write", &project, false, &[]));
     }
 
     #[test]
@@ -1388,15 +1423,15 @@ mod tests {
         // The regression: the backend used to prompt regardless, so an
         // auto-approved Bash still raised the gate and fired an OS notification
         // for a dialog the renderer had already dismissed.
-        assert!(!requires_prompt("Bash", false, &approved(&["Bash"])));
+        assert!(!requires_prompt("Bash", &json!({}), false, &approved(&["Bash"])));
         // Auto-approving one tool must not silence the others.
-        assert!(requires_prompt("Edit", false, &approved(&["Bash"])));
+        assert!(requires_prompt("Edit", &json!({}), false, &approved(&["Bash"])));
     }
 
     #[test]
     fn auto_approval_matches_exactly() {
-        assert!(requires_prompt("Bash", false, &approved(&["bash"])));
-        assert!(requires_prompt("Bash", false, &approved(&["BashOutput"])));
+        assert!(requires_prompt("Bash", &json!({}), false, &approved(&["bash"])));
+        assert!(requires_prompt("Bash", &json!({}), false, &approved(&["BashOutput"])));
     }
 
     fn prompt(tool: &str) -> PendingPermission {
@@ -1560,6 +1595,7 @@ mod tests {
         let mut inner = SessionInner::for_test();
         assert!(requires_prompt(
             "Bash",
+            &json!({}),
             inner.settings.skip_permissions,
             &inner.settings.auto_approve_tools
         ));
@@ -1571,6 +1607,7 @@ mod tests {
 
         assert!(!requires_prompt(
             "Bash",
+            &json!({}),
             inner.settings.skip_permissions,
             &inner.settings.auto_approve_tools
         ));
