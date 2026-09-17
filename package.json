@@ -1,6 +1,6 @@
 {
   "name": "nyra",
-  "version": "0.0.2",
+  "version": "0.0.1",
   "description": "A Tauri desktop client for Claude Code",
   "license": "MIT",
   "type": "module",
@@ -21,7 +21,7 @@
     "release": "npm test && npm run test:rust && npm version patch && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",
     "release:minor": "npm test && npm run test:rust && npm version minor && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",
     "release:major": "npm test && npm run test:rust && npm version major && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",
-    "version": "node scripts/add-release-note.js",
+    "version": "node scripts/sync-version.mjs",
     "sidecar:install": "npm --prefix sidecar install --no-audit --no-fund",
     "postinstall": "npm run sidecar:install",
     "release:manifest": "node scripts/release-manifest.mjs"
