@@ -45,6 +45,11 @@ pub fn run() {
         .setup(|app| {
             util::set_app_handle(app.handle().clone());
 
+            // Resolve the user's real PATH before anything is spawned. A GUI
+            // launch inherits launchd's, which has no node, no npx, no bun —
+            // so every stdio MCP server would ENOENT without this.
+            util::prime_path();
+
             // The window is configured hidden so the first paint is the app rather
             // than a blank rectangle; the frontend calls show() once React mounts.
             // This is the backstop: if the frontend never gets that far, showing a
