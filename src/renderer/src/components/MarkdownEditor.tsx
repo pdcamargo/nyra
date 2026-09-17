@@ -1,5 +1,5 @@
 import React, { useEffect, useImperativeHandle, useRef } from 'react'
-import { EditorState, type Extension } from '@codemirror/state'
+import { EditorState, Prec, type Extension } from '@codemirror/state'
 import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
@@ -159,8 +159,6 @@ export default function MarkdownEditor({
 
     const extensions: Extension[] = [
       history(),
-      // Our own handler runs first through domEventHandlers, so these only see
-      // keys it did not claim.
       keymap.of([...historyKeymap, ...defaultKeymap]),
       markdown({ codeLanguages: languages }),
       syntaxHighlighting(highlightStyle),
@@ -172,14 +170,19 @@ export default function MarkdownEditor({
       EditorView.updateListener.of((update) => {
         if (update.docChanged) onChangeRef.current(update.state.doc.toString())
       }),
-      EditorView.domEventHandlers({
-        keydown: (event) => {
-          onKeyDownRef.current?.(event)
-          // Returning true tells CodeMirror the key is spoken for, which is
-          // exactly what preventDefault already means for the caller.
-          return event.defaultPrevented
-        }
-      }),
+      // Highest precedence, or the default keymap gets Enter first and inserts a
+      // newline before the composer ever sees it — Enter then both broke the line
+      // and sent the message.
+      Prec.highest(
+        EditorView.domEventHandlers({
+          keydown: (event) => {
+            onKeyDownRef.current?.(event)
+            // Returning true tells CodeMirror the key is spoken for, which is
+            // exactly what preventDefault already means for the caller.
+            return event.defaultPrevented
+          }
+        })
+      ),
       ...(placeholder ? [cmPlaceholder(placeholder)] : [])
     ]
 
