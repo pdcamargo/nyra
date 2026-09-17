@@ -25,9 +25,12 @@ for (const volume of volumes) {
   }
 }
 
+// Anything .dmg: the half-written `rw.<pid>.*` staging images, and finished ones
+// from an older version — the release uploads `dmg/*.dmg`, so a leftover from a
+// previous version is an asset advertising itself as the current download.
 for (const dir of ['src-tauri/target/release/bundle/macos', 'src-tauri/target/release/bundle/dmg']) {
   if (!existsSync(dir)) continue
-  for (const file of readdirSync(dir).filter((f) => f.startsWith('rw.') && f.endsWith('.dmg'))) {
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.dmg'))) {
     rmSync(join(dir, file), { force: true })
     console.log(`removed stale ${file}`)
   }
