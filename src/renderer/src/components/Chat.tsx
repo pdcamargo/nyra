@@ -392,6 +392,26 @@ export default function Chat(): React.JSX.Element {
     virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end' })
   }, [virtualItems.length, totalSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * Stay pinned when the viewport shrinks under you.
+   *
+   * The strips above the composer come and go — an agent starts, a checklist
+   * appears — and each one takes height from the transcript. The content has not
+   * changed, so nothing above re-scrolls, and `scrollTop` stays where it was:
+   * the last line you were reading slides up behind the strip that just
+   * appeared. Re-assert the bottom whenever the box itself resizes.
+   */
+  useEffect(() => {
+    const el = messagesRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (!stuckToBottomRef.current || virtualItems.length === 0) return
+      virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end' })
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [virtualItems.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Track scroll position to show/hide "jump to bottom" button
   useEffect(() => {
     const el = messagesRef.current
@@ -1555,7 +1575,10 @@ export default function Chat(): React.JSX.Element {
           of the composer instead of on top of it. */}
       {showJumpBottom && (
         <button
-          onClick={() => virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end', behavior: 'smooth' })}
+          onClick={() => {
+            stuckToBottomRef.current = true
+            virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end', behavior: 'smooth' })
+          }}
           className="absolute left-1/2 -translate-x-1/2 bottom-4 z-10 rounded-full bg-accent border border-border-strong px-3 py-1.5 text-[11px] text-foreground/80 hover:text-foreground hover:bg-secondary transition-all shadow-lg flex items-center gap-1.5"
         >
           <ChevronDown className="size-3" />
