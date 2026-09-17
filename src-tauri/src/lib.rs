@@ -158,11 +158,16 @@ pub fn run() {
             commands::terminal_resize,
             commands::terminal_kill,
             commands::browser_status,
-            commands::browser_ensure,
-            commands::browser_release,
+            commands::browser_configure,
+            commands::browser_install,
+            commands::browser_open_chat,
+            commands::browser_close_chat,
             commands::browser_touch,
-            commands::browser_open_tab,
-            commands::browser_install_chromium,
+            commands::browser_tab_create,
+            commands::browser_tab_close,
+            commands::browser_tab_navigate,
+            commands::browser_tab_history,
+            commands::browser_tab_list,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Nyra")

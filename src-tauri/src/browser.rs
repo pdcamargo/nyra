@@ -3,42 +3,48 @@
 //! Nyra does not speak CDP. A Node sidecar owns Playwright, which owns one
 //! headless Chromium for the whole app and one `BrowserContext` per chat; the
 //! webview then holds its own CDP socket straight to that Chromium, so frames
-//! and input never pass through here. This module's whole job is to start the
-//! sidecar, keep it alive, and forward the handful of requests a raw CDP socket
-//! cannot make for itself.
+//! and input never pass through here. This module starts the sidecar, keeps it
+//! alive, and carries the handful of requests a raw CDP socket cannot make for
+//! itself — launching the browser, and owning the context that scopes a chat.
 //!
-//! Supervision follows `terminal.rs`: a reader task per pipe, exit detected on
-//! EOF, and an event at the renderer either way. Nothing restarts
-//! automatically — the next `ensure` starts a fresh one, which is the same
-//! contract the terminal has.
+//! The wire is newline-delimited JSON over a pipe, the same shape `claude.rs`
+//! uses for the Claude CLI and for the same reason: no port to bind, no token
+//! to check, and the pipe closing is how we learn the child died.
 
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::Manager;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
+use tokio::sync::oneshot;
 
 use crate::util;
 
-/// Node needs to boot, read its own port and answer. Generous because a cold
-/// import of playwright-core is not instant on a slow disk.
-const READY_TIMEOUT: Duration = Duration::from_secs(20);
+/// Enough for a cold `import playwright-core` on a slow disk.
+const CALL_TIMEOUT: Duration = Duration::from_secs(90);
+/// Chromium is a 182 MiB download on a connection we know nothing about.
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+
+type Reply = oneshot::Sender<Result<Value, String>>;
 
 struct Sidecar {
-    port: u16,
-    token: String,
     pid: u32,
-    /// Holding stdin open is what keeps the sidecar alive. It watches for EOF
-    /// and shuts Chromium down, so a Nyra that dies without saying anything
-    /// still doesn't leak a headless browser.
-    _stdin: ChildStdin,
+    /// Also the kill switch: the sidecar shuts Chromium down when stdin hits
+    /// EOF, so a Nyra that dies without saying anything still doesn't leak a
+    /// browser.
+    stdin: Arc<tokio::sync::Mutex<ChildStdin>>,
 }
 
-static SIDECAR: Lazy<Mutex<Option<Sidecar>>> = Lazy::new(|| Mutex::new(None));
+static SIDECAR: Lazy<Mutex<Option<Arc<Sidecar>>>> = Lazy::new(|| Mutex::new(None));
+static PENDING: Lazy<Mutex<HashMap<u64, Reply>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// Two chats opening a browser at once must not race into two sidecars.
 static START_GATE: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
 
@@ -57,7 +63,7 @@ fn which(name: &str) -> Option<PathBuf> {
 /// Packaged, the sidecar rides along in Resources. In development it is the
 /// checkout this binary was built from.
 fn sidecar_dir() -> Option<PathBuf> {
-    let has_entry = |dir: &PathBuf| dir.join("src").join("index.mjs").is_file();
+    let has_entry = |dir: &PathBuf| dir.join("index.mjs").is_file();
 
     if let Some(app) = util::app_handle() {
         if let Ok(dir) = app
@@ -77,35 +83,39 @@ fn sidecar_dir() -> Option<PathBuf> {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-fn live_sidecar() -> Option<(u16, String)> {
+fn live() -> Option<Arc<Sidecar>> {
     let guard = SIDECAR.lock();
     let sidecar = guard.as_ref()?;
-    crate::processes::is_alive(sidecar.pid as i32).then(|| (sidecar.port, sidecar.token.clone()))
+    crate::processes::is_alive(sidecar.pid as i32).then(|| Arc::clone(sidecar))
 }
 
-async fn ensure_sidecar() -> Result<(u16, String), String> {
-    if let Some(live) = live_sidecar() {
-        return Ok(live);
+async fn ensure() -> Result<Arc<Sidecar>, String> {
+    if let Some(sidecar) = live() {
+        return Ok(sidecar);
     }
     let _gate = START_GATE.lock().await;
-    // Someone may have won the race to the gate.
-    if let Some(live) = live_sidecar() {
-        return Ok(live);
+    if let Some(sidecar) = live() {
+        return Ok(sidecar);
     }
-    start_sidecar().await
+    start().await
 }
 
-async fn start_sidecar() -> Result<(u16, String), String> {
-    let node = which("node").ok_or_else(|| {
-        "Node.js is not installed, or not on the PATH Nyra can see.".to_string()
-    })?;
+/// Fail every in-flight call. A sidecar that died owes answers it will never
+/// give, and a caller waiting on the timeout learns nothing useful.
+fn drain_pending(reason: &str) {
+    let pending: Vec<Reply> = PENDING.lock().drain().map(|(_, tx)| tx).collect();
+    for tx in pending {
+        let _ = tx.send(Err(reason.to_string()));
+    }
+}
+
+async fn start() -> Result<Arc<Sidecar>, String> {
+    let node = which("node")
+        .ok_or_else(|| "Node.js is not installed, or not on the PATH Nyra can see.".to_string())?;
     let dir = sidecar_dir().ok_or_else(|| "The browser sidecar is missing.".to_string())?;
-    let token = util::rand_hex(16);
 
     let mut child = Command::new(&node)
-        .arg(dir.join("src").join("index.mjs"))
-        .arg("--token")
-        .arg(&token)
+        .arg(dir.join("index.mjs"))
         .current_dir(&dir)
         .env_clear()
         .envs(util::clean_child_env())
@@ -121,36 +131,31 @@ async fn start_sidecar() -> Result<(u16, String), String> {
     let stdout = child.stdout.take().ok_or("sidecar has no stdout")?;
     let stderr = child.stderr.take().ok_or("sidecar has no stderr")?;
 
-    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<u16>();
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
-        let mut ready_tx = Some(ready_tx);
         while let Ok(Some(line)) = lines.next_line().await {
-            let Ok(event) = serde_json::from_str::<Value>(&line) else {
+            let Ok(message) = serde_json::from_str::<Value>(&line) else {
                 crate::log!("browser", "unparsed sidecar line: {line}");
                 continue;
             };
-            // `ready` is the handshake, not news — it resolves the start rather
-            // than reaching the renderer.
-            if event.get("type").and_then(Value::as_str) == Some("ready") {
-                if let (Some(tx), Some(port)) = (
-                    ready_tx.take(),
-                    event.get("port").and_then(Value::as_u64),
-                ) {
-                    let _ = tx.send(port as u16);
+            // A reply carries an id; anything else is news for the renderer.
+            if let Some(id) = message.get("id").and_then(Value::as_u64) {
+                if let Some(tx) = PENDING.lock().remove(&id) {
+                    let _ = tx.send(match message.get("error").and_then(Value::as_str) {
+                        Some(error) => Err(error.to_string()),
+                        None => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
+                    });
                 }
                 continue;
             }
-            util::emit("browser:event", event);
+            util::emit("browser:event", message);
         }
 
-        let exit_code = child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1);
+        let code = child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1);
         SIDECAR.lock().take();
-        crate::log!("browser", "sidecar exited ({exit_code})");
-        util::emit(
-            "browser:event",
-            json!({ "type": "sidecar-exit", "exitCode": exit_code }),
-        );
+        drain_pending("The browser sidecar stopped.");
+        crate::log!("browser", "sidecar exited ({code})");
+        util::emit("browser:event", json!({ "event": "exit", "params": { "code": code } }));
     });
 
     tauri::async_runtime::spawn(async move {
@@ -160,19 +165,13 @@ async fn start_sidecar() -> Result<(u16, String), String> {
         }
     });
 
-    let port = tokio::time::timeout(READY_TIMEOUT, ready_rx)
-        .await
-        .map_err(|_| "The browser sidecar did not start in time.".to_string())?
-        .map_err(|_| "The browser sidecar exited while starting.".to_string())?;
-
-    crate::log!("browser", "sidecar ready on 127.0.0.1:{port} (pid {pid})");
-    *SIDECAR.lock() = Some(Sidecar {
-        port,
-        token,
+    let sidecar = Arc::new(Sidecar {
         pid,
-        _stdin: stdin,
+        stdin: Arc::new(tokio::sync::Mutex::new(stdin)),
     });
-    live_sidecar().ok_or_else(|| "The browser sidecar died on startup.".to_string())
+    *SIDECAR.lock() = Some(Arc::clone(&sidecar));
+    crate::log!("browser", "sidecar started (pid {pid})");
+    Ok(sidecar)
 }
 
 /// Drop the sidecar. Idempotent, because `shutdown()` runs more than once.
@@ -180,9 +179,7 @@ pub fn stop() {
     let Some(sidecar) = SIDECAR.lock().take() else {
         return;
     };
-    // Dropping stdin is the polite ask; the signal is the follow-up for a
-    // sidecar that is wedged rather than listening.
-    drop(sidecar._stdin);
+    drain_pending("Nyra is shutting down.");
     if sidecar.pid > 0 {
         let _ = crate::processes::kill_by_pid(sidecar.pid as i32);
     }
@@ -192,138 +189,113 @@ pub fn stop() {
 // Talking to it
 // ---------------------------------------------------------------------------
 
-async fn request(method: reqwest::Method, path: &str, body: Value) -> Result<Value, String> {
-    let (port, token) = ensure_sidecar().await?;
-    let client = reqwest::Client::new();
-    let mut req = client
-        .request(method, format!("http://127.0.0.1:{port}{path}"))
-        .header("x-nyra-token", token)
-        .timeout(Duration::from_secs(60));
-    if !body.is_null() {
-        req = req.json(&body);
+async fn call_with(timeout: Duration, method: &str, params: Value) -> Result<Value, String> {
+    let sidecar = ensure().await?;
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let line = format!(
+        "{}\n",
+        json!({ "id": id, "method": method, "params": params })
+    );
+
+    let (tx, rx) = oneshot::channel();
+    PENDING.lock().insert(id, tx);
+
+    // Registered before the write, so a reply cannot arrive before there is
+    // somewhere to put it.
+    let write = {
+        let mut stdin = sidecar.stdin.lock().await;
+        stdin.write_all(line.as_bytes()).await.and(stdin.flush().await)
+    };
+    if let Err(e) = write {
+        PENDING.lock().remove(&id);
+        return Err(format!("The browser sidecar is not listening: {e}"));
     }
-    let res = req
-        .send()
-        .await
-        .map_err(|e| format!("The browser sidecar did not answer: {e}"))?;
-    let value: Value = res
-        .json()
-        .await
-        .map_err(|e| format!("The browser sidecar sent nonsense: {e}"))?;
-    match value.get("error").and_then(Value::as_str) {
-        Some(err) => Err(err.to_string()),
-        None => Ok(value),
+
+    match tokio::time::timeout(timeout, rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("The browser sidecar stopped.".to_string()),
+        Err(_) => {
+            PENDING.lock().remove(&id);
+            Err(format!("The browser did not answer `{method}` in time."))
+        }
     }
 }
 
-/// Start the sidecar if needed and report what it can see. Does **not** launch
-/// Chromium — the panel asks this first so it can show a first-run state
-/// instead of an error.
+async fn call(method: &str, params: Value) -> Result<Value, String> {
+    call_with(CALL_TIMEOUT, method, params).await
+}
+
+/// Every command answers `{ ok }` or `{ ok: false, error }` rather than
+/// rejecting: the panel renders a failure as a state, and a rejected promise
+/// would only become an unhandled one somewhere in the renderer.
+fn settle(result: Result<Value, String>) -> Value {
+    match result {
+        Ok(Value::Object(map)) => {
+            let mut out = serde_json::Map::new();
+            out.insert("ok".into(), Value::Bool(true));
+            out.extend(map);
+            Value::Object(out)
+        }
+        Ok(other) => json!({ "ok": true, "result": other }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+/// Push the launch settings down. Starts the sidecar but launches nothing.
+pub async fn configure(patch: Value) -> Value {
+    settle(call("configure", json!({ "patch": patch })).await)
+}
+
+/// What the sidecar can see: whether a Chromium is on disk, and whether one is
+/// running. Deliberately does not launch — the panel asks this first so it can
+/// show a first-run state instead of an error.
 pub async fn status() -> Value {
-    match request(reqwest::Method::GET, "/state", Value::Null).await {
-        Ok(state) => json!({ "ok": true, "state": state }),
-        Err(error) => json!({ "ok": false, "error": error }),
-    }
+    settle(call("status", json!({})).await)
 }
 
-/// Give this chat a browser context, launching Chromium on the first ask.
-pub async fn ensure(chat_id: &str) -> Value {
-    let body = json!({ "chatId": chat_id });
-    match request(reqwest::Method::POST, "/chat/ensure", body).await {
-        Ok(value) => json!({ "ok": true, "browser": value }),
-        Err(error) => json!({ "ok": false, "error": error }),
-    }
+pub async fn install() -> Value {
+    settle(call_with(INSTALL_TIMEOUT, "install", json!({})).await)
 }
 
-pub async fn release(chat_id: &str) -> Value {
-    let body = json!({ "chatId": chat_id });
-    match request(reqwest::Method::POST, "/chat/release", body).await {
-        Ok(_) => json!({ "ok": true }),
-        Err(error) => json!({ "ok": false, "error": error }),
-    }
+pub async fn open_chat(chat_id: &str) -> Value {
+    settle(call("chat.open", json!({ "chatId": chat_id })).await)
 }
 
-/// Keep this chat's context off the idle sweeper's list. The renderer calls it
+pub async fn close_chat(chat_id: &str) -> Value {
+    settle(call("chat.close", json!({ "chatId": chat_id })).await)
+}
+
+/// Keep this chat's context off the idle sweeper's list. The renderer pings it
 /// while a surface for the chat is on screen.
 pub async fn touch(chat_id: &str) -> Value {
-    let body = json!({ "chatId": chat_id });
-    match request(reqwest::Method::POST, "/chat/touch", body).await {
-        Ok(value) => value,
-        Err(error) => json!({ "ok": false, "error": error }),
-    }
+    settle(call("chat.touch", json!({ "chatId": chat_id })).await)
 }
 
-pub async fn open_tab(chat_id: &str, url: &str) -> Value {
-    let body = json!({ "chatId": chat_id, "url": url });
-    match request(reqwest::Method::POST, "/chat/open-tab", body).await {
-        Ok(_) => json!({ "ok": true }),
-        Err(error) => json!({ "ok": false, "error": error }),
-    }
+pub async fn tab_create(chat_id: &str, url: &str) -> Value {
+    settle(call("tab.create", json!({ "chatId": chat_id, "url": url })).await)
 }
 
-// ---------------------------------------------------------------------------
-// First run
-// ---------------------------------------------------------------------------
+pub async fn tab_close(chat_id: &str, tab_id: &str) -> Value {
+    settle(call("tab.close", json!({ "chatId": chat_id, "tabId": tab_id })).await)
+}
 
-/// Download the Chromium that Playwright expects.
-///
-/// `--no-shell` skips chromium-headless-shell, ~94 MB of a build we would never
-/// launch: it follows the old headless codepath, which has no compositor and so
-/// cannot screencast.
-pub async fn install_chromium() -> Value {
-    let Some(node) = which("node") else {
-        return json!({ "ok": false, "error": "Node.js is not installed, or not on the PATH Nyra can see." });
+pub async fn tab_navigate(chat_id: &str, tab_id: &str, url: &str) -> Value {
+    settle(call("tab.navigate", json!({ "chatId": chat_id, "tabId": tab_id, "url": url })).await)
+}
+
+/// `back`, `forward` and `reload` differ only in the method name.
+pub async fn tab_history(chat_id: &str, tab_id: &str, action: &str) -> Value {
+    let method = match action {
+        "back" => "tab.back",
+        "forward" => "tab.forward",
+        "reload" => "tab.reload",
+        other => return json!({ "ok": false, "error": format!("unknown action {other}") }),
     };
-    let Some(dir) = sidecar_dir() else {
-        return json!({ "ok": false, "error": "The browser sidecar is missing." });
-    };
+    settle(call(method, json!({ "chatId": chat_id, "tabId": tab_id })).await)
+}
 
-    let mut child = match Command::new(&node)
-        .arg(dir.join("node_modules").join("playwright-core").join("cli.js"))
-        .args(["install", "chromium", "--no-shell"])
-        .current_dir(&dir)
-        .env_clear()
-        .envs(util::clean_child_env())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(e) => return json!({ "ok": false, "error": format!("Could not start the download: {e}") }),
-    };
-
-    // Playwright draws its progress bar as whole lines, so percentages arrive
-    // one per line rather than as carriage-return redraws.
-    if let Some(stdout) = child.stdout.take() {
-        tauri::async_runtime::spawn(async move {
-            let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let percent = line
-                    .split('|')
-                    .next_back()
-                    .and_then(|tail| tail.trim().split('%').next())
-                    .and_then(|n| n.trim().parse::<u8>().ok());
-                util::emit(
-                    "browser:event",
-                    json!({ "type": "install-progress", "line": line, "percent": percent }),
-                );
-            }
-        });
-    }
-    if let Some(stderr) = child.stderr.take() {
-        tauri::async_runtime::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                crate::log!("browser", "install: {line}");
-            }
-        });
-    }
-
-    match child.wait().await {
-        Ok(s) if s.success() => json!({ "ok": true }),
-        Ok(s) => json!({ "ok": false, "error": format!("The download failed ({}).", s.code().unwrap_or(-1)) }),
-        Err(e) => json!({ "ok": false, "error": format!("The download failed: {e}") }),
-    }
+pub async fn tab_list(chat_id: &str) -> Value {
+    settle(call("tab.list", json!({ "chatId": chat_id })).await)
 }
 
 #[cfg(test)]
@@ -338,10 +310,27 @@ mod tests {
 
     #[test]
     fn the_sidecar_ships_with_the_checkout() {
-        // Packaging bug insurance: if this moves, the panel dies in release
+        // Packaging-bug insurance: if this moves, the panel dies in release
         // builds only, which is the worst time to find out.
         let dir = sidecar_dir().expect("sidecar directory");
-        assert!(dir.join("src").join("browser.mjs").is_file());
+        assert!(dir.join("index.mjs").is_file());
         assert!(dir.join("package.json").is_file());
+    }
+
+    #[test]
+    fn settle_flattens_a_result_and_marks_failure() {
+        let ok = settle(Ok(json!({ "cdpUrl": "ws://x" })));
+        assert_eq!(ok["ok"], json!(true));
+        assert_eq!(ok["cdpUrl"], json!("ws://x"));
+
+        let bad = settle(Err("nope".into()));
+        assert_eq!(bad["ok"], json!(false));
+        assert_eq!(bad["error"], json!("nope"));
+    }
+
+    #[test]
+    fn history_rejects_an_action_it_does_not_know() {
+        let out = tauri::async_runtime::block_on(tab_history("c", "t", "sideways"));
+        assert_eq!(out["ok"], json!(false));
     }
 }

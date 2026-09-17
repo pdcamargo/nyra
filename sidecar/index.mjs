@@ -29,8 +29,15 @@ let cdpPort = null
 let cdpUrl = null
 let launching = null
 
-/** chatId -> { context, tabs: Map<tabId, Tab> } */
+/** chatId -> { context, tabs: Map<tabId, Tab>, touchedAt } */
 const chats = new Map()
+
+/** A context with a real page in it measured at 220-490 MB, so three or four
+ *  chats browsing at once is the whole budget. A chat nobody has looked at in
+ *  ten minutes does not get to keep one; the renderer holds the tab list and
+ *  rebuilds it on demand. */
+const IDLE_EVICTION_MS = 10 * 60 * 1000
+let sweeper = null
 let tabSeq = 0
 
 // ---------------------------------------------------------------- utilities
@@ -180,7 +187,12 @@ async function snapshot(tab) {
     // Playwright exposes goBack()/goForward() but not whether they would do
     // anything, and a dead back button is worse than no back button.
     const history = await tab.cdp.send('Page.getNavigationHistory')
-    canGoBack = history.currentIndex > 0
+    // A tab starts life as about:blank and is then navigated, so "there is an
+    // entry behind this one" is not the same as "back goes somewhere". Going
+    // back to a blank page is worse than a disabled button.
+    canGoBack = history.entries
+      .slice(0, history.currentIndex)
+      .some((entry) => entry.url && entry.url !== 'about:blank')
     canGoForward = history.currentIndex < history.entries.length - 1
   } catch {
     // The page is mid-navigation or gone; the defaults are the safe answer.
@@ -223,7 +235,28 @@ function broadcastTabs(chatId) {
   )
 }
 
-async function adoptPage(chatId, entry, page) {
+/** page -> the in-flight adoption for it. See adoptPage. */
+const adopting = new WeakMap()
+
+/**
+ * Claim a Page as a tab, exactly once.
+ *
+ * `context.newPage()` and the context's own 'page' event both race to claim the
+ * same Page. Handing both of them the *same promise* is what makes that safe: a
+ * plain "already claimed" flag would leave whoever lost the race with nothing to
+ * wait on, and it would go on to create a second tab for the same surface — or,
+ * worse, report that the tab it just asked for does not exist. The lookup and
+ * the store below have no await between them, so nothing can interleave.
+ */
+function adoptPage(chatId, entry, page) {
+  const inFlight = adopting.get(page)
+  if (inFlight) return inFlight
+  const promise = doAdoptPage(chatId, entry, page)
+  adopting.set(page, promise)
+  return promise
+}
+
+async function doAdoptPage(chatId, entry, page) {
   const tabId = `t${++tabSeq}`
   const cdp = await entry.context.newCDPSession(page)
   const { targetInfo } = await cdp.send('Target.getTargetInfo')
@@ -259,14 +292,32 @@ async function openChat(chatId) {
     // A context per chat, not a process per chat: contexts isolate cookies and
     // storage for a fraction of the memory. Verified isolated in the spike.
     const context = await browser.newContext({ viewport: { ...config.viewport } })
-    entry = { context, tabs: new Map() }
+    entry = { context, tabs: new Map(), touchedAt: Date.now() }
     chats.set(chatId, entry)
+    startSweeper()
     context.on('page', (page) => {
-      const known = [...entry.tabs.values()].some((t) => t.page === page)
-      if (!known) void adoptPage(chatId, entry, page)
+      void adoptPage(chatId, entry, page)
     })
   }
-  return { cdpUrl, chatId }
+  entry.touchedAt = Date.now()
+  return { cdpUrl, chatId, viewport: { ...config.viewport } }
+}
+
+function startSweeper() {
+  if (sweeper) return
+  sweeper = setInterval(() => {
+    const cutoff = Date.now() - IDLE_EVICTION_MS
+    for (const [chatId, entry] of [...chats]) {
+      if (entry.touchedAt > cutoff) continue
+      emit('evicted', { chatId })
+      void closeChat(chatId)
+    }
+    if (chats.size === 0) {
+      clearInterval(sweeper)
+      sweeper = null
+    }
+  }, 60_000)
+  sweeper.unref?.()
 }
 
 async function closeChat(chatId) {
@@ -297,6 +348,7 @@ const methods = {
       error: probe.error ?? null,
       running: Boolean(browser?.isConnected()),
       cdpUrl,
+      viewport: { ...config.viewport },
       chats: [...chats.keys()]
     }
   },
@@ -304,14 +356,24 @@ const methods = {
   install: () => installChromium(),
 
   'chat.open': ({ chatId }) => openChat(chatId),
+
+  /** The renderer pings this while a surface for the chat is on screen, which
+   *  is the only thing that can distinguish "idle" from "being watched" — the
+   *  renderer's CDP traffic never reaches this process. */
+  'chat.touch'({ chatId }) {
+    const entry = chats.get(chatId)
+    if (entry) entry.touchedAt = Date.now()
+    return { touched: Boolean(entry) }
+  },
   'chat.close': ({ chatId }) => closeChat(chatId),
 
   async 'tab.create'({ chatId, url }) {
-    const { } = await openChat(chatId)
+    await openChat(chatId)
     const entry = chatEntry(chatId)
     const page = await entry.context.newPage()
-    const known = [...entry.tabs.values()].find((t) => t.page === page)
-    const tab = known ?? (await adoptPage(chatId, entry, page))
+    // The context's 'page' event usually wins the race above, so look the tab
+    // up rather than assuming we are the one who created it.
+    const tab = await adoptPage(chatId, entry, page)
     if (url) {
       await page.goto(url, { waitUntil: 'commit' }).catch((e) => log('goto failed:', e.message))
     }

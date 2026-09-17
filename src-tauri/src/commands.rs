@@ -678,24 +678,30 @@ pub fn terminal_kill(id: String) {
 }
 
 // ---- browser ----
-//
-// Every one of these returns `{ ok }` or `{ ok: false, error }` rather than
-// rejecting: the panel renders the failure as a state, and a rejected promise
-// would just become an unhandled one somewhere in the renderer.
 
 #[tauri::command]
 pub async fn browser_status() -> Value {
     browser::status().await
 }
 
-#[tauri::command(rename_all = "camelCase")]
-pub async fn browser_ensure(chat_id: String) -> Value {
-    browser::ensure(&chat_id).await
+#[tauri::command]
+pub async fn browser_configure(patch: Value) -> Value {
+    browser::configure(patch).await
+}
+
+#[tauri::command]
+pub async fn browser_install() -> Value {
+    browser::install().await
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn browser_release(chat_id: String) -> Value {
-    browser::release(&chat_id).await
+pub async fn browser_open_chat(chat_id: String) -> Value {
+    browser::open_chat(&chat_id).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn browser_close_chat(chat_id: String) -> Value {
+    browser::close_chat(&chat_id).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -704,11 +710,26 @@ pub async fn browser_touch(chat_id: String) -> Value {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn browser_open_tab(chat_id: String, url: String) -> Value {
-    browser::open_tab(&chat_id, &url).await
+pub async fn browser_tab_create(chat_id: String, url: String) -> Value {
+    browser::tab_create(&chat_id, &url).await
 }
 
-#[tauri::command]
-pub async fn browser_install_chromium() -> Value {
-    browser::install_chromium().await
+#[tauri::command(rename_all = "camelCase")]
+pub async fn browser_tab_close(chat_id: String, tab_id: String) -> Value {
+    browser::tab_close(&chat_id, &tab_id).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn browser_tab_navigate(chat_id: String, tab_id: String, url: String) -> Value {
+    browser::tab_navigate(&chat_id, &tab_id, &url).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn browser_tab_history(chat_id: String, tab_id: String, action: String) -> Value {
+    browser::tab_history(&chat_id, &tab_id, &action).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn browser_tab_list(chat_id: String) -> Value {
+    browser::tab_list(&chat_id).await
 }
