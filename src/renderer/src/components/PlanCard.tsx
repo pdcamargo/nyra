@@ -74,6 +74,7 @@ export default function PlanCard({
   return (
     <div className="my-2 overflow-hidden rounded-lg border border-border bg-card">
       <button
+        type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-accent/40"

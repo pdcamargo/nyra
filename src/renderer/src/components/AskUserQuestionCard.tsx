@@ -10,11 +10,22 @@ import {
   QuestionnaireNext,
   QuestionnairePrevious,
   QuestionnaireProgress,
+  QuestionnaireSkip,
   QuestionnaireSubmit,
   QuestionnaireTitle
 } from './ui/questionnaire'
 import { useUiStore } from '../store/ui'
-import type { ToolCallMessage } from '../store/sessions'
+import { useSessionsStore, type ToolCallMessage } from '../store/sessions'
+
+/**
+ * The value behind "Something else".
+ *
+ * The questionnaire refuses to submit an item whose status is `unanswered`, so a
+ * free-text box sitting alongside the choices could be filled in and then
+ * silently swallowed. Typing ticks this choice instead, which is what makes the
+ * answer real; on submit it is swapped back out for what was actually typed.
+ */
+const OTHER = '__other__'
 
 type Option = { label: string; description?: string }
 type Question = {
@@ -28,6 +39,15 @@ function parseQuestions(input: Record<string, unknown>): Question[] {
   const raw = input.questions
   if (!Array.isArray(raw)) return []
   return raw.filter((q): q is Question => !!q && typeof q === 'object' && 'question' in q)
+}
+
+/** The short label a question carries, so a set of them can be told apart. */
+function HeaderChip({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <span className="mr-2 rounded-sm bg-accent px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      {children}
+    </span>
+  )
 }
 
 /**
@@ -57,10 +77,22 @@ export default function AskUserQuestionCard({
       questions.map((q, i) => ({
         name: `q${i}`,
         required: false,
-        choices: q.options.map((opt) => ({ value: opt.label }))
+        choices: [...q.options.map((opt) => ({ value: opt.label })), { value: OTHER }]
       })),
     [questions]
   )
+
+  /** Typing is answering — keep the sentinel choice in step with the text box. */
+  const syncOther =
+    (index: number) =>
+    (event: React.FormEvent<HTMLInputElement>): void => {
+      const field = event.currentTarget
+      const wanted = field.value.trim().length > 0
+      const choice = field.form?.querySelector<HTMLInputElement>(
+        `input[name="q${index}"][value="${OTHER}"]`
+      )
+      if (choice && choice.checked !== wanted) choice.click()
+    }
 
   const onSubmit = (event: React.FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -68,13 +100,23 @@ export default function AskUserQuestionCard({
     const lines = questions
       .map((q, i) => {
         const picked = data.getAll(`q${i}`).filter(Boolean) as string[]
-        if (picked.length === 0) return null
-        return questions.length > 1 ? `${q.question} ${picked.join(', ')}` : picked.join(', ')
+        // None of the options is often the true answer, and on a multi-select it
+        // sits happily beside one that is.
+        const other = String(data.get(`q${i}-other`) ?? '').trim()
+        const parts = picked.filter((p) => p !== OTHER)
+        if (other) parts.push(other)
+        if (parts.length === 0) return null
+        return questions.length > 1 ? `${q.question} ${parts.join(', ')}` : parts.join(', ')
       })
       .filter(Boolean)
     if (lines.length === 0) return
-    prefillInput(lines.join('\n'))
+    const answer = lines.join('\n')
+    prefillInput(answer)
     setSubmitted(true)
+    // Record it on the message too, so a reloaded transcript shows a question
+    // that was answered rather than offering the buttons again.
+    const sid = useSessionsStore.getState().activeSessionId
+    if (sid) useSessionsStore.getState().updateToolResult(sid, message.tool_id, answer)
   }
 
   const interactive = !answered && !submitted && questions.length > 0
@@ -101,7 +143,10 @@ export default function AskUserQuestionCard({
           {questions.length > 1 && <QuestionnaireProgress />}
           {questions.map((q, i) => (
             <QuestionnaireItem key={i} name={`q${i}`} multiple={q.multiSelect === true}>
-              <QuestionnaireTitle>{q.question}</QuestionnaireTitle>
+              <QuestionnaireTitle>
+                {q.header && <HeaderChip>{q.header}</HeaderChip>}
+                {q.question}
+              </QuestionnaireTitle>
               <QuestionnaireChoices>
                 {q.options.map((opt) => (
                   <QuestionnaireChoice key={opt.label} value={opt.label}>
@@ -113,11 +158,22 @@ export default function AskUserQuestionCard({
                     )}
                   </QuestionnaireChoice>
                 ))}
+                <QuestionnaireChoice value={OTHER}>Something else</QuestionnaireChoice>
               </QuestionnaireChoices>
+              <input
+                name={`q${i}-other`}
+                onInput={syncOther(i)}
+                placeholder="Something else — type it here"
+                autoComplete="off"
+                className="mt-2 h-8 w-full rounded-md border border-input bg-input/20 px-2.5 text-xs outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
+              />
             </QuestionnaireItem>
           ))}
           <QuestionnaireActions>
             <QuestionnairePrevious />
+            {/* Typing ticks "Something else", so a written answer unlocks Next on
+                its own. This is for the question you would rather not answer. */}
+            {questions.length > 1 && <QuestionnaireSkip />}
             <QuestionnaireNext />
             <QuestionnaireSubmit />
           </QuestionnaireActions>
@@ -126,7 +182,10 @@ export default function AskUserQuestionCard({
         <div className="space-y-3 px-3 py-2">
           {questions.map((q, i) => (
             <div key={i} className="space-y-1.5">
-              <p className="leading-relaxed text-foreground/80">{q.question}</p>
+              <p className="leading-relaxed text-foreground/80">
+                {q.header && <HeaderChip>{q.header}</HeaderChip>}
+                {q.question}
+              </p>
               <ul className="mt-1 space-y-1">
                 {q.options?.map((opt) => (
                   <li key={opt.label} className="rounded-sm border border-border/55 px-2 py-1.5">

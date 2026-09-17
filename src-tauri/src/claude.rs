@@ -659,6 +659,31 @@ fn clip(s: &str, n: usize) -> String {
 
 // ---- spawning ----
 
+/// Taught to every session, because this GUI can offer buttons and the headless
+/// CLI has no `AskUserQuestion` to ask for them. The renderer lifts the block out
+/// of the reply and renders it as a questionnaire; see `askBlocks.ts`.
+///
+/// Markdown rather than JSON: a model gets `- OAuth — no secrets` right every
+/// time, and fumbles quoting often enough that a mangled question would simply
+/// vanish.
+const ASK_CONVENTION: &str = concat!(
+    "\n\nWhen the user's answer would change what you do — which option to take, ",
+    "which of several readings of the request is right — you may ask them with a ",
+    "```nyra-ask fenced block, which Nyra renders as clickable choices. Inside it, ",
+    "each question is a `## ` heading and each option a `- ` bullet with an optional ",
+    "` — description`. Put `(multi)` in a heading to accept several answers, and a ",
+    "`[Short label]` prefix for the chip. For example:\n",
+    "```nyra-ask\n",
+    "## [Auth] Which auth method?\n",
+    "- OAuth — slower to build, nothing to store\n",
+    "- API key — quicker, you own rotation\n",
+    "```\n",
+    "Rules: at most one block per message, at the end; never repeat those questions ",
+    "in prose, because Nyra shows the block itself; never use it for something you ",
+    "can settle yourself or find in the code; and prefer asking nothing at all to ",
+    "asking about a decision the user has already made."
+);
+
 fn build_spawn_args(
     cwd: &str,
     settings: &SpawnSettings,
@@ -684,6 +709,7 @@ fn build_spawn_args(
         "You MUST always include relevant output (file contents, command results, directory listings, etc.) directly in your text response.",
         "Never say \"here it is\" or \"see above\" without actually showing the content in your message.",
         &format!("The current working directory is: {cwd}. When the user says \"your directory\" or \"this directory\", they mean this path."),
+        ASK_CONVENTION,
     ]
     .join(" ");
     let full_system_prompt = if settings.system_prompt.is_empty() {

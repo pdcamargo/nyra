@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react'
 import { List, RefreshCw, Rows3, Wrench, X } from 'lucide-react'
-import { useSessionsStore, type Task, type Agent, type ToolCallMessage, type SessionUsage, type Message, type McpServerInfo } from '../store/sessions'
+import { useSessionsStore, type Agent, type ToolCallMessage, type SessionUsage, type Message, type McpServerInfo } from '../store/sessions'
 import { useRateLimitStore, type RateLimitWindow } from '../store/rateLimit'
 import { useUiStore } from '../store/ui'
 import FileChangelog from './FileChangelog'
@@ -10,7 +10,6 @@ import AvailableAgents from './AvailableAgents'
 const MemoryTab = React.lazy(() => import('./MemoryTab'))
 
 const EMPTY_AGENTS: Agent[] = []
-const EMPTY_TASKS: Task[] = []
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_USAGE: SessionUsage = { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
 
@@ -75,8 +74,6 @@ function AgentsTab(): React.JSX.Element {
       <AvailableAgents />
       <div className="h-px bg-accent/50" />
       <AgentTree />
-      <div className="h-px bg-accent/50" />
-      <TodoList />
     </div>
   )
 }
@@ -290,94 +287,6 @@ function TimelineView({ agents }: { agents: Agent[] }): React.JSX.Element {
           </div>
         )
       })}
-    </div>
-  )
-}
-
-function TodoList(): React.JSX.Element {
-  const tasks = useSessionsStore((state) => {
-    const session = state.sessions.find((s) => s.id === state.activeSessionId)
-    return session?.tasks ?? EMPTY_TASKS
-  })
-
-  const completed = tasks.filter((t) => t.status === 'completed').length
-  const total = tasks.length
-  const pct = total > 0 ? Math.round((completed / total) * 100) : 0
-
-  if (total === 0) {
-    return (
-      <div>
-        <SectionLabel label="Tasks" />
-        <p className="text-[11px] text-muted-foreground/70 text-center mt-4">
-          Todo items appear when Claude creates a task list
-        </p>
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      {/* Header + counter */}
-      <div className="flex items-center justify-between px-1 mb-2">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Tasks</p>
-        <span className="text-[10px] text-muted-foreground font-mono">{completed}/{total} done</span>
-      </div>
-
-      {/* Progress bar */}
-      <div className="h-1 w-full rounded-full bg-accent mb-3">
-        <div
-          className="h-1 rounded-full bg-success/60 transition-all duration-500 ease-out"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-
-      {/* Task list */}
-      <div className="space-y-0.5">
-        {tasks.map((task) => (
-          <TaskItem key={task.taskId} task={task} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function TaskItem({ task }: { task: Task }): React.JSX.Element {
-  const [expanded, setExpanded] = useState(false)
-
-  const dotClass =
-    task.status === 'completed'
-      ? 'bg-success'
-      : task.status === 'in_progress'
-        ? 'bg-info animate-pulse'
-        : 'bg-secondary'
-
-  return (
-    <div>
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/50 transition-colors text-left"
-      >
-        <span className={`h-1.5 w-1.5 rounded-full shrink-0 mt-1 ${dotClass}`} />
-        <div className="min-w-0 flex-1">
-          <span
-            className={`text-xs leading-snug ${
-              task.status === 'completed'
-                ? 'text-muted-foreground line-through'
-                : 'text-foreground/80'
-            }`}
-          >
-            {task.subject}
-          </span>
-          {task.status === 'in_progress' && task.activeForm && (
-            <p className="text-[10px] italic text-info/60 mt-0.5">{task.activeForm}</p>
-          )}
-        </div>
-      </button>
-      {expanded && task.description && (
-        <div className="ml-5 mr-2 mb-1 px-2 py-1.5 rounded-sm bg-muted/40 border border-border/55">
-          <p className="text-[10px] text-muted-foreground leading-relaxed whitespace-pre-wrap">{task.description}</p>
-        </div>
-      )}
     </div>
   )
 }

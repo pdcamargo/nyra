@@ -10,9 +10,11 @@ import ToolCallCard from './ToolCallCard'
 import AskUserQuestionCard from './AskUserQuestionCard'
 import PlanCard from './PlanCard'
 import { usePlanApprovalStore } from '../store/planApprovals'
+import { extractAskBlocks } from '../lib/askBlocks'
 import ToolCallGroup from './ToolCallGroup'
 import PermissionDialog, { type PermissionRequest } from './PermissionDialog'
 import ChatInput from './ChatInput'
+import TaskStrip from './TaskStrip'
 import SettingsModal from './SettingsModal'
 import PermissionsModal from './PermissionsModal'
 import StatsModal from './StatsModal'
@@ -613,6 +615,9 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'session_reset') {
+        // The conversation is being restarted, so a plan waiting on an answer is
+        // waiting on a session that no longer exists.
+        usePlanApprovalStore.getState().clearSession(sid)
         // Main process dropped a stale --resume conversation; clear the local id so
         // the retry's fresh session_id can replace it on the upcoming 'result'.
         updateClaudeSessionId(sid, null)
@@ -638,11 +643,23 @@ export default function Chat(): React.JSX.Element {
         if (event.session_id) updateClaudeSessionId(sid, event.session_id)
         const role = event.is_error ? 'error' : 'assistant'
         if (event.result) {
-          addMessage(sid, { id: Date.now().toString(), role, text: event.result })
+          // Headless Claude has no AskUserQuestion, so a question it wants
+          // answered arrives as a fenced block in the reply. Lift it out before
+          // the text is shown, or the user reads the same question twice.
+          const { text, questions } = extractAskBlocks(event.result)
+          if (text) addMessage(sid, { id: Date.now().toString(), role, text })
+          if (questions.length > 0 && !event.is_error) {
+            addMessage(sid, {
+              id: `${Date.now()}-ask`,
+              role: 'tool_call',
+              tool_id: `ask-${Date.now()}`,
+              tool_name: 'AskUserQuestion',
+              input: { questions }
+            })
+          }
         }
         useRunningStore.getState().endRun(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
-        usePlanApprovalStore.getState().clearSession(sid)
 
         // Send the next queued message, if any. One per turn, in order.
         const queued = useSessionsStore.getState().dequeueMessage(sid)
@@ -664,7 +681,6 @@ export default function Chat(): React.JSX.Element {
         addMessage(sid, { id: Date.now().toString(), role: 'error', text: event.result })
         useRunningStore.getState().endRun(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
-        usePlanApprovalStore.getState().clearSession(sid)
         // Mark any still-running agents as failed
         const errSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         errSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
@@ -675,7 +691,6 @@ export default function Chat(): React.JSX.Element {
       if (event.type === 'stream_end') {
         useRunningStore.getState().endRun(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
-        usePlanApprovalStore.getState().clearSession(sid)
         // Mark any still-running agents as failed
         const endSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         endSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
@@ -1009,7 +1024,6 @@ export default function Chat(): React.JSX.Element {
   const handleStopTurn = useCallback(() => {
     window.api.claude.abort(activeSessionId ?? undefined)
     setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== activeSessionId))
-    if (activeSessionId) usePlanApprovalStore.getState().clearSession(activeSessionId)
   }, [activeSessionId])
 
   const copyConversation = useCallback(() => {
@@ -1412,6 +1426,7 @@ export default function Chat(): React.JSX.Element {
       {/* Input */}
       {/* The composer lines up with the conversation, same geometry. */}
       <div style={{ ...columnGeometry, width: 'var(--col-w)', marginLeft: COLUMN_OFFSET } as React.CSSProperties}>
+        <TaskStrip />
         <ChatInput
           cwd={cwd}
           isLoading={isLoading}
