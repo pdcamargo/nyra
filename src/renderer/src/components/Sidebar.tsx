@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSessionsStore, activeProjectCwd, sortProjects } from '../store/sessions'
 import { useUiStore, type SidebarTab } from '../store/ui'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBrowserStore } from '../store/browser'
@@ -8,7 +9,7 @@ import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useSkillEditorStore } from '../store/skillEditor'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { Folder, FolderOpen, GitBranch, Globe, GripVertical, LoaderCircle, MoreHorizontal, Pencil, Plus, SquarePen, Star, Trash2 } from 'lucide-react'
+import { Folder, FolderOpen, GitBranch, GitFork, Globe, GripVertical, LoaderCircle, MoreHorizontal, Pencil, Plus, SquarePen, Star, Trash2 } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -183,6 +184,58 @@ function SectionLabel({ label }: { label: string }): React.JSX.Element {
 
 /** How many chats a project shows before `Show more`. */
 const VISIBLE_PER_PROJECT = 6
+
+/**
+ * What a chat is, on hover.
+ *
+ * The row used to carry its folder, branch, worktree mark and browser glyph on a
+ * second line, which made every row two lines tall to answer a question nobody
+ * asks while scanning the list. The line says what is *happening* — running,
+ * waiting on you, unread — and the rest is here when you point at it.
+ */
+function ChatCard({
+  session,
+  hasBrowser
+}: {
+  session: Session
+  hasBrowser: boolean
+}): React.JSX.Element {
+  const folder = session.cwd?.split('/').pop()
+  return (
+    <div className="flex min-w-[14rem] flex-col gap-1.5">
+      <p className="text-xs font-medium text-foreground">{session.title}</p>
+      {folder && (
+        <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Folder className="size-3 shrink-0" />
+          <span className="truncate font-mono">{folder}</span>
+        </span>
+      )}
+      {session.branch && (
+        <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <GitBranch className="size-3 shrink-0" />
+          <span className="truncate font-mono">{session.branch}</span>
+          {session.worktree && (
+            <span className="shrink-0 text-info/70">
+              {session.worktree.permanent ? 'permanent worktree' : 'worktree'}
+            </span>
+          )}
+        </span>
+      )}
+      {hasBrowser && (
+        <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Globe className="size-3 shrink-0" />
+          Browser open
+        </span>
+      )}
+      {session.forkOf && (
+        <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <GitFork className="size-3 shrink-0" />
+          <span className="truncate">Forked from “{session.forkOf.title}”</span>
+        </span>
+      )}
+    </div>
+  )
+}
 
 function Spinner({ title }: { title: string }): React.JSX.Element {
   return (
@@ -399,6 +452,7 @@ function SessionsList(): React.JSX.Element {
     const isPinned = !!session.favorite
     const isActive = session.id === activeSessionId
     const isRunning = running[session.id] === true
+    const unread = session.unread ?? 0
     // A chat's browser keeps running whether or not you are looking at that
     // chat, and a background chat gets no miniature. Without this there would
     // be nothing anywhere saying it has one.
@@ -445,6 +499,8 @@ function SessionsList(): React.JSX.Element {
             <GripVertical className="size-2.5" />
           </div>
         )}
+        <Tooltip>
+        <TooltipTrigger asChild>
         <button
           onClick={() => setActiveSession(session.id)}
           onDoubleClick={() => {
@@ -470,41 +526,34 @@ function SessionsList(): React.JSX.Element {
               className="w-full bg-transparent text-xs text-foreground outline-hidden border-b border-info/50"
             />
           ) : (
-            <div className="flex items-center gap-1.5 min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5">
               {isRunning && <Spinner title="Agent running" />}
-              <p className="text-xs truncate">{session.title}</p>
+              <p className={`truncate text-xs ${unread ? 'font-medium text-foreground' : ''}`}>
+                {session.title}
+              </p>
               {waiting && <WaitingChip label={waiting} />}
+              {!waiting && unread > 0 && (
+                <span
+                  title={`${unread} new message${unread === 1 ? '' : 's'}`}
+                  className="ml-auto size-1.5 shrink-0 rounded-full bg-info"
+                />
+              )}
             </div>
           )}
-          <div className="flex items-center gap-1.5 mt-0.5">
-            {opts.showFolder !== false && session.cwd && (
-              <span className="text-[10px] text-muted-foreground/70 font-mono truncate">
-                {session.cwd.split('/').pop()}
-              </span>
-            )}
-            {session.branch && (
-              <span className={`text-[9px] font-mono px-1 py-0.5 rounded shrink-0 ${
-                session.worktree
-                  ? 'bg-info/15 text-info/60'
-                  : 'bg-accent/50 text-muted-foreground/70'
-              }`}>
-                {session.branch}
-              </span>
-            )}
-            {hasBrowser && (
-              <Globe
-                className="size-2.5 shrink-0 text-info/50"
-                aria-label="Has a browser open"
-              />
-            )}
-            {session.worktree && (
-              <span className="text-[8px] font-medium text-info/40 shrink-0">wt</span>
-            )}
-            {session.forkOf && (
-              <span className="text-[9px] font-medium text-muted-foreground shrink-0" title={`Forked from "${session.forkOf.title}"`}>⑂</span>
-            )}
-          </div>
         </button>
+        </TooltipTrigger>
+        {/* A card, not a label: the tooltip's own surface is inverted, which is
+            right for one line of text and wrong for five. */}
+        <TooltipContent
+          side="right"
+          align="start"
+          arrow={false}
+          sideOffset={6}
+          className="max-w-none items-start border border-border bg-popover p-2.5 text-popover-foreground"
+        >
+          <ChatCard session={session} hasBrowser={hasBrowser} />
+        </TooltipContent>
+        </Tooltip>
         <div className="flex items-center shrink-0 pr-1.5">
           <button
             onClick={(e) => {

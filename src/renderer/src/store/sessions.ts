@@ -171,6 +171,9 @@ export type Session = {
   pendingWorktree?: PendingWorktree | null
   /** Set when a managed worktree was pruned but its work was snapshotted. */
   worktreeSnapshotted?: boolean
+  /** Messages that arrived while you were looking at a different chat. Cleared
+   *  when you open this one — a chat you are reading has nothing unread in it. */
+  unread?: number
   /** A question Claude asked that nobody has answered yet, so the chat list can
    *  say so without walking every message of every session on each render. */
   needsAnswer?: boolean
@@ -344,7 +347,10 @@ export const useSessionsStore = create<SessionsStore>()(
       },
 
       setActiveSession: (id: string) => {
-        set({ activeSessionId: id })
+        set((state) => ({
+          activeSessionId: id,
+          sessions: state.sessions.map((s) => (s.id === id && s.unread ? { ...s, unread: 0 } : s))
+        }))
       },
 
       addMessage: (sessionId: string, message: Message) => {
@@ -357,7 +363,13 @@ export const useSessionsStore = create<SessionsStore>()(
               s.title === 'New session' && stamped.role === 'user'
                 ? (stamped as TextMessage).text.slice(0, 40)
                 : s.title
-            return { ...s, messages, title }
+            // Your own messages are not news, and neither is anything in the chat
+            // you are looking at — it is on screen as it arrives.
+            const unread =
+              stamped.role === 'user' || state.activeSessionId === sessionId
+                ? s.unread
+                : (s.unread ?? 0) + 1
+            return { ...s, messages, title, unread }
           })
         }))
       },
