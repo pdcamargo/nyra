@@ -7,6 +7,7 @@ import { markdown } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { tags as t } from '@lezer/highlight'
 import { livePreview } from '../lib/livePreview'
+import { composerDecorations } from '../lib/composerDecorations'
 
 /**
  * The surface ChatInput talks to.
@@ -87,6 +88,45 @@ const theme = EditorView.theme({
     backgroundColor: 'var(--background)',
     fontFamily: 'var(--font-mono)',
     fontSize: '0.92em'
+  },
+
+  // A slash command reads as a command, not as text that happens to start with
+  // a slash. Gold rather than the semantic accents: it is a mode, not a status.
+  '.cm-command': {
+    color: 'var(--warning)',
+    fontWeight: '600',
+    fontFamily: 'var(--font-mono)'
+  },
+  '.cm-command-icon': {
+    display: 'inline-block',
+    width: '0.95em',
+    height: '0.95em',
+    marginRight: '0.3em',
+    verticalAlign: '-0.12em',
+    backgroundColor: 'var(--warning)',
+    // A terminal chevron, drawn as a mask so it takes the colour above.
+    maskImage:
+      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4 17 10 11 4 5'/%3E%3Cline x1='12' y1='19' x2='20' y2='19'/%3E%3C/svg%3E\")",
+    maskSize: 'contain',
+    maskRepeat: 'no-repeat',
+    maskPosition: 'center'
+  },
+
+  // ultrathink gets the CLI's rainbow. Animated so it reads as the same easter
+  // egg rather than as an error.
+  '.cm-ultrathink': {
+    fontWeight: '600',
+    backgroundImage:
+      'linear-gradient(90deg, #ff6b6b, #ffa94d, #ffd43b, #69db7c, #4dabf7, #b197fc, #ff6b6b)',
+    backgroundSize: '200% 100%',
+    WebkitBackgroundClip: 'text',
+    backgroundClip: 'text',
+    color: 'transparent',
+    animation: 'cm-ultrathink-pan 4s linear infinite'
+  },
+  '@keyframes cm-ultrathink-pan': {
+    '0%': { backgroundPosition: '0% 50%' },
+    '100%': { backgroundPosition: '200% 50%' }
   }
 })
 
@@ -125,6 +165,7 @@ export default function MarkdownEditor({
       markdown({ codeLanguages: languages }),
       syntaxHighlighting(highlightStyle),
       livePreview,
+      composerDecorations,
       EditorView.lineWrapping,
       theme,
       EditorView.theme({ '.cm-scroller': { maxHeight: `${maxHeight}px` } }),
