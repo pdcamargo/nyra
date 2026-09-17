@@ -43,8 +43,12 @@ export default function Sidebar(): React.JSX.Element {
 
   return (
     <aside style={{ width }} className="flex h-full shrink-0 flex-col bg-card border-r border-border/55">
-      {/* No title and no search button: the title bar carries the app's identity
-          now, and search moved up there next to the other window-level actions. */}
+      {/* The wordmark sits here rather than only in the title bar: the rail is
+          what you look at, and the title bar shows the chat's name. Search stays
+          up there with the other window-level actions. */}
+      <div className="px-3 pt-3 pb-1">
+        <span className="text-sm font-semibold tracking-tight text-foreground">Nyra</span>
+      </div>
 
       <UpdateBadge />
 
