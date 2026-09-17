@@ -1,22 +1,25 @@
-import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, Suspense } from 'react'
 import Sidebar from './components/Sidebar'
 import TitleBar from './components/TitleBar'
 import { TooltipProvider } from './components/ui/tooltip'
 import Chat from './components/Chat'
 import RightPanel from './components/RightPanel'
+import ResizeHandle from './components/ResizeHandle'
+import BottomDock from './components/BottomDock'
 import CommandPalette from './components/CommandPalette'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useResolvedTheme } from './hooks/useResolvedTheme'
 import { applyThemeClass } from './lib/theme'
-import { useSessionsStore, activeProject, activeProjectCwd } from './store/sessions'
+import { useSessionsStore } from './store/sessions'
 import { attachWorktreeSessions } from './store/attachWorktrees'
 import { primeHomedir } from './lib/homedir'
 import { useWorkflowStore } from './store/workflow'
 import { useProcessesStore, type BgProcess } from './store/processes'
 import { useUiStore } from './store/ui'
+import { handleBinding, usePanelLayoutStore } from './store/panelLayout'
+import { usePanelSizesStore } from './store/panelSizes'
 
-// Lazy-load heavy components — BottomPanel (xterm ~6.1 MB), modals with Monaco, WorkflowCanvas with React Flow
-const BottomPanel = React.lazy(() => import('./components/BottomPanel'))
+// Lazy-load heavy components — modals with Monaco, WorkflowCanvas with React Flow
 const WorkflowCanvas = React.lazy(() => import('./components/WorkflowCanvas'))
 const FilePreviewModal = React.lazy(() => import('./components/FilePreviewModal'))
 const SkillEditorModal = React.lazy(() => import('./components/SkillEditorModal'))
@@ -29,14 +32,10 @@ export default function App(): React.JSX.Element {
   // summary toggle in the chat header needs to reach one of them from there.
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
   const projectsPanelOpen = useUiStore((s) => s.projectsPanelOpen)
-  const terminalOpen = useUiStore((s) => s.bottomPanelOpen)
   const toggleBottomPanel = useUiStore((s) => s.toggleBottomPanel)
-  const [terminalHeight, setTerminalHeight] = useState(250)
-  const resizingRef = useRef(false)
-  const startYRef = useRef(0)
-  const startHeightRef = useRef(250)
   const isCanvasOpen = useWorkflowStore((s) => s.isCanvasOpen)
   const resolvedTheme = useResolvedTheme()
+  const shellRef = useRef<HTMLDivElement>(null)
   useKeyboardShortcuts()
 
   useEffect(() => {
@@ -49,6 +48,25 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     applyThemeClass(resolvedTheme)
   }, [resolvedTheme])
+
+  // Publish --rail: how much of the window sits to the left of the conversation.
+  //
+  // Chat centres its column on the window rather than on its own container, so
+  // this is the one part of the geometry CSS cannot work out for itself. Written
+  // from a subscription rather than rendered, so dragging the rail does not
+  // reconcile the whole conversation sixty times a second — Chat just inherits it.
+  //
+  // Layout effect, not effect: this has to land before the first paint, or the
+  // column is briefly centred as though no rail were open and visibly jumps.
+  useLayoutEffect(() => {
+    const publish = (width: number): void => {
+      shellRef.current?.style.setProperty('--rail', `${width}px`)
+    }
+    publish(usePanelLayoutStore.getState().sidebarWidth)
+    return usePanelLayoutStore.subscribe((state, prev) => {
+      if (state.sidebarWidth !== prev.sidebarWidth) publish(state.sidebarWidth)
+    })
+  }, [])
 
   // Subscribe to background-process updates from main
   useEffect(() => {
@@ -70,45 +88,25 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', handler)
   }, [toggleBottomPanel])
 
-  // Terminal resize drag handling
-  const onResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    resizingRef.current = true
-    startYRef.current = e.clientY
-    startHeightRef.current = terminalHeight
-
-    const onMove = (ev: MouseEvent): void => {
-      if (!resizingRef.current) return
-      const delta = startYRef.current - ev.clientY
-      const newHeight = Math.max(120, Math.min(window.innerHeight - 200, startHeightRef.current + delta))
-      setTerminalHeight(newHeight)
-    }
-    const onUp = (): void => {
-      resizingRef.current = false
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    document.body.style.cursor = 'row-resize'
-    document.body.style.userSelect = 'none'
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  }, [terminalHeight])
-
-  // Terminals are project-scoped: a worktree chat's shell still belongs to the
-  // project, and switching chats within a project must not swap the shells out.
-  const project = useSessionsStore(activeProject)
-  const terminalCwd = useSessionsStore(activeProjectCwd)
-
   return (
     <TooltipProvider delayDuration={400}>
-    <div className="flex h-full w-full flex-col overflow-hidden bg-background">
+    <div ref={shellRef} className="flex h-full w-full flex-col overflow-hidden bg-background">
       <TitleBar />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Left Sidebar */}
-      {projectsPanelOpen && <Sidebar />}
+      {projectsPanelOpen && (
+        <>
+          <Sidebar />
+          <ResizeHandle
+            side="left"
+            label="Resize projects panel"
+            {...handleBinding('sidebarWidth')}
+            onSize={(px) => usePanelSizesStore.getState().setSize('sidebarWidth', px)}
+            onReset={() => usePanelSizesStore.getState().resetSize('sidebarWidth')}
+          />
+        </>
+      )}
 
       {/* Center: Chat/Workflow + Bottom Panel + Status bar */}
       <main className="flex flex-1 flex-col overflow-hidden min-w-0">
@@ -121,23 +119,22 @@ export default function App(): React.JSX.Element {
             <Chat />
           )}
         </div>
-        {terminalOpen && (
-          <>
-            <div
-              onMouseDown={onResizeStart}
-              className="h-[3px] cursor-row-resize hover:bg-info/30 transition-colors"
-            />
-            <div style={{ height: terminalHeight }} className="min-h-0 shrink-0">
-              <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground/70 text-xs">Loading bottom panel…</div>}>
-                <BottomPanel cwd={terminalCwd} projectId={project?.id ?? null} />
-              </Suspense>
-            </div>
-          </>
-        )}
+        <BottomDock />
       </main>
 
       {/* Right Panel */}
-      {rightPanelOpen && <RightPanel />}
+      {rightPanelOpen && (
+        <>
+          <ResizeHandle
+            side="right"
+            label="Resize workspace panel"
+            {...handleBinding('rightPanelWidth')}
+            onSize={(px) => usePanelSizesStore.getState().setSize('rightPanelWidth', px)}
+            onReset={() => usePanelSizesStore.getState().resetSize('rightPanelWidth')}
+          />
+          <RightPanel />
+        </>
+      )}
       </div>
 
 

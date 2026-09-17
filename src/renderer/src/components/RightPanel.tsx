@@ -3,6 +3,7 @@ import { List, RefreshCw, Rows3, Wrench, X } from 'lucide-react'
 import { useSessionsStore, type Agent, type ToolCallMessage, type SessionUsage, type Message, type McpServerInfo } from '../store/sessions'
 import { useRateLimitStore, type RateLimitWindow } from '../store/rateLimit'
 import { useUiStore } from '../store/ui'
+import { usePanelLayoutStore } from '../store/panelLayout'
 import FileChangelog from './FileChangelog'
 import AvailableAgents from './AvailableAgents'
 
@@ -19,9 +20,10 @@ const TABS: Tab[] = ['agents', 'context', 'mcp', 'memory']
 export default function RightPanel(): React.JSX.Element {
   const activeTab = useUiStore((s) => s.rightPanelTab)
   const setActiveTab = useUiStore((s) => s.setRightPanelTab)
+  const width = usePanelLayoutStore((s) => s.rightPanelWidth)
 
   return (
-    <aside className="flex h-full w-64 flex-col bg-card border-l border-border/55">
+    <aside style={{ width }} className="flex h-full shrink-0 flex-col bg-card border-l border-border/55">
       {/* Header — matches sidebar and chat header height */}
       <div className="flex items-end border-b border-border/55 px-3 py-2">
         <div className="flex gap-0.5">

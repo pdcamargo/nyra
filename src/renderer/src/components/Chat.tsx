@@ -75,6 +75,9 @@ type ClaudeEvent = ClaudeEventBase & (
  * stays visible beats a 12rem one that technically never overlaps.
  *
  * --rail is the one part of the window geometry CSS cannot work out for itself.
+ * App publishes it onto the shell element as the projects rail is dragged, so it
+ * is inherited here rather than re-rendered — and it is the rail's real width,
+ * not the fixed one it used to assume.
  */
 /** Tool calls that are a card to answer, not a line in a trace. */
 const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
@@ -99,15 +102,17 @@ function spawnSettingsForSession(sessionId: string): SpawnSettings {
 
 const COLUMN_OFFSET =
   'clamp(var(--gap),' +
-  ' calc(50vw - var(--col-w) / 2 - var(--rail)),' +
+  ' calc(50vw - var(--col-w) / 2 - var(--rail, 0px)),' +
   ' calc(100% - var(--gutter) - var(--col-w)))'
 
-function columnVars(railOpen: boolean, summaryOpen: boolean): React.CSSProperties {
+function columnVars(summaryOpen: boolean): React.CSSProperties {
   return {
     // 10% off the 46rem this started at — a shorter measure to read against.
     '--col-max': '41.4rem',
     '--col-min': '34rem',
-    '--rail': railOpen ? '16rem' : '0rem',
+    // --gutter is the floating summary, which is right-aligned to the chat area
+    // rather than to the window — so it stays constant however wide the
+    // workspace panel is dragged.
     '--gutter': summaryOpen ? '20rem' : '0rem',
     '--gap': '1.5rem',
     '--col-w':
@@ -121,11 +126,7 @@ export default function Chat(): React.JSX.Element {
   const running = useRunningStore((s) => s.running)
   const summaryOpen = useUiStore((s) => s.summaryOpen)
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
-  const projectsPanelOpen = useUiStore((s) => s.projectsPanelOpen)
-  const columnGeometry = useMemo(
-    () => columnVars(projectsPanelOpen, summaryOpen),
-    [projectsPanelOpen, summaryOpen]
-  )
+  const columnGeometry = useMemo(() => columnVars(summaryOpen), [summaryOpen])
   const onToggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const settingsOpen = useUiStore((s) => s.settingsOpen)
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
@@ -1409,7 +1410,8 @@ export default function Chat(): React.JSX.Element {
            rather than disappearing behind the panel.
 
            --rail is what sits to the left of this scroller, the only part of
-           the window geometry CSS cannot work out for itself. */}
+           the window geometry CSS cannot work out for itself. App publishes it
+           as the rail is dragged; it is inherited here. */}
        <div
          className="relative"
          style={{

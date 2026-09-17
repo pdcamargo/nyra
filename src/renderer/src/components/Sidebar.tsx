@@ -4,6 +4,7 @@ import type { Project, Session } from '../store/sessions'
 import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useSkillEditorStore } from '../store/skillEditor'
 import { useWorkflowStore } from '../store/workflow'
+import { usePanelLayoutStore } from '../store/panelLayout'
 import { Folder, FolderOpen, GitBranch, GripVertical, LoaderCircle, MoreHorizontal, Pencil, Plus, SquarePen, Star, Trash2 } from 'lucide-react'
 import {
   ContextMenu,
@@ -28,9 +29,12 @@ type Tab = 'sessions' | 'skills' | 'commands' | 'workflows'
 
 export default function Sidebar(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<Tab>('sessions')
+  // shrink-0 because the width has to stay what the user set: flex would
+  // otherwise squeeze this rail on a narrow window and --rail would start lying.
+  const width = usePanelLayoutStore((s) => s.sidebarWidth)
 
   return (
-    <aside className="flex h-full w-64 flex-col bg-card border-r border-border/55">
+    <aside style={{ width }} className="flex h-full shrink-0 flex-col bg-card border-r border-border/55">
       {/* No title and no search button: the title bar carries the app's identity
           now, and search moved up there next to the other window-level actions. */}
 
