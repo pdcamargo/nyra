@@ -31,13 +31,8 @@ import { Slider } from './ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { useSettingsStore } from '../store/settings'
 import { BUILT_IN_COMMANDS } from '../data/commands'
+import { KNOWN_MODELS as MODELS, MODEL_BLURB } from '../lib/models'
 
-const MODELS = ['opus', 'sonnet', 'haiku'] as const
-const MODEL_BLURB: Record<string, string> = {
-  opus: 'Most capable',
-  sonnet: 'Balanced',
-  haiku: 'Fastest'
-}
 const EFFORTS = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
@@ -191,6 +186,7 @@ function ModelEffort(): React.JSX.Element {
   const effort = useSettingsStore((s) => s.effort)
   const updateSettings = useSettingsStore((s) => s.updateSettings)
   const [page, setPage] = React.useState<'effort' | 'model'>('effort')
+  const [custom, setCustom] = React.useState('')
 
   // An empty stored value means "CLI default", which is opus at high.
   const shownModel = model || 'opus'
@@ -305,6 +301,27 @@ function ModelEffort(): React.JSX.Element {
                 </button>
               )
             })}
+            {/* Anything else the CLI will take: another alias, or a pinned full
+                name like claude-fable-5-1 when "latest" is not what you want. */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                const value = custom.trim()
+                if (!value) return
+                updateSettings({ model: value })
+                setCustom('')
+                setPage('effort')
+              }}
+              className="mt-1 border-t border-border/55 pt-2"
+            >
+              <input
+                value={custom}
+                onChange={(e) => setCustom(e.target.value)}
+                placeholder="Or type a model name…"
+                spellCheck={false}
+                className="h-7 w-full rounded-md border border-input bg-input/20 px-2 font-mono text-xs outline-none transition-colors placeholder:font-sans placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
+              />
+            </form>
           </>
         )}
       </PopoverContent>

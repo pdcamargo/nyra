@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import Modal from './Modal'
 import DiffViewer from './LazyDiffViewer'
 import MarkdownRenderer from './MarkdownRenderer'
 import { buildDiffFromToolInput } from '../utils/diff'
-import { computeDiffHeight, extractPlan } from '../utils/permission'
+import { computeDiffHeight } from '../utils/permission'
 
 export type PermissionRequest = {
   tool_id: string
@@ -60,20 +60,13 @@ export default function PermissionDialog({
   onAllowAll?: () => void
   onAlwaysAllow?: () => void
 }): React.JSX.Element {
-  const isPlanApproval = permission.tool_name === 'ExitPlanMode'
   const isFileOp = permission.tool_name === 'Edit' || permission.tool_name === 'Write'
   const diff = isFileOp
     ? buildDiffFromToolInput(permission.tool_name, permission.input, permission.originalContent)
     : null
 
-  const preview = isPlanApproval || diff ? '' : inputPreview(permission.tool_name, permission.input)
-  const wide = diff != null || isPlanApproval
-
-  // Memoize the plan body so re-renders don't re-parse markdown.
-  const planMarkdown = useMemo(
-    () => (isPlanApproval ? extractPlan(permission.input) : ''),
-    [isPlanApproval, permission.input, permission.tool_id]
-  )
+  const preview = diff ? '' : inputPreview(permission.tool_name, permission.input)
+  const wide = diff != null
 
   // Diff height: computed once on mount from viewport. Modal is short-lived;
   // skipping resize listening avoids re-rendering Monaco mid-drag.
@@ -102,7 +95,7 @@ export default function PermissionDialog({
       const isCmdOrCtrl = e.metaKey || e.ctrlKey
 
       if (e.key === 'Enter' && isCmdOrCtrl) {
-        if (queueLength > 1 && !isPlanApproval && callbacksRef.current.onAllowAll) {
+        if (queueLength > 1 && callbacksRef.current.onAllowAll) {
           e.preventDefault()
           e.stopImmediatePropagation()
           actedRef.current = true
@@ -127,9 +120,9 @@ export default function PermissionDialog({
 
     window.addEventListener('keydown', handleKey, { capture: true })
     return () => window.removeEventListener('keydown', handleKey, { capture: true })
-  }, [permission.tool_id, queueLength, isPlanApproval])
+  }, [permission.tool_id, queueLength])
 
-  const showAllowAllHint = queueLength > 1 && !isPlanApproval && onAllowAll
+  const showAllowAllHint = queueLength > 1 && onAllowAll
 
   return (
     <Modal
@@ -140,17 +133,17 @@ export default function PermissionDialog({
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
           <span className={`flex h-8 w-8 items-center justify-center rounded-lg font-mono text-sm shrink-0 ${
-            isPlanApproval ? 'bg-info/10 text-info/80' : 'bg-warning/10 text-warning/80'
+            'bg-warning/10 text-warning/80'
           }`}>
             {toolIcon(permission.tool_name)}
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-              {isPlanApproval ? 'Plan ready' : isFileOp ? 'Review file change' : 'Permission required'}
+              {isFileOp ? 'Review file change' : 'Permission required'}
               {queueLength > 1 ? ` (${queueLength} pending)` : ''}
             </p>
             <p className="text-sm font-medium text-foreground">
-              {isPlanApproval ? 'Execute this plan?' : permission.tool_name}
+              {permission.tool_name}
               {diff?.isNewFile && (
                 <span className="ml-2 text-[10px] font-normal px-1.5 py-0.5 rounded-sm bg-success/15 text-success/70">
                   New file
@@ -160,18 +153,8 @@ export default function PermissionDialog({
           </div>
         </div>
 
-        {/* Content: plan markdown, diff, or text preview */}
-        {isPlanApproval ? (
-          <div className="rounded-lg bg-card border border-info/25 px-4 py-3 mb-5 max-h-[60vh] overflow-y-auto">
-            {planMarkdown ? (
-              <MarkdownRenderer>{planMarkdown}</MarkdownRenderer>
-            ) : (
-              <p className="text-[12px] text-foreground/80 leading-relaxed">
-                Claude has outlined a plan above. Approve to start execution, or reject to cancel.
-              </p>
-            )}
-          </div>
-        ) : diff ? (
+        {/* Content: a diff, or a text preview */}
+        {diff ? (
           <div className="mb-5">
             <DiffViewer
               filePath={diff.filePath}
@@ -194,9 +177,9 @@ export default function PermissionDialog({
             onClick={onDeny}
             className="flex-1 rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm text-foreground/80 hover:bg-accent hover:text-foreground/80 transition-colors"
           >
-            {isPlanApproval ? 'Reject Plan' : isFileOp ? 'Reject' : 'Deny'}
+            {isFileOp ? 'Reject' : 'Deny'}
           </button>
-          {!isPlanApproval && onAlwaysAllow && (
+          {onAlwaysAllow && (
             <button
               onClick={onAlwaysAllow}
               title={`Auto-approve ${permission.tool_name} from now on`}
@@ -207,20 +190,16 @@ export default function PermissionDialog({
           )}
           <button
             onClick={onAllow}
-            className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-              isPlanApproval
-                ? 'bg-success text-success-foreground hover:bg-success/85'
-                : 'bg-info text-info-foreground hover:bg-info/85'
-            }`}
+            className="flex-1 rounded-lg bg-info px-4 py-2 text-sm font-medium text-info-foreground transition-colors hover:bg-info/85"
           >
-            {isPlanApproval ? 'Execute Plan' : isFileOp ? 'Accept' : 'Allow'}
+            {isFileOp ? 'Accept' : 'Allow'}
           </button>
         </div>
 
         {/* Keyboard shortcut hints */}
         <div className="mt-3 flex items-center justify-center gap-3 text-[10px] text-muted-foreground/70">
-          <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">⏎</kbd> {isPlanApproval ? 'Execute' : 'Allow'}</span>
-          <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">Esc</kbd> {isPlanApproval ? 'Reject' : 'Deny'}</span>
+          <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">⏎</kbd> Allow</span>
+          <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">Esc</kbd> Deny</span>
           {showAllowAllHint && (
             <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">⌘⏎</kbd> Allow all ({queueLength})</span>
           )}

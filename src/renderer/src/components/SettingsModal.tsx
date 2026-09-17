@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback } from 'react'
 import Modal from './Modal'
 import McpSettings from './McpSettings'
+import { modelOptions } from '../lib/models'
 import { useSettingsStore } from '../store/settings'
 import { useHookEditorStore } from '../store/hookEditor'
 import { DEFAULT_SETTINGS, type NyraSettings, type ThemePreference } from '../../../shared/types'
@@ -50,16 +51,15 @@ export default function SettingsModal({ onClose }: { onClose: () => void }): Rea
           />
         </SettingRow>
 
+        {/* No version numbers: an alias means "the latest", so "Opus 4" was wrong
+            the day Opus 5 shipped. A model set from the composer that is not one
+            of these still shows here, rather than the row quietly reading
+            Default while the session runs on something else. */}
         <SettingRow label="Model">
           <Select
             value={settings.model}
             onChange={(v) => update({ model: v })}
-            options={[
-              { value: '', label: 'Default' },
-              { value: 'sonnet', label: 'Sonnet 4' },
-              { value: 'opus', label: 'Opus 4' },
-              { value: 'haiku', label: 'Haiku 4.5' }
-            ]}
+            options={modelOptions(settings.model)}
           />
         </SettingRow>
 
