@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Nyra",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "identifier": "com.nyra.app",
   "build": {
     "beforeDevCommand": "npm run vite:dev",
@@ -47,7 +47,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "copyright": "Copyright \u00a9 2026 Patrick Dias",
+    "copyright": "Copyright © 2026 Patrick Dias",
     "category": "DeveloperTool",
     "shortDescription": "A better Claude Code client",
     "longDescription": "Nyra is a desktop client for Claude Code, with sessions, workflows, an integrated terminal, and background process tracking.",
