@@ -30,6 +30,14 @@ export function useKeyboardShortcuts(): void {
           return
         }
 
+        // Cmd+Shift+B — Toggle the browser. Codex binds the same keys to the
+        // same thing; muscle memory is worth more here than originality.
+        if (e.key.toLowerCase() === 'b' && e.shiftKey) {
+          e.preventDefault()
+          useUiStore.getState().toggleBrowserPanel()
+          return
+        }
+
         // Cmd+N — New session
         if (e.key === 'n') {
           e.preventDefault()
