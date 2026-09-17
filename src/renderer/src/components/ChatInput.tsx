@@ -1,0 +1,813 @@
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useSessionsStore, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, createSiblingSession } from '../store/sessions'
+import { useSettingsStore } from '../store/settings'
+import { useUiStore } from '../store/ui'
+import SlashAutocomplete, { useSlashItems, type AutocompleteItem } from './SlashAutocomplete'
+import AtMentionAutocomplete, { useAtMentionItems, type MentionItem } from './AtMentionAutocomplete'
+import ComposerBar from './ComposerBar'
+import NewChatEnvironment from './NewChatEnvironment'
+import AttachmentStrip, { type PendingAttachment } from './AttachmentStrip'
+import {
+  continueListOnEnter,
+  insertLink,
+  toggleHeading,
+  toggleInlineMarker,
+  type Edit
+} from '../lib/markdownEditing'
+import { CornerDownLeft, Trash2 } from 'lucide-react'
+import { useLoopsStore } from '../store/loops'
+import { compressImage } from '../utils/imageCompression'
+import type { Agent } from '../store/sessions'
+
+const EMPTY_AGENTS: Agent[] = []
+const EMPTY_QUEUE: QueuedMessage[] = []
+
+const SUPPORTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+
+type ChatInputProps = {
+  cwd: string
+  isLoading: boolean
+  sendMessage: (text: string, images?: ImageAttachment[], files?: FileAttachment[]) => Promise<void>
+  /** Abort the running turn. Owned by Chat, which also has a permission queue to clear. */
+  onStop?: () => void
+}
+
+export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatInputProps): React.JSX.Element {
+  const [input, setInput] = useState('')
+  const pendingPrefill = useUiStore((s) => s.pendingInputPrefill)
+  const consumePrefill = useUiStore((s) => s.consumeInputPrefill)
+
+  useEffect(() => {
+    if (!pendingPrefill) return
+    setInput((prev) => {
+      const sep = prev.length === 0 || prev.endsWith(' ') || prev.endsWith('\n') ? '' : ' '
+      return prev + sep + pendingPrefill
+    })
+    consumePrefill()
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current
+      if (ta) {
+        ta.focus()
+        ta.setSelectionRange(ta.value.length, ta.value.length)
+      }
+    })
+  }, [pendingPrefill, consumePrefill])
+  /** Drop a slash command into the field rather than firing it blind — most take an argument. */
+  const insertCommand = useCallback((command: string): void => {
+    setInput((prev) => (prev.trim() ? `${prev.trimEnd()} ` : '') + command + ' ')
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }, [])
+
+  const [stagedImages, setStagedImages] = useState<ImageAttachment[]>([])
+  const [stagedFiles, setStagedFiles] = useState<FileAttachment[]>([])
+  const [fileError, setFileError] = useState<string | null>(null)
+  // Attachments still being read. Reading a few MB is slow enough that without a
+  // tile it looks like nothing happened, and the obvious response is to attach again.
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
+  const [acSelectedIndex, setAcSelectedIndex] = useState(0)
+  const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [mentionAnchorLeft, setMentionAnchorLeft] = useState(0)
+  const stashRef = useRef<string>('')
+  const [hasStash, setHasStash] = useState(false)
+
+  // Collect all past user prompts across sessions
+  const sessions = useSessionsStore((s) => s.sessions)
+
+  // Reset textarea height when input is cleared
+  useEffect(() => {
+    if (!input && textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+  }, [input])
+
+  // Focus textarea on session switch
+  const activeSessionId = useSessionsStore((s) => s.activeSessionId)
+  useEffect(() => {
+    textareaRef.current?.focus()
+  }, [activeSessionId])
+
+  // Consume pending actions from Sidebar (skills run / command insert)
+  const pendingAction = useSessionsStore((state) => state.pendingAction)
+  useEffect(() => {
+    if (!pendingAction) return
+    useSessionsStore.getState().clearPendingAction()
+    if (pendingAction.type === 'send') {
+      sendMessage(pendingAction.text)
+    } else {
+      setInput(pendingAction.text)
+      textareaRef.current?.focus()
+    }
+  }, [pendingAction, sendMessage])
+
+  // Slash autocomplete
+  const slashQuery = input.startsWith('/') && !input.includes(' ') ? input.slice(1) : null
+  const acItems = useSlashItems(slashQuery ?? '', cwd)
+  const autocompleteVisible = slashQuery !== null && !isLoading && acItems.length > 0
+
+  useEffect(() => {
+    setAcSelectedIndex(0)
+  }, [slashQuery])
+
+  // @-mention autocomplete: detect @query at cursor position
+  const [mentionQuery, mentionStart] = useMemo((): [string | null, number] => {
+    const textarea = textareaRef.current
+    if (!textarea || autocompleteVisible) return [null, -1]
+    const cursor = textarea.selectionStart ?? input.length
+    // Walk backward from cursor to find unescaped @
+    const before = input.slice(0, cursor)
+    const atIdx = before.lastIndexOf('@')
+    if (atIdx < 0) return [null, -1]
+    // @ must be at start or preceded by whitespace
+    if (atIdx > 0 && !/\s/.test(before[atIdx - 1])) return [null, -1]
+    const query = before.slice(atIdx + 1)
+    // No spaces in the query (simple heuristic)
+    if (/\s/.test(query)) return [null, -1]
+    return [query, atIdx]
+  }, [input, autocompleteVisible])
+
+  const fsMentionItems = useAtMentionItems(mentionQuery, cwd)
+  const sessionAgents = useSessionsStore((s) => {
+    const session = s.sessions.find((sess) => sess.id === s.activeSessionId)
+    return session?.agents ?? EMPTY_AGENTS
+  })
+
+  // Load agent definitions from .claude/agents/ directories
+  const [agentDefs, setAgentDefs] = useState<{ name: string; description: string }[]>([])
+  useEffect(() => {
+    window.api.agents.list(cwd).then((result: { global: { name: string; description: string }[]; project: { name: string; description: string }[] }) => {
+      const all = [...result.project, ...result.global]
+      // Deduplicate by name (project overrides global)
+      const seen = new Set<string>()
+      const deduped = all.filter((a) => { if (seen.has(a.name)) return false; seen.add(a.name); return true })
+      setAgentDefs(deduped)
+    })
+  }, [cwd])
+
+  const mentionItems = useMemo((): MentionItem[] => {
+    const q = mentionQuery?.toLowerCase() ?? ''
+
+    // Running/completed agents from this session
+    const liveAgentItems: MentionItem[] = sessionAgents
+      .filter((a) => a.name && a.name.toLowerCase().includes(q))
+      .map((a) => ({
+        path: `agent:${a.name}`,
+        label: a.name,
+        type: 'agent' as const,
+        meta: a.status
+      }))
+
+    // Agent definitions from .claude/agents/
+    const liveNames = new Set(sessionAgents.map((a) => a.name))
+    const defAgentItems: MentionItem[] = agentDefs
+      .filter((a) => !liveNames.has(a.name) && a.name.toLowerCase().includes(q))
+      .map((a) => ({
+        path: `agent:${a.name}`,
+        label: a.name,
+        type: 'agent' as const,
+        meta: 'agent'
+      }))
+
+    return [...liveAgentItems, ...defAgentItems, ...fsMentionItems]
+  }, [mentionQuery, sessionAgents, agentDefs, fsMentionItems])
+  const mentionVisible = mentionQuery !== null && mentionQuery.length > 0 && !isLoading && mentionItems.length > 0
+
+  useEffect(() => {
+    setMentionSelectedIndex(0)
+  }, [mentionQuery])
+
+  const executeCommand = useCallback((name: string): void => {
+    setInput('')
+    const store = useSessionsStore.getState()
+    let sid = store.activeSessionId
+    if (!sid) {
+      sid = createSiblingSession()
+    }
+    const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)!
+    const addInfo = (text: string): void => {
+      useSessionsStore.getState().addMessage(sid!, {
+        id: Date.now().toString(),
+        role: 'assistant',
+        text
+      })
+    }
+
+    switch (name) {
+      case 'clear':
+        useSessionsStore.getState().clearMessages(sid)
+        break
+      case 'restart':
+        window.api.claude.abort(sid)
+        useSessionsStore.getState().restartSession(sid)
+        addInfo('Session restarted. MCP servers will reconnect on the next message.')
+        break
+      case 'help':
+        addInfo(
+          `**Available commands:**\n\n` +
+          `| Command | Description |\n|---|---|\n` +
+          `| /clear | Clear conversation history |\n` +
+          `| /status | Show session status |\n` +
+          `| /cost | Show token usage |\n` +
+          `| /help | Show this help |\n` +
+          `| /compact | Compact conversation context |\n` +
+          `| /restart | Restart Claude session (reconnects MCP servers) |\n` +
+          `| /init | Initialize project with CLAUDE.md |\n` +
+          `| /review | Review recent changes |\n` +
+          `| /pr-review | Review a pull request |\n` +
+          `| /doctor | Check Claude Code health |\n` +
+          `| /memory | Edit CLAUDE.md memory |\n\n` +
+          `Skills are also available — type \`/\` to see them.`
+        )
+        break
+      case 'status':
+        addInfo(
+          `**Session status**\n\n` +
+          `- **CWD:** \`${session.cwd}\`\n` +
+          `- **Session ID:** \`${session.claudeSessionId ?? 'not started'}\`\n` +
+          `- **Messages:** ${session.messages.length}\n` +
+          `- **Created:** ${new Date(session.createdAt).toLocaleString()}`
+        )
+        break
+      case 'cost':
+        addInfo(`**Token usage** — Cost tracking is not yet available in Nyra. Use \`/stats\` for a detailed overview.`)
+        break
+      case 'stats':
+        window.dispatchEvent(new CustomEvent('nyra:open-stats'))
+        break
+      case 'compact':
+        if (!session.claudeSessionId) {
+          addInfo('No active session to compact. Send a message first.')
+          break
+        }
+        addInfo('Compacting context…')
+        sendMessage('/compact')
+        break
+      case 'context':
+        if (!session.claudeSessionId) {
+          addInfo('No active session. Send a message first.')
+          break
+        }
+        sendMessage('/context')
+        break
+      case 'copy':
+        window.dispatchEvent(new CustomEvent('nyra:open-copy'))
+        break
+      case 'release-notes':
+        window.dispatchEvent(new CustomEvent('nyra:open-release-notes'))
+        break
+      case 'permissions':
+        window.dispatchEvent(new CustomEvent('nyra:open-permissions'))
+        break
+      case 'loop stop':
+        window.dispatchEvent(new CustomEvent('nyra:stop-loop'))
+        break
+      case 'tasks':
+        useUiStore.getState().focusProcessesTab()
+        break
+      case 'login':
+      case 'logout':
+        // Open the in-app login flow (spawns `claude /login` in a side PTY).
+        // Forwarding `/login` to Claude returns "/login isn't available in this environment".
+        window.dispatchEvent(new CustomEvent('nyra:open-login'))
+        break
+      case 'fork': {
+        const store = useSessionsStore.getState()
+        const currentSid = store.activeSessionId
+        if (!currentSid) {
+          addInfo('No active session to fork.')
+          break
+        }
+        const newId = store.forkSession(currentSid)
+        if (newId) {
+          const forkInfo = useSessionsStore.getState().sessions.find((s) => s.id === newId)?.forkOf
+          useSessionsStore.getState().addMessage(newId, {
+            id: Date.now().toString(),
+            role: 'assistant',
+            text: `⑂ Forked from **"${forkInfo?.title ?? 'previous session'}"**. History copied up to this point.\n\nOriginal session is unchanged. The next message starts a fresh Claude session.`
+          })
+        }
+        break
+      }
+      default:
+        // Built-in commands without a Nyra-native handler are forwarded to Claude.
+        // Prepend the slash so /login, /model, /config, etc. land as real CLI commands
+        // rather than being stripped by the prompt sender.
+        sendMessage('/' + name)
+        break
+    }
+  }, [sendMessage])
+
+  const handleMentionSelect = useCallback((item: MentionItem): void => {
+    if (mentionStart < 0) return
+    const textarea = textareaRef.current
+    const cursor = textarea?.selectionStart ?? input.length
+    const before = input.slice(0, mentionStart)
+    const after = input.slice(cursor)
+    const newInput = `${before}@${item.path} ${after}`
+    setInput(newInput)
+    // Place cursor after the inserted mention
+    const newCursor = mentionStart + 1 + item.path.length + 1
+    requestAnimationFrame(() => {
+      textarea?.focus()
+      textarea?.setSelectionRange(newCursor, newCursor)
+    })
+  }, [input, mentionStart])
+
+  const handleAutocompleteSelect = useCallback((item: AutocompleteItem): void => {
+    if (item.type === 'skill') {
+      // Insert into input so user can add arguments before sending
+      setInput('/' + item.name + ' ')
+      textareaRef.current?.focus()
+    } else {
+      executeCommand(item.name)
+    }
+  }, [executeCommand])
+
+  // Read queued message for current session
+  // Selected as raw fields and assembled here: a selector that builds the array
+  // itself hands back a new reference every render and never settles.
+  const queuedList = useSessionsStore(
+    (s) => s.sessions.find((x) => x.id === s.activeSessionId)?.queuedMessages
+  )
+  const legacyQueued = useSessionsStore(
+    (s) => s.sessions.find((x) => x.id === s.activeSessionId)?.queuedMessage
+  )
+  const queuedMessages = useMemo(
+    () => queuedList ?? (legacyQueued ? [legacyQueued] : EMPTY_QUEUE),
+    [queuedList, legacyQueued]
+  )
+
+  const activeLoop = useLoopsStore((s) => activeSessionId ? s.loops.get(activeSessionId) ?? null : null)
+
+  // Send handler: if loading, queue the message; otherwise send immediately
+  const handleSend = useCallback(async (): Promise<void> => {
+    const text = input
+    const images = [...stagedImages]
+    const files = [...stagedFiles]
+
+    if (!text.trim() && images.length === 0 && files.length === 0) return
+
+    // Intercept /loop <interval> <prompt>
+    const loopMatch = text.trim().match(/^\/loop\s+(\d+(?:\.\d+)?)(s|m|h)\s+(.+)$/i)
+    if (loopMatch) {
+      const value = parseFloat(loopMatch[1])
+      const unit = loopMatch[2].toLowerCase()
+      const loopPrompt = loopMatch[3].trim()
+      const multiplier = unit === 's' ? 1000 : unit === 'm' ? 60_000 : 3_600_000
+      const intervalMs = Math.round(value * multiplier)
+      setInput('')
+      window.dispatchEvent(new CustomEvent('nyra:start-loop', { detail: { prompt: loopPrompt, intervalMs } }))
+      return
+    }
+
+    // Intercept /loop stop
+    if (text.trim().toLowerCase() === '/loop stop') {
+      setInput('')
+      window.dispatchEvent(new CustomEvent('nyra:stop-loop'))
+      return
+    }
+
+    // Intercept /tasks — opens bottom panel and focuses Processes tab
+    if (text.trim().toLowerCase() === '/tasks') {
+      setInput('')
+      useUiStore.getState().focusProcessesTab()
+      return
+    }
+
+    // Intercept /rename <title> before sending to CLI
+    if (text.trim().startsWith('/rename ')) {
+      const newTitle = text.trim().slice('/rename '.length).trim()
+      if (newTitle) {
+        const sid = useSessionsStore.getState().activeSessionId
+        if (sid) useSessionsStore.getState().renameSession(sid, newTitle)
+      }
+      setInput('')
+      return
+    }
+
+    setInput('')
+    setStagedImages([])
+    setStagedFiles([])
+
+    if (isLoading) {
+      const sid = useSessionsStore.getState().activeSessionId
+      if (sid) {
+        const queued: QueuedMessage = {
+          text: text.trim(),
+          ...(images.length > 0 ? { images } : {}),
+          ...(files.length > 0 ? { files } : {})
+        }
+        useSessionsStore.getState().enqueueMessage(sid, queued)
+      }
+      return
+    }
+
+    await sendMessage(text.trim(), images.length > 0 ? images : undefined, files.length > 0 ? files : undefined)
+  }, [input, stagedImages, stagedFiles, sendMessage, isLoading])
+
+
+  const handleStash = useCallback((): void => {
+    if (hasStash) {
+      setInput(stashRef.current)
+      stashRef.current = ''
+      setHasStash(false)
+      requestAnimationFrame(() => textareaRef.current?.focus())
+    } else {
+      if (!input.trim()) return
+      stashRef.current = input
+      setHasStash(true)
+      setInput('')
+    }
+  }, [hasStash, input])
+
+  /** Apply a pure edit to the field and restore the caret it asked for. */
+  const applyEdit = useCallback((edit: Edit): void => {
+    setInput(edit.text)
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(edit.selectionStart, edit.selectionEnd)
+      ta.style.height = 'auto'
+      ta.style.height = Math.min(ta.scrollHeight, 300) + 'px'
+    })
+  }, [])
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    const ta = e.currentTarget
+    const sel = (): [number, number] => [ta.selectionStart, ta.selectionEnd]
+
+    // Markdown shortcuts. Cmd on macOS, Ctrl elsewhere; Alt+digit for headings
+    // because Cmd+digit is taken by the OS.
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      const marker =
+        e.key === 'b' ? 'bold' : e.key === 'i' ? 'italic' : e.key === 'e' ? 'code' : null
+      if (marker) {
+        e.preventDefault()
+        applyEdit(toggleInlineMarker(input, ...sel(), marker))
+        return
+      }
+      if (e.key === 'u') {
+        e.preventDefault()
+        applyEdit(insertLink(input, ...sel()))
+        return
+      }
+    }
+    if (e.altKey && !e.metaKey && !e.ctrlKey && /^[1-6]$/.test(e.key)) {
+      e.preventDefault()
+      applyEdit(toggleHeading(input, ...sel(), Number(e.key)))
+      return
+    }
+
+    // Enter on a list line continues it rather than sending. Shift+Enter is the
+    // plain newline it always was, so this only intercepts the send key.
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const cont = continueListOnEnter(input, ...sel())
+      if (cont) {
+        e.preventDefault()
+        applyEdit(cont)
+        return
+      }
+    }
+
+    // Ctrl+S to stash/restore draft
+    if (e.key === 's' && e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      e.preventDefault()
+      handleStash()
+      return
+    }
+    // Ctrl+R — past prompts, which now live in the command palette
+    if (e.key === 'r' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      useUiStore.getState().openPalette('history')
+      return
+    }
+
+    if (autocompleteVisible) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setAcSelectedIndex((i) => (i + 1) % acItems.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setAcSelectedIndex((i) => (i - 1 + acItems.length) % acItems.length)
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        handleAutocompleteSelect(acItems[acSelectedIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setInput('')
+        return
+      }
+    }
+    if (mentionVisible) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionSelectedIndex((i) => (i + 1) % mentionItems.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionSelectedIndex((i) => (i - 1 + mentionItems.length) % mentionItems.length)
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        handleMentionSelect(mentionItems[mentionSelectedIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        // Remove the @ trigger to dismiss
+        const before = input.slice(0, mentionStart)
+        const cursor = textareaRef.current?.selectionStart ?? input.length
+        const after = input.slice(cursor)
+        setInput(before + after)
+        return
+      }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  // Image processing
+  const processImageFile = useCallback(async (file: File): Promise<void> => {
+    if (!SUPPORTED_TYPES.includes(file.type)) return
+    const dataUrl = await new Promise<string>((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.readAsDataURL(file)
+    })
+    const rawBase64 = dataUrl.split(',')[1]
+    const compressed = await compressImage(rawBase64, file.type)
+    const path = await window.api.claude.saveImage(compressed.base64, compressed.mediaType)
+    const finalDataUrl = `data:${compressed.mediaType};base64,${compressed.base64}`
+    setStagedImages((prev) => [...prev, { path, mediaType: compressed.mediaType, dataUrl: finalDataUrl }])
+  }, [])
+
+  // File processing
+  const processAttachedFile = useCallback(async (file: File) => {
+    setFileError(null)
+    const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    setPendingAttachments((prev) => [...prev, { id: pendingId, name: file.name }])
+    const done = (): void =>
+      setPendingAttachments((prev) => prev.filter((p) => p.id !== pendingId))
+    try {
+      if (SUPPORTED_TYPES.includes(file.type)) {
+        await processImageFile(file)
+        return
+      }
+      // A dropped File carries no filesystem path, so stage the bytes to a temp
+      // file first and hand the backend that path to extract from.
+      const buffer = await file.arrayBuffer()
+      const bytes = new Uint8Array(buffer)
+      let binary = ''
+      const chunkSize = 8192
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+      }
+      const base64 = btoa(binary)
+      const filePath = await window.api.claude.saveTempFile(base64, file.name)
+      if (!filePath) {
+        setFileError('Could not read file path')
+        return
+      }
+      const result = await window.api.claude.processFile(filePath)
+      if (result.error) {
+        setFileError(result.error)
+        setTimeout(() => setFileError(null), 5000)
+        return
+      }
+      if (result.category === 'image') {
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.readAsDataURL(file)
+        })
+        const rawBase64 = dataUrl.split(',')[1]
+        const compressed = await compressImage(rawBase64, file.type)
+        const path = await window.api.claude.saveImage(compressed.base64, compressed.mediaType)
+        const finalDataUrl = `data:${compressed.mediaType};base64,${compressed.base64}`
+        setStagedImages((prev) => [...prev, { path, mediaType: compressed.mediaType, dataUrl: finalDataUrl }])
+      } else {
+        // The backend names it after the temp file the bytes were staged to, which
+        // is a timestamped id. Keep what the user dropped.
+        setStagedFiles((prev) => [...prev, { ...(result as FileAttachment), name: file.name }])
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to attach file'
+      setFileError(message)
+      setTimeout(() => setFileError(null), 5000)
+    } finally {
+      done()
+    }
+  }, [processImageFile])
+
+  const pickFiles = useCallback(async () => {
+    setFileError(null)
+    const paths = await window.api.dialog.pickFiles()
+    if (!paths) return
+    const staged = paths.map((filePath) => ({
+      id: `pending-${filePath}`,
+      name: filePath.split('/').pop() ?? filePath
+    }))
+    setPendingAttachments((prev) => [...prev, ...staged])
+    for (const filePath of paths) {
+      const clearOne = (): void =>
+        setPendingAttachments((prev) => prev.filter((p) => p.id !== `pending-${filePath}`))
+      try {
+        const result = await window.api.claude.processFile(filePath)
+        if (result.error) {
+          setFileError(result.error)
+          setTimeout(() => setFileError(null), 5000)
+          continue
+        }
+        if (result.category === 'image' && result.base64 && result.mediaType) {
+          const compressed = await compressImage(result.base64, result.mediaType)
+          const savedPath = await window.api.claude.saveImage(compressed.base64, compressed.mediaType)
+          const dataUrl = `data:${compressed.mediaType};base64,${compressed.base64}`
+          setStagedImages((prev) => [...prev, { path: savedPath, mediaType: compressed.mediaType, dataUrl }])
+        } else {
+          setStagedFiles((prev) => [
+            ...prev,
+            { ...(result as FileAttachment), name: filePath.split('/').pop() ?? filePath }
+          ])
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to attach file'
+        setFileError(message)
+        setTimeout(() => setFileError(null), 5000)
+      } finally {
+        clearOne()
+      }
+    }
+  }, [])
+
+  const removeImage = useCallback((index: number) => {
+    setStagedImages((prev) => prev.filter((_, i) => i !== index))
+  }, [])
+
+  const removeFile = useCallback((id: string) => {
+    setStagedFiles((prev) => prev.filter((f) => f.id !== id))
+  }, [])
+
+  // Handle files dropped on chat area (dispatched from parent)
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const file = (e as CustomEvent).detail as File
+      processAttachedFile(file)
+    }
+    window.addEventListener('nyra:drop-file', handler)
+    return () => window.removeEventListener('nyra:drop-file', handler)
+  }, [processAttachedFile])
+
+  // Paste handler for images
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    const handlePaste = async (e: ClipboardEvent): Promise<void> => {
+      const items = Array.from(e.clipboardData?.items ?? [])
+      for (const item of items) {
+        if (item.kind === 'file' && SUPPORTED_TYPES.includes(item.type)) {
+          e.preventDefault()
+          const file = item.getAsFile()
+          if (file) await processImageFile(file)
+        }
+      }
+    }
+    textarea.addEventListener('paste', handlePaste)
+    return () => textarea.removeEventListener('paste', handlePaste)
+  }, [processImageFile])
+
+  return (
+    <div className="relative py-3">
+      {autocompleteVisible && (
+        <SlashAutocomplete
+          items={acItems}
+          selectedIndex={acSelectedIndex}
+          onSelect={handleAutocompleteSelect}
+          onHover={setAcSelectedIndex}
+        />
+      )}
+      {mentionVisible && (
+        <AtMentionAutocomplete
+          items={mentionItems}
+          selectedIndex={mentionSelectedIndex}
+          onSelect={handleMentionSelect}
+          onHover={setMentionSelectedIndex}
+          anchorLeft={mentionAnchorLeft}
+        />
+      )}
+      {hasStash && (
+        <div className="mb-2 rounded-lg border border-info/20 bg-info/10 px-3 py-2 text-[12px] text-info/80 flex items-center justify-between">
+          <span>
+            <span className="font-medium">Draft stashed</span>
+            <span className="text-info/50 ml-1">— Ctrl+S to restore</span>
+          </span>
+          <button
+            onClick={() => { stashRef.current = ''; setHasStash(false) }}
+            className="text-info/40 hover:text-info ml-2 shrink-0"
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {activeLoop && (
+        <div className="mb-2 rounded-lg border border-success/20 bg-success/10 px-3 py-2 text-[12px] text-success/80 flex items-center justify-between">
+          <span className="truncate">
+            <span className="font-medium">Loop active:</span>{' '}
+            {activeLoop.prompt.slice(0, 40)}{activeLoop.prompt.length > 40 ? '…' : ''}{' '}
+            <span className="text-success/50">
+              every {activeLoop.intervalMs < 60_000 ? `${activeLoop.intervalMs / 1000}s` : activeLoop.intervalMs < 3_600_000 ? `${activeLoop.intervalMs / 60_000}m` : `${activeLoop.intervalMs / 3_600_000}h`}
+              {' '}— run #{activeLoop.runCount}
+              {activeLoop.skippedCount > 0 && ` (${activeLoop.skippedCount} skipped)`}
+            </span>
+          </span>
+          <button
+            onClick={() => { if (activeSessionId) useLoopsStore.getState().removeLoop(activeSessionId) }}
+            className="text-success/40 hover:text-success ml-2 shrink-0 text-[11px] font-medium"
+          >
+            Stop
+          </button>
+        </div>
+      )}
+      {queuedMessages.length > 0 && (
+        // Docked to the top of the composer rather than floating above it as a
+        // warning banner: these are the next things you will send, not problems.
+        <div className="-mb-2 rounded-t-xl border border-b-0 border-border bg-muted pb-4 pt-1 text-xs">
+          {queuedMessages.map((queued, i) => (
+            <div key={i} className="group/q flex items-center gap-2 px-3 py-1.5">
+              <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-foreground/80">{queued.text}</span>
+              <button
+                onClick={() => {
+                  const sid = useSessionsStore.getState().activeSessionId
+                  if (sid) useSessionsStore.getState().removeQueuedMessage(sid, i)
+                }}
+                title="Remove from queue"
+                aria-label="Remove from queue"
+                className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-colors group-hover/q:opacity-100 hover:bg-accent/50 hover:text-danger"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {fileError && (
+        <div className="mb-2 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-[12px] text-danger flex items-center justify-between">
+          <span>{fileError}</span>
+          <button onClick={() => setFileError(null)} className="text-danger/50 hover:text-danger ml-2">×</button>
+        </div>
+      )}
+      {/* Inside the composer's own padded box rather than a sibling of it, so the
+          two cannot drift apart when that padding changes. */}
+      {activeSessionId && <NewChatEnvironment sessionId={activeSessionId} />}
+
+      {/* Codex-shaped: the field on its own line, then a footer carrying what you
+          set per turn — approvals on the left, model and effort on the right,
+          attachments and commands behind the `+`. */}
+      <div className="rounded-xl border border-muted bg-muted px-3 py-2.5 transition-colors focus-within:border-border-strong">
+        <AttachmentStrip
+          images={stagedImages}
+          files={stagedFiles}
+          pending={pendingAttachments}
+          onRemoveImage={removeImage}
+          onRemoveFile={removeFile}
+        />
+        <textarea
+          ref={textareaRef}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value)
+            const el = e.target
+            requestAnimationFrame(() => {
+              el.style.height = 'auto'
+              el.style.height = Math.min(el.scrollHeight, 300) + 'px'
+            })
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder={isLoading ? 'Type to queue next message…' : 'Message Claude…'}
+          rows={1}
+          className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder-muted-foreground/70 outline-hidden"
+          style={{ maxHeight: '300px', overflow: 'auto' }}
+        />
+        <ComposerBar
+          isLoading={isLoading}
+          canSend={!!input.trim() || stagedImages.length > 0 || stagedFiles.length > 0}
+          onPickFiles={pickFiles}
+          onInsert={insertCommand}
+          onSend={handleSend}
+          onStop={onStop}
+        />
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+
+# Environment
+.env
+.env.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Debug logs
+*.log
+/tmp/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Personal Claude Code config (per-user, not project)
+.claude/
+
+# Playwright MCP scratch output
+.playwright-mcp/
