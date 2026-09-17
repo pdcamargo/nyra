@@ -121,7 +121,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const browser = useBrowserStore((s) => (session ? s.bySession[session.id] : null) ?? EMPTY_BROWSER)
   const dismissPip = useBrowserStore((s) => s.dismissPip)
   const setActiveTab = useBrowserStore((s) => s.setActiveTab)
-  const toggleBrowserPanel = useUiStore((s) => s.toggleBrowserPanel)
+  const toggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const [stat, setStat] = useState<Stat | null>(null)
   const [projectBranch, setProjectBranch] = useState('')
 
@@ -325,7 +325,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
               onClick={() => {
                 if (!session) return
                 setActiveTab(session.id, tab.tabId)
-                toggleBrowserPanel()
+                toggleRightPanel()
               }}
               title={tab.url}
               className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"

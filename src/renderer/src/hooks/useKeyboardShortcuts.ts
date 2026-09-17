@@ -34,7 +34,7 @@ export function useKeyboardShortcuts(): void {
         // same thing; muscle memory is worth more here than originality.
         if (e.key.toLowerCase() === 'b' && e.shiftKey) {
           e.preventDefault()
-          useUiStore.getState().toggleBrowserPanel()
+          useUiStore.getState().toggleRightPanel()
           return
         }
 

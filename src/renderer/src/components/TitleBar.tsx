@@ -3,7 +3,6 @@ import {
   FolderOpen,
   Globe,
   PanelLeft,
-  PanelRight,
   Search,
   Settings,
   SquareTerminal,
@@ -66,9 +65,7 @@ export default function TitleBar(): React.JSX.Element {
   const projectsPanelOpen = useUiStore((s) => s.projectsPanelOpen)
   const toggleProjectsPanel = useUiStore((s) => s.toggleProjectsPanel)
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
-  const rightPanelMode = useUiStore((s) => s.rightPanelMode)
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel)
-  const toggleBrowserPanel = useUiStore((s) => s.toggleBrowserPanel)
   const summaryOpen = useUiStore((s) => s.summaryOpen)
   const toggleSummary = useUiStore((s) => s.toggleSummary)
   const terminalOpen = useUiStore((s) => s.bottomPanelOpen)
@@ -117,18 +114,9 @@ export default function TitleBar(): React.JSX.Element {
         <TitleBarButton label="Summary" active={summaryOpen} onClick={toggleSummary}>
           <TextQuote className="size-4" />
         </TitleBarButton>
-        <TitleBarButton
-          label="Workspace panel"
-          active={rightPanelOpen && rightPanelMode === 'workspace'}
-          onClick={toggleRightPanel}
-        >
-          <PanelRight className="size-4" />
-        </TitleBarButton>
-        <TitleBarButton
-          label="Browser"
-          active={rightPanelOpen && rightPanelMode === 'browser'}
-          onClick={toggleBrowserPanel}
-        >
+        {/* One button, because the panel is one thing. The globe used to sit
+            beside this and each could close the other out from under you. */}
+        <TitleBarButton label="Browser" active={rightPanelOpen} onClick={toggleRightPanel}>
           <Globe className="size-4" />
         </TitleBarButton>
         <TitleBarButton label="Settings" onClick={() => setSettingsOpen(true)}>

@@ -7,8 +7,7 @@ const showing = {
   phase: 'ready' as const,
   tabCount: 2,
   dismissed: false,
-  rightPanelOpen: false,
-  rightPanelMode: 'workspace' as const
+  rightPanelOpen: false
 }
 
 describe('pipVisible', () => {
@@ -17,12 +16,9 @@ describe('pipVisible', () => {
   })
 
   it('stays out of the way when the panel is already showing the browser', () => {
-    expect(pipVisible({ ...showing, rightPanelOpen: true, rightPanelMode: 'browser' })).toBe(false)
-  })
-
-  it('still shows when the panel is open on the workspace tabs', () => {
-    // The panel being open is not the point — the browser being visible is.
-    expect(pipVisible({ ...showing, rightPanelOpen: true, rightPanelMode: 'workspace' })).toBe(true)
+    // The panel is the browser now, so its being open is the whole test — there
+    // are no workspace tabs left for it to be open on instead.
+    expect(pipVisible({ ...showing, rightPanelOpen: true })).toBe(false)
   })
 
   it('stays hidden once dismissed, until the Summary brings it back', () => {

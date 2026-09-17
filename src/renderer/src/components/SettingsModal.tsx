@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback } from 'react'
 import Modal from './Modal'
+import McpSettings from './McpSettings'
 import { useSettingsStore } from '../store/settings'
 import { useHookEditorStore } from '../store/hookEditor'
 import { DEFAULT_SETTINGS, type NyraSettings, type ThemePreference } from '../../../shared/types'
@@ -176,6 +177,13 @@ export default function SettingsModal({ onClose }: { onClose: () => void }): Rea
             ]}
           />
         </SettingRow>
+
+        {/* MCP moved here from the workspace panel: a server is set up once and
+            then forgotten, which is what settings are for. */}
+        <SectionLabel>MCP Servers</SectionLabel>
+        <div className="mb-4">
+          <McpSettings />
+        </div>
 
         {/* Footer */}
         <div className="border-t border-border/55 mt-4 pt-4 flex items-center justify-between">

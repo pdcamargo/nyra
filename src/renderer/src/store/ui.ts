@@ -1,23 +1,22 @@
 import { create } from 'zustand'
 
-export type RightPanelTab = 'agents' | 'context' | 'mcp' | 'memory'
-
-/** What the right panel is showing. The browser takes the whole panel rather
- *  than becoming a fifth tab: it has its own tab strip, and nesting one strip
- *  inside another reads as a mistake. */
-export type RightPanelMode = 'workspace' | 'browser'
+/** The left rail's tabs. In the store rather than in Sidebar, because opening a
+ *  memory file from elsewhere has to be able to bring that tab forward. */
+export type SidebarTab = 'sessions' | 'skills' | 'commands' | 'workflows' | 'memory'
 
 type UiStore = {
-  rightPanelTab: RightPanelTab
-  rightPanelMode: RightPanelMode
+  sidebarTab: SidebarTab
   pendingMemoryFilePath: string | null
   pendingInputPrefill: string | null
   bottomPanelOpen: boolean
   bottomPanelFocusNonce: number
   /** The projects rail. The title bar toggles it; Codex hides it the same way. */
   projectsPanelOpen: boolean
-  /** The workspace panel — agents, context, MCP, memory — or the browser,
-   *  depending on `rightPanelMode`. */
+  /** The right panel, which is the browser. It used to carry agents, context,
+   *  MCP and memory tabs as well, and the browser fought the rest for the same
+   *  space: two title-bar buttons for one strip of window. Agents and context
+   *  are gone, MCP is in settings and memory is in the left rail, so the panel
+   *  is one thing and one button opens it. */
   rightPanelOpen: boolean
   /** The conversation's own environment. Spec calls it the Pinned Summary, but
    *  "pinned" now means something else in the sidebar, so it is just Summary.
@@ -28,7 +27,7 @@ type UiStore = {
   /** The command palette. `mode` seeds the query so ⌃R lands straight in history. */
   paletteOpen: boolean
   paletteMode: 'all' | 'history'
-  setRightPanelTab: (tab: RightPanelTab) => void
+  setSidebarTab: (tab: SidebarTab) => void
   openMemoryFile: (filePath: string) => void
   consumePendingMemoryFile: () => void
   prefillInput: (text: string) => void
@@ -37,7 +36,6 @@ type UiStore = {
   toggleBottomPanel: () => void
   focusProcessesTab: () => void
   toggleRightPanel: () => void
-  toggleBrowserPanel: () => void
   toggleSummary: () => void
   toggleProjectsPanel: () => void
   setSettingsOpen: (open: boolean) => void
@@ -46,8 +44,7 @@ type UiStore = {
 }
 
 export const useUiStore = create<UiStore>()((set, get) => ({
-  rightPanelTab: 'agents',
-  rightPanelMode: 'workspace',
+  sidebarTab: 'sessions',
   pendingMemoryFilePath: null,
   pendingInputPrefill: null,
   bottomPanelOpen: false,
@@ -58,9 +55,9 @@ export const useUiStore = create<UiStore>()((set, get) => ({
   settingsOpen: false,
   paletteOpen: false,
   paletteMode: 'all',
-  setRightPanelTab: (rightPanelTab) => set({ rightPanelTab }),
+  setSidebarTab: (sidebarTab) => set({ sidebarTab }),
   openMemoryFile: (filePath) =>
-    set({ rightPanelTab: 'memory', pendingMemoryFilePath: filePath }),
+    set({ sidebarTab: 'memory', pendingMemoryFilePath: filePath, projectsPanelOpen: true }),
   consumePendingMemoryFile: () => set({ pendingMemoryFilePath: null }),
   prefillInput: (text) => set({ pendingInputPrefill: text }),
   consumeInputPrefill: () => {
@@ -75,21 +72,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
       bottomPanelOpen: true,
       bottomPanelFocusNonce: s.bottomPanelFocusNonce + 1
     })),
-  // Each title-bar button owns one surface, so "active" can mean "this is what
-  // you are looking at". Pressing Workspace while the browser is up shows the
-  // workspace rather than closing the panel out from under you.
-  toggleRightPanel: () =>
-    set((s) =>
-      s.rightPanelOpen && s.rightPanelMode === 'browser'
-        ? { rightPanelMode: 'workspace' }
-        : { rightPanelOpen: !s.rightPanelOpen, rightPanelMode: 'workspace' }
-    ),
-  toggleBrowserPanel: () =>
-    set((s) =>
-      s.rightPanelOpen && s.rightPanelMode === 'browser'
-        ? { rightPanelMode: 'workspace' }
-        : { rightPanelOpen: true, rightPanelMode: 'browser' }
-    ),
+  toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
   toggleSummary: () => set((s) => ({ summaryOpen: !s.summaryOpen })),
   toggleProjectsPanel: () => set((s) => ({ projectsPanelOpen: !s.projectsPanelOpen })),
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),

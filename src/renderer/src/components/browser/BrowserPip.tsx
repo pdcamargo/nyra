@@ -4,7 +4,7 @@ import BrowserCanvas from './BrowserCanvas'
 import { EMPTY_BROWSER, useBrowserStore, type BrowserPhase } from '../../store/browser'
 import { useSessionsStore } from '../../store/sessions'
 import { useSettingsStore } from '../../store/settings'
-import { useUiStore, type RightPanelMode } from '../../store/ui'
+import { useUiStore } from '../../store/ui'
 
 /** Roughly the summary's width, so the two stack as one column. */
 const MINIATURE_WIDTH = 300
@@ -25,13 +25,13 @@ export function pipVisible(state: {
   tabCount: number
   dismissed: boolean
   rightPanelOpen: boolean
-  rightPanelMode: RightPanelMode
 }): boolean {
   // Showing it in the panel is the whole reason not to show it here. Note this
   // reads the *active* chat only: a background chat's browser is still running
   // and still says so in the sidebar, but it never floats a preview over a
   // conversation it does not belong to.
-  const alreadyOnScreen = state.rightPanelOpen && state.rightPanelMode === 'browser'
+  // The panel is the browser now, so having it open is the whole test.
+  const alreadyOnScreen = state.rightPanelOpen
   return (
     state.enabled &&
     state.hasSession &&
@@ -46,7 +46,6 @@ export function usePipVisible(): boolean {
   const sessionId = useSessionsStore((s) => s.activeSessionId)
   const chat = useBrowserStore((s) => (sessionId ? s.bySession[sessionId] : null) ?? EMPTY_BROWSER)
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
-  const rightPanelMode = useUiStore((s) => s.rightPanelMode)
   const enabled = useSettingsStore((s) => s.browserPip)
 
   return pipVisible({
@@ -55,8 +54,7 @@ export function usePipVisible(): boolean {
     phase: chat.phase,
     tabCount: chat.tabs.length,
     dismissed: chat.pipDismissed,
-    rightPanelOpen,
-    rightPanelMode
+    rightPanelOpen
   })
 }
 
@@ -65,7 +63,7 @@ export default function BrowserPip(): React.JSX.Element | null {
   const chat = useBrowserStore((s) => (sessionId ? s.bySession[sessionId] : null) ?? EMPTY_BROWSER)
   const setActiveTab = useBrowserStore((s) => s.setActiveTab)
   const dismissPip = useBrowserStore((s) => s.dismissPip)
-  const toggleBrowserPanel = useUiStore((s) => s.toggleBrowserPanel)
+  const toggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const visible = usePipVisible()
   const [expanded, setExpanded] = useState(false)
 
@@ -80,7 +78,7 @@ export default function BrowserPip(): React.JSX.Element | null {
 
   const open = (tabId: string): void => {
     setActiveTab(sessionId, tabId)
-    toggleBrowserPanel()
+    toggleRightPanel()
   }
 
   return (

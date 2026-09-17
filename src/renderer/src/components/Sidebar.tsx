@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSessionsStore, activeProjectCwd, sortProjects } from '../store/sessions'
+import { useUiStore, type SidebarTab } from '../store/ui'
 import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBrowserStore } from '../store/browser'
@@ -27,10 +28,14 @@ import { homedir } from '../lib/homedir'
 import { createPermanentWorktree, defaultBranchName } from '../lib/worktrees'
 import type { WorkflowDefinition } from '../../../shared/workflow-types'
 
-type Tab = 'sessions' | 'skills' | 'commands' | 'workflows'
+// Lazy so monaco-editor only loads when Memory is opened.
+const MemoryTab = React.lazy(() => import('./MemoryTab'))
 
 export default function Sidebar(): React.JSX.Element {
-  const [activeTab, setActiveTab] = useState<Tab>('sessions')
+  // In the ui store rather than local state: opening a memory file from an agent
+  // definition has to be able to bring this tab forward from outside.
+  const activeTab = useUiStore((s) => s.sidebarTab)
+  const setActiveTab = useUiStore((s) => s.setSidebarTab)
   // shrink-0 because the width has to stay what the user set: flex would
   // otherwise squeeze this rail on a narrow window and --rail would start lying.
   const width = usePanelLayoutStore((s) => s.sidebarWidth)
@@ -41,19 +46,20 @@ export default function Sidebar(): React.JSX.Element {
           now, and search moved up there next to the other window-level actions. */}
 
       {/* Tabs */}
-      <div className="flex px-2 pt-2 gap-0.5 mb-2">
-        {(['sessions', 'skills', 'commands', 'workflows'] as Tab[]).map((tab) => {
-          const label: Record<Tab, string> = {
-            sessions: 'Sessions',
+      <div className="mb-2 flex gap-0.5 px-2 pt-2">
+        {(['sessions', 'skills', 'commands', 'workflows', 'memory'] as SidebarTab[]).map((tab) => {
+          const label: Record<SidebarTab, string> = {
+            sessions: 'Chats',
             skills: 'Skills',
             commands: 'Cmds',
-            workflows: 'Flows'
+            workflows: 'Flows',
+            memory: 'Memory'
           }
           return (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
+              className={`min-w-0 flex-1 truncate rounded-md py-1.5 text-[11px] font-medium transition-colors ${
                 activeTab === tab
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:text-foreground/80 hover:bg-accent/50'
@@ -71,6 +77,13 @@ export default function Sidebar(): React.JSX.Element {
         {activeTab === 'skills' && <SkillsList />}
         {activeTab === 'commands' && <CommandsList />}
         {activeTab === 'workflows' && <WorkflowsList />}
+        {activeTab === 'memory' && (
+          <Suspense
+            fallback={<div className="p-3 text-[11px] text-muted-foreground/70">Loading…</div>}
+          >
+            <MemoryTab />
+          </Suspense>
+        )}
       </div>
 
       {activeTab === 'workflows' && (

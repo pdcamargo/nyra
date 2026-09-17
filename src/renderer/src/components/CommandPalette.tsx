@@ -8,7 +8,6 @@ import {
   MessageSquare,
   PanelLeft,
   Globe,
-  PanelRight,
   Plus,
   Receipt,
   Settings,
@@ -107,19 +106,13 @@ export default function CommandPalette(): React.JSX.Element {
       icon: PanelLeft,
       run: () => ui().toggleProjectsPanel()
     },
-    {
-      id: 'workspace',
-      label: 'Toggle workspace panel',
-      icon: PanelRight,
-      run: () => ui().toggleRightPanel()
-    },
     { id: 'summary', label: 'Toggle summary', icon: TextQuote, run: () => ui().toggleSummary() },
     {
       id: 'browser',
       label: 'Toggle browser',
       icon: Globe,
       shortcut: '⌘⇧B',
-      run: () => ui().toggleBrowserPanel()
+      run: () => ui().toggleRightPanel()
     },
     {
       id: 'terminal',
