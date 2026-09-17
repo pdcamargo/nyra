@@ -4,6 +4,7 @@ import { useSettingsStore } from '../store/settings'
 import { inlineLabel, buildGroupSummary, formatToolName } from '../utils/toolSummary'
 import { useFilePreviewStore } from '../store/filePreview'
 import AskUserQuestionCard from './AskUserQuestionCard'
+import PlanCard, { type PlanAnswer } from './PlanCard'
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write'])
 
@@ -58,10 +59,14 @@ function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.Element
 }
 
 export default function ToolCallGroup({
-  messages
+  messages,
+  onPlanAnswer,
+  onQuestionAnswer
 }: {
   messages: ToolCallMessage[]
   isLoading?: boolean
+  onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void
+  onQuestionAnswer?: (toolId: string, answer: string) => void
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const allDone = messages.every((m) => m.result !== undefined)
@@ -72,7 +77,10 @@ export default function ToolCallGroup({
   if (isSingle) {
     const only = messages[0]
     if (only.tool_name === 'AskUserQuestion') {
-      return <AskUserQuestionCard message={only} />
+      return <AskUserQuestionCard message={only} onAnswer={onQuestionAnswer} />
+    }
+    if (only.tool_name === 'ExitPlanMode') {
+      return <PlanCard message={only} onAnswer={onPlanAnswer} />
     }
     return (
       <div className="py-0.5">

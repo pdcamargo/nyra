@@ -62,9 +62,12 @@ function HeaderChip({ children }: { children: React.ReactNode }): React.JSX.Elem
  * is a record of what was asked, and offering buttons would be a lie.
  */
 export default function AskUserQuestionCard({
-  message
+  message,
+  onAnswer
 }: {
   message: ToolCallMessage
+  /** Send the answer. Absent only where the card is a record, not a prompt. */
+  onAnswer?: (toolId: string, answer: string) => void
 }): React.JSX.Element {
   const questions = useMemo(() => parseQuestions(message.input), [message.input])
   const denied = message.denied === true
@@ -111,10 +114,17 @@ export default function AskUserQuestionCard({
       .filter(Boolean)
     if (lines.length === 0) return
     const answer = lines.join('\n')
-    prefillInput(answer)
     setSubmitted(true)
-    // Record it on the message too, so a reloaded transcript shows a question
-    // that was answered rather than offering the buttons again.
+    // Answering used to drop the text in the composer for you to send, on the
+    // theory that you might want to edit it first. In practice you have just
+    // picked from a list and pressed a button labelled Submit; stopping there to
+    // make you press Enter as well is a step with nothing in it. The free-text
+    // box is where editing belongs, and it is right there above.
+    if (onAnswer) {
+      onAnswer(message.tool_id, answer)
+      return
+    }
+    prefillInput(answer)
     const sid = useSessionsStore.getState().activeSessionId
     if (sid) useSessionsStore.getState().updateToolResult(sid, message.tool_id, answer)
   }
@@ -132,7 +142,7 @@ export default function AskUserQuestionCard({
         <span className="font-medium text-foreground/80">Question</span>
         {denied && <span className="text-[10px] text-danger/60">denied</span>}
         <span className="ml-auto text-[10px] text-muted-foreground">
-          {submitted ? 'Answer is in the composer' : interactive ? 'Pick to answer' : 'Answered in chat'}
+          {submitted ? 'Sent' : interactive ? 'Pick to answer' : 'Answered in chat'}
         </span>
       </div>
 

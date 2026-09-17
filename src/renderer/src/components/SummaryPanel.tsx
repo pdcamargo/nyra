@@ -1,10 +1,26 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { FileDiff, GitBranch, Laptop, RotateCw } from 'lucide-react'
+import { FileDiff, GitBranch, Laptop, RotateCw, TerminalSquare } from 'lucide-react'
 import { useSessionsStore, findProject, type TextMessage } from '../store/sessions'
 import { useUiStore } from '../store/ui'
 import { collectAttachments, formatSize } from '../lib/summary'
+import { useProcessesStore, type BgProcess } from '../store/processes'
+import { formatElapsed } from './ActivityStrip'
 
 type Stat = { filesChanged: number; insertions: number; deletions: number }
+
+/** Stable empty array — a fresh one per call re-renders forever. */
+const EMPTY_PROCESSES: BgProcess[] = []
+
+/** Ticks once a second while `active`, so elapsed times stay honest. */
+function useClock(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [active])
+  return now
+}
 
 function Section({
   label,
@@ -57,6 +73,9 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const open = useUiStore((s) => s.summaryOpen)
   const session = useSessionsStore((s) => s.sessions.find((x) => x.id === s.activeSessionId) ?? null)
   const project = useSessionsStore((s) => findProject(s, session?.projectId))
+  const processes = useProcessesStore((s) =>
+    session ? (s.bySession[session.id] ?? EMPTY_PROCESSES) : EMPTY_PROCESSES
+  )
   const [stat, setStat] = useState<Stat | null>(null)
   const [projectBranch, setProjectBranch] = useState('')
 
@@ -100,6 +119,13 @@ export default function SummaryPanel(): React.JSX.Element | null {
   useEffect(() => {
     if (open) void refresh()
   }, [open, refresh])
+
+  // Above the guard: a hook that runs only while the panel is open is a hook
+  // that vanishes when it closes, and React counts them.
+  // Only what is still going — a finished shell belongs in the Processes tab,
+  // not in a summary of what this conversation has in flight.
+  const liveProcesses = processes.filter((p) => p.status === 'running')
+  const now = useClock(open && liveProcesses.length > 0)
 
   if (!open || !session) return null
 
@@ -163,6 +189,26 @@ export default function SummaryPanel(): React.JSX.Element | null {
         )}
         <p className="mt-1 text-[10px] text-muted-foreground/40 font-mono break-all">{cwd || '—'}</p>
       </Section>
+
+      {/* Shells and monitors Claude left running. The CLI lists these; Nyra had
+          them only in a panel tab and a chip in the status line, which is not
+          where you look to find out what this conversation has going on. */}
+      {liveProcesses.length > 0 && (
+        <Section label="Running">
+          {liveProcesses.map((proc) => (
+            <Row
+              key={proc.shellId}
+              icon={<TerminalSquare className="size-3.5" />}
+              label={proc.description ?? proc.command}
+              trailing={
+                <span className="text-[10px] text-muted-foreground/40">
+                  {formatElapsed(now - proc.startedAt)}
+                </span>
+              }
+            />
+          ))}
+        </Section>
+      )}
 
       {agents.length > 0 && (
         <Section label="Subagents">

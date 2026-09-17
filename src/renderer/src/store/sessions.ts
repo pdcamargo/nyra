@@ -168,6 +168,14 @@ export type Session = {
   pendingWorktree?: PendingWorktree | null
   /** Set when a managed worktree was pruned but its work was snapshotted. */
   worktreeSnapshotted?: boolean
+  /** The plan being carried out, so the composer can say what and for how long.
+   *  Set when a plan is approved, cleared when the work stops. */
+  executing?: { title: string; startedAt: number } | null
+  /** Approving a plan with "auto-accept edits" — this conversation only.
+   *  Deliberately not a global setting: the CLI's version lasts the session,
+   *  and a permission you granted for one plan should not quietly follow you
+   *  into every other project. */
+  autoAcceptEdits?: boolean
 }
 
 export type PendingAction = { type: 'send' | 'insert'; text: string }
@@ -189,6 +197,8 @@ type SessionsStore = {
   addMessage: (sessionId: string, message: Message) => void
   updateToolResult: (sessionId: string, toolId: string, content: string) => void
   markToolDenied: (sessionId: string, toolId: string) => void
+  setAutoAcceptEdits: (sessionId: string, value: boolean) => void
+  setExecuting: (sessionId: string, executing: { title: string; startedAt: number } | null) => void
   updateClaudeSessionId: (sessionId: string, claudeSessionId: string | null) => void
   updateSessionCwd: (sessionId: string, cwd: string) => void
   clearMessages: (sessionId: string) => void
@@ -375,6 +385,20 @@ export const useSessionsStore = create<SessionsStore>()(
               )
             }
           })
+        }))
+      },
+
+      setExecuting: (sessionId, executing) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, executing } : s))
+        }))
+      },
+
+      setAutoAcceptEdits: (sessionId: string, value: boolean) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId ? { ...s, autoAcceptEdits: value } : s
+          )
         }))
       },
 

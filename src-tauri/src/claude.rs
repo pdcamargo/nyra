@@ -566,6 +566,31 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
         }
     }
 
+    // Claude's prose, as it is written rather than all at once when the turn
+    // ends. A long execution used to be silent from the first tool call to the
+    // last, then say everything at once — the `result` event carries the whole
+    // reply, and nothing before it carried any of it.
+    if event_type == "assistant" {
+        if let Some(content) = raw
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(Value::as_array)
+        {
+            for block in content {
+                if block.get("type").and_then(Value::as_str) != Some("text") {
+                    continue;
+                }
+                let text = block.get("text").and_then(Value::as_str).unwrap_or_default();
+                if !text.trim().is_empty() {
+                    emit_event(
+                        nyra_session_id,
+                        json!({ "type": "assistant_text", "text": text }),
+                    );
+                }
+            }
+        }
+    }
+
     if event_type == "result" {
         let result_text = raw.get("result").and_then(Value::as_str).unwrap_or_default();
         let is_error = raw
@@ -640,6 +665,30 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                 raw.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
                 raw.get("patch").unwrap_or(&json!({})),
             ),
+            // Background subagents. The turn ends the moment they are spawned,
+            // so without these the app goes quiet while three agents keep
+            // working — and the only other signal, the Task tool's result, is a
+            // handle that comes back in two seconds and looks like completion.
+            Some("background_tasks_changed") => emit_event(
+                nyra_session_id,
+                json!({
+                    "type": "background_tasks",
+                    "tasks": raw.get("tasks").cloned().unwrap_or(json!([])),
+                }),
+            ),
+            Some("task_progress") => emit_event(
+                nyra_session_id,
+                json!({
+                    "type": "background_task_progress",
+                    // `session_id` on these is the parent's, not the subagent's,
+                    // and `description` is what it is doing rather than what it
+                    // is — `task_id` is the only thing that names the agent.
+                    "task_id": raw.get("task_id").and_then(Value::as_str).unwrap_or_default(),
+                    "activity": raw.get("description").and_then(Value::as_str).unwrap_or_default(),
+                    "last_tool_name": raw.get("last_tool_name").and_then(Value::as_str).unwrap_or_default(),
+                    "subagent_type": raw.get("subagent_type").and_then(Value::as_str).unwrap_or_default(),
+                }),
+            ),
             Some("task_notification") => processes::note_task_notification(
                 nyra_session_id,
                 raw.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
@@ -705,6 +754,26 @@ const IMAGE_CONVENTION: &str = concat!(
     "Nyra displays, so if it matters whether the image came out right, read the file back."
 );
 
+/// Also taught to every session, and for the same reason: `TodoWrite`,
+/// `TaskCreate` and the rest do not exist in the headless CLI either, so the
+/// handlers Nyra already had for them could never fire. The renderer parses this
+/// into the checklist above the composer; see `taskBlocks.ts`.
+const TASKS_CONVENTION: &str = concat!(
+    "\n\nWhen you start carrying out a plan, or any piece of work with more than ",
+    "two or three steps, keep a checklist the user can watch. Write it as a ",
+    "```nyra-tasks fenced block: one `- [ ] ` item per step, `- [x] ` for done and ",
+    "`- [>] ` for the one you are on. For example:\n",
+    "```nyra-tasks\n",
+    "- [x] Read the render path\n",
+    "- [>] Wire the image cache\n",
+    "- [ ] Add the placeholder for a missing file\n",
+    "```\n",
+    "Restate the whole list, not a diff, each time something changes status — ",
+    "Nyra replaces the list with what the block says. Put it out as you start, ",
+    "and again as each step finishes. Skip it for a one-step answer, a question, ",
+    "or anything conversational: a checklist of one item is noise."
+);
+
 fn build_spawn_args(
     cwd: &str,
     settings: &SpawnSettings,
@@ -732,6 +801,7 @@ fn build_spawn_args(
         &format!("The current working directory is: {cwd}. When the user says \"your directory\" or \"this directory\", they mean this path."),
         ASK_CONVENTION,
         IMAGE_CONVENTION,
+        TASKS_CONVENTION,
     ]
     .join(" ");
     let full_system_prompt = if settings.system_prompt.is_empty() {
@@ -1069,7 +1139,7 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
     crate::logf!(
         "Event [{}]: {}",
         util::short(nyra_session_id),
-        clip(&raw.to_string(), 200)
+        clip(&raw.to_string(), 600)
     );
 
     if event_type == "result" {
@@ -1240,11 +1310,12 @@ fn requires_prompt(
     if !PERMISSION_REQUIRED.contains(&tool_name) || skip_permissions {
         return false;
     }
-    // Writing the plan file is plan mode's own plumbing, not a change to the
-    // user's project. The CLI does not ask before writing it, and the plan is
-    // approved as a whole at ExitPlanMode — prompting here asked twice for one
-    // decision, the first time about a file the user never chose to touch.
-    if is_plan_file(input) {
+    // Plan and memory files are plan mode's and memory's own plumbing, not a
+    // change to the user's project. The CLI does not ask before writing either,
+    // and a plan is approved as a whole on the card — prompting here asked twice
+    // for one decision, the first time about a file the user never chose to
+    // touch, and for a memory it asked about a file that is not theirs at all.
+    if is_claude_owned_file(input) {
         return false;
     }
     !auto_approve.iter().any(|t| t == tool_name)
@@ -1259,8 +1330,22 @@ fn plan_file_path(input: &Value) -> Option<&str> {
     path.contains("/.claude/plans/").then_some(path)
 }
 
-fn is_plan_file(input: &Value) -> bool {
-    plan_file_path(input).is_some()
+/// Claude's own bookkeeping, as opposed to the user's project.
+///
+/// Deliberately narrower than "anywhere under `.claude`": agent definitions,
+/// settings and hooks all live there too, and a write to one of those is a
+/// change the user should see coming. Plans and memories are Claude keeping its
+/// own notes, which the CLI does not ask about either.
+fn is_claude_owned_file(input: &Value) -> bool {
+    let Some(path) = input
+        .get("file_path")
+        .or_else(|| input.get("path"))
+        .and_then(Value::as_str)
+    else {
+        return false;
+    };
+    path.contains("/.claude/plans/")
+        || (path.contains("/.claude/projects/") && path.contains("/memory/"))
 }
 
 /// Turn a finished write into `.claude/plans/` into a plan the renderer can show.
@@ -1695,6 +1780,75 @@ mod tests {
         // Nothing to retry when we never asked to resume, or nothing failed.
         assert!(!stale_resume(false, true, true, Some(0)));
         assert!(!stale_resume(true, true, false, Some(0)));
+    }
+
+    fn test_session(plan_mode: bool) -> Arc<Session> {
+        let mut inner = SessionInner::for_test();
+        inner.settings.plan_mode = plan_mode;
+        Arc::new(Session {
+            inner: Mutex::new(inner),
+            stdin: AsyncMutex::new(None),
+        })
+    }
+
+    #[tokio::test]
+    async fn a_plan_write_becomes_a_plan_ready() {
+        let dir = std::env::temp_dir().join("nyra-plan-test/.claude/plans");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.md");
+        std::fs::write(&path, "# A plan\n\nDo the thing.").unwrap();
+
+        let sess = test_session(true);
+        SESSIONS.lock().insert("s1".into(), sess.clone());
+
+        let block = json!({
+            "type": "tool_use",
+            "id": "toolu_1",
+            "name": "Write",
+            "input": { "file_path": path.to_str().unwrap(), "content": "# A plan" }
+        });
+        process_tool_blocks(&sess, "s1", &[block]).await;
+
+        assert_eq!(
+            sess.inner.lock().plan_writes.get("toolu_1").map(String::as_str),
+            Some(path.to_str().unwrap()),
+            "the write should have been noted against its tool id"
+        );
+
+        // The result is what says the file is on disk; it also consumes the note.
+        emit_plan_ready("s1", "toolu_1");
+        assert!(sess.inner.lock().plan_writes.is_empty());
+        SESSIONS.lock().remove("s1");
+    }
+
+    #[tokio::test]
+    async fn a_plan_write_outside_plan_mode_is_just_a_write() {
+        let sess = test_session(false);
+        let block = json!({
+            "type": "tool_use",
+            "id": "toolu_2",
+            "name": "Write",
+            "input": { "file_path": "/tmp/x/.claude/plans/p.md", "content": "x" }
+        });
+        process_tool_blocks(&sess, "s2", &[block]).await;
+        assert!(sess.inner.lock().plan_writes.is_empty());
+    }
+
+    #[test]
+    fn claude_keeps_its_own_notes_without_asking() {
+        let owned = |p: &str| is_claude_owned_file(&json!({ "file_path": p }));
+        assert!(owned("/Users/x/.claude/plans/p.md"));
+        assert!(owned("/Users/x/.claude/projects/-Users-x-repo/memory/a-fact.md"));
+        assert!(owned("/Users/x/.claude/projects/-Users-x-repo/memory/MEMORY.md"));
+
+        // Everything else under .claude is configuration the user owns, and a
+        // write to it is a change they should be asked about.
+        assert!(!owned("/Users/x/.claude/settings.json"));
+        assert!(!owned("/Users/x/.claude/agents/reviewer.md"));
+        assert!(!owned("/Users/x/.claude/CLAUDE.md"));
+        // A project file that merely mentions memory is not memory.
+        assert!(!owned("/repo/src/memory/store.ts"));
+        assert!(!owned("/repo/plans/p.md"));
     }
 
     #[test]

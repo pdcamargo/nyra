@@ -76,7 +76,7 @@ describe('PlanCard actions', () => {
     await user.type(screen.getByPlaceholderText(/what should change/i), 'Phase 2 is wrong')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    expect(onAnswer).toHaveBeenCalledWith('t1', false, '/p.md', 'Phase 2 is wrong')
+    expect(onAnswer).toHaveBeenCalledWith('t1', 'reject', '/p.md', 'Phase 2 is wrong')
   })
 
   it('sends no note when none was written', async () => {
@@ -88,16 +88,24 @@ describe('PlanCard actions', () => {
     // The button stays honest about what it will do while the box is empty.
     await user.click(screen.getByRole('button', { name: /^keep planning$/i }))
 
-    expect(onAnswer).toHaveBeenCalledWith('t1', false, '/p.md', undefined)
+    expect(onAnswer).toHaveBeenCalledWith('t1', 'reject', '/p.md', undefined)
   })
 
-  it('approving asks no questions', async () => {
+  it('offers both ways of saying yes, and tells them apart', async () => {
     const user = userEvent.setup()
     const onAnswer = vi.fn()
     render(<PlanCard message={plan} onAnswer={onAnswer} />)
 
-    await user.click(screen.getByRole('button', { name: /approve plan/i }))
+    await user.click(screen.getByRole('button', { name: /^approve$/i }))
+    expect(onAnswer).toHaveBeenCalledWith('t1', 'approve', '/p.md', undefined)
+  })
 
-    expect(onAnswer).toHaveBeenCalledWith('t1', true, '/p.md', undefined)
+  it('auto-edit is a separate yes, not the same button', async () => {
+    const user = userEvent.setup()
+    const onAnswer = vi.fn()
+    render(<PlanCard message={plan} onAnswer={onAnswer} />)
+
+    await user.click(screen.getByRole('button', { name: /auto-edit/i }))
+    expect(onAnswer).toHaveBeenCalledWith('t1', 'approve-auto', '/p.md', undefined)
   })
 })

@@ -3,18 +3,22 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitBranch, GitFork, GitMerge, Info, Search, SquarePen, Trash2, TriangleAlert } from 'lucide-react'
 import { useSessionsStore, activeCwd, activeProjectCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type AgentStatus } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
-import { spawnSettingsFor } from '@shared/types'
+import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
 import MarkdownRenderer from './MarkdownRenderer'
 import ToolCallCard from './ToolCallCard'
 import AskUserQuestionCard from './AskUserQuestionCard'
-import PlanCard from './PlanCard'
+import PlanCard, { splitPlan, type PlanAnswer } from './PlanCard'
 import { usePlanApprovalStore } from '../store/planApprovals'
+import { useBackgroundAgentsStore } from '../store/backgroundAgents'
 import { extractAskBlocks } from '../lib/askBlocks'
+import { extractTaskBlocks } from '../lib/taskBlocks'
+import { extractPlan } from '../utils/permission'
 import ToolCallGroup from './ToolCallGroup'
 import PermissionDialog, { type PermissionRequest } from './PermissionDialog'
 import ChatInput from './ChatInput'
 import TaskStrip from './TaskStrip'
+import ActivityStrip from './ActivityStrip'
 import SettingsModal from './SettingsModal'
 import PermissionsModal from './PermissionsModal'
 import StatsModal from './StatsModal'
@@ -48,6 +52,9 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'stream_end' }
   | { type: 'system'; subtype: string; mcp_servers?: { name: string; status: string }[]; tools?: string[] }
   | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string }
+  | { type: 'assistant_text'; text: string }
+  | { type: 'background_tasks'; tasks: { task_id: string; description: string; task_type?: string }[] }
+  | { type: 'background_task_progress'; task_id: string; activity: string; last_tool_name: string; subagent_type: string }
   | { type: 'plan_ready'; tool_id: string; path: string; plan: string }
   | { type: 'session_reset'; reason: string }
   | { type: 'auth_required'; message: string }
@@ -69,6 +76,27 @@ type ClaudeEvent = ClaudeEventBase & (
  *
  * --rail is the one part of the window geometry CSS cannot work out for itself.
  */
+/** Tool calls that are a card to answer, not a line in a trace. */
+const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
+
+/** What "auto-accept edits" actually waives — file writes, nothing else. */
+const EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit']
+
+/**
+ * Spawn settings for one conversation.
+ *
+ * Everything but auto-accept is global. That one is per session because it is
+ * granted by approving a particular plan, and `autoApproveTools` is sent with
+ * every query — so it takes effect on the next turn without respawning.
+ */
+function spawnSettingsForSession(sessionId: string): SpawnSettings {
+  const base = spawnSettingsFor(useSettingsStore.getState())
+  const session = useSessionsStore.getState().sessions.find((s) => s.id === sessionId)
+  if (!session?.autoAcceptEdits) return base
+  const merged = new Set([...base.autoApproveTools, ...EDIT_TOOLS])
+  return { ...base, autoApproveTools: [...merged] }
+}
+
 const COLUMN_OFFSET =
   'clamp(var(--gap),' +
   ' calc(50vw - var(--col-w) / 2 - var(--rail)),' +
@@ -108,6 +136,9 @@ export default function Chat(): React.JSX.Element {
   const cleanupRef = useRef<(() => void) | null>(null)
   const permCleanupRef = useRef<(() => void) | null>(null)
   // Tracks tool_start before tool_input arrives (contains name before input is parsed)
+  /** Sessions whose prose has already been streamed this turn, so the final
+   *  `result` does not repeat the last paragraph. */
+  const streamedTextRef = useRef<Set<string>>(new Set())
   const pendingToolsRef = useRef<Map<string, string>>(new Map())
   const [isDragging, setIsDragging] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
@@ -293,14 +324,16 @@ export default function Chat(): React.JSX.Element {
       // Group consecutive tool_call messages
       if (msg.role === 'tool_call') {
         const tc = msg as ToolCallMessage
-        // Denied calls and AskUserQuestion get their own group for visibility
-        if (tc.denied || tc.tool_name === 'AskUserQuestion') {
+        // Anything the user has to read or answer stands alone. Folded into a
+        // run of tool calls it becomes "1 other tool" inside a collapsed strip,
+        // which is exactly where the plan card went missing.
+        if (tc.denied || STANDALONE_TOOLS.has(tc.tool_name)) {
           items.push({ kind: 'tool_group', messages: [tc], firstId: tc.id })
         } else {
           const last = items[items.length - 1]
           if (
             last?.kind === 'tool_group' &&
-            !last.messages.some((m) => m.denied || m.tool_name === 'AskUserQuestion')
+            !last.messages.some((m) => m.denied || STANDALONE_TOOLS.has(m.tool_name))
           ) {
             last.messages.push(tc)
           } else {
@@ -330,27 +363,34 @@ export default function Chat(): React.JSX.Element {
     },
   })
 
+  /** False once the user scrolls up — their position is theirs until they come back. */
+  const stuckToBottomRef = useRef(true)
+
   // Scroll to bottom on session switch
   useEffect(() => {
+    stuckToBottomRef.current = true
     if (virtualItems.length > 0) {
       virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end' })
     }
   }, [activeSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-scroll when new messages arrive (only if near bottom)
-  const prevCountRef = useRef(virtualItems.length)
+  /**
+   * Follow the conversation unless the user has scrolled away from it.
+   *
+   * Two things used to go wrong. It only fired when the item *count* grew, so a
+   * message that got longer — or a tool group that gained a tool — scrolled
+   * nothing. And the list is virtualized with an 80px estimate, so scrolling to
+   * a card that turns out to be 600px tall landed near its top and stopped: a
+   * question card could arrive fully off-screen and look like nothing happened.
+   *
+   * Keying on the measured total height fixes both. Every re-measure re-asserts
+   * the bottom, so the view settles there however wrong the estimate was.
+   */
+  const totalSize = virtualizer.getTotalSize()
   useEffect(() => {
-    if (virtualItems.length > prevCountRef.current) {
-      const el = messagesRef.current
-      if (el) {
-        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-        if (distanceFromBottom < 200) {
-          virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end', behavior: 'smooth' })
-        }
-      }
-    }
-    prevCountRef.current = virtualItems.length
-  }, [virtualItems.length]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!stuckToBottomRef.current || virtualItems.length === 0) return
+    virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end' })
+  }, [virtualItems.length, totalSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track scroll position to show/hide "jump to bottom" button
   useEffect(() => {
@@ -359,6 +399,9 @@ export default function Chat(): React.JSX.Element {
     const onScroll = (): void => {
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
       setShowJumpBottom(distanceFromBottom > 300)
+      // Read once here rather than at each new message: by then the scroll has
+      // already been re-asserted and every position looks like the bottom.
+      stuckToBottomRef.current = distanceFromBottom < 200
     }
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
@@ -578,6 +621,62 @@ export default function Chat(): React.JSX.Element {
         }
       }
 
+      if (event.type === 'background_tasks') {
+        useBackgroundAgentsStore.getState().setAgents(
+          sid,
+          event.tasks.map((t) => ({
+            taskId: t.task_id,
+            description: t.description,
+            kind: t.task_type
+          }))
+        )
+        // An agent that finishes after its turn ended is still this session's
+        // work, so the Agent Tree should stop calling it done at two seconds.
+        const outstanding = new Set(event.tasks.map((t) => t.description))
+        const sess = useSessionsStore.getState().sessions.find((x) => x.id === sid)
+        for (const agent of sess?.agents ?? []) {
+          const stillOut = outstanding.has(agent.name)
+          if (stillOut && agent.status !== 'running') updateAgent(sid, agent.toolId, { status: 'running' })
+          if (!stillOut && agent.status === 'running') {
+            updateAgent(sid, agent.toolId, { status: 'done', durationMs: Date.now() - agent.startedAt })
+          }
+        }
+        return
+      }
+
+      if (event.type === 'background_task_progress') {
+        useBackgroundAgentsStore.getState().noteProgress(sid, {
+          taskId: event.task_id,
+          activity: event.activity,
+          kind: event.subagent_type,
+          lastTool: event.last_tool_name
+        })
+        return
+      }
+
+      if (event.type === 'assistant_text') {
+        // The checklist comes out first: a task block is the whole list restated,
+        // so it replaces what is there rather than adding to it.
+        const withoutTasks = extractTaskBlocks(event.text)
+        if (withoutTasks.tasks) setTasks(sid, withoutTasks.tasks)
+        const { text, questions } = extractAskBlocks(withoutTasks.text)
+        if (text) {
+          streamedTextRef.current.add(sid)
+          addMessage(sid, { id: `${Date.now()}-${event.text.length}`, role: 'assistant', text })
+        }
+        if (questions.length > 0) {
+          streamedTextRef.current.add(sid)
+          addMessage(sid, {
+            id: `${Date.now()}-ask`,
+            role: 'tool_call',
+            tool_id: `ask-${Date.now()}`,
+            tool_name: 'AskUserQuestion',
+            input: { questions }
+          })
+        }
+        return
+      }
+
       if (event.type === 'plan_ready') {
         // Headless Claude cannot call ExitPlanMode, so the plan arrives as a file
         // it just wrote. Shaped like the tool call it would have been, so one card
@@ -615,6 +714,8 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'session_reset') {
+        useBackgroundAgentsStore.getState().forget(sid)
+        useSessionsStore.getState().setExecuting(sid, null)
         // The conversation is being restarted, so a plan waiting on an answer is
         // waiting on a session that no longer exists.
         usePlanApprovalStore.getState().clearSession(sid)
@@ -642,7 +743,11 @@ export default function Chat(): React.JSX.Element {
       if (event.type === 'result') {
         if (event.session_id) updateClaudeSessionId(sid, event.session_id)
         const role = event.is_error ? 'error' : 'assistant'
-        if (event.result) {
+        // `result` repeats the reply Claude has already streamed, so it is only
+        // worth showing when nothing was streamed — an error, or a turn whose
+        // text never arrived block by block.
+        const alreadySaid = streamedTextRef.current.delete(sid)
+        if (event.result && (!alreadySaid || event.is_error)) {
           // Headless Claude has no AskUserQuestion, so a question it wants
           // answered arrives as a fenced block in the reply. Lift it out before
           // the text is shown, or the user reads the same question twice.
@@ -689,6 +794,9 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'stream_end') {
+        // The child is gone, so anything it had running is gone with it.
+        useBackgroundAgentsStore.getState().forget(sid)
+        useSessionsStore.getState().setExecuting(sid, null)
         useRunningStore.getState().endRun(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
         // Mark any still-running agents as failed
@@ -912,7 +1020,7 @@ export default function Chat(): React.JSX.Element {
         session.claudeSessionId,
         sid,
         session.worktree?.name,
-        spawnSettingsFor(useSettingsStore.getState())
+        spawnSettingsForSession(sid)
       )
     } catch (err) {
       useSessionsStore
@@ -984,12 +1092,20 @@ export default function Chat(): React.JSX.Element {
         updatedSession.claudeSessionId,
         sid,
         updatedSession.worktree?.name,
-        spawnSettingsFor(useSettingsStore.getState())
+        spawnSettingsForSession(sid)
       )
     } catch (err) {
       useSessionsStore.getState().addMessage(sid, { id: Date.now().toString(), role: 'error', text: String(err) })
       useRunningStore.getState().endRun(sid)
     }
+  }, [])
+
+  /** Answer a question card: record it on the message, then say it. */
+  const handleQuestionAnswer = useCallback((toolId: string, answer: string): void => {
+    const sid = useSessionsStore.getState().activeSessionId
+    if (!sid) return
+    useSessionsStore.getState().updateToolResult(sid, toolId, answer)
+    void sendMessageRef.current?.(answer, undefined, undefined, sid)
   }, [])
 
   /**
@@ -1000,17 +1116,31 @@ export default function Chat(): React.JSX.Element {
    * because the spawn now carries `--resume`.
    */
   const handlePlanAnswer = useCallback(
-    (toolId: string, approved: boolean, planPath?: string, note?: string): void => {
+    (toolId: string, verdict: PlanAnswer, planPath?: string, note?: string): void => {
       const sid = useSessionsStore.getState().activeSessionId
       usePlanApprovalStore.getState().resolve(toolId)
       if (!sid) return
-      if (!approved) {
+      if (verdict === 'reject') {
         useSessionsStore.getState().markToolDenied(sid, toolId)
         // Plan mode stays on, so nothing respawns and Claude keeps the thread.
         if (note) void sendMessageRef.current?.(note, undefined, undefined, sid)
         return
       }
+      // Leaving plan mode is what lets Claude write at all, so both yeses do it.
+      // It changes the spawn fingerprint and respawns the child; `--resume`
+      // is what keeps the conversation across that.
       useSettingsStore.getState().updateSettings({ planMode: false })
+      if (verdict === 'approve-auto') {
+        useSessionsStore.getState().setAutoAcceptEdits(sid, true)
+      }
+      const store = useSessionsStore.getState()
+      const planMessage = store.sessions
+        .find((x) => x.id === sid)
+        ?.messages.find((m) => m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId)
+      const title = planMessage
+        ? splitPlan(extractPlan((planMessage as ToolCallMessage).input)).title
+        : 'Carrying out the plan'
+      store.setExecuting(sid, { title, startedAt: Date.now() })
       const where = planPath ? ` at ${planPath}` : ''
       void sendMessageRef.current?.(
         `Approved — implement the plan${where}.`,
@@ -1025,6 +1155,10 @@ export default function Chat(): React.JSX.Element {
   /** Abort the running turn. Also drops any permission prompts still queued for it. */
   const handleStopTurn = useCallback(() => {
     window.api.claude.abort(activeSessionId ?? undefined)
+    if (activeSessionId) {
+      useBackgroundAgentsStore.getState().forget(activeSessionId)
+      useSessionsStore.getState().setExecuting(activeSessionId, null)
+    }
     setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== activeSessionId))
   }, [activeSessionId])
 
@@ -1338,7 +1472,12 @@ export default function Chat(): React.JSX.Element {
                     ref={virtualizer.measureElement}
                     style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
                   >
-                    <ToolCallGroup messages={item.messages} isLoading={isLoading} />
+                    <ToolCallGroup
+                      messages={item.messages}
+                      isLoading={isLoading}
+                      onPlanAnswer={handlePlanAnswer}
+                      onQuestionAnswer={handleQuestionAnswer}
+                    />
                   </div>
                 )
               }
@@ -1402,6 +1541,7 @@ export default function Chat(): React.JSX.Element {
                       onEdit={msg.role === 'user' && !isLoading ? handleStartEdit : undefined}
                       onFork={msg.role === 'user' && !isLoading ? handleForkFromMessage : undefined}
                       onPlanAnswer={handlePlanAnswer}
+                      onQuestionAnswer={handleQuestionAnswer}
                     />
                   </div>
                 </div>
@@ -1428,6 +1568,7 @@ export default function Chat(): React.JSX.Element {
       {/* Input */}
       {/* The composer lines up with the conversation, same geometry. */}
       <div style={{ ...columnGeometry, width: 'var(--col-w)', marginLeft: COLUMN_OFFSET } as React.CSSProperties}>
+        <ActivityStrip sessionId={activeSessionId} onStop={handleStopTurn} />
         <TaskStrip />
         <ChatInput
           cwd={cwd}
@@ -1571,14 +1712,14 @@ function ThinkingIndicator({ startTime }: { startTime: number }): React.JSX.Elem
   )
 }
 
-const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, onFork, onPlanAnswer }: { message: Message; isLoading?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (id: string) => void; onPlanAnswer?: (toolId: string, approved: boolean, planPath?: string) => void }): React.JSX.Element {
+const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, onFork, onPlanAnswer, onQuestionAnswer }: { message: Message; isLoading?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (id: string) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
 
   if (message.role === 'tool_call') {
     const tc = message as ToolCallMessage
     if (tc.tool_name === 'AskUserQuestion') {
-      return <AskUserQuestionCard message={tc} />
+      return <AskUserQuestionCard message={tc} onAnswer={onQuestionAnswer} />
     }
     if (tc.tool_name === 'ExitPlanMode') {
       return <PlanCard message={tc} onAnswer={onPlanAnswer} />

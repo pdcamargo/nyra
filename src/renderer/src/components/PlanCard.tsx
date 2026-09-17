@@ -1,9 +1,17 @@
 import React, { useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronRight, ListChecks, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, ListChecks, X, Zap } from 'lucide-react'
 import MarkdownRenderer from './MarkdownRenderer'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { extractPlan } from '../utils/permission'
 import type { ToolCallMessage } from '../store/sessions'
+
+/**
+ * What the user said about a plan.
+ *
+ * `approve-auto` is the CLI's "yes, and auto-accept edits": the same yes, plus
+ * giving up the per-file prompt for the rest of this conversation.
+ */
+export type PlanAnswer = 'approve' | 'approve-auto' | 'reject'
 
 /**
  * The plan's own title, lifted out so the collapsed card says what it is — and
@@ -38,7 +46,7 @@ export default function PlanCard({
 }: {
   message: ToolCallMessage
   /** Approve or keep planning, for a plan that arrived as a file. */
-  onAnswer?: (toolId: string, approved: boolean, planPath?: string, note?: string) => void
+  onAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void
 }): React.JSX.Element {
   // Both are subscriptions, not one-off reads: the card has to repaint the
   // moment the plan is answered, and a pending plan may carry no session id.
@@ -65,11 +73,11 @@ export default function PlanCard({
   // wire — no CLI ships that in headless mode today, but the branch costs little.
   const planPath = typeof message.input.path === 'string' ? message.input.path : undefined
 
-  const answer = (approved: boolean, text?: string): void => {
+  const answer = (verdict: PlanAnswer, text?: string): void => {
     if (planPath) {
-      onAnswer?.(message.tool_id, approved, planPath, text?.trim() || undefined)
+      onAnswer?.(message.tool_id, verdict, planPath, text?.trim() || undefined)
     } else {
-      void window.api.claude.respondPermission(approved, pendingSession)
+      void window.api.claude.respondPermission(verdict !== 'reject', pendingSession)
       resolve(message.tool_id)
     }
     setNote(null)
@@ -114,13 +122,25 @@ export default function PlanCard({
             <X className="size-3.5" />
             Keep planning
           </button>
+          {/* Two ways to say yes, as the CLI offers: approve the plan and keep
+              the say over each edit, or hand that over too. */}
           <button
             type="button"
-            onClick={() => answer(true)}
-            className="flex items-center gap-1.5 rounded-md bg-success px-2.5 py-1 text-xs font-medium text-success-foreground transition-opacity hover:opacity-85"
+            onClick={() => answer('approve')}
+            title="Leave plan mode. Each file change still asks."
+            className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
           >
             <Check className="size-3.5" />
-            Approve plan
+            Approve
+          </button>
+          <button
+            type="button"
+            onClick={() => answer('approve-auto')}
+            title="Leave plan mode and stop asking about file changes, for this chat only."
+            className="flex items-center gap-1.5 rounded-md bg-success px-2.5 py-1 text-xs font-medium text-success-foreground transition-opacity hover:opacity-85"
+          >
+            <Zap className="size-3.5" />
+            Approve &amp; auto-edit
           </button>
         </div>
       )}
@@ -132,7 +152,7 @@ export default function PlanCard({
             value={note}
             onChange={(e) => setNote(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') answer(false, note)
+              if (e.key === 'Enter') answer('reject', note)
               if (e.key === 'Escape') setNote(null)
             }}
             placeholder="What should change? (optional)"
@@ -140,7 +160,7 @@ export default function PlanCard({
           />
           <button
             type="button"
-            onClick={() => answer(false, note)}
+            onClick={() => answer('reject', note)}
             className="shrink-0 rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground transition-opacity hover:opacity-85"
           >
             {note.trim() ? 'Send' : 'Keep planning'}
