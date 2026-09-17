@@ -44,6 +44,21 @@ export default function App(): React.JSX.Element {
   const shellRef = useRef<HTMLDivElement>(null)
   useKeyboardShortcuts()
 
+  // One look, at launch. Enough for a badge to be honest without the app
+  // reaching out on a timer — and it stays a badge: nothing installs until the
+  // About row is clicked.
+  useEffect(() => {
+    void window.api.updates
+      .check()
+      .then((result) => {
+        if (result.available) useUiStore.getState().setUpdateAvailable(result.version)
+      })
+      .catch(() => {
+        // Offline, or no release yet. A badge that cannot appear is the right
+        // failure; the manual check in Settings says why.
+      })
+  }, [])
+
   useEffect(() => {
     // Rehydrate first: the synchronous half of the projects backfill runs inside
     // the store's merge, and the git-dependent half has to follow it.

@@ -35,3 +35,4 @@ src-tauri/gen/schemas/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+latest.json

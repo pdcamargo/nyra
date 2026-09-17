@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback } from 'react'
 import Modal from './Modal'
 import McpSettings from './McpSettings'
+import UpdateRow from './UpdateRow'
 import { modelOptions } from '../lib/models'
 import { useSettingsStore } from '../store/settings'
 import { useHookEditorStore } from '../store/hookEditor'
@@ -183,6 +184,11 @@ export default function SettingsModal({ onClose }: { onClose: () => void }): Rea
         <SectionLabel>MCP Servers</SectionLabel>
         <div className="mb-4">
           <McpSettings />
+        </div>
+
+        <SectionLabel>About</SectionLabel>
+        <div className="mb-4">
+          <UpdateRow />
         </div>
 
         {/* Footer */}

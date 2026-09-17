@@ -1,5 +1,6 @@
 //! Nyra — a desktop GUI for Claude Code, on Tauri.
 
+mod updates;
 mod browser;
 mod claude;
 mod commands;
@@ -44,6 +45,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             util::set_app_handle(app.handle().clone());
 
@@ -168,6 +170,9 @@ pub fn run() {
             commands::browser_tab_navigate,
             commands::browser_tab_history,
             commands::browser_tab_list,
+            commands::update_check,
+            commands::update_install,
+            commands::app_version,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Nyra")

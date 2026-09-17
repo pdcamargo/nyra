@@ -6,6 +6,8 @@ export type SidebarTab = 'sessions' | 'skills' | 'commands' | 'workflows' | 'mem
 
 type UiStore = {
   sidebarTab: SidebarTab
+  /** Set by the one check at launch. Null until it answers, and when it says no. */
+  updateAvailable: string | null
   pendingMemoryFilePath: string | null
   pendingInputPrefill: string | null
   bottomPanelOpen: boolean
@@ -28,6 +30,7 @@ type UiStore = {
   paletteOpen: boolean
   paletteMode: 'all' | 'history'
   setSidebarTab: (tab: SidebarTab) => void
+  setUpdateAvailable: (version: string | null) => void
   openMemoryFile: (filePath: string) => void
   consumePendingMemoryFile: () => void
   prefillInput: (text: string) => void
@@ -45,6 +48,7 @@ type UiStore = {
 
 export const useUiStore = create<UiStore>()((set, get) => ({
   sidebarTab: 'sessions',
+  updateAvailable: null,
   pendingMemoryFilePath: null,
   pendingInputPrefill: null,
   bottomPanelOpen: false,
@@ -56,6 +60,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
   paletteOpen: false,
   paletteMode: 'all',
   setSidebarTab: (sidebarTab) => set({ sidebarTab }),
+  setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
   openMemoryFile: (filePath) =>
     set({ sidebarTab: 'memory', pendingMemoryFilePath: filePath, projectsPanelOpen: true }),
   consumePendingMemoryFile: () => set({ pendingMemoryFilePath: null }),

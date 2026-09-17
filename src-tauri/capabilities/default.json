@@ -15,6 +15,7 @@
     "dialog:default",
     "opener:default",
     "notification:default",
-    "process:default"
+    "process:default",
+    "updater:default"
   ]
 }

@@ -9,7 +9,7 @@ import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useSkillEditorStore } from '../store/skillEditor'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { Folder, FolderOpen, GitBranch, GitFork, Globe, GripVertical, LoaderCircle, MoreHorizontal, Pencil, Plus, SquarePen, Star, Trash2 } from 'lucide-react'
+import { ArrowDownToLine, Folder, FolderOpen, GitBranch, GitFork, Globe, GripVertical, LoaderCircle, MoreHorizontal, Pencil, Plus, SquarePen, Star, Trash2 } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -45,6 +45,8 @@ export default function Sidebar(): React.JSX.Element {
     <aside style={{ width }} className="flex h-full shrink-0 flex-col bg-card border-r border-border/55">
       {/* No title and no search button: the title bar carries the app's identity
           now, and search moved up there next to the other window-level actions. */}
+
+      <UpdateBadge />
 
       {/* Tabs */}
       <div className="mb-2 flex gap-0.5 px-2 pt-2">
@@ -193,6 +195,31 @@ const VISIBLE_PER_PROJECT = 6
  * asks while scanning the list. The line says what is *happening* — running,
  * waiting on you, unread — and the rest is here when you point at it.
  */
+/**
+ * A new version exists, said quietly.
+ *
+ * Above the tabs because that is the one part of the rail that is not a list of
+ * your things — a banner among the chats would read as a chat. It only appears
+ * when the launch check found something, and it opens Settings rather than
+ * installing: the decision stays where the release notes are.
+ */
+function UpdateBadge(): React.JSX.Element | null {
+  const version = useUiStore((s) => s.updateAvailable)
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
+  if (!version) return null
+  return (
+    <button
+      type="button"
+      onClick={() => setSettingsOpen(true)}
+      title={`Nyra ${version} is available`}
+      className="mx-2 mt-2 flex items-center gap-1.5 rounded-md bg-info/10 px-2 py-1 text-[11px] text-info transition-colors hover:bg-info/20"
+    >
+      <ArrowDownToLine className="size-3 shrink-0" />
+      <span className="truncate">Update to {version}</span>
+    </button>
+  )
+}
+
 function ChatCard({
   session,
   hasBrowser

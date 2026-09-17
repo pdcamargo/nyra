@@ -1,13 +1,13 @@
 {
   "name": "nyra",
-  "version": "0.27.3",
+  "version": "0.0.1",
   "description": "A Tauri desktop client for Claude Code",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "author": "Patrick Dias <https://github.com/pdcamargo>",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build": "node scripts/prebundle.mjs && TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/nyra-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD= tauri build",
     "vite:dev": "vite",
     "vite:build": "tsc --noEmit -p tsconfig.web.json && vite build",
     "vite:preview": "vite preview",
@@ -16,14 +16,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "package": "tauri build",
-    "gh-release": "gh release create v$(node -p \"require('./package.json').version\") --title v$(node -p \"require('./package.json').version\") --generate-notes src-tauri/target/release/bundle/dmg/*.dmg",
-    "release": "npm test && npm run test:rust && npm version patch && npm run package && git push && git push --tags && npm run gh-release",
-    "release:minor": "npm test && npm run test:rust && npm version minor && npm run package && git push && git push --tags && npm run gh-release",
-    "release:major": "npm test && npm run test:rust && npm version major && npm run package && git push && git push --tags && npm run gh-release",
+    "package": "node scripts/prebundle.mjs && TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/nyra-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD= tauri build",
+    "gh-release": "gh release create v$(node -p \"require('./package.json').version\") --title v$(node -p \"require('./package.json').version\") --generate-notes src-tauri/target/release/bundle/dmg/*.dmg src-tauri/target/release/bundle/macos/*.app.tar.gz src-tauri/target/release/bundle/macos/*.app.tar.gz.sig latest.json",
+    "release": "npm test && npm run test:rust && npm version patch && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",
+    "release:minor": "npm test && npm run test:rust && npm version minor && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",
+    "release:major": "npm test && npm run test:rust && npm version major && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",
     "version": "node scripts/add-release-note.js",
     "sidecar:install": "npm --prefix sidecar install --no-audit --no-fund",
-    "postinstall": "npm run sidecar:install"
+    "postinstall": "npm run sidecar:install",
+    "release:manifest": "node scripts/release-manifest.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

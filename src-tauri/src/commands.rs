@@ -4,6 +4,7 @@
 //! the Electron build, and returns the same JSON shape — the renderer's
 //! `window.api` shim maps one to one onto these names.
 
+use crate::updates;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use tauri::AppHandle;
@@ -732,4 +733,19 @@ pub async fn browser_tab_history(chat_id: String, tab_id: String, action: String
 #[tauri::command(rename_all = "camelCase")]
 pub async fn browser_tab_list(chat_id: String) -> Value {
     browser::tab_list(&chat_id).await
+}
+
+#[tauri::command]
+pub async fn update_check(app: tauri::AppHandle) -> Result<updates::UpdateInfo, String> {
+    updates::check(&app).await
+}
+
+#[tauri::command]
+pub async fn update_install(app: tauri::AppHandle) -> Result<(), String> {
+    updates::install(&app).await
+}
+
+#[tauri::command]
+pub fn app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
 }

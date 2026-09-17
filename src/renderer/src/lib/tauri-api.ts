@@ -81,6 +81,16 @@ const call = <T>(command: string, args?: Record<string, unknown>): Promise<T> =>
   invoke<T>(command, args)
 
 export const api = {
+  /** Checking for a newer Nyra, and taking it. */
+  updates: {
+    check: () =>
+      call<{ available: boolean; version: string; notes: string; current: string }>(
+        'update_check'
+      ),
+    install: () => call<void>('update_install'),
+    version: () => call<string>('app_version')
+  },
+
   claude: {
     query: (
       prompt: string,
