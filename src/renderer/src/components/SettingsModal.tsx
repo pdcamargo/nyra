@@ -88,6 +88,17 @@ export default function SettingsModal({ onClose }: { onClose: () => void }): Rea
           />
         </SettingRow>
 
+        <SettingRow label="Browser tools for Claude">
+          <Toggle
+            checked={settings.browserTools}
+            onChange={(v) => update({ browserTools: v })}
+          />
+        </SettingRow>
+
+        <SettingRow label="Browser preview over the chat">
+          <Toggle checked={settings.browserPip} onChange={(v) => update({ browserPip: v })} />
+        </SettingRow>
+
         <SettingRow label="Clean up worktrees">
           <Toggle
             checked={settings.worktreeAutoDelete}

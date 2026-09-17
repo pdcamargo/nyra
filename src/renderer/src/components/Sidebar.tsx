@@ -2,11 +2,12 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSessionsStore, activeProjectCwd, sortProjects } from '../store/sessions'
 import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
+import { useBrowserStore } from '../store/browser'
 import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useSkillEditorStore } from '../store/skillEditor'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { Folder, FolderOpen, GitBranch, GripVertical, LoaderCircle, MoreHorizontal, Pencil, Plus, SquarePen, Star, Trash2 } from 'lucide-react'
+import { Folder, FolderOpen, GitBranch, Globe, GripVertical, LoaderCircle, MoreHorizontal, Pencil, Plus, SquarePen, Star, Trash2 } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -314,6 +315,7 @@ function SessionsList(): React.JSX.Element {
   const projects = useMemo(() => sortProjects(rawProjects), [rawProjects])
   const activeSessionId = useSessionsStore((state) => state.activeSessionId)
   const running = useRunningStore((s) => s.running)
+  const browsers = useBrowserStore((s) => s.bySession)
   const pendingPlans = usePlanApprovalStore((s) => s.pending)
   const planPending = useMemo(() => new Set(Object.values(pendingPlans)), [pendingPlans])
   const { setActiveSession, deleteSession, renameSession, toggleFavorite, reorderFavorites } =
@@ -384,6 +386,10 @@ function SessionsList(): React.JSX.Element {
     const isPinned = !!session.favorite
     const isActive = session.id === activeSessionId
     const isRunning = running[session.id] === true
+    // A chat's browser keeps running whether or not you are looking at that
+    // chat, and a background chat gets no miniature. Without this there would
+    // be nothing anywhere saying it has one.
+    const hasBrowser = (browsers[session.id]?.tabs.length ?? 0) > 0
     // A plan outranks a question: it is the bigger decision, and a session
     // rarely has both.
     const waiting = planPending.has(session.id)
@@ -471,6 +477,12 @@ function SessionsList(): React.JSX.Element {
               }`}>
                 {session.branch}
               </span>
+            )}
+            {hasBrowser && (
+              <Globe
+                className="size-2.5 shrink-0 text-info/50"
+                aria-label="Has a browser open"
+              />
             )}
             {session.worktree && (
               <span className="text-[8px] font-medium text-info/40 shrink-0">wt</span>

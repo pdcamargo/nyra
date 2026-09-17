@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { FileDiff, GitBranch, Laptop, RotateCw, TerminalSquare } from 'lucide-react'
 import { useSessionsStore, findProject, type TextMessage, type ToolCallMessage } from '../store/sessions'
 import { useUiStore } from '../store/ui'
+import { EMPTY_BROWSER, useBrowserStore } from '../store/browser'
 import { collectAttachments, formatSize } from '../lib/summary'
 import { useProcessesStore, type BgProcess } from '../store/processes'
 import Modal from './Modal'
@@ -117,6 +118,10 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const processes = useProcessesStore((s) =>
     session ? (s.bySession[session.id] ?? EMPTY_PROCESSES) : EMPTY_PROCESSES
   )
+  const browser = useBrowserStore((s) => (session ? s.bySession[session.id] : null) ?? EMPTY_BROWSER)
+  const dismissPip = useBrowserStore((s) => s.dismissPip)
+  const setActiveTab = useBrowserStore((s) => s.setActiveTab)
+  const toggleBrowserPanel = useUiStore((s) => s.toggleBrowserPanel)
   const [stat, setStat] = useState<Stat | null>(null)
   const [projectBranch, setProjectBranch] = useState('')
 
@@ -185,7 +190,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
   // `top-3` rather than the old hand-tuned `top-[92px]` — the title bar is a
   // real element now, so this is positioned against the chat column itself.
   return (
-    <div className="absolute right-3 top-3 z-30 max-h-[calc(100%-96px)] w-[308px] overflow-y-auto rounded-xl border border-border bg-secondary/80 shadow-xl backdrop-blur-xl backdrop-saturate-150">
+    <div className="pointer-events-auto min-h-0 shrink overflow-y-auto rounded-xl border border-border bg-secondary/80 shadow-xl backdrop-blur-xl backdrop-saturate-150">
       <Section
         label="Environment"
         action={
@@ -289,6 +294,55 @@ export default function SummaryPanel(): React.JSX.Element | null {
                   {formatElapsed(agent.durationMs)}
                 </span>
               )}
+            </button>
+          ))}
+        </Section>
+      )}
+
+      {/* Every page this chat has open, whoever opened it. The browser keeps
+          running with the panel closed and the miniature dismissed, so without
+          this there is nowhere that says what it is doing — and nowhere to undo
+          a dismissal from. */}
+      {browser.tabs.length > 0 && (
+        <Section
+          label="Browser"
+          action={
+            browser.pipDismissed ? (
+              <button
+                type="button"
+                onClick={() => session && dismissPip(session.id, false)}
+                className="text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground"
+              >
+                Show preview
+              </button>
+            ) : undefined
+          }
+        >
+          {browser.tabs.map((tab) => (
+            <button
+              key={tab.tabId}
+              type="button"
+              onClick={() => {
+                if (!session) return
+                setActiveTab(session.id, tab.tabId)
+                toggleBrowserPanel()
+              }}
+              title={tab.url}
+              className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+            >
+              <span
+                className={`mt-1 size-1.5 shrink-0 rounded-full ${
+                  tab.loading ? 'animate-pulse bg-info' : 'bg-success'
+                }`}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11px] text-foreground/80">
+                  {tab.title || 'Loading…'}
+                </span>
+                <span className="block truncate text-[10px] text-muted-foreground/60">
+                  {tab.url}
+                </span>
+              </span>
             </button>
           ))}
         </Section>

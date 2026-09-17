@@ -57,6 +57,8 @@ pub struct NyraSettings {
     /// carries their definitions whether or not it browses, so it is a switch
     /// rather than a given.
     pub browser_tools: bool,
+    /// The floating miniature over the conversation.
+    pub browser_pip: bool,
 }
 
 impl Default for NyraSettings {
@@ -79,6 +81,7 @@ impl Default for NyraSettings {
             worktree_limit: default_worktree_limit(),
             worktree_auto_delete: default_true(),
             browser_tools: default_true(),
+            browser_pip: default_true(),
         }
     }
 }

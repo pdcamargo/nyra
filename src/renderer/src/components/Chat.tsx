@@ -28,6 +28,7 @@ import ReleaseNotesModal from './ReleaseNotesModal'
 import InSessionSearchBar from './InSessionSearchBar'
 import TasksChip from './TasksChip'
 import SummaryPanel from './SummaryPanel'
+import BrowserPip, { usePipVisible } from './browser/BrowserPip'
 import { findMatches } from '../utils/inSessionSearch'
 import { useHighlightMatches } from '../hooks/useHighlightMatches'
 import { parseMcpFromInit } from '../utils/mcpParsing'
@@ -106,15 +107,16 @@ const COLUMN_OFFSET =
   ' calc(50vw - var(--col-w) / 2 - var(--rail, 0px)),' +
   ' calc(100% - var(--gutter) - var(--col-w)))'
 
-function columnVars(summaryOpen: boolean): React.CSSProperties {
+function columnVars(gutterOpen: boolean): React.CSSProperties {
   return {
     // 10% off the 46rem this started at — a shorter measure to read against.
     '--col-max': '41.4rem',
     '--col-min': '34rem',
-    // --gutter is the floating summary, which is right-aligned to the chat area
+    // --gutter is the floating column — summary, miniature or both — which is
+    // right-aligned to the chat area
     // rather than to the window — so it stays constant however wide the
     // workspace panel is dragged.
-    '--gutter': summaryOpen ? '20rem' : '0rem',
+    '--gutter': gutterOpen ? '20rem' : '0rem',
     '--gap': '1.5rem',
     '--col-w':
       'min(var(--col-max), 100%, max(var(--col-min), calc(100% - var(--gap) - var(--gutter))))'
@@ -127,7 +129,11 @@ export default function Chat(): React.JSX.Element {
   const running = useRunningStore((s) => s.running)
   const summaryOpen = useUiStore((s) => s.summaryOpen)
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
-  const columnGeometry = useMemo(() => columnVars(summaryOpen), [summaryOpen])
+  const pipVisible = usePipVisible()
+  const columnGeometry = useMemo(
+    () => columnVars(summaryOpen || pipVisible),
+    [summaryOpen, pipVisible]
+  )
   const onToggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const settingsOpen = useUiStore((s) => s.settingsOpen)
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
@@ -1440,9 +1446,15 @@ export default function Chat(): React.JSX.Element {
 
       {/* Messages — virtualized */}
       <div className="relative flex min-h-0 flex-1 flex-col">
-      {/* Conversation summary — floats over the messages so glancing at it never
-          reflows the conversation. */}
-      <SummaryPanel />
+      {/* The summary and the browser miniature share one right-aligned column,
+          so the miniature sits below the summary when it is open and takes its
+          place when it is not — no offset to compute, and nothing to keep in
+          sync when the summary changes height. Both float over the messages, so
+          glancing at either never reflows the conversation. */}
+      <div className="pointer-events-none absolute right-3 top-3 z-30 flex max-h-[calc(100%-96px)] w-[308px] flex-col gap-2">
+        <SummaryPanel />
+        <BrowserPip />
+      </div>
 
       {/* The column is centred and width-limited, and stays put when the summary
           opens — the summary floats in the gutter rather than pushing the text.
