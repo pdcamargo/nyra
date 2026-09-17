@@ -1087,14 +1087,22 @@ export default function Chat(): React.JSX.Element {
     const imgs = images ?? []
     const fls = files ?? []
 
-    // Build the full prompt with attachment data for Claude CLI
+    // Build the full prompt with attachment data for Claude CLI.
+    //
+    // The composer drops `[Image: path]` at the caret as you attach, so most of
+    // these are already in the text, in the sentence they belong to. Appending
+    // them again would show Claude the same screenshot twice; this catches the
+    // ones that are not there — an attachment whose chip was deleted, or a
+    // message sent from somewhere that never had a composer.
     const sep = (): string => (prompt ? '\n\n' : '')
-    if (imgs.length > 0) {
-      const imagePaths = imgs.map((img) => `[Image: ${img.path}]`).join('\n')
+    const referenced = (path: string): boolean => prompt.includes(`[Image: ${path}]`)
+    const orphanImages = imgs.filter((img) => !referenced(img.path))
+    if (orphanImages.length > 0) {
+      const imagePaths = orphanImages.map((img) => `[Image: ${img.path}]`).join('\n')
       prompt = `${prompt}${sep()}${imagePaths}`
     }
     if (fls.length > 0) {
-      const imageFiles = fls.filter((f) => f.category === 'image')
+      const imageFiles = fls.filter((f) => f.category === 'image' && !referenced(f.path))
       if (imageFiles.length > 0) {
         const imgPaths = imageFiles.map((f) => `[Image: ${f.path}]`).join('\n')
         prompt = `${prompt}${sep()}${imgPaths}`

@@ -67,6 +67,43 @@ export function mentionLabel(path: string): string {
   return base || trimmed
 }
 
+
+/**
+ * An attachment, referred to in the sentence it belongs to.
+ *
+ * Attaching a file used to append `[Image: /tmp/…]` after the whole message, so
+ * a prompt about two screenshots had to say which was which in prose. The
+ * reference now goes in at the caret, and the chip shows the file's name over
+ * the top — you write "in this screen [shot.png] the sidebar…" and Claude reads
+ * the path exactly where you meant it.
+ *
+ * The marker *is* the payload: `[Image: path]` is already the form the CLI
+ * expects, so nothing has to be translated on the way out.
+ */
+const ATTACHMENT_REF = /\[(Image|File): ([^\]\n]+)\]/g
+
+export type AttachmentRef = Span & { kind: 'Image' | 'File'; target: string }
+
+export function findAttachmentRefs(text: string): AttachmentRef[] {
+  ATTACHMENT_REF.lastIndex = 0
+  const found: AttachmentRef[] = []
+  let hit: RegExpExecArray | null
+  while ((hit = ATTACHMENT_REF.exec(text)) !== null) {
+    found.push({
+      from: hit.index,
+      to: hit.index + hit[0].length,
+      kind: hit[1] as 'Image' | 'File',
+      target: hit[2]
+    })
+  }
+  return found
+}
+
+/** The text to drop at the caret when something is attached. */
+export function attachmentMarker(kind: 'Image' | 'File', target: string): string {
+  return `[${kind}: ${target}]`
+}
+
 /** Every `ultrathink`, case-insensitive and whole-word. */
 export function findUltrathink(text: string): Span[] {
   ULTRATHINK.lastIndex = 0
@@ -76,6 +113,34 @@ export function findUltrathink(text: string): Span[] {
     spans.push({ from: hit.index, to: hit.index + hit[0].length })
   }
   return spans
+}
+
+
+/** The attachment chip. Orange, to separate "I brought this" from "@ this repo file". */
+class AttachmentChipWidget extends WidgetType {
+  constructor(
+    private readonly kind: 'Image' | 'File',
+    private readonly target: string
+  ) {
+    super()
+  }
+  eq(other: AttachmentChipWidget): boolean {
+    return other.kind === this.kind && other.target === this.target
+  }
+  toDOM(): HTMLElement {
+    const el = document.createElement('span')
+    el.className = 'cm-attach-chip'
+    const icon = document.createElement('span')
+    icon.className = `cm-attach-chip-icon cm-attach-chip-icon-${this.kind.toLowerCase()}`
+    icon.setAttribute('aria-hidden', 'true')
+    el.appendChild(icon)
+    el.appendChild(document.createTextNode(mentionLabel(this.target)))
+    el.title = this.target
+    return el
+  }
+  ignoreEvent(): boolean {
+    return false
+  }
 }
 
 class FileChipWidget extends WidgetType {
@@ -168,6 +233,18 @@ function buildDecorations(view: EditorView): DecorationSet {
       Decoration.replace({ widget: new FileChipWidget(mention.path) }).range(
         mention.from,
         mention.to
+      )
+    )
+  }
+
+  for (const ref of findAttachmentRefs(text)) {
+    // Same rule as a file mention: on the line you are editing it is the text
+    // you can change, everywhere else it is the chip.
+    if (active.has(view.state.doc.lineAt(ref.from).number)) continue
+    decorations.push(
+      Decoration.replace({ widget: new AttachmentChipWidget(ref.kind, ref.target) }).range(
+        ref.from,
+        ref.to
       )
     )
   }

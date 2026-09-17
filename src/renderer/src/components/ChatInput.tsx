@@ -1,3 +1,4 @@
+import { attachmentMarker } from '../lib/composerDecorations'
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useSessionsStore, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, createSiblingSession } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
@@ -562,6 +563,34 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
   }
 
   // Image processing
+  /**
+   * Drop a reference to an attachment where the caret is.
+   *
+   * The point is to write "on this screen [shot.png] the sidebar…" and have
+   * Claude read the path in that sentence, rather than appending every
+   * attachment after the message and leaving you to explain in prose which one
+   * you meant. The marker is the form the CLI already expects, so nothing needs
+   * translating on the way out.
+   */
+  const insertAttachmentRef = useCallback((kind: 'Image' | 'File', target: string): void => {
+    const marker = attachmentMarker(kind, target)
+    setInput((prev) => {
+      const editor = editorRef.current
+      const at = editor ? editor.selectionStart : prev.length
+      const before = prev.slice(0, at)
+      const after = prev.slice(at)
+      const lead = before && !/\s$/.test(before) ? ' ' : ''
+      const trail = after && !/^\s/.test(after) ? ' ' : ''
+      const next = `${before}${lead}${marker}${trail}${after}`
+      const caret = before.length + lead.length + marker.length + trail.length
+      requestAnimationFrame(() => {
+        editorRef.current?.setSelectionRange(caret, caret)
+        editorRef.current?.focus()
+      })
+      return next
+    })
+  }, [])
+
   const processImageFile = useCallback(async (file: File): Promise<void> => {
     if (!SUPPORTED_TYPES.includes(file.type)) return
     const dataUrl = await new Promise<string>((resolve) => {
@@ -574,7 +603,8 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
     const path = await window.api.claude.saveImage(compressed.base64, compressed.mediaType)
     const finalDataUrl = `data:${compressed.mediaType};base64,${compressed.base64}`
     setStagedImages((prev) => [...prev, { path, mediaType: compressed.mediaType, dataUrl: finalDataUrl }])
-  }, [])
+    insertAttachmentRef('Image', path)
+  }, [insertAttachmentRef])
 
   // File processing
   const processAttachedFile = useCallback(async (file: File) => {
@@ -620,10 +650,14 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
         const path = await window.api.claude.saveImage(compressed.base64, compressed.mediaType)
         const finalDataUrl = `data:${compressed.mediaType};base64,${compressed.base64}`
         setStagedImages((prev) => [...prev, { path, mediaType: compressed.mediaType, dataUrl: finalDataUrl }])
+        insertAttachmentRef('Image', path)
       } else {
         // The backend names it after the temp file the bytes were staged to, which
         // is a timestamped id. Keep what the user dropped.
         setStagedFiles((prev) => [...prev, { ...(result as FileAttachment), name: file.name }])
+        // The name, not the temp path: the file's contents still travel as their
+        // own block, and this is the pointer that says where it belongs.
+        insertAttachmentRef('File', file.name)
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to attach file'
@@ -632,7 +666,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
     } finally {
       done()
     }
-  }, [processImageFile])
+  }, [processImageFile, insertAttachmentRef])
 
   const pickFiles = useCallback(async () => {
     setFileError(null)

@@ -160,6 +160,38 @@ const theme = EditorView.theme({
   '.cm-file-chip:hover': {
     backgroundColor: 'color-mix(in oklab, var(--info) 28%, transparent)'
   },
+  // Something you brought to the conversation, rather than a repo file you
+  // pointed at. Warm, so the two never read as the same kind of thing.
+  '.cm-attach-chip': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.3em',
+    padding: '0.05em 0.45em',
+    borderRadius: '4px',
+    backgroundColor: 'color-mix(in oklab, var(--warning) 18%, transparent)',
+    color: 'var(--warning)',
+    fontSize: '0.88em',
+    whiteSpace: 'nowrap',
+    verticalAlign: 'baseline'
+  },
+  '.cm-attach-chip-icon': {
+    display: 'inline-block',
+    width: '0.85em',
+    height: '0.85em',
+    flex: 'none',
+    backgroundColor: 'currentColor',
+    maskSize: 'contain',
+    maskRepeat: 'no-repeat',
+    maskPosition: 'center'
+  },
+  '.cm-attach-chip-icon-image': {
+    maskImage:
+      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21'/%3E%3C/svg%3E\")"
+  },
+  '.cm-attach-chip-icon-file': {
+    maskImage:
+      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.234 20.252 21 12.3'/%3E%3Cpath d='m16 6-8.414 8.586a2 2 0 0 0 0 2.828 2 2 0 0 0 2.828 0l8.414-8.586a4 4 0 0 0 0-5.656 4 4 0 0 0-5.656 0l-8.415 8.585a6 6 0 1 0 8.486 8.486'/%3E%3C/svg%3E\")"
+  },
   '@keyframes cm-ultrathink-pan': {
     '0%': { backgroundPosition: '0% 50%' },
     '100%': { backgroundPosition: '200% 50%' }
