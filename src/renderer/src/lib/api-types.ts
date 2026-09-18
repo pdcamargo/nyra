@@ -103,6 +103,55 @@ export type ReadImageResult = {
   missing?: boolean
 }
 
+/** One row in the file tree. `name` is a base name — the caller knows the
+ *  directory it asked about and joins them itself. */
+export type DirEntryInfo = {
+  name: string
+  type: 'dir' | 'file'
+  symlink: boolean
+  size: number
+}
+
+export type DirListing = {
+  path: string
+  entries: DirEntryInfo[]
+  /** Hit the per-directory cap. Shown as a count; there is nothing to page to. */
+  truncated: boolean
+  /** False when there is no git repo above `path`, so nothing was filtered. */
+  ignoreApplied: boolean
+  error?: string
+}
+
+export type TextFileResult = {
+  kind: 'text'
+  content: string
+  truncated: boolean
+  totalBytes: number
+  returnedBytes: number
+  /** Invalid UTF-8 was replaced rather than refused. */
+  lossy: boolean
+  mtimeMs: number
+  ino: number
+}
+
+/** Why a preview did or did not happen. Switched on by name, never by parsing
+ *  an OS error string. */
+export type ReadTextOutcome =
+  | TextFileResult
+  | { kind: 'binary'; size: number }
+  | { kind: 'tooLarge'; size: number; limit: number }
+  | { kind: 'missing' }
+  | { kind: 'notAFile' }
+  | { kind: 'error'; message: string }
+
+/** Enough to notice a file changed underneath an open preview. */
+export type FileStamp = {
+  exists: boolean
+  size: number
+  mtimeMs: number
+  ino: number
+}
+
 export type FileEntry = {
   path: string
   type: 'file' | 'folder'

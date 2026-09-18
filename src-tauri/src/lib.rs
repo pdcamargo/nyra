@@ -5,6 +5,7 @@ mod browser;
 mod claude;
 mod commands;
 mod file_extractor;
+mod file_tree;
 mod fonts;
 mod fs_ops;
 mod git;
@@ -134,6 +135,9 @@ pub fn run() {
             commands::fs_read_image,
             commands::fs_revert_file,
             commands::fs_list_files,
+            commands::fs_list_dir,
+            commands::fs_read_text_file,
+            commands::fs_stat_file,
             commands::system_homedir,
             commands::git_branch,
             commands::git_branch_list,

@@ -107,7 +107,11 @@ Object.defineProperty(globalThis, 'api', {
       readFile: () => Promise.resolve(''),
       readImage: () => Promise.resolve({ error: 'Image not found.', missing: true }),
       revertFile: () => Promise.resolve({ success: true }),
-      listFiles: () => Promise.resolve([])
+      listFiles: () => Promise.resolve([]),
+      listDir: () =>
+        Promise.resolve({ path: '', entries: [], truncated: false, ignoreApplied: true }),
+      readTextFile: () => Promise.resolve({ kind: 'missing' }),
+      statFile: () => Promise.resolve({ exists: false, size: 0, mtimeMs: 0, ino: 0 })
     },
     mcp: { list: () => Promise.resolve([]) },
     hooks: { read: () => Promise.resolve({}), write: noop },

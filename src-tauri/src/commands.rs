@@ -14,7 +14,10 @@ use tauri_plugin_opener::OpenerExt;
 use crate::workflow::helpers::{build_marketplace_share_url, marketplace_repo_url};
 use crate::workflow::types::{MarketplaceEntry, TriggerSource};
 use crate::workflow::{engine, marketplace, store, triggers};
-use crate::{browser, claude, file_extractor, fs_ops, git, hooks, login, mcp, memory, processes, skills};
+use crate::{
+    browser, claude, file_extractor, file_tree, fs_ops, git, hooks, login, mcp, memory, processes,
+    skills,
+};
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
 
 // ---- claude ----
@@ -275,6 +278,21 @@ pub async fn fs_revert_file(file_path: String, original_content: Option<String>)
 #[tauri::command]
 pub async fn fs_list_files(cwd: String, query: String) -> Value {
     json!(fs_ops::list_files(&cwd, &query).await)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn fs_list_dir(dir_path: String) -> file_tree::DirListing {
+    file_tree::list_dir(&dir_path).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn fs_read_text_file(file_path: String) -> fs_ops::ReadTextOutcome {
+    fs_ops::read_text_file(&file_path).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn fs_stat_file(file_path: String) -> fs_ops::FileStamp {
+    fs_ops::stat_file(&file_path).await
 }
 
 #[tauri::command]

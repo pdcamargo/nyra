@@ -22,10 +22,13 @@ import type {
   BrowserReply,
   BrowserStatus,
   BrowserTab,
+  DirListing,
   FileEntry,
+  FileStamp,
   McpEntry,
   MemoryListResult,
   ProcessFileResult,
+  ReadTextOutcome,
   ReadImageResult,
   Scope,
   ScopedList,
@@ -207,7 +210,14 @@ export const api = {
         originalContent
       }),
     listFiles: (cwd: string, query: string) =>
-      call<FileEntry[]>('fs_list_files', { cwd, query })
+      call<FileEntry[]>('fs_list_files', { cwd, query }),
+    /** One directory, gitignore-filtered and sorted. Lazy by design — the tree
+     *  asks again for each folder it opens. */
+    listDir: (dirPath: string) => call<DirListing>('fs_list_dir', { dirPath }),
+    /** A file's text for the read-only preview. Bounded, unlike `readFile`,
+     *  which backs editors that write what they read back. */
+    readTextFile: (filePath: string) => call<ReadTextOutcome>('fs_read_text_file', { filePath }),
+    statFile: (filePath: string) => call<FileStamp>('fs_stat_file', { filePath })
   },
 
   system: {
