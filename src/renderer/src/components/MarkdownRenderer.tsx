@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
 import type { HighlighterGeneric } from 'shiki'
-import { useFilePreviewStore } from '../store/filePreview'
+import { openFileInPanel } from '../lib/openFile'
 import { useSettingsStore } from '../store/settings'
 import { Check, Copy, WrapText } from 'lucide-react'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
@@ -254,7 +254,7 @@ function MarkdownRendererInner({ children }: { children: string }): React.JSX.El
           return (
             <code
               className="rounded-sm bg-accent px-1.5 py-0.5 text-[0.85em] font-mono text-info/70 hover:text-info cursor-pointer transition-colors"
-              onClick={() => useFilePreviewStore.getState().open(text)}
+              onClick={() => openFileInPanel(text)}
               {...props}
             >
               {children}

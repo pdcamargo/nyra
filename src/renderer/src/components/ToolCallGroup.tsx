@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import type { ToolCallMessage } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { inlineLabel, buildGroupSummary, formatToolName } from '../utils/toolSummary'
-import { useFilePreviewStore } from '../store/filePreview'
+import { openFileInPanel } from '../lib/openFile'
 import AskUserQuestionCard from './AskUserQuestionCard'
 import PlanCard, { type PlanAnswer } from './PlanCard'
 import FinishedChecklist from './FinishedChecklist'
@@ -43,7 +43,7 @@ function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.Element
         <button
           type="button"
           className="text-c-sm text-info/50 hover:text-info font-mono truncate min-w-0 transition-colors text-left"
-          onClick={() => useFilePreviewStore.getState().open(filePath)}
+          onClick={() => openFileInPanel(filePath)}
         >
           {filePath.split('/').slice(-3).join('/')}
         </button>

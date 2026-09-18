@@ -26,7 +26,6 @@ import { usePanelSizesStore } from './store/panelSizes'
 
 // Lazy-load heavy components — modals with Monaco, WorkflowCanvas with React Flow
 const WorkflowCanvas = React.lazy(() => import('./components/WorkflowCanvas'))
-const FilePreviewModal = React.lazy(() => import('./components/FilePreviewModal'))
 const SkillEditorModal = React.lazy(() => import('./components/SkillEditorModal'))
 const HookEditorModal = React.lazy(() => import('./components/HookEditorModal'))
 const WelcomeModal = React.lazy(() => import('./components/WelcomeModal'))
@@ -251,7 +250,6 @@ export default function App(): React.JSX.Element {
 
       {/* Lazy-loaded modals */}
       <Suspense fallback={null}>
-        <FilePreviewModal />
         <SkillEditorModal />
         <HookEditorModal />
         <WelcomeModal />

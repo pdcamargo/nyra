@@ -4,7 +4,7 @@ import type { ToolCallMessage } from '../store/sessions'
 import { useSessionsStore } from '../store/sessions'
 import DiffViewer from './LazyDiffViewer'
 import { buildDiffFromToolInput } from '../utils/diff'
-import { useFilePreviewStore } from '../store/filePreview'
+import { openFileInPanel } from '../lib/openFile'
 import { useSettingsStore } from '../store/settings'
 import { detectError, type DetectedError } from '../utils/errorDetection'
 
@@ -175,7 +175,7 @@ function ToolCallCardInner({
               className="text-info/60 hover:text-info font-mono truncate min-w-0 cursor-pointer transition-colors"
               onClick={(e) => {
                 e.stopPropagation()
-                useFilePreviewStore.getState().open(summary)
+                openFileInPanel(summary)
               }}
             >
               {summary}

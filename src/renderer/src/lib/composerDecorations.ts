@@ -8,7 +8,7 @@ import {
   WidgetType
 } from '@codemirror/view'
 import { BUILT_IN_COMMANDS } from '../data/commands'
-import { useFilePreviewStore } from '../store/filePreview'
+import { openFileInPanel } from './openFile'
 
 /**
  * Nyra's own composer decorations, on top of plain markdown.
@@ -189,7 +189,7 @@ class FileChipWidget extends WidgetType {
     el.title = this.path
     el.setAttribute('role', 'button')
     el.tabIndex = 0
-    const open = (): void => useFilePreviewStore.getState().open(this.path)
+    const open = (): void => openFileInPanel(this.path)
     el.addEventListener('mousedown', (e) => {
       e.preventDefault()
       e.stopPropagation()
