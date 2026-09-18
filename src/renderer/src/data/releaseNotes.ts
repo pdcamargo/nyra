@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.0.5',
+    date: '2026-09-18',
     notes: [
       'Messages you send render the way the composer previewed them: lists, quotes, tables, code blocks and emphasis',
       '@-mentions stay chips after you send; clicking one opens the file in the side panel',
