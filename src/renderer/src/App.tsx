@@ -10,12 +10,15 @@ import CommandPalette from './components/CommandPalette'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useResolvedTheme } from './hooks/useResolvedTheme'
 import { applyThemeClass } from './lib/theme'
+import { appearanceOf, applyAppearance } from './lib/appearance'
+import { applyZoom } from './lib/zoom'
+import { useSettingsStore } from './store/settings'
 import { useSessionsStore } from './store/sessions'
 import { attachWorktreeSessions } from './store/attachWorktrees'
 import { primeHomedir } from './lib/homedir'
 import { useWorkflowStore } from './store/workflow'
 import { useProcessesStore, type BgProcess } from './store/processes'
-import { useUiStore } from './store/ui'
+import { applySessionPanels, useUiStore } from './store/ui'
 import { dropBrowserHub, useBrowserStore } from './store/browser'
 import { handleBinding, usePanelLayoutStore } from './store/panelLayout'
 import { usePanelSizesStore } from './store/panelSizes'
@@ -38,9 +41,9 @@ export default function App(): React.JSX.Element {
   // summary toggle in the chat header needs to reach one of them from there.
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
   const projectsPanelOpen = useUiStore((s) => s.projectsPanelOpen)
-  const toggleBottomPanel = useUiStore((s) => s.toggleBottomPanel)
   const isCanvasOpen = useWorkflowStore((s) => s.isCanvasOpen)
   const resolvedTheme = useResolvedTheme()
+  const zoom = useSettingsStore((s) => s.zoom)
   const shellRef = useRef<HTMLDivElement>(null)
   useKeyboardShortcuts()
 
@@ -69,6 +72,32 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     applyThemeClass(resolvedTheme)
   }, [resolvedTheme])
+
+  // Fonts and type size, written to <html> whenever they change. Subscribed
+  // rather than rendered: nothing in the tree needs to re-render for a font
+  // swap, the variables do the work.
+  useEffect(() => {
+    const push = (): void => applyAppearance(appearanceOf(useSettingsStore.getState()))
+    push()
+    return useSettingsStore.subscribe(push)
+  }, [])
+
+  useEffect(() => {
+    void applyZoom(zoom)
+  }, [zoom])
+
+  // Panels follow the conversation. Switching chats loads what that one was left
+  // at; a chat that has never been told inherits the current state rather than
+  // snapping to a fixed default.
+  useEffect(() => {
+    let current = useSessionsStore.getState().activeSessionId
+    applySessionPanels(current)
+    return useSessionsStore.subscribe((state) => {
+      if (state.activeSessionId === current) return
+      current = state.activeSessionId
+      applySessionPanels(current)
+    })
+  }, [])
 
   // Publish --rail and --right: how much of the window the panels take, so the
   // conversation can work out what is left for it.
@@ -154,18 +183,6 @@ export default function App(): React.JSX.Element {
     })
   }, [])
 
-  // Toggle bottom panel with Cmd+J
-  useEffect(() => {
-    const handler = (e: KeyboardEvent): void => {
-      if (e.key === 'j' && e.metaKey && !e.shiftKey) {
-        e.preventDefault()
-        toggleBottomPanel()
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [toggleBottomPanel])
-
   return (
     <TooltipProvider delayDuration={400}>
     <div ref={shellRef} className="flex h-full w-full flex-col overflow-hidden bg-background">
@@ -207,7 +224,11 @@ export default function App(): React.JSX.Element {
             side="right"
             label="Resize workspace panel"
             {...handleBinding('rightPanelWidth')}
-            onSize={(px) => usePanelSizesStore.getState().setSize('rightPanelWidth', px)}
+            onSize={(px) => {
+              usePanelSizesStore.getState().setSize('rightPanelWidth', px)
+              const sid = useSessionsStore.getState().activeSessionId
+              if (sid) useSessionsStore.getState().setSessionPanels(sid, { rightWidth: px })
+            }}
             onReset={() => usePanelSizesStore.getState().resetSize('rightPanelWidth')}
           />
           <RightPanel />

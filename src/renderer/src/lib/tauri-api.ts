@@ -31,6 +31,7 @@ import type {
   ScopedList,
   SkillInfo
 } from './api-types'
+import type { FontFamily } from './api-types'
 import type { SpawnSettings } from '@shared/types'
 import type {
   MarketplaceIndex,
@@ -188,6 +189,11 @@ export const api = {
 
   settings: {
     sync: (settings: Record<string, unknown>) => call<void>('settings_sync', { settings })
+  },
+
+  fonts: {
+    /** Every family installed on this machine. Cached on the Rust side. */
+    list: () => call<FontFamily[]>('fonts_list')
   },
 
   fs: {

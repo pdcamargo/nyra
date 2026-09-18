@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Wrench } from 'lucide-react'
-import { useSessionsStore, type McpServerInfo } from '../store/sessions'
+import { useSessionsStore, type McpServerInfo, newMessageId } from '../store/sessions'
 
 type McpConfigEntry = {
   name: string
@@ -60,7 +60,7 @@ export default function McpSettings(): React.JSX.Element {
     window.api.claude.abort(sid)
     store.restartSession(sid)
     store.addMessage(sid, {
-      id: Date.now().toString(),
+      id: newMessageId(),
       role: 'assistant',
       text: 'Session restarted. MCP servers will reconnect on the next message.'
     })

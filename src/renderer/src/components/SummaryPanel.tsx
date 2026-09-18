@@ -7,6 +7,7 @@ import { collectAttachments, formatSize } from '../lib/summary'
 import { useProcessesStore, type BgProcess } from '../store/processes'
 import Modal from './Modal'
 import MarkdownRenderer from './MarkdownRenderer'
+import { cleanAgentReport } from '../lib/agentReport'
 import { formatElapsed } from './ActivityStrip'
 
 type Stat = { filesChanged: number; insertions: number; deletions: number }
@@ -89,15 +90,18 @@ function AgentReport({ toolId, onClose }: { toolId: string; onClose: () => void 
     const msg = session?.messages.find(
       (m) => m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId
     )
-    return (msg as ToolCallMessage | undefined)?.result ?? null
+    // A background subagent's tool result is the launch receipt, not the report,
+    // and showing it verbatim is how this panel came to display an agent id and
+    // a "do not quote any of this" notice where the answer should be.
+    return cleanAgentReport((msg as ToolCallMessage | undefined)?.result)
   })
 
   return (
     <Modal open onClose={onClose} title={agent?.name ?? 'Subagent'} className="max-w-2xl">
-      <div className="max-h-[70vh] overflow-y-auto px-5 pb-5 text-xs">
-        {agent?.status === 'running' ? (
+      <div className="max-h-[78vh] overflow-y-auto px-5 pb-5 text-xs">
+        {agent?.status === 'running' || (!report && agent?.status !== 'failed') ? (
           <p className="italic text-info/70">
-            {agent.activity ? agent.activity : 'Still working — nothing reported yet.'}
+            {agent?.activity ? agent.activity : 'Still working — nothing reported yet.'}
           </p>
         ) : report ? (
           <MarkdownRenderer>{report}</MarkdownRenderer>

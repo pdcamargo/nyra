@@ -109,10 +109,10 @@ export default function PlanCard({
           <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
         )}
         <ListChecks className="size-4 shrink-0 text-info" />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+        <span className="min-w-0 flex-1 truncate text-c-md font-medium text-foreground">
           {title}
         </span>
-        <span className="shrink-0 text-[10px] text-muted-foreground">
+        <span className="shrink-0 text-c-xs text-muted-foreground">
           {isPending ? 'Awaiting your approval' : denied ? 'Kept planning' : 'Approved'}
         </span>
       </button>
@@ -123,7 +123,7 @@ export default function PlanCard({
           the bottom of the window. */}
       {(expanded || pinned) && (
         <div
-          className={`relative border-t border-border/55 px-4 py-3 text-xs ${
+          className={`relative border-t border-border/55 px-4 py-3 text-c-md ${
             expanded ? 'max-h-[45vh] overflow-y-auto' : 'max-h-28 overflow-hidden'
           }`}
         >
@@ -139,7 +139,7 @@ export default function PlanCard({
           <button
             type="button"
             onClick={() => setNote('')}
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-c-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
           >
             <X className="size-3.5" />
             Keep planning
@@ -150,7 +150,7 @@ export default function PlanCard({
             type="button"
             onClick={() => answer('approve')}
             title="Leave plan mode. Each file change still asks."
-            className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
+            className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-c-md font-medium text-foreground transition-colors hover:bg-accent/50"
           >
             <Check className="size-3.5" />
             Approve
@@ -159,7 +159,7 @@ export default function PlanCard({
             type="button"
             onClick={() => answer('approve-auto')}
             title="Leave plan mode and stop asking about file changes, for this chat only."
-            className="flex items-center gap-1.5 rounded-md bg-success px-2.5 py-1 text-xs font-medium text-success-foreground transition-opacity hover:opacity-85"
+            className="flex items-center gap-1.5 rounded-md bg-success px-2.5 py-1 text-c-md font-medium text-success-foreground transition-opacity hover:opacity-85"
           >
             <Zap className="size-3.5" />
             Approve &amp; auto-edit
@@ -178,12 +178,12 @@ export default function PlanCard({
               if (e.key === 'Escape') setNote(null)
             }}
             placeholder="What should change? (optional)"
-            className="h-7 min-w-0 flex-1 rounded-md border border-input bg-input/20 px-2.5 text-xs outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
+            className="h-7 min-w-0 flex-1 rounded-md border border-input bg-input/20 px-2.5 text-c-md outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
           />
           <button
             type="button"
             onClick={() => answer('reject', note)}
-            className="shrink-0 rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground transition-opacity hover:opacity-85"
+            className="shrink-0 rounded-md bg-secondary px-2.5 py-1 text-c-md font-medium text-secondary-foreground transition-opacity hover:opacity-85"
           >
             {note.trim() ? 'Send' : 'Keep planning'}
           </button>

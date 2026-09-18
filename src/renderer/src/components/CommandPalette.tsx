@@ -1,21 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import {
-  Eraser,
-  FolderPlus,
-  GitBranch,
-  History,
-  LogIn,
-  MessageSquare,
-  PanelLeft,
-  Globe,
-  Plus,
-  Receipt,
-  Settings,
-  ShieldCheck,
-  SquareTerminal,
-  TextQuote,
-  Workflow
-} from 'lucide-react'
+import { GitBranch, History, MessageSquare } from 'lucide-react'
 import {
   Command,
   CommandDialog,
@@ -28,17 +12,10 @@ import {
   CommandShortcut
 } from './ui/command'
 import { useUiStore } from '../store/ui'
-import { useSessionsStore, createSiblingSession, openFolderAsProject } from '../store/sessions'
-import { useWorkflowStore } from '../store/workflow'
+import { useSessionsStore } from '../store/sessions'
 import { collectPromptHistory, searchSessions } from '../lib/search'
-
-type Action = {
-  id: string
-  label: string
-  icon: React.ComponentType<{ className?: string }>
-  shortcut?: string
-  run: () => void
-}
+import { COMMANDS } from '../commands/registry'
+import { CommandKbd } from './ui/kbd'
 
 /**
  * One search surface instead of three.
@@ -74,84 +51,10 @@ export default function CommandPalette(): React.JSX.Element {
     setTimeout(fn, 0)
   }
 
-  const actions: Action[] = [
-    {
-      id: 'new-chat',
-      label: 'New chat',
-      icon: Plus,
-      shortcut: '⌘N',
-      run: () => createSiblingSession()
-    },
-    {
-      id: 'add-project',
-      label: 'Add project…',
-      icon: FolderPlus,
-      run: () =>
-        void window.api.dialog.pickFolder().then((folder) => {
-          if (folder) openFolderAsProject(folder)
-        })
-    },
-    {
-      id: 'clear',
-      label: 'Clear conversation',
-      icon: Eraser,
-      run: () => {
-        const { activeSessionId, clearMessages } = useSessionsStore.getState()
-        if (activeSessionId) clearMessages(activeSessionId)
-      }
-    },
-    {
-      id: 'projects',
-      label: 'Toggle projects panel',
-      icon: PanelLeft,
-      run: () => ui().toggleProjectsPanel()
-    },
-    { id: 'summary', label: 'Toggle summary', icon: TextQuote, run: () => ui().toggleSummary() },
-    {
-      id: 'browser',
-      label: 'Toggle browser',
-      icon: Globe,
-      shortcut: '⌘⇧B',
-      run: () => ui().toggleRightPanel()
-    },
-    {
-      id: 'terminal',
-      label: 'Toggle terminal',
-      icon: SquareTerminal,
-      shortcut: '⌘J',
-      run: () => ui().toggleBottomPanel()
-    },
-    {
-      id: 'canvas',
-      label: 'Toggle workflow canvas',
-      icon: Workflow,
-      shortcut: '⌘⇧W',
-      run: () => {
-        const { isCanvasOpen, openCanvas, closeCanvas } = useWorkflowStore.getState()
-        if (isCanvasOpen) closeCanvas()
-        else openCanvas()
-      }
-    },
-    { id: 'settings', label: 'Settings', icon: Settings, run: () => ui().setSettingsOpen(true) },
-    {
-      id: 'permissions',
-      label: 'Tool permissions',
-      icon: ShieldCheck,
-      run: () => window.dispatchEvent(new Event('nyra:open-permissions'))
-    },
-    {
-      id: 'stats',
-      label: 'Usage and cost',
-      icon: Receipt,
-      run: () => window.dispatchEvent(new Event('nyra:open-stats'))
-    },
-    {
-      id: 'login',
-      label: 'Switch account',
-      icon: LogIn,
-      run: () => window.dispatchEvent(new Event('nyra:open-login'))
-    }
-  ]
+  // The palette used to keep its own copy of this list, with its own hardcoded
+  // ⌘-glyph strings beside four of the entries. Both are the registry's job now,
+  // so a rebind shows up here without anyone remembering to update it.
+  const actions = COMMANDS.filter((c) => c.palette)
 
   return (
     <CommandDialog
@@ -178,13 +81,18 @@ export default function CommandPalette(): React.JSX.Element {
           <CommandGroup heading="Actions">
             {actions
               .filter((a) => a.label.toLowerCase().includes(query.trim().toLowerCase()))
-              .map((action) => (
-                <CommandItem key={action.id} value={action.id} onSelect={run(action.run)}>
-                  <action.icon className="size-4" />
-                  {action.label}
-                  {action.shortcut && <CommandShortcut>{action.shortcut}</CommandShortcut>}
-                </CommandItem>
-              ))}
+              .map((action) => {
+                const Icon = action.icon!
+                return (
+                  <CommandItem key={action.id} value={action.id} onSelect={run(action.run!)}>
+                    <Icon className="size-4" />
+                    {action.label}
+                    <CommandShortcut>
+                      <CommandKbd id={action.id} />
+                    </CommandShortcut>
+                  </CommandItem>
+                )
+              })}
           </CommandGroup>
         )}
 

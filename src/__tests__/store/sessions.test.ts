@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useSessionsStore, queueOf, type McpServerInfo } from '../../renderer/src/store/sessions'
+import {
+  useSessionsStore,
+  queueOf,
+  newMessageId,
+  type McpServerInfo,
+  type Message
+} from '../../renderer/src/store/sessions'
 
 const session = (id: string) =>
   useSessionsStore.getState().sessions.find((s) => s.id === id)!
@@ -452,5 +458,30 @@ describe('Sessions Store', () => {
       const bSession = useSessionsStore.getState().sessions.find((s) => s.id === b)!
       expect(bSession.favoriteOrder).toBeUndefined()
     })
+  })
+})
+
+describe('message ids', () => {
+  it('never mints the same id twice, even inside one millisecond', () => {
+    const ids = new Set(Array.from({ length: 5000 }, () => newMessageId()))
+    expect(ids.size).toBe(5000)
+  })
+
+  // The transcript is virtualized and keys on this id. A duplicate made React
+  // reuse the wrong row, so measured heights landed on the wrong index and
+  // messages drew on top of each other — a burst of denied edits did it every
+  // time. addMessage is the one place that can guarantee it.
+  it('renames a colliding id rather than admitting it', () => {
+    const store = useSessionsStore.getState()
+    store.createSession('/repo')
+    const sid = useSessionsStore.getState().activeSessionId!
+
+    store.addMessage(sid, { id: 'same', role: 'assistant', text: 'first' } as Message)
+    store.addMessage(sid, { id: 'same', role: 'assistant', text: 'second' } as Message)
+
+    const msgs = useSessionsStore.getState().sessions.find((s) => s.id === sid)!.messages
+    expect(msgs).toHaveLength(2)
+    expect(new Set(msgs.map((m) => m.id)).size).toBe(2)
+    expect(msgs[1].id).not.toBe('same')
   })
 })

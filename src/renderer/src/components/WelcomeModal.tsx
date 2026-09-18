@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react'
 import Modal from './Modal'
 import { CircleCheckBig, TriangleAlert } from 'lucide-react'
 import { useSettingsStore } from '../store/settings'
+import { useShortcutsStore, chordFor } from '../store/shortcuts'
+import { COMMANDS_BY_ID, type CommandId } from '../commands/registry'
+import { formatChord } from '../lib/keys'
 
 type Step = 1 | 2
 type CliStatus = 'checking' | 'found' | 'not-found'
@@ -173,13 +176,20 @@ function StepCli({ onNext }: { onNext: () => void }): React.JSX.Element {
   )
 }
 
+/**
+ * Four shortcuts worth knowing, read from the registry.
+ *
+ * This list used to be hardcoded, and had drifted: it told every new user that
+ * ⌘K was "New session" long after ⌘K became the command palette.
+ */
+const TIP_COMMANDS: CommandId[] = ['palette.open', 'panel.bottom', 'session.new', 'app.settings']
+
 function StepTips(): React.JSX.Element {
-  const tips = [
-    { keys: '⌘ K', label: 'New session' },
-    { keys: '⌘ J', label: 'Toggle terminal' },
-    { keys: '/', label: 'Slash commands & skills' },
-    { keys: '⌘ [  ]', label: 'Switch sessions' }
-  ]
+  const overrides = useShortcutsStore((s) => s.overrides)
+  const tips = TIP_COMMANDS.map((id) => {
+    const chord = chordFor(id, overrides)
+    return { keys: chord ? formatChord(chord) : '—', label: COMMANDS_BY_ID.get(id)!.label }
+  })
 
   return (
     <div className="text-center space-y-5">

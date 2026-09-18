@@ -12,9 +12,56 @@ import net from 'node:net'
 import readline from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
-const write = (obj) => process.stdout.write(JSON.stringify(obj) + '\n')
+/**
+ * Leaving is not optional.
+ *
+ * When Nyra goes away its ends of these pipes close, and the next write fails
+ * with EPIPE. Node surfaces that as an unhandled stream error, which becomes an
+ * uncaughtException — and the handler for that used to `log()`, writing to the
+ * same broken pipe and throwing again. That is an unbounded loop of Error
+ * construction and stack formatting: four of these were found pinning a core
+ * each, the oldest fifteen hours old, long after the app that started them had
+ * quit.
+ *
+ * So: writes can never throw, a broken pipe means the parent is gone, and going
+ * is immediate. Chromium is not closed on the way out — it is a child of this
+ * process and loses its pipe when we go, and waiting on it is exactly the tidy
+ * shutdown that failed to finish last time.
+ */
+let leaving = false
+
+function leave(code = 0) {
+  if (leaving) return
+  leaving = true
+  try {
+    process.exit(code)
+  } catch {
+    // An 'exit' listener threw. There is nothing left worth saving.
+  }
+  // `process.exit` runs listeners first, so this is the floor if one of them
+  // hangs or the event loop refuses to give up.
+  process.kill(process.pid, 'SIGKILL')
+}
+
+function writeTo(stream, text) {
+  if (leaving) return
+  try {
+    stream.write(text)
+  } catch (err) {
+    // EPIPE, EBADF, ERR_STREAM_DESTROYED — every one of them means the other
+    // end is gone, and there is nobody left to tell.
+    leave(0)
+  }
+}
+
+const write = (obj) => writeTo(process.stdout, JSON.stringify(obj) + '\n')
 const emit = (event, params) => write({ event, params })
-const log = (...parts) => process.stderr.write(`[sidecar] ${parts.join(' ')}\n`)
+const log = (...parts) => writeTo(process.stderr, `[sidecar] ${parts.join(' ')}\n`)
+
+// The async half: a failed write reports through the stream's error event
+// rather than by throwing, so it needs catching here too.
+process.stdout.on('error', () => leave(0))
+process.stderr.on('error', () => leave(0))
 
 /** Config Nyra pushes down before anything is launched. */
 let config = {
@@ -583,17 +630,43 @@ rl.on('line', async (line) => {
 // headless browser and 300 MB a chat behind with nothing to talk to it.
 rl.on('close', async () => {
   // On a deadline. A tidy shutdown that never finishes is worse than an abrupt
-  // one: the process stays resident with nothing to talk to, which is how three
-  // of these ended up lying around during development. Chromium is a child of
-  // this process, so exiting takes it down either way.
+  // one: the process stays resident with nothing to talk to.
   await Promise.race([
     methods.shutdown().catch(() => {}),
     new Promise((resolve) => setTimeout(resolve, 3000))
   ])
-  process.exit(0)
+  leave(0)
 })
 
-process.on('uncaughtException', (err) => log('uncaught:', err?.stack ?? String(err)))
-process.on('unhandledRejection', (err) => log('unhandled:', String(err)))
+/**
+ * The parent is gone and nothing told us.
+ *
+ * stdin closing covers a clean quit, but not a crash, a force-quit or a SIGKILL
+ * — and in those cases the app never gets to run its own cleanup either, so this
+ * is the only thing standing between a hard quit and a process that outlives it
+ * by fifteen hours. Being reparented to init is the signal, and it is unmissable.
+ */
+const parentPid = process.ppid
+const orphanWatch = setInterval(() => {
+  if (process.ppid !== parentPid || process.ppid === 1) leave(0)
+}, 5000)
+orphanWatch.unref?.()
+
+process.on('SIGTERM', () => leave(0))
+process.on('SIGINT', () => leave(0))
+process.on('SIGHUP', () => leave(0))
+
+process.on('uncaughtException', (err) => {
+  // Never re-enter: this handler writing to a broken pipe is what made the
+  // original loop unbounded.
+  if (leaving) return
+  const broken = err?.code === 'EPIPE' || err?.code === 'ERR_STREAM_DESTROYED'
+  if (broken) return leave(0)
+  log('uncaught:', err?.stack ?? String(err))
+})
+process.on('unhandledRejection', (err) => {
+  if (leaving) return
+  log('unhandled:', String(err))
+})
 
 emit('ready', { pid: process.pid, node: process.version })

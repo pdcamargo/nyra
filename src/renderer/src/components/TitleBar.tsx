@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { useUiStore } from '../store/ui'
+import { useChordLabel } from './ui/kbd'
 import { useSessionsStore, activeSession as activeSessionSelector } from '../store/sessions'
 
 /**
@@ -26,6 +27,11 @@ import { useSessionsStore, activeSession as activeSessionSelector } from '../sto
  * nothing here — the bar asks the window to move instead, and ignores presses
  * that landed on a control.
  */
+
+/** "Search" on its own when the command is unbound, "Search (⌘K)" when it is not. */
+function withKeys(label: string, keys: string): string {
+  return keys ? `${label} (${keys})` : label
+}
 
 /** True for a press on the bar itself rather than on something interactive. */
 function isBareTitleBar(target: EventTarget | null): boolean {
@@ -70,7 +76,15 @@ export default function TitleBar(): React.JSX.Element {
   const toggleSummary = useUiStore((s) => s.toggleSummary)
   const terminalOpen = useUiStore((s) => s.bottomPanelOpen)
   const toggleBottomPanel = useUiStore((s) => s.toggleBottomPanel)
-  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
+  const openSettings = useUiStore((s) => s.openSettings)
+  // Read rather than hardcoded: these were ⌘K and ⌘J in the markup, which was
+  // wrong off macOS and wrong the moment anyone rebound them.
+  const paletteKeys = useChordLabel('palette.open')
+  const terminalKeys = useChordLabel('panel.bottom')
+  const summaryKeys = useChordLabel('panel.summary')
+  const browserKeys = useChordLabel('panel.right')
+  const settingsKeys = useChordLabel('app.settings')
+  const projectsKeys = useChordLabel('panel.left')
   const openPalette = useUiStore((s) => s.openPalette)
   const session = useSessionsStore(activeSessionSelector)
 
@@ -105,21 +119,21 @@ export default function TitleBar(): React.JSX.Element {
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
-        <TitleBarButton label="Search (⌘K)" onClick={() => openPalette('all')}>
+        <TitleBarButton label={withKeys('Search', paletteKeys)} onClick={() => openPalette('all')}>
           <Search className="size-4" />
         </TitleBarButton>
-        <TitleBarButton label="Terminal (⌘J)" active={terminalOpen} onClick={toggleBottomPanel}>
+        <TitleBarButton label={withKeys('Terminal', terminalKeys)} active={terminalOpen} onClick={toggleBottomPanel}>
           <SquareTerminal className="size-4" />
         </TitleBarButton>
-        <TitleBarButton label="Summary" active={summaryOpen} onClick={toggleSummary}>
+        <TitleBarButton label={withKeys('Summary', summaryKeys)} active={summaryOpen} onClick={toggleSummary}>
           <TextQuote className="size-4" />
         </TitleBarButton>
         {/* One button, because the panel is one thing. The globe used to sit
             beside this and each could close the other out from under you. */}
-        <TitleBarButton label="Browser" active={rightPanelOpen} onClick={toggleRightPanel}>
+        <TitleBarButton label={withKeys('Browser', browserKeys)} active={rightPanelOpen} onClick={toggleRightPanel}>
           <Globe className="size-4" />
         </TitleBarButton>
-        <TitleBarButton label="Settings" onClick={() => setSettingsOpen(true)}>
+        <TitleBarButton label={withKeys('Settings', settingsKeys)} onClick={() => openSettings()}>
           <Settings className="size-4" />
         </TitleBarButton>
       </div>

@@ -8,7 +8,19 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Fixed a browser process that kept running after quitting, pinning a CPU core',
+      'Settings redesigned as vertical tabs, with permissions and shortcuts alongside',
+      'Every keyboard shortcut is listed, searchable and reassignable',
+      'Appearance settings — system fonts, text size, zoom and chat width',
+      'Interface and conversation text sizes are set separately',
+      'Plan mode, model and effort are per chat instead of global',
+      'Panel layout and size are remembered per chat',
+      'Enter always sends; Shift+Enter breaks the line or continues a list',
+      'Pasted images and files become a chip straight away',
+      'Fixed messages drawing on top of each other during long plans',
+      'Scrollbars are visible again, and wide tables show that they scroll'
+    ]
   },
   {
     version: '0.0.2',

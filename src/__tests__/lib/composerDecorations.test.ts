@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { findCommand, findFileMentions, findUltrathink, mentionLabel, findAttachmentRefs, attachmentMarker } from '../../renderer/src/lib/composerDecorations'
+import {
+  findCommand,
+  findFileMentions,
+  findUltrathink,
+  mentionLabel,
+  findAttachmentRefs,
+  attachmentMarker,
+  removeAttachmentRef,
+  spanTouched
+} from '../../renderer/src/lib/composerDecorations'
 
 describe('findCommand', () => {
   it('matches a known command at the start', () => {
@@ -122,5 +131,69 @@ describe('attachment references', () => {
     const marker = attachmentMarker('Image', '/tmp/a b.png')
     const [ref] = findAttachmentRefs(`x ${marker} y`)
     expect(ref.target).toBe('/tmp/a b.png')
+  })
+})
+
+describe('spanTouched', () => {
+  const span = { from: 10, to: 20 }
+  const at = (n: number): { from: number; to: number }[] => [{ from: n, to: n }]
+
+  it('is false for a caret away from the span', () => {
+    expect(spanTouched(span, at(5))).toBe(false)
+    expect(spanTouched(span, at(25))).toBe(false)
+  })
+
+  it('is true for a caret inside it', () => {
+    expect(spanTouched(span, at(15))).toBe(true)
+  })
+
+  // Load-bearing for @-mentions: while you type `@src/comp` the caret sits at
+  // the end of the span, and collapsing it to a chip there would eat the word.
+  it('is true at either edge', () => {
+    expect(spanTouched(span, at(10))).toBe(true)
+    expect(spanTouched(span, at(20))).toBe(true)
+  })
+
+  it('is true for a selection that covers or overlaps it', () => {
+    expect(spanTouched(span, [{ from: 0, to: 30 }])).toBe(true)
+    expect(spanTouched(span, [{ from: 18, to: 40 }])).toBe(true)
+  })
+
+  it('checks every range of a multi-cursor selection', () => {
+    expect(spanTouched(span, [{ from: 0, to: 1 }, { from: 14, to: 14 }])).toBe(true)
+    expect(spanTouched(span, [{ from: 0, to: 1 }, { from: 30, to: 31 }])).toBe(false)
+  })
+
+  // The old rule was line granularity, which is why a pasted attachment showed
+  // as raw markdown until you broke the line.
+  it('leaves the rest of the line alone', () => {
+    const text = 'see [Image: /tmp/a.png] here'
+    const ref = findAttachmentRefs(text)[0]
+    expect(spanTouched(ref, at(text.length))).toBe(false)
+  })
+})
+
+describe('removeAttachmentRef', () => {
+  it('takes the marker out and closes the gap', () => {
+    expect(removeAttachmentRef('look at [Image: /tmp/a.png] here', 'Image', '/tmp/a.png')).toBe(
+      'look at here'
+    )
+  })
+
+  it('does not leave a trailing space at the end of the draft', () => {
+    expect(removeAttachmentRef('look at [Image: /tmp/a.png]', 'Image', '/tmp/a.png')).toBe('look at')
+  })
+
+  it('handles a file marker and one that is the whole draft', () => {
+    expect(removeAttachmentRef('[File: notes.pdf]', 'File', 'notes.pdf')).toBe('')
+  })
+
+  it('leaves the draft alone when the marker is not there', () => {
+    expect(removeAttachmentRef('nothing here', 'Image', '/tmp/a.png')).toBe('nothing here')
+  })
+
+  it('removes only the one asked for', () => {
+    const text = '[Image: /tmp/a.png] and [Image: /tmp/b.png]'
+    expect(removeAttachmentRef(text, 'Image', '/tmp/a.png')).toBe('and [Image: /tmp/b.png]')
   })
 })

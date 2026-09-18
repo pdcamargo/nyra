@@ -5,6 +5,7 @@ mod browser;
 mod claude;
 mod commands;
 mod file_extractor;
+mod fonts;
 mod fs_ops;
 mod git;
 mod hooks;
@@ -34,6 +35,30 @@ fn shutdown() {
     webhook_server::stop();
     fs_ops::cleanup_temp_dirs();
 }
+
+/// Run `shutdown` when the process is signalled, not only when Tauri decides it
+/// is exiting.
+///
+/// `RunEvent::Exit` covers quitting from the UI and nothing else. A SIGTERM — a
+/// `kill`, a logout, the system going down, a dev-loop restart — bypasses it
+/// entirely, and everything `shutdown` is responsible for is then left running:
+/// terminals, Claude processes, the webhook listener, and the browser sidecar,
+/// which is how four of those came to be found spinning on a core each.
+#[cfg(unix)]
+fn install_signal_handlers() {
+    use tokio::signal::unix::{signal, SignalKind};
+    for kind in [SignalKind::terminate(), SignalKind::interrupt(), SignalKind::hangup()] {
+        tauri::async_runtime::spawn(async move {
+            let Ok(mut stream) = signal(kind) else { return };
+            stream.recv().await;
+            shutdown();
+            std::process::exit(0);
+        });
+    }
+}
+
+#[cfg(not(unix))]
+fn install_signal_handlers() {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -104,6 +129,7 @@ pub fn run() {
             commands::memory_write,
             commands::memory_delete,
             commands::settings_sync,
+            fonts::fonts_list,
             commands::fs_read_file,
             commands::fs_read_image,
             commands::fs_revert_file,
@@ -177,6 +203,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Nyra")
         .run(|_app, event| {
+            if let RunEvent::Ready = event {
+                install_signal_handlers();
+            }
             if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
                 shutdown();
             }

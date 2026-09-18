@@ -96,6 +96,7 @@ Object.defineProperty(globalThis, 'api', {
     },
     skills: { list: () => Promise.resolve([]), write: noop, delete: noop },
     settings: { sync: noop },
+    fonts: { list: () => Promise.resolve([]) },
     fs: {
       readFile: () => Promise.resolve(''),
       readImage: () => Promise.resolve({ error: 'Image not found.', missing: true }),

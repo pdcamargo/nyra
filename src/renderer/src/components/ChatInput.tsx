@@ -1,6 +1,6 @@
-import { attachmentMarker } from '../lib/composerDecorations'
+import { attachmentMarker, removeAttachmentRef } from '../lib/composerDecorations'
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useSessionsStore, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, createSiblingSession } from '../store/sessions'
+import { useSessionsStore, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, createSiblingSession, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useUiStore } from '../store/ui'
 import SlashAutocomplete, { useSlashItems, type AutocompleteItem } from './SlashAutocomplete'
@@ -11,7 +11,7 @@ import AttachmentStrip, { type PendingAttachment } from './AttachmentStrip'
 import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
 import { BUILT_IN_COMMANDS } from '../data/commands'
 import {
-  continueListOnEnter,
+  newlineInList,
   insertLink,
   toggleHeading,
   toggleInlineMarker,
@@ -196,7 +196,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
     const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)!
     const addInfo = (text: string): void => {
       useSessionsStore.getState().addMessage(sid!, {
-        id: Date.now().toString(),
+        id: newMessageId(),
         role: 'assistant',
         text
       })
@@ -266,7 +266,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
         window.dispatchEvent(new CustomEvent('nyra:open-release-notes'))
         break
       case 'permissions':
-        window.dispatchEvent(new CustomEvent('nyra:open-permissions'))
+        useUiStore.getState().openSettings('permissions')
         break
       case 'loop stop':
         window.dispatchEvent(new CustomEvent('nyra:stop-loop'))
@@ -291,7 +291,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
         if (newId) {
           const forkInfo = useSessionsStore.getState().sessions.find((s) => s.id === newId)?.forkOf
           useSessionsStore.getState().addMessage(newId, {
-            id: Date.now().toString(),
+            id: newMessageId(),
             role: 'assistant',
             text: `⑂ Forked from **"${forkInfo?.title ?? 'previous session'}"**. History copied up to this point.\n\nOriginal session is unchanged. The next message starts a fresh Claude session.`
           })
@@ -484,27 +484,10 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
       return
     }
 
-    // Enter on a list line continues it rather than sending. Shift+Enter is the
-    // plain newline it always was, so this only intercepts the send key.
-    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      const cont = continueListOnEnter(input, ...sel())
-      if (cont) {
-        e.preventDefault()
-        applyEdit(cont)
-        return
-      }
-    }
-
     // Ctrl+S to stash/restore draft
     if (e.key === 's' && e.ctrlKey && !e.metaKey && !e.shiftKey) {
       e.preventDefault()
       handleStash()
-      return
-    }
-    // Ctrl+R — past prompts, which now live in the command palette
-    if (e.key === 'r' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      useUiStore.getState().openPalette('history')
       return
     }
 
@@ -519,7 +502,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
         setAcSelectedIndex((i) => (i - 1 + acItems.length) % acItems.length)
         return
       }
-      if (e.key === 'Enter' || e.key === 'Tab') {
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault()
         handleAutocompleteSelect(acItems[acSelectedIndex])
         return
@@ -556,6 +539,19 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
         return
       }
     }
+    // Shift+Enter breaks the line, and inside a list starts the next item.
+    // Pressing it on an empty item drops the marker and leaves the list.
+    //
+    // It has to be claimed explicitly: left alone it falls through to
+    // CodeMirror's defaultKeymap, which inserts a plain newline and knows
+    // nothing about the list you were in.
+    if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault()
+      applyEdit(newlineInList(input, ...sel()))
+      return
+    }
+
+    // Enter always sends. An open autocomplete takes it first, above.
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -708,13 +704,30 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
     }
   }, [])
 
-  const removeImage = useCallback((index: number) => {
-    setStagedImages((prev) => prev.filter((_, i) => i !== index))
-  }, [])
+  // Taking it off the strip takes its chip with it. They were independent, so
+  // removing an attachment left a marker in the draft pointing at a file that
+  // was no longer going to be sent.
+  const removeImage = useCallback(
+    (index: number) => {
+      // Read the list, then set both. Reaching for the item inside the updater
+      // would make the updater impure, and React invokes those twice in
+      // development — which would strip a second marker when the same file is
+      // referenced twice in one draft.
+      const gone = stagedImages[index]
+      if (gone) setInput((text) => removeAttachmentRef(text, 'Image', gone.path))
+      setStagedImages((prev) => prev.filter((_, i) => i !== index))
+    },
+    [stagedImages]
+  )
 
-  const removeFile = useCallback((id: string) => {
-    setStagedFiles((prev) => prev.filter((f) => f.id !== id))
-  }, [])
+  const removeFile = useCallback(
+    (id: string) => {
+      const gone = stagedFiles.find((f) => f.id === id)
+      if (gone) setInput((text) => removeAttachmentRef(text, 'File', gone.name))
+      setStagedFiles((prev) => prev.filter((f) => f.id !== id))
+    },
+    [stagedFiles]
+  )
 
   // Handle files dropped on chat area (dispatched from parent)
   useEffect(() => {
@@ -738,23 +751,29 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
    * Copied *text* is left alone even when it looks like a path. Pasting a path
    * into a message is a thing people do on purpose, and silently turning it into
    * an attachment would take the words out of what they were writing.
+   *
+   * Handed to the editor as a prop rather than bound to `contentDOM` here: the
+   * EditorView used to be rebuilt whenever the placeholder changed, which is
+   * every time a turn starts or ends, and the listener stayed attached to the
+   * detached node — so pasting an image stopped working after the first turn.
+   *
+   * Synchronous on purpose. `defaultPrevented` has to be true by the time this
+   * returns, or CodeMirror pastes the clipboard's text form underneath us.
    */
-  useEffect(() => {
-    const target = editorRef.current?.contentDom
-    if (!target) return
-    const handlePaste = async (e: ClipboardEvent): Promise<void> => {
+  const handlePaste = useCallback(
+    (e: ClipboardEvent): void => {
       const files = Array.from(e.clipboardData?.items ?? [])
         .filter((item) => item.kind === 'file')
         .map((item) => item.getAsFile())
         .filter((file): file is File => file != null)
       if (files.length === 0) return
       e.preventDefault()
-      for (const file of files) await processAttachedFile(file)
-    }
-    const onPaste = (e: Event): void => void handlePaste(e as ClipboardEvent)
-    target.addEventListener('paste', onPaste)
-    return () => target.removeEventListener('paste', onPaste)
-  }, [processAttachedFile])
+      void (async () => {
+        for (const file of files) await processAttachedFile(file)
+      })()
+    },
+    [processAttachedFile]
+  )
 
   return (
     <div className="relative py-3">
@@ -844,7 +863,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
       {/* Codex-shaped: the field on its own line, then a footer carrying what you
           set per turn — approvals on the left, model and effort on the right,
           attachments and commands behind the `+`. */}
-      <div className="rounded-xl border border-muted bg-muted px-3 py-2.5 transition-colors focus-within:border-border-strong">
+      <div className="composer-box rounded-xl border border-muted bg-muted transition-colors focus-within:border-border-strong">
         <AttachmentStrip
           images={stagedImages}
           files={stagedFiles}
@@ -857,6 +876,7 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
           value={input}
           onChange={setInput}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={isLoading ? 'Type to queue next message…' : 'Message Claude…'}
         />
         <ComposerBar

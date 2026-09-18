@@ -1,3 +1,4 @@
+import { formatChord } from '../lib/keys'
 import React, { useEffect, useRef, useState } from 'react'
 import Modal from './Modal'
 import DiffViewer from './LazyDiffViewer'
@@ -198,10 +199,10 @@ export default function PermissionDialog({
 
         {/* Keyboard shortcut hints */}
         <div className="mt-3 flex items-center justify-center gap-3 text-[10px] text-muted-foreground/70">
-          <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">⏎</kbd> Allow</span>
+          <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">{formatChord('enter')}</kbd> Allow</span>
           <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">Esc</kbd> Deny</span>
           {showAllowAllHint && (
-            <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">⌘⏎</kbd> Allow all ({queueLength})</span>
+            <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">{formatChord('mod+enter')}</kbd> Allow all ({queueLength})</span>
           )}
         </div>
     </Modal>

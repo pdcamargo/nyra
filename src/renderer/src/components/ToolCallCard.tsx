@@ -123,7 +123,7 @@ function ToolCallCardInner({
         : 'border-border bg-muted/40'
 
   return (
-    <div className={`${nested ? 'my-0' : 'my-1'} ${nested ? 'rounded-md border-border/55 bg-muted/40' : borderClass} rounded-lg border overflow-hidden text-xs`}>
+    <div className={`${nested ? 'my-0' : 'my-1'} ${nested ? 'rounded-md border-border/55 bg-muted/40' : borderClass} rounded-lg border overflow-hidden text-c-md`}>
       {/* Header row */}
       <button
         onClick={() => setExpanded((v) => !v)}
@@ -144,23 +144,23 @@ function ToolCallCardInner({
 
         {/* Status labels for file ops */}
         {isFileOp && denied && (
-          <span className="text-[10px] text-danger/50 shrink-0">
+          <span className="text-c-xs text-danger/50 shrink-0">
             rejected — file not modified
           </span>
         )}
         {isFileOp && done && !denied && (
-          <span className="text-[10px] text-success/40 shrink-0">file updated</span>
+          <span className="text-c-xs text-success/40 shrink-0">file updated</span>
         )}
 
         {/* Denied label for non-file ops */}
         {!isFileOp && denied && (
-          <span className="text-[10px] text-danger/50 shrink-0">denied</span>
+          <span className="text-c-xs text-danger/50 shrink-0">denied</span>
         )}
 
         {/* Error summary badge */}
         {error && (
           <span
-            className={`text-[10px] shrink-0 ${
+            className={`text-c-xs shrink-0 ${
               error.severity === 'error' ? 'text-danger/70' : 'text-warning/60'
             }`}
           >
@@ -204,8 +204,8 @@ function ToolCallCardInner({
           ) : (
             /* Raw input for other tools */
             <div className="px-3 py-2">
-              <p className="text-[10px] text-muted-foreground/70 uppercase tracking-wider mb-1.5">Input</p>
-              <pre className="text-[11px] text-foreground/80 font-mono overflow-x-auto whitespace-pre-wrap wrap-break-word leading-relaxed max-h-40 overflow-y-auto">
+              <p className="text-c-xs text-muted-foreground/70 uppercase tracking-wider mb-1.5">Input</p>
+              <pre className="text-c-sm text-foreground/80 font-mono overflow-x-auto whitespace-pre-wrap wrap-break-word leading-relaxed max-h-40 overflow-y-auto">
                 {JSON.stringify(message.input, null, 2)}
               </pre>
             </div>
@@ -214,8 +214,8 @@ function ToolCallCardInner({
           {/* Result */}
           {done && !denied && (
             <div className="px-3 py-2 border-t border-border/55">
-              <p className="text-[10px] text-muted-foreground/70 uppercase tracking-wider mb-1.5">Output</p>
-              <pre className="text-[11px] text-foreground/80 font-mono overflow-x-auto whitespace-pre-wrap wrap-break-word leading-relaxed max-h-48 overflow-y-auto">
+              <p className="text-c-xs text-muted-foreground/70 uppercase tracking-wider mb-1.5">Output</p>
+              <pre className="text-c-sm text-foreground/80 font-mono overflow-x-auto whitespace-pre-wrap wrap-break-word leading-relaxed max-h-48 overflow-y-auto">
                 {message.result || '(empty)'}
               </pre>
             </div>
@@ -227,14 +227,14 @@ function ToolCallCardInner({
               <button
                 disabled={isLoading}
                 onClick={() => handleFixThis(message)}
-                className="text-[11px] px-2.5 py-1 rounded-sm bg-danger/10 text-danger/80 hover:bg-danger/20 hover:text-danger transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="text-c-sm px-2.5 py-1 rounded-sm bg-danger/10 text-danger/80 hover:bg-danger/20 hover:text-danger transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Fix this
               </button>
               <button
                 disabled={isLoading}
                 onClick={() => handleExplainError(message)}
-                className="text-[11px] px-2.5 py-1 rounded-sm bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="text-c-sm px-2.5 py-1 rounded-sm bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Explain error
               </button>
@@ -243,7 +243,7 @@ function ToolCallCardInner({
 
           {!done && !denied && (
             <div className="px-3 py-2 border-t border-border/55">
-              <span className="text-[11px] text-muted-foreground/70 italic">Running…</span>
+              <span className="text-c-sm text-muted-foreground/70 italic">Running…</span>
             </div>
           )}
         </div>

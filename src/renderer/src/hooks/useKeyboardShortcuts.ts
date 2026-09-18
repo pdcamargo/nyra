@@ -1,90 +1,57 @@
 import { useEffect } from 'react'
-import { useSessionsStore, createSiblingSession } from '../store/sessions'
-import { useWorkflowStore } from '../store/workflow'
-import { useUiStore } from '../store/ui'
+import { COMMANDS, type Command } from '../commands/registry'
+import { chordFor, useShortcutsStore } from '../store/shortcuts'
+import { currentPlatform, eventToChord, isEditableTarget, type Chord, type Platform } from '../lib/keys'
+
+/**
+ * One listener over the command registry, instead of a chain of hand-written
+ * comparisons in two files.
+ *
+ * The matching half is a pure function so it can be tested without a DOM, and so
+ * the focus rule — which bindings fire while you are typing — is written down
+ * once rather than implied by where each `if` happened to live.
+ */
+
+/** Modified chords reach into a text field; bare keys do not, unless asked to. */
+function firesInInput(command: Command, chord: Chord): boolean {
+  if (command.allowInInput !== undefined) return command.allowInInput
+  return /(^|\+)(mod|ctrl|alt|meta)\+/.test(chord)
+}
+
+export function resolveCommandForEvent(
+  e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'> & {
+    target?: EventTarget | null
+  },
+  overrides: Record<string, Chord | null>,
+  platform: Platform = currentPlatform()
+): Command | null {
+  const pressed = eventToChord(e, platform)
+  if (!pressed) return null
+
+  const editable = isEditableTarget(e.target ?? null)
+  for (const command of COMMANDS) {
+    if (command.readOnly || !command.run) continue
+    const chord = chordFor(command.id, overrides)
+    if (!chord || chord !== pressed) continue
+    if (editable && !firesInInput(command, chord)) return null
+    return command
+  }
+  return null
+}
 
 export function useKeyboardShortcuts(): void {
   useEffect(() => {
+    // Bubble phase on purpose. PermissionDialog listens in the capture phase and
+    // calls stopImmediatePropagation so its Enter/Escape outrank the global
+    // abort, and the rebinding field stops propagation to shield itself.
     const handler = (e: KeyboardEvent): void => {
-      if (e.metaKey) {
-        // Cmd+F — Toggle in-session search (find in conversation)
-        if (e.key === 'f' && !e.shiftKey) {
-          e.preventDefault()
-          window.dispatchEvent(new Event('nyra:toggle-insession-search'))
-          return
-        }
-
-        // Cmd+K — Command palette. This used to clear the conversation, which is
-        // a destructive action on the one binding every app uses for a palette.
-        // Clearing is still a palette action, and still /clear.
-        if (e.key === 'k' && !e.shiftKey) {
-          e.preventDefault()
-          useUiStore.getState().openPalette('all')
-          return
-        }
-
-        // Cmd+Shift+F — the palette's old binding, kept for muscle memory
-        if (e.key === 'f' && e.shiftKey) {
-          e.preventDefault()
-          useUiStore.getState().openPalette('all')
-          return
-        }
-
-        // Cmd+Shift+B — Toggle the browser. Codex binds the same keys to the
-        // same thing; muscle memory is worth more here than originality.
-        if (e.key.toLowerCase() === 'b' && e.shiftKey) {
-          e.preventDefault()
-          useUiStore.getState().toggleRightPanel()
-          return
-        }
-
-        // Cmd+N — New session
-        if (e.key === 'n') {
-          e.preventDefault()
-          createSiblingSession()
-          return
-        }
-
-        // Cmd+Shift+W — Toggle workflow canvas
-        if (e.key === 'w' && e.shiftKey) {
-          e.preventDefault()
-          const { isCanvasOpen, openCanvas, closeCanvas } = useWorkflowStore.getState()
-          if (isCanvasOpen) closeCanvas()
-          else openCanvas()
-          return
-        }
-
-        // Cmd+[ — Previous session
-        if (e.key === '[') {
-          e.preventDefault()
-          const { sessions, activeSessionId, setActiveSession } = useSessionsStore.getState()
-          if (sessions.length < 2 || !activeSessionId) return
-          const currentIndex = sessions.findIndex((s) => s.id === activeSessionId)
-          if (currentIndex === -1) return
-          const prevIndex = (currentIndex - 1 + sessions.length) % sessions.length
-          setActiveSession(sessions[prevIndex].id)
-          return
-        }
-
-        // Cmd+] — Next session
-        if (e.key === ']') {
-          e.preventDefault()
-          const { sessions, activeSessionId, setActiveSession } = useSessionsStore.getState()
-          if (sessions.length < 2 || !activeSessionId) return
-          const currentIndex = sessions.findIndex((s) => s.id === activeSessionId)
-          if (currentIndex === -1) return
-          const nextIndex = (currentIndex + 1) % sessions.length
-          setActiveSession(sessions[nextIndex].id)
-          return
-        }
-      }
-
-      // Escape — Abort running Claude process for the active session
-      if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-        window.api.claude.abort(useSessionsStore.getState().activeSessionId ?? undefined)
-      }
+      const { recording, overrides } = useShortcutsStore.getState()
+      if (recording) return
+      const command = resolveCommandForEvent(e, overrides)
+      if (!command?.run) return
+      e.preventDefault()
+      command.run()
     }
-
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [])

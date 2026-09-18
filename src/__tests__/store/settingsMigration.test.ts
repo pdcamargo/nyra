@@ -23,6 +23,28 @@ describe('migrateSettings', () => {
     expect('defaultCwd' in merged).toBe(false)
   })
 
+  // fontSize was 'small' | 'medium' | 'large' and only styled the message list.
+  // The rename is what keeps settings_sync working: settings.rs typed the old key
+  // as a String, so shipping a number under the same name would reject every sync.
+  it('converts the old font size to pixels', () => {
+    expect(migrateSettings({ fontSize: 'small' }, base()).contentFontSize).toBe(13)
+    expect(migrateSettings({ fontSize: 'medium' }, base()).contentFontSize).toBe(15)
+    expect(migrateSettings({ fontSize: 'large' }, base()).contentFontSize).toBe(17)
+  })
+
+  it('never lets the retired key reach settings_sync', () => {
+    expect('fontSize' in migrateSettings({ fontSize: 'large' }, base())).toBe(false)
+  })
+
+  it('leaves an already-migrated blob alone', () => {
+    const merged = migrateSettings({ fontSize: 'small', contentFontSize: 20 }, base())
+    expect(merged.contentFontSize).toBe(20)
+  })
+
+  it('gives a blob with neither key the default', () => {
+    expect(migrateSettings({}, base()).contentFontSize).toBe(15)
+  })
+
   it('keeps the settings that still matter', () => {
     const merged = migrateSettings({ model: 'opus', autoApproveTools: ['Bash'] }, base())
     expect(merged.model).toBe('opus')

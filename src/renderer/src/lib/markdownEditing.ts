@@ -95,27 +95,69 @@ export function insertLink(text: string, start: number, end: number): Edit {
   return { text: next, selectionStart: caret, selectionEnd: caret }
 }
 
-const LIST_LINE = /^(\s*)(?:([-*+])\s+|(\d+)\.\s+|(>)\s?)(.*)$/
+const LIST_LINE = /^(\s*)(?:([-*+])\s+|(\d+)([.)])\s+|(>)\s?)(.*)$/
+
+export type ListMarker = {
+  indent: string
+  /** The marker the *next* item opens with. */
+  next: string
+  /** What the line says after its marker. */
+  content: string
+}
 
 /**
- * Continue a list, quote or bullet on Enter — and end it when you press Enter on
- * an empty one, which is how every markdown editor gets out of a list.
+ * The list, quote or bullet marker a line opens with, if it opens with one.
  *
- * Returns null when the line is not a list, so the caller lets Enter do whatever
- * it normally does (which here is send the message).
+ * Split out from the continuation itself so the classification is testable on
+ * its own, and so both halves agree about what counts as a list.
  */
-export function continueListOnEnter(text: string, start: number, end: number): Edit | null {
-  if (start !== end) return null
-  const [lineStart, lineEnd] = lineBoundsAt(text, start)
-  if (start !== lineEnd) return null
-
-  const m = LIST_LINE.exec(text.slice(lineStart, lineEnd))
+export function listMarkerAt(line: string): ListMarker | null {
+  const m = LIST_LINE.exec(line)
   if (!m) return null
+  const [, indent, bullet, ordinal, delim, quote, rest] = m
 
-  const [, indent, bullet, ordinal, quote, content] = m
+  // A GFM checkbox continues as an unticked one; carrying `[x]` forward would
+  // mean every new item arrived already done.
+  const task = /^\[[ xX]\]\s+/.exec(rest)
+  const box = task ? '[ ] ' : ''
 
-  if (content.trim() === '') {
+  const next = bullet
+    ? `${bullet} ${box}`
+    : ordinal
+      ? `${Number(ordinal) + 1}${delim} ${box}`
+      : `${quote} `
+  return { indent, next, content: task ? rest.slice(task[0].length) : rest }
+}
+
+/**
+ * Shift+Enter: break the line, and inside a list start the next item.
+ *
+ * This replaces `continueListOnEnter`, which only ever ran off the send key and
+ * so could refuse: it bailed on a non-collapsed selection and on a caret that
+ * was not at end-of-line, leaving Enter to send the message. Shift+Enter is now
+ * the only way to get a newline at all, so refusing is not available to it —
+ * hence the line is reconstructed from both sides of the selection (the
+ * selection is replaced first, then whatever remains is classified) and a caret
+ * mid-item pushes the tail onto the new one.
+ *
+ * Pressing it on an item with nothing in it ends the list, which is how every
+ * markdown editor gets you out of one.
+ */
+export function newlineInList(text: string, start: number, end: number): Edit {
+  const before = text.slice(0, start)
+  const after = text.slice(end)
+  const lineStart = before.lastIndexOf('\n') + 1
+  const nlAfter = after.indexOf('\n')
+  const line = before.slice(lineStart) + (nlAfter === -1 ? after : after.slice(0, nlAfter))
+
+  const marker = listMarkerAt(line)
+  if (!marker) {
+    return { text: `${before}\n${after}`, selectionStart: start + 1, selectionEnd: start + 1 }
+  }
+
+  if (marker.content.trim() === '') {
     // An empty marker means "done with the list": clear the line.
+    const lineEnd = nlAfter === -1 ? text.length : end + nlAfter
     return {
       text: text.slice(0, lineStart) + text.slice(lineEnd),
       selectionStart: lineStart,
@@ -123,14 +165,9 @@ export function continueListOnEnter(text: string, start: number, end: number): E
     }
   }
 
-  const marker = bullet
-    ? `${bullet} `
-    : ordinal
-      ? `${Number(ordinal) + 1}. `
-      : `${quote} `
-  const insert = `\n${indent}${marker}`
+  const insert = `\n${marker.indent}${marker.next}`
   return {
-    text: text.slice(0, start) + insert + text.slice(start),
+    text: before + insert + after,
     selectionStart: start + insert.length,
     selectionEnd: start + insert.length
   }

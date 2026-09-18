@@ -26,9 +26,13 @@ tauri-plugin-updater = "2.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time", "fs", "signal"] }
 futures = "0.3"
 async-recursion = "1"
+
+# System font enumeration for the appearance settings. Pure Rust over
+# ttf-parser, which lopdf already pulls in — no fontconfig/CoreText to link.
+fontdb = { version = "0.23", default-features = false, features = ["fs"] }
 
 # PTY for `claude /login` and the integrated terminal
 portable-pty = "0.9"

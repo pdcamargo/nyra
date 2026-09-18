@@ -140,6 +140,21 @@ export type Project = {
   order?: number
 }
 
+/**
+ * A message id that cannot collide with the one minted a moment ago.
+ *
+ * Eighteen call sites used `Date.now().toString()`. Two messages added inside
+ * the same millisecond — a denied edit and the plan card that follows it, say —
+ * got the same id, which is the React key the virtualized transcript uses. Two
+ * rows with one key means measurements land on the wrong index, and the
+ * transcript draws items on top of each other at the wrong offsets.
+ */
+let messageSeq = 0
+export function newMessageId(): string {
+  messageSeq = (messageSeq + 1) % 1_000_000
+  return `${Date.now().toString(36)}-${messageSeq.toString(36)}`
+}
+
 export type Session = {
   id: string
   claudeSessionId: string | null
@@ -185,6 +200,23 @@ export type Session = {
    *  and a permission you granted for one plan should not quietly follow you
    *  into every other project. */
   autoAcceptEdits?: boolean
+  /** Per-chat overrides of the spawn settings.
+   *
+   *  Undefined means "use the default from Settings". These were global, so
+   *  turning plan mode on in one conversation turned it on in every other one —
+   *  including chats already running, which is not a setting, it is a surprise.
+   *  Settings now holds the default a new chat starts with; these hold what this
+   *  conversation is actually doing. */
+  planMode?: boolean
+  model?: string
+  effort?: '' | 'low' | 'medium' | 'high' | 'max'
+  /** Which panels this conversation has open, and how wide the right one is.
+   *
+   *  Per chat because the answer genuinely differs per chat: one is a browsing
+   *  session with the workspace panel open, the next is a question you want the
+   *  full width for. Undefined means "whatever you last used", so a new chat
+   *  inherits rather than starting from a fixed default. */
+  panels?: { right?: boolean; summary?: boolean; rightWidth?: number }
 }
 
 export type PendingAction = { type: 'send' | 'insert'; text: string }
@@ -207,6 +239,12 @@ type SessionsStore = {
   updateToolResult: (sessionId: string, toolId: string, content: string) => void
   markToolDenied: (sessionId: string, toolId: string) => void
   setAutoAcceptEdits: (sessionId: string, value: boolean) => void
+  /** Override a spawn setting for one conversation. */
+  setSessionSettings: (
+    sessionId: string,
+    partial: Partial<Pick<Session, 'planMode' | 'model' | 'effort'>>
+  ) => void
+  setSessionPanels: (sessionId: string, partial: NonNullable<Session['panels']>) => void
   setExecuting: (sessionId: string, executing: { title: string; startedAt: number } | null) => void
   setNeedsAnswer: (sessionId: string, value: boolean) => void
   updateClaudeSessionId: (sessionId: string, claudeSessionId: string | null) => void
@@ -358,15 +396,23 @@ export const useSessionsStore = create<SessionsStore>()(
           sessions: state.sessions.map((s) => {
             if (s.id !== sessionId) return s
             const stamped = message.timestamp ? message : { ...message, timestamp: Date.now() }
-            const messages = [...s.messages, stamped]
+            // The one choke point where uniqueness can be guaranteed, whatever a
+            // caller passed. The transcript is virtualized and keys on this id;
+            // a duplicate makes React reuse the wrong row and the measured
+            // heights land on the wrong index, which draws messages on top of
+            // each other.
+            const unique = s.messages.some((m) => m.id === stamped.id)
+              ? { ...stamped, id: newMessageId() }
+              : stamped
+            const messages = [...s.messages, unique]
             const title =
-              s.title === 'New session' && stamped.role === 'user'
-                ? (stamped as TextMessage).text.slice(0, 40)
+              s.title === 'New session' && unique.role === 'user'
+                ? (unique as TextMessage).text.slice(0, 40)
                 : s.title
             // Your own messages are not news, and neither is anything in the chat
             // you are looking at — it is on screen as it arrives.
             const unread =
-              stamped.role === 'user' || state.activeSessionId === sessionId
+              unique.role === 'user' || state.activeSessionId === sessionId
                 ? s.unread
                 : (s.unread ?? 0) + 1
             return { ...s, messages, title, unread }
@@ -425,6 +471,20 @@ export const useSessionsStore = create<SessionsStore>()(
         set((state) => ({
           sessions: state.sessions.map((s) =>
             s.id === sessionId ? { ...s, autoAcceptEdits: value } : s
+          )
+        }))
+      },
+
+      setSessionSettings: (sessionId, partial) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, ...partial } : s))
+        }))
+      },
+
+      setSessionPanels: (sessionId, partial) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId ? { ...s, panels: { ...s.panels, ...partial } } : s
           )
         }))
       },

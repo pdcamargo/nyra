@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitBranch, GitFork, GitMerge, Info, Search, SquarePen, Trash2, TriangleAlert } from 'lucide-react'
-import { useSessionsStore, activeCwd, activeProjectCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type AgentStatus } from '../store/sessions'
+import { useSessionsStore, activeCwd, activeProjectCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type AgentStatus, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
@@ -20,8 +20,10 @@ import PermissionDialog, { type PermissionRequest } from './PermissionDialog'
 import ChatInput from './ChatInput'
 import TaskStrip from './TaskStrip'
 import ActivityStrip from './ActivityStrip'
-import SettingsModal from './SettingsModal'
-import PermissionsModal from './PermissionsModal'
+import SettingsModal from './settings/SettingsModal'
+import { useChordLabel } from './ui/kbd'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
+import { COLUMN_OFFSET, columnVars } from '../lib/chatColumn'
 import StatsModal from './StatsModal'
 import CopyBlocksModal from './CopyBlocksModal'
 import ReleaseNotesModal from './ReleaseNotesModal'
@@ -62,25 +64,6 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'auth_required'; message: string }
 )
 
-/**
- * The conversation column's geometry, shared by the message list and composer.
- *
- * It is centred on the *window*, not on the container it sits in, so it holds
- * still when a rail opens instead of jumping. Two constraints bound it: it never
- * slides under the floating summary, and it never touches the left rail. Between
- * those it tracks the window centre, which is what makes it drift left as the
- * window narrows rather than vanishing behind the panel.
- *
- * Sliding clears the summary on a wide window. On a narrower one the column
- * gives up some width too, but only down to --col-min; past that it stops
- * shrinking and lets the summary float on top, because a 34rem measure that
- * stays visible beats a 12rem one that technically never overlaps.
- *
- * --rail is the one part of the window geometry CSS cannot work out for itself.
- * App publishes it onto the shell element as the projects rail is dragged, so it
- * is inherited here rather than re-rendered — and it is the rail's real width,
- * not the fixed one it used to assume.
- */
 /** Tool calls that are a card to answer, not a line in a trace. */
 const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist'])
 
@@ -97,41 +80,20 @@ const EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit']
 function spawnSettingsForSession(sessionId: string): SpawnSettings {
   const base = spawnSettingsFor(useSettingsStore.getState())
   const session = useSessionsStore.getState().sessions.find((s) => s.id === sessionId)
-  if (!session?.autoAcceptEdits) return base
-  const merged = new Set([...base.autoApproveTools, ...EDIT_TOOLS])
-  return { ...base, autoApproveTools: [...merged] }
-}
 
-const COLUMN_OFFSET =
-  'clamp(var(--gap),' +
-  ' calc((100vw - var(--right, 0px)) / 2 - var(--col-w) / 2 - var(--rail, 0px)),' +
-  ' calc(100% - var(--gap) - var(--col-w)))'
+  // Plan mode, model and effort are per-conversation, falling back to the
+  // defaults in Settings. They used to be global, so changing one in a chat
+  // changed it in every chat, including ones already running.
+  const resolved: SpawnSettings = {
+    ...base,
+    planMode: session?.planMode ?? base.planMode,
+    model: session?.model ?? base.model,
+    effort: session?.effort ?? base.effort
+  }
 
-function columnVars(gutterOpen: boolean): React.CSSProperties {
-  return {
-    // 10% off the 46rem this started at — a shorter measure to read against.
-    '--col-max': '41.4rem',
-    '--col-min': '34rem',
-    // --gutter is the floating column — summary, miniature or both — which is
-    // right-aligned to the chat area
-    // rather than to the window — so it stays constant however wide the
-    // workspace panel is dragged.
-    '--gutter': gutterOpen ? '20rem' : '0rem',
-    '--gap': '1.5rem',
-    // Two gaps, and the last term is the one that matters: the column never
-    // exceeds the space minus both of them. It used to be capped at 100%, so a
-    // panel dragged past the column's own minimum left it full-width with a
-    // 24px offset on top — a column wider than the room it had, spilling under
-    // the panel. The minimum is a preference; fitting is not.
-    //
-    // The gutter is subtracted where there is room to spare and dropped where
-    // there is not, which is the floating summary's own rule: it overlaps the
-    // conversation on a narrow window rather than squeezing it to nothing.
-    '--col-w':
-      'min(var(--col-max),' +
-      ' max(var(--col-min), calc(100% - 2 * var(--gap) - var(--gutter))),' +
-      ' calc(100% - 2 * var(--gap)))'
-  } as React.CSSProperties
+  if (!session?.autoAcceptEdits) return resolved
+  const merged = new Set([...resolved.autoApproveTools, ...EDIT_TOOLS])
+  return { ...resolved, autoApproveTools: [...merged] }
 }
 
 // Panel state comes from the ui store rather than props: the title bar owns the
@@ -141,9 +103,10 @@ export default function Chat(): React.JSX.Element {
   const summaryOpen = useUiStore((s) => s.summaryOpen)
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
   const pipVisible = usePipVisible()
+  const chatWidth = useSettingsStore((s) => s.chatWidth)
   const columnGeometry = useMemo(
-    () => columnVars(summaryOpen || pipVisible),
-    [summaryOpen, pipVisible]
+    () => columnVars(summaryOpen || pipVisible, chatWidth),
+    [summaryOpen, pipVisible, chatWidth]
   )
   const onToggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const settingsOpen = useUiStore((s) => s.settingsOpen)
@@ -163,7 +126,6 @@ export default function Chat(): React.JSX.Element {
   const [statsOpen, setStatsOpen] = useState(false)
   const [copyBlocksOpen, setCopyBlocksOpen] = useState(false)
   const [releaseNotesOpen, setReleaseNotesOpen] = useState(false)
-  const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
@@ -178,10 +140,11 @@ export default function Chat(): React.JSX.Element {
 
   const skipPermissions = useSettingsStore((s) => s.skipPermissions)
   const planMode = useSettingsStore((s) => s.planMode)
+  const searchKeys = useChordLabel('search.inSession')
+  const copyKeys = useChordLabel('session.copy')
   const effort = useSettingsStore((s) => s.effort)
   const model = useSettingsStore((s) => s.model)
   const updateSettings = useSettingsStore((s) => s.updateSettings)
-  const fontSize = useSettingsStore((s) => s.fontSize)
   const [homedir, setHomedir] = useState('')
 
   useEffect(() => {
@@ -220,12 +183,6 @@ export default function Chat(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    const handler = (): void => setPermissionsOpen(true)
-    window.addEventListener('nyra:open-permissions', handler)
-    return () => window.removeEventListener('nyra:open-permissions', handler)
-  }, [])
-
-  useEffect(() => {
     const handleStart = (e: Event): void => {
       const { prompt, intervalMs } = (e as CustomEvent).detail
       const sid = useSessionsStore.getState().activeSessionId
@@ -237,7 +194,7 @@ export default function Chat(): React.JSX.Element {
       // Info message
       const fmt = intervalMs < 60_000 ? `${intervalMs / 1000}s` : intervalMs < 3_600_000 ? `${intervalMs / 60_000}m` : `${intervalMs / 3_600_000}h`
       useSessionsStore.getState().addMessage(sid, {
-        id: Date.now().toString(), role: 'assistant',
+        id: newMessageId(), role: 'assistant',
         text: `Loop started: **"${prompt}"** every ${fmt}. Type \`/loop stop\` to cancel.`
       })
 
@@ -266,7 +223,7 @@ export default function Chat(): React.JSX.Element {
       if (loops.loops.has(sid)) {
         loops.removeLoop(sid)
         useSessionsStore.getState().addMessage(sid, {
-          id: Date.now().toString(), role: 'assistant', text: 'Loop stopped.'
+          id: newMessageId(), role: 'assistant', text: 'Loop stopped.'
         })
       }
     }
@@ -597,7 +554,7 @@ export default function Chat(): React.JSX.Element {
                 useSessionsStore.getState().setPendingAutoCompact(sid, true)
               } else {
                 useSessionsStore.getState().setAutoCompacted(sid, true)
-                addMessage(sid, { id: Date.now().toString(), role: 'assistant', text: 'Context approaching limit — auto-compacting…' })
+                addMessage(sid, { id: newMessageId(), role: 'assistant', text: 'Context approaching limit — auto-compacting…' })
                 setTimeout(() => sendMessageRef.current?.('/compact', undefined, undefined, sid), 150)
               }
             }
@@ -868,7 +825,7 @@ export default function Chat(): React.JSX.Element {
           // answered arrives as a fenced block in the reply. Lift it out before
           // the text is shown, or the user reads the same question twice.
           const { text, questions } = extractAskBlocks(event.result)
-          if (text) addMessage(sid, { id: Date.now().toString(), role, text })
+          if (text) addMessage(sid, { id: newMessageId(), role, text })
           if (questions.length > 0 && !event.is_error) {
             addMessage(sid, {
               id: `${Date.now()}-ask`,
@@ -895,13 +852,13 @@ export default function Chat(): React.JSX.Element {
         if (resultSess?.pendingAutoCompact && !event.is_error && sendMessageRef.current) {
           useSessionsStore.getState().setPendingAutoCompact(sid, false)
           useSessionsStore.getState().setAutoCompacted(sid, true)
-          addMessage(sid, { id: Date.now().toString(), role: 'assistant', text: 'Context approaching limit — auto-compacting…' })
+          addMessage(sid, { id: newMessageId(), role: 'assistant', text: 'Context approaching limit — auto-compacting…' })
           setTimeout(() => sendMessageRef.current?.('/compact', undefined, undefined, sid), 150)
         }
       }
 
       if (event.type === 'error' && event.result) {
-        addMessage(sid, { id: Date.now().toString(), role: 'error', text: event.result })
+        addMessage(sid, { id: newMessageId(), role: 'error', text: event.result })
         useRunningStore.getState().endRun(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
         // Mark any still-running agents as failed
@@ -1116,7 +1073,7 @@ export default function Chat(): React.JSX.Element {
     }
 
     const userMessage: TextMessage = {
-      id: Date.now().toString(),
+      id: newMessageId(),
       role: 'user',
       text: text.trim(),
       ...(imgs.length > 0 ? { images: imgs } : {}),
@@ -1130,7 +1087,7 @@ export default function Chat(): React.JSX.Element {
       const created = await materializeWorktree(sid!)
       if (!created.ok) {
         useSessionsStore.getState().addMessage(sid!, {
-          id: Date.now().toString(),
+          id: newMessageId(),
           role: 'error',
           text: `Could not create the worktree: ${created.error}`
         })
@@ -1153,7 +1110,7 @@ export default function Chat(): React.JSX.Element {
     } catch (err) {
       useSessionsStore
         .getState()
-        .addMessage(sid, { id: Date.now().toString(), role: 'error', text: String(err) })
+        .addMessage(sid, { id: newMessageId(), role: 'error', text: String(err) })
       useRunningStore.getState().endRun(sid!)
     }
   }, [])
@@ -1203,7 +1160,7 @@ export default function Chat(): React.JSX.Element {
     pendingToolsRef.current.clear()
 
     const userMessage: TextMessage = {
-      id: Date.now().toString(),
+      id: newMessageId(),
       role: 'user',
       text: newText,
       ...(images.length > 0 ? { images } : {})
@@ -1223,7 +1180,7 @@ export default function Chat(): React.JSX.Element {
         spawnSettingsForSession(sid)
       )
     } catch (err) {
-      useSessionsStore.getState().addMessage(sid, { id: Date.now().toString(), role: 'error', text: String(err) })
+      useSessionsStore.getState().addMessage(sid, { id: newMessageId(), role: 'error', text: String(err) })
       useRunningStore.getState().endRun(sid)
     }
   }, [])
@@ -1289,7 +1246,7 @@ export default function Chat(): React.JSX.Element {
       // Leaving plan mode is what lets Claude write at all, so both yeses do it.
       // It changes the spawn fingerprint and respawns the child; `--resume`
       // is what keeps the conversation across that.
-      useSettingsStore.getState().updateSettings({ planMode: false })
+      useSessionsStore.getState().setSessionSettings(sid, { planMode: false })
       if (verdict === 'approve-auto') {
         useSessionsStore.getState().setAutoAcceptEdits(sid, true)
       }
@@ -1339,6 +1296,14 @@ export default function Chat(): React.JSX.Element {
     setTimeout(() => setCopied(false), 2000)
   }, [messages])
 
+  // Reachable from the palette and from a binding, not only from the header
+  // button, which is the point of it being a registered command.
+  useEffect(() => {
+    const handler = (): void => copyConversation()
+    window.addEventListener('nyra:copy-conversation', handler)
+    return () => window.removeEventListener('nyra:copy-conversation', handler)
+  }, [copyConversation])
+
   const handleStartEdit = useCallback((id: string, text: string) => {
     setEditingMessageId(id)
     setEditText(text)
@@ -1351,7 +1316,7 @@ export default function Chat(): React.JSX.Element {
     if (newId) {
       const forkInfo = useSessionsStore.getState().sessions.find((s) => s.id === newId)?.forkOf
       useSessionsStore.getState().addMessage(newId, {
-        id: Date.now().toString(),
+        id: newMessageId(),
         role: 'assistant',
         text: `⑂ Forked from **"${forkInfo?.title ?? 'previous session'}"**. History copied up to this point.\n\nOriginal session is unchanged. The next message starts a fresh Claude session.`
       })
@@ -1427,9 +1392,9 @@ export default function Chat(): React.JSX.Element {
                   const result = await window.api.git.worktreeMerge(activeSession.cwd, wt.branch)
                   const store = useSessionsStore.getState()
                   if (result.success) {
-                    store.addMessage(activeSession.id, { id: Date.now().toString(), role: 'assistant', text: `Merged **${wt.branch}** into **${result.into ?? 'the main branch'}**.` })
+                    store.addMessage(activeSession.id, { id: newMessageId(), role: 'assistant', text: `Merged **${wt.branch}** into **${result.into ?? 'the main branch'}**.` })
                   } else {
-                    store.addMessage(activeSession.id, { id: Date.now().toString(), role: 'error', text: `Merge failed: ${result.error}` })
+                    store.addMessage(activeSession.id, { id: newMessageId(), role: 'error', text: `Merge failed: ${result.error}` })
                   }
                 }}
                 className="flex items-center gap-1 rounded-md border border-success/20 px-2 py-0.5 text-[11px] text-success/70 hover:bg-success/10 transition-colors"
@@ -1446,7 +1411,7 @@ export default function Chat(): React.JSX.Element {
                   if (!result.success) {
                     // Keep the session: it is the only handle left on a worktree
                     // that is still on disk.
-                    store.addMessage(activeSession.id, { id: Date.now().toString(), role: 'error', text: `Could not remove the worktree: ${result.error}` })
+                    store.addMessage(activeSession.id, { id: newMessageId(), role: 'error', text: `Could not remove the worktree: ${result.error}` })
                     return
                   }
                   store.deleteSession(activeSession.id)
@@ -1478,34 +1443,43 @@ export default function Chat(): React.JSX.Element {
             )
           })()}
 
-          <button
-            onClick={() => setSearchOpen((o) => !o)}
-            disabled={messages.length === 0}
-            title="Find in conversation (⌘F)"
-            className={`rounded-md px-2 py-0.5 transition-colors ${
-              messages.length === 0
-                ? 'text-muted-foreground/40 cursor-not-allowed'
-                : searchOpen ? 'text-foreground/80' : 'text-muted-foreground/70 hover:text-foreground/80'
-            }`}
-          >
-            <Search className="size-3.5" />
-          </button>
-          <button
-            onClick={copyConversation}
-            disabled={messages.length === 0}
-            title="Copy conversation as markdown"
-            className={`rounded-md px-2 py-0.5 transition-colors ${
-              messages.length === 0
-                ? 'text-muted-foreground/40 cursor-not-allowed'
-                : copied ? 'text-success' : 'text-muted-foreground/70 hover:text-foreground/80'
-            }`}
-          >
-            {copied ? (
-              <Check className="size-3.5" />
-            ) : (
-              <Copy className="size-3.5" />
-            )}
-          </button>
+          {/* Real tooltips, not the browser's `title=` — these two were the last
+              places in the header still using it, so they appeared a second late
+              and in the OS's own styling. Both carry their live binding. */}
+          <Tooltip>
+            <TooltipTrigger
+              onClick={() => setSearchOpen((o) => !o)}
+              disabled={messages.length === 0}
+              className={`rounded-md px-2 py-0.5 transition-colors ${
+                messages.length === 0
+                  ? 'text-muted-foreground/40 cursor-not-allowed'
+                  : searchOpen ? 'text-foreground/80' : 'text-muted-foreground/70 hover:text-foreground/80'
+              }`}
+            >
+              <Search className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipContent>
+              Find in conversation
+              {searchKeys && <span className="text-background/60"> {searchKeys}</span>}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              onClick={copyConversation}
+              disabled={messages.length === 0}
+              className={`rounded-md px-2 py-0.5 transition-colors ${
+                messages.length === 0
+                  ? 'text-muted-foreground/40 cursor-not-allowed'
+                  : copied ? 'text-success' : 'text-muted-foreground/70 hover:text-foreground/80'
+              }`}
+            >
+              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+            </TooltipTrigger>
+            <TooltipContent>
+              Copy conversation as markdown
+              {copyKeys && <span className="text-background/60"> {copyKeys}</span>}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -1531,7 +1505,7 @@ export default function Chat(): React.JSX.Element {
           place when it is not — no offset to compute, and nothing to keep in
           sync when the summary changes height. Both float over the messages, so
           glancing at either never reflows the conversation. */}
-      <div className="pointer-events-none absolute right-3 top-3 z-30 flex max-h-[calc(100%-96px)] w-[308px] flex-col gap-2">
+      <div className="pointer-events-none absolute right-3 top-3 z-30 flex max-h-[calc(100%-40px)] w-[308px] flex-col gap-2">
         <SummaryPanel />
         <BrowserPip />
       </div>
@@ -1543,9 +1517,15 @@ export default function Chat(): React.JSX.Element {
           gutter for the summary to float in. */}
       <div
         ref={messagesRef}
-        className={`relative flex-1 overflow-y-auto pb-8 pt-4 ${
-          fontSize === 'small' ? 'text-[13px]' : fontSize === 'large' ? 'text-[17px]' : 'text-[15px]'
-        }`}
+        className="relative flex-1 overflow-y-auto pb-8 pt-4"
+        // The conversation's own type, set once here rather than as a class of
+        // hardcoded px. The composer reads the same three variables, so the two
+        // cannot drift apart.
+        style={{
+          fontSize: 'var(--content-font-size, 15px)',
+          fontFamily: 'var(--font-content)',
+          fontWeight: 'var(--content-font-weight, 400)'
+        }}
       >
        {/* The column is centred on the *window*, not on this container — so it
            holds still when a rail opens instead of jumping. Two constraints
@@ -1779,7 +1759,6 @@ export default function Chat(): React.JSX.Element {
       )}
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
-      {permissionsOpen && <PermissionsModal onClose={() => setPermissionsOpen(false)} />}
       {statsOpen && <StatsModal onClose={() => setStatsOpen(false)} />}
       {copyBlocksOpen && <CopyBlocksModal onClose={() => setCopyBlocksOpen(false)} />}
       {releaseNotesOpen && <ReleaseNotesModal onClose={() => setReleaseNotesOpen(false)} />}
@@ -1878,8 +1857,8 @@ function ThinkingIndicator({ startTime }: { startTime: number }): React.JSX.Elem
             />
           ))}
         </div>
-        <span className="text-xs font-medium text-info font-mono">Thinking</span>
-        <span className="text-[11px] text-info/40 font-mono">{secs}s</span>
+        <span className="text-c-md font-medium text-info font-mono">Thinking</span>
+        <span className="text-c-sm text-info/40 font-mono">{secs}s</span>
       </div>
     </div>
   )
@@ -1938,7 +1917,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
           {textMsg.files && textMsg.files.length > 0 && (
             <div className="flex gap-1.5 flex-wrap mb-2">
               {textMsg.files.map((file) => (
-                <span key={file.id} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2 py-0.5 text-[11px]">
+                <span key={file.id} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2 py-0.5 text-c-sm">
                   <FileText className="size-2.5 opacity-60" />
                   {file.name}
                 </span>
@@ -1950,7 +1929,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
         {/* Outside the bubble, or the bubble reserves a line for a timestamp
             nobody is looking at and sits taller than its own text. */}
         {message.timestamp && (
-          <div className="mt-1 text-[10px] text-muted-foreground/60 opacity-0 transition-opacity group-hover/msg:opacity-100">
+          <div className="mt-1 text-c-xs text-muted-foreground/60 opacity-0 transition-opacity group-hover/msg:opacity-100">
             {formatMessageTime(message.timestamp)}
           </div>
         )}
@@ -1994,7 +1973,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
         <button
           onClick={copyText}
           title="Copy response"
-          className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-accent/50 ${
+          className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 text-c-md transition-colors hover:bg-accent/50 ${
             copied ? 'text-success' : 'text-muted-foreground hover:text-foreground'
           }`}
         >
@@ -2002,7 +1981,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
           {copied ? 'Copied' : 'Copy'}
         </button>
         {message.timestamp && (
-          <span className="flex items-center px-1.5 text-xs text-muted-foreground/60">
+          <span className="flex items-center px-1.5 text-c-md text-muted-foreground/60">
             {formatMessageTime(message.timestamp)}
           </span>
         )}

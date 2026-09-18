@@ -44,7 +44,7 @@ function parseQuestions(input: Record<string, unknown>): Question[] {
 /** The short label a question carries, so a set of them can be told apart. */
 function HeaderChip({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <span className="mr-2 rounded-sm bg-accent px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <span className="mr-2 rounded-sm bg-accent px-1.5 py-0.5 align-middle text-c-xs font-medium uppercase tracking-wide text-muted-foreground">
       {children}
     </span>
   )
@@ -133,15 +133,15 @@ export default function AskUserQuestionCard({
 
   return (
     <div
-      className={`my-1 overflow-hidden rounded-lg border text-xs ${
+      className={`my-1 overflow-hidden rounded-lg border text-c-md ${
         denied ? 'border-danger/15 bg-danger/5' : 'border-border bg-muted/40'
       }`}
     >
       <div className="flex items-center gap-2 border-b border-border/55 px-3 py-2">
         <CircleHelp className="size-3.5 text-info" />
         <span className="font-medium text-foreground/80">Question</span>
-        {denied && <span className="text-[10px] text-danger/60">denied</span>}
-        <span className="ml-auto text-[10px] text-muted-foreground">
+        {denied && <span className="text-c-xs text-danger/60">denied</span>}
+        <span className="ml-auto text-c-xs text-muted-foreground">
           {submitted ? 'Sent' : interactive ? 'Pick to answer' : 'Answered in chat'}
         </span>
       </div>
@@ -175,7 +175,7 @@ export default function AskUserQuestionCard({
                 onInput={syncOther(i)}
                 placeholder="Something else — type it here"
                 autoComplete="off"
-                className="mt-2 h-8 w-full rounded-md border border-input bg-input/20 px-2.5 text-xs outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
+                className="mt-2 h-8 w-full rounded-md border border-input bg-input/20 px-2.5 text-c-md outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
               />
             </QuestionnaireItem>
           ))}
@@ -201,7 +201,7 @@ export default function AskUserQuestionCard({
                   <li key={opt.label} className="rounded-sm border border-border/55 px-2 py-1.5">
                     <p className="font-medium text-foreground/80">{opt.label}</p>
                     {opt.description && (
-                      <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                      <p className="mt-0.5 text-c-sm leading-relaxed text-muted-foreground">
                         {opt.description}
                       </p>
                     )}

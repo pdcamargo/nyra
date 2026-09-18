@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  continueListOnEnter,
+  listMarkerAt,
+  newlineInList,
   insertLink,
   toggleHeading,
   toggleInlineMarker
@@ -53,41 +54,95 @@ describe('insertLink', () => {
   })
 })
 
-describe('continueListOnEnter', () => {
+describe('listMarkerAt', () => {
+  it('reads the marker and what follows it', () => {
+    expect(listMarkerAt('- one')).toEqual({ indent: '', next: '- ', content: 'one' })
+    expect(listMarkerAt('  3) three')).toEqual({ indent: '  ', next: '4) ', content: 'three' })
+    expect(listMarkerAt('> quoted')).toEqual({ indent: '', next: '> ', content: 'quoted' })
+  })
+
+  it('starts the next checkbox unticked', () => {
+    expect(listMarkerAt('- [x] done')).toEqual({ indent: '', next: '- [ ] ', content: 'done' })
+  })
+
+  it('is null for anything that is not a list', () => {
+    expect(listMarkerAt('just text')).toBeNull()
+    // A dash with no space is a word, not a bullet.
+    expect(listMarkerAt('-nospace')).toBeNull()
+    expect(listMarkerAt('')).toBeNull()
+  })
+})
+
+describe('newlineInList', () => {
+  it('breaks a plain line', () => {
+    const r = newlineInList('abc', 3, 3)
+    expect(r.text).toBe('abc\n')
+    expect(r.selectionStart).toBe(4)
+  })
+
+  it('breaks a plain line mid-word', () => {
+    const r = newlineInList('abcd', 2, 2)
+    expect(r.text).toBe('ab\ncd')
+    expect(r.selectionStart).toBe(3)
+  })
+
   it('continues a bullet', () => {
-    const r = continueListOnEnter('- one', 5, 5)!
+    const r = newlineInList('- one', 5, 5)
     expect(r.text).toBe('- one\n- ')
     expect(r.selectionStart).toBe(8)
   })
 
-  it('increments an ordered list', () => {
-    expect(continueListOnEnter('3. three', 8, 8)!.text).toBe('3. three\n4. ')
+  // The capability the old Enter-only rule refused: it bailed unless the caret
+  // was at end of line, because Enter still had to be able to send.
+  it('splits an item mid-line and carries the tail onto the next one', () => {
+    const r = newlineInList('- one', 3, 3)
+    expect(r.text).toBe('- o\n- ne')
+    expect(r.selectionStart).toBe(6)
+  })
+
+  it('increments an ordered list and keeps its delimiter', () => {
+    expect(newlineInList('3. three', 8, 8).text).toBe('3. three\n4. ')
+    expect(newlineInList('3) three', 8, 8).text).toBe('3) three\n4) ')
   })
 
   it('continues a quote', () => {
-    expect(continueListOnEnter('> quoted', 8, 8)!.text).toBe('> quoted\n> ')
+    expect(newlineInList('> quoted', 8, 8).text).toBe('> quoted\n> ')
   })
 
   it('keeps the indent of a nested item', () => {
-    expect(continueListOnEnter('  - deep', 8, 8)!.text).toBe('  - deep\n  - ')
+    expect(newlineInList('  - deep', 8, 8).text).toBe('  - deep\n  - ')
   })
 
-  it('ends the list when the marker is empty', () => {
-    const r = continueListOnEnter('- one\n- ', 8, 8)!
+  it('continues a task list unticked', () => {
+    expect(newlineInList('- [x] done', 10, 10).text).toBe('- [x] done\n- [ ] ')
+  })
+
+  it('ends the list when the item is empty', () => {
+    const r = newlineInList('- one\n- ', 8, 8)
     expect(r.text).toBe('- one\n')
     expect(r.selectionStart).toBe(6)
   })
 
-  it('returns null on a plain line, so Enter keeps its usual meaning', () => {
-    expect(continueListOnEnter('just text', 9, 9)).toBeNull()
+  it('leaves the rest of the document alone when it ends a list mid-way', () => {
+    const r = newlineInList('- one\n- \nafter', 8, 8)
+    expect(r.text).toBe('- one\n\nafter')
+    expect(r.selectionStart).toBe(6)
   })
 
-  it('returns null mid-line, so Enter there does not duplicate a marker', () => {
-    expect(continueListOnEnter('- one', 3, 3)).toBeNull()
+  it('replaces a selection, then continues from what is left', () => {
+    // "world" selected out of "- hello world"
+    const r = newlineInList('- hello world', 8, 13)
+    expect(r.text).toBe('- hello \n- ')
+    expect(r.selectionStart).toBe(11)
   })
 
-  it('returns null when there is a selection', () => {
-    expect(continueListOnEnter('- one', 2, 5)).toBeNull()
+  it('classifies the line that survives a multi-line selection', () => {
+    const r = newlineInList('- one\ntwo', 3, 9)
+    expect(r.text).toBe('- o\n- ')
+  })
+
+  it('does not treat a bare dash as a list', () => {
+    expect(newlineInList('-', 1, 1).text).toBe('-\n')
   })
 })
 

@@ -25,10 +25,6 @@ fn default_theme() -> String {
     "dark".to_string()
 }
 
-fn default_font_size() -> String {
-    "medium".to_string()
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct NyraSettings {
@@ -38,7 +34,6 @@ pub struct NyraSettings {
     pub notifications: bool,
     pub system_prompt: String,
     pub claude_binary_path: String,
-    pub font_size: String,
     /// "" | low | medium | high | max
     pub effort: String,
     pub plan_mode: bool,
@@ -59,6 +54,10 @@ pub struct NyraSettings {
     pub browser_tools: bool,
     /// The floating miniature over the conversation.
     pub browser_pip: bool,
+    // Appearance — fonts, type size, zoom, chat width — is deliberately absent.
+    // Nothing on this side reads it, and the struct has no `deny_unknown_fields`,
+    // so the renderer's copies of those keys are ignored on the way in rather
+    // than being carried around for no one.
 }
 
 impl Default for NyraSettings {
@@ -69,7 +68,6 @@ impl Default for NyraSettings {
             notifications: default_true(),
             system_prompt: String::new(),
             claude_binary_path: default_claude_binary(),
-            font_size: default_font_size(),
             effort: String::new(),
             plan_mode: false,
             auto_compact: default_true(),

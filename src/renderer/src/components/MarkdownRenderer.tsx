@@ -88,7 +88,7 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
   return (
     <div className={`my-3 rounded-lg overflow-hidden border border-border bg-muted`}>
       <div className="flex items-center justify-between border-b border-border/55 bg-muted/40 py-1 pl-3 pr-2">
-        <span className="text-[10px] text-muted-foreground/70 font-mono">{language || 'code'}</span>
+        <span className="text-c-xs text-muted-foreground/70 font-mono">{language || 'code'}</span>
         {/* Icon-only, and the separation comes from each button's own padding
             rather than a gap — the hit target and the spacing are then the same
             thing, so they cannot drift apart. */}
@@ -118,7 +118,7 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
       </div>
       {html ? (
         <div
-          className={`[&>pre]:m-0 [&>pre]:p-4 [&>pre]:text-[13px] [&>pre]:leading-relaxed [&_code]:bg-transparent [&_code]:p-0 ${
+          className={`[&>pre]:m-0 [&>pre]:p-4 [&>pre]:text-c-lg [&>pre]:leading-relaxed [&_code]:bg-transparent [&_code]:p-0 ${
             wrapped
               ? '[&>pre]:whitespace-pre-wrap [&>pre]:break-words [&_code]:whitespace-pre-wrap'
               : '[&>pre]:overflow-x-auto'
@@ -127,7 +127,7 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
         />
       ) : (
         <pre
-          className={`m-0 p-4 text-[13px] leading-relaxed ${
+          className={`m-0 p-4 text-c-lg leading-relaxed ${
             wrapped ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto'
           }`}
         >
@@ -225,7 +225,7 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }): React.JSX.
 
   if (entry?.status === 'error') {
     return (
-      <span className="my-1 inline-block rounded-lg border border-border/55 bg-muted px-3 py-2 text-xs text-muted-foreground">
+      <span className="my-1 inline-block rounded-lg border border-border/55 bg-muted px-3 py-2 text-c-md text-muted-foreground">
         {label} — {entry.message}
       </span>
     )
@@ -271,13 +271,13 @@ function MarkdownRendererInner({ children }: { children: string }): React.JSX.El
       return <CodeBlock language={match?.[1] ?? ''} code={code} />
     },
     h1({ children }: { children: React.ReactNode }) {
-      return <h1 className={`text-xl font-bold text-foreground first:mt-0 mt-5 mb-2`}>{children}</h1>
+      return <h1 className={`text-c-xl font-bold text-foreground first:mt-0 mt-5 mb-2`}>{children}</h1>
     },
     h2({ children }: { children: React.ReactNode }) {
-      return <h2 className={`text-base font-semibold text-foreground first:mt-0 mt-4 mb-2`}>{children}</h2>
+      return <h2 className={`text-c-base font-semibold text-foreground first:mt-0 mt-4 mb-2`}>{children}</h2>
     },
     h3({ children }: { children: React.ReactNode }) {
-      return <h3 className={`text-sm font-semibold text-foreground first:mt-0 mt-3 mb-1`}>{children}</h3>
+      return <h3 className={`text-c-lg font-semibold text-foreground first:mt-0 mt-3 mb-1`}>{children}</h3>
     },
     p({ children }: { children: React.ReactNode }) {
       return <p className={`last:mb-0 leading-relaxed mb-3`}>{children}</p>
@@ -308,13 +308,21 @@ function MarkdownRendererInner({ children }: { children: string }): React.JSX.El
     },
     hr() { return <hr className="border-border-strong my-4" /> },
     table({ children }: { children: React.ReactNode }) {
-      return <div className="my-3 overflow-x-auto"><table className="w-full text-sm border-collapse">{children}</table></div>
+      // md-scroll-x draws the scrollbar track, which `overflow-x: auto` only
+      // paints when there is something to scroll — so the groove appears exactly
+      // when the table runs past the column, and the border makes the clipping
+      // edge read as intentional rather than as a layout bug.
+      return (
+        <div className="md-scroll-x my-3 overflow-x-auto rounded-md border border-border/55">
+          <table className="w-full text-c-lg border-collapse">{children}</table>
+        </div>
+      )
     },
     thead({ children }: { children: React.ReactNode }) {
       return <thead className="border-b border-border-strong">{children}</thead>
     },
     th({ children }: { children: React.ReactNode }) {
-      return <th className="text-left py-1.5 px-3 text-foreground/80 font-medium text-xs uppercase tracking-wide">{children}</th>
+      return <th className="text-left py-1.5 px-3 text-foreground/80 font-medium text-c-md uppercase tracking-wide">{children}</th>
     },
     td({ children }: { children: React.ReactNode }) {
       return <td className="py-1.5 px-3 border-b border-border/55 text-foreground/80">{children}</td>

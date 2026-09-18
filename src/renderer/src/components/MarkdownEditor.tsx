@@ -1,5 +1,5 @@
 import React, { useEffect, useImperativeHandle, useRef } from 'react'
-import { EditorState, Prec, type Extension } from '@codemirror/state'
+import { Compartment, EditorState, Prec, type Extension } from '@codemirror/state'
 import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
@@ -36,10 +36,10 @@ const highlightStyle = HighlightStyle.define([
   { tag: t.heading, color: 'var(--foreground)', fontWeight: '600' },
   { tag: t.strong, color: 'var(--foreground)', fontWeight: '600' },
   { tag: t.emphasis, color: 'var(--foreground)', fontStyle: 'italic' },
-  { tag: t.strikethrough, textDecoration: 'line-through', color: 'var(--muted-foreground)' },
+  { tag: t.strikethrough, textDecoration: 'line-through' },
   { tag: t.link, color: 'var(--info)', textDecoration: 'underline' },
   { tag: t.url, color: 'var(--info)' },
-  { tag: t.quote, color: 'var(--muted-foreground)', fontStyle: 'italic' },
+  { tag: t.quote, fontStyle: 'italic' },
   // Grey, not blue: blue means "file" now, and inline code is not one.
   {
     tag: t.monospace,
@@ -48,24 +48,35 @@ const highlightStyle = HighlightStyle.define([
     borderRadius: '3px',
     padding: '0.05em 0.3em'
   },
-  { tag: t.list, color: 'var(--muted-foreground)' },
-  // The markers themselves stay visible for now but recede, so what you typed is
-  // still what you see. Hiding them is the live-preview pass.
-  { tag: t.processingInstruction, color: 'var(--muted-foreground)', opacity: '0.6' },
-  { tag: t.contentSeparator, color: 'var(--muted-foreground)' }
+  // Not muted. In @lezer/markdown the rule is `"OrderedList/... BulletList/...":
+  // tags.list`, and that `/...` means the node *and every descendant* — so a
+  // muted colour here dimmed the whole bullet, text included, not just the `-`.
+  // Nothing you type into the composer is metadata.
+  { tag: t.list, color: 'var(--foreground)' },
+  // The markers stay visible so what you typed is still what you see. Hiding
+  // them is the live-preview pass, which leaves ListMark alone on purpose.
+  { tag: t.processingInstruction, color: 'var(--foreground)' },
+  { tag: t.contentSeparator, color: 'var(--foreground)' }
 ])
 
 const theme = EditorView.theme({
-  '&': { color: 'var(--foreground)', backgroundColor: 'transparent', fontSize: '14px' },
+  // The same three variables the message list reads: what you type should look
+  // like what it becomes. It was a hardcoded 14px against the list's 15px.
+  '&': {
+    color: 'var(--foreground)',
+    backgroundColor: 'transparent',
+    fontSize: 'var(--content-font-size, 15px)'
+  },
   '&.cm-focused': { outline: 'none' },
   '.cm-content': {
     padding: '0',
-    fontFamily: 'var(--font-sans)',
+    fontFamily: 'var(--font-content)',
+    fontWeight: 'var(--content-font-weight, 400)',
     caretColor: 'var(--foreground)',
     lineHeight: '1.6'
   },
   '.cm-line': { padding: '0' },
-  '.cm-scroller': { fontFamily: 'var(--font-sans)', lineHeight: '1.6', overflowY: 'auto' },
+  '.cm-scroller': { fontFamily: 'var(--font-content)', lineHeight: '1.6', overflowY: 'auto' },
   '.cm-placeholder': { color: 'var(--muted-foreground)' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--foreground)' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
@@ -78,12 +89,13 @@ const theme = EditorView.theme({
   '.cm-md-h2': { fontSize: '1.3em', fontWeight: '600', lineHeight: '1.35' },
   '.cm-md-h3': { fontSize: '1.15em', fontWeight: '600' },
   '.cm-md-h4': { fontWeight: '600' },
-  '.cm-md-h5': { fontWeight: '600', color: 'var(--muted-foreground)' },
-  '.cm-md-h6': { fontWeight: '600', color: 'var(--muted-foreground)' },
+  '.cm-md-h5': { fontWeight: '600' },
+  '.cm-md-h6': { fontWeight: '600' },
+  // The rule and the indent say "quote"; the colour does not have to, and when
+  // it did the text was harder to read than the message it would become.
   '.cm-md-quote': {
     borderLeft: '2px solid var(--border-strong)',
-    paddingLeft: '0.75em',
-    color: 'var(--muted-foreground)'
+    paddingLeft: '0.75em'
   },
   '.cm-md-codeinfo': {
     fontSize: '0.8em',
@@ -203,6 +215,7 @@ export default function MarkdownEditor({
   value,
   onChange,
   onKeyDown,
+  onPaste,
   placeholder,
   maxHeight = 300
 }: {
@@ -210,6 +223,7 @@ export default function MarkdownEditor({
   value: string
   onChange: (next: string) => void
   onKeyDown?: (event: KeyboardEvent) => void
+  onPaste?: (event: ClipboardEvent) => void
   placeholder?: string
   maxHeight?: number
 }): React.JSX.Element {
@@ -221,6 +235,15 @@ export default function MarkdownEditor({
   onChangeRef.current = onChange
   const onKeyDownRef = useRef(onKeyDown)
   onKeyDownRef.current = onKeyDown
+  const onPasteRef = useRef(onPaste)
+  onPasteRef.current = onPaste
+  // Reconfigured rather than rebuilt. `placeholder` changes whenever a turn
+  // starts or ends, and it used to be a dependency of the effect below — so the
+  // EditorView was destroyed and recreated at every turn boundary, losing the
+  // undo history, the focus and the caret, and leaving anything that had bound a
+  // listener to contentDOM pointing at a detached node.
+  const placeholderComp = useRef(new Compartment()).current
+  const maxHeightComp = useRef(new Compartment()).current
 
   useEffect(() => {
     if (!hostRef.current) return
@@ -234,7 +257,7 @@ export default function MarkdownEditor({
       composerDecorations,
       EditorView.lineWrapping,
       theme,
-      EditorView.theme({ '.cm-scroller': { maxHeight: `${maxHeight}px` } }),
+      maxHeightComp.of(EditorView.theme({ '.cm-scroller': { maxHeight: `${maxHeight}px` } })),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) onChangeRef.current(update.state.doc.toString())
       }),
@@ -248,10 +271,17 @@ export default function MarkdownEditor({
             // Returning true tells CodeMirror the key is spoken for, which is
             // exactly what preventDefault already means for the caller.
             return event.defaultPrevented
+          },
+          // Paste belongs to the editor rather than to a listener ChatInput
+          // attaches to contentDOM: the handler survives whatever happens to the
+          // DOM node, which the listener did not.
+          paste: (event) => {
+            onPasteRef.current?.(event)
+            return event.defaultPrevented
           }
         })
       ),
-      ...(placeholder ? [cmPlaceholder(placeholder)] : [])
+      placeholderComp.of(placeholder ? cmPlaceholder(placeholder) : [])
     ]
 
     const view = new EditorView({
@@ -263,9 +293,24 @@ export default function MarkdownEditor({
       view.destroy()
       viewRef.current = null
     }
-    // Built once. `value` is reconciled below; the rest are read through refs.
+    // Built once, for real. `value` is reconciled below, `placeholder` and
+    // `maxHeight` through their compartments, the rest through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [maxHeight, placeholder])
+  }, [])
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: placeholderComp.reconfigure(placeholder ? cmPlaceholder(placeholder) : [])
+    })
+  }, [placeholder, placeholderComp])
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: maxHeightComp.reconfigure(
+        EditorView.theme({ '.cm-scroller': { maxHeight: `${maxHeight}px` } })
+      )
+    })
+  }, [maxHeight, maxHeightComp])
 
   // Reconcile the controlled value, skipping the echo of our own edits.
   useEffect(() => {

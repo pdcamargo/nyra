@@ -151,3 +151,11 @@ export type BrowserEvent =
   | { event: 'cursor'; params: { chatId: string; tabId: string; x: number; y: number } }
   | { event: 'evicted'; params: { chatId: string } }
   | { event: 'exit'; params: { code: number } }
+
+/** One installed font family, from the `fonts_list` command. */
+export type FontFamily = {
+  name: string
+  /** Set when any face in the family reports itself monospaced; drives the
+   *  code-font picker's filter. */
+  monospaced: boolean
+}

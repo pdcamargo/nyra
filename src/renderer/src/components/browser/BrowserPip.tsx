@@ -10,9 +10,22 @@ import { useUiStore } from '../../store/ui'
 const MINIATURE_WIDTH = 300
 
 /**
+/**
+ * A tab with nothing on it yet.
+ *
+ * A freshly opened tab sits on `about:blank` until something navigates it, and a
+ * miniature of it is a grey rectangle covering the conversation — it says the
+ * browser exists, which the sidebar already says, and shows nothing.
+ */
+export function isBlankTab(tab: { url: string }): boolean {
+  const url = tab.url?.trim().toLowerCase() ?? ''
+  return url === '' || url === 'about:blank' || url === 'about:newtab' || url.startsWith('chrome://newtab')
+}
+
+/**
  * Should a miniature be floating over the conversation right now?
  *
- * Three things have to be true at once, and all three are about *this* chat:
+ * Several things have to be true at once, and all of them are about *this* chat:
  * it has a browser, that browser is not already on screen in the panel, and
  * you have not waved it away. A background chat never gets one — its browser is
  * still running, and the sidebar says so, but a miniature of a page you are not
@@ -22,7 +35,9 @@ export function pipVisible(state: {
   enabled: boolean
   hasSession: boolean
   phase: BrowserPhase
-  tabCount: number
+  /** Tabs that would actually render something. A window full of `about:blank`
+   *  is not a reason to cover the conversation. */
+  liveTabCount: number
   dismissed: boolean
   rightPanelOpen: boolean
 }): boolean {
@@ -36,7 +51,7 @@ export function pipVisible(state: {
     state.enabled &&
     state.hasSession &&
     state.phase === 'ready' &&
-    state.tabCount > 0 &&
+    state.liveTabCount > 0 &&
     !state.dismissed &&
     !alreadyOnScreen
   )
@@ -52,7 +67,7 @@ export function usePipVisible(): boolean {
     enabled,
     hasSession: Boolean(sessionId),
     phase: chat.phase,
-    tabCount: chat.tabs.length,
+    liveTabCount: chat.tabs.filter((t) => !isBlankTab(t)).length,
     dismissed: chat.pipDismissed,
     rightPanelOpen
   })

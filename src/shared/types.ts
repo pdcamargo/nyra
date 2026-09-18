@@ -6,7 +6,6 @@ export type NyraSettings = {
   notifications: boolean
   systemPrompt: string
   claudeBinaryPath: string
-  fontSize: 'small' | 'medium' | 'large'
   effort: '' | 'low' | 'medium' | 'high' | 'max'
   planMode: boolean
   autoCompact: boolean
@@ -25,7 +24,29 @@ export type NyraSettings = {
   /** The floating miniature. Codex had to add this switch after the fact; it
    *  costs nothing to have from the start. */
   browserPip: boolean
+  /** Webview zoom factor. Scales everything, including the hardcoded px sizes a
+   *  root font-size change cannot reach. */
+  zoom: number
+  /** Font family names, as enumerated from the system. '' = the bundled default. */
+  uiFont: string
+  uiFontWeight: number
+  contentFont: string
+  contentFontWeight: number
+  codeFont: string
+  codeFontWeight: number
+  /** Conversation and composer type size, in px. Replaces the old small/medium/large
+   *  `fontSize`, which only ever reached the message scroller. */
+  contentFontSize: number
+  /** The chrome's type size, in px: the project rail, the chat list, the panels.
+   *  Separate from the conversation, because making the message text bigger is
+   *  about reading and making the rail bigger is about seeing. */
+  uiFontSize: number
+  /** The conversation's measure. */
+  chatWidth: ChatWidth
 }
+
+/** How wide the conversation column is allowed to get. */
+export type ChatWidth = 'compact' | 'default' | 'wide' | 'full'
 
 /**
  * The subset of settings that reaches a spawned Claude process, sent with each
@@ -64,7 +85,6 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   notifications: true,
   systemPrompt: '',
   claudeBinaryPath: 'claude',
-  fontSize: 'medium',
   effort: '',
   planMode: false,
   autoCompact: true,
@@ -75,5 +95,15 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   worktreeLimit: 15,
   worktreeAutoDelete: true,
   browserTools: true,
-  browserPip: true
+  browserPip: true,
+  zoom: 1,
+  uiFont: '',
+  uiFontWeight: 400,
+  contentFont: '',
+  contentFontWeight: 400,
+  codeFont: '',
+  codeFontWeight: 400,
+  contentFontSize: 15,
+  uiFontSize: 13,
+  chatWidth: 'wide'
 }

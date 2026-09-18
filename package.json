@@ -21,7 +21,7 @@
     "release": "npm test && npm run test:rust && npm version patch && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",
     "release:minor": "npm test && npm run test:rust && npm version minor && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",
     "release:major": "npm test && npm run test:rust && npm version major && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",
-    "version": "node scripts/sync-version.mjs",
+    "version": "node scripts/sync-version.mjs && node scripts/add-release-note.js",
     "sidecar:install": "npm --prefix sidecar install --no-audit --no-fund",
     "postinstall": "npm run sidecar:install",
     "release:manifest": "node scripts/release-manifest.mjs"

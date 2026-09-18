@@ -21,6 +21,7 @@ import { useWorkflowStore } from '../store/workflow'
 import { useSessionsStore, activeCwd } from '../store/sessions'
 import { homedir } from '../lib/homedir'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
+import { useChordLabel } from './ui/kbd'
 import type {
   WorkflowDefinition,
   WorkflowNode,
@@ -989,6 +990,7 @@ function SubworkflowNodeConfig({
 let nodeCounter = 0
 
 export default function WorkflowCanvas(): React.JSX.Element {
+  const canvasKeys = useChordLabel('panel.canvas')
   const {
     currentWorkflow,
     setCurrentWorkflow,
@@ -1616,7 +1618,7 @@ export default function WorkflowCanvas(): React.JSX.Element {
           <span className="text-[10px] text-muted-foreground/70 font-mono">Ready</span>
         )}
         <div className="flex-1" />
-        <span className="text-[9px] text-muted-foreground/70 font-mono">⌘⇧W toggle</span>
+        <span className="text-[9px] text-muted-foreground/70 font-mono">{canvasKeys ? `${canvasKeys} toggle` : 'toggle from the palette'}</span>
       </div>
     </div>
   )

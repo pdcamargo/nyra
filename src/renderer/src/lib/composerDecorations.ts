@@ -104,6 +104,34 @@ export function attachmentMarker(kind: 'Image' | 'File', target: string): string
   return `[${kind}: ${target}]`
 }
 
+/**
+ * Take an attachment's marker back out of the draft.
+ *
+ * Removing something from the strip used to leave its `[Image: /tmp/…]` behind,
+ * pointing at a file that is no longer going to be sent. Whitespace on one side
+ * of the marker goes with it, so the sentence it sat in does not end up with a
+ * double space.
+ *
+ * Only this direction is reconciled. The reverse — deleting the chip and having
+ * the file unstage itself — is not safe to infer here: the file picker stages
+ * attachments without writing a marker at all, and stashing a draft clears the
+ * text while keeping the attachments, so "no marker" does not mean "not wanted".
+ */
+export function removeAttachmentRef(
+  text: string,
+  kind: 'Image' | 'File',
+  target: string
+): string {
+  const marker = attachmentMarker(kind, target)
+  const at = text.indexOf(marker)
+  if (at === -1) return text
+  let from = at
+  let to = at + marker.length
+  if (text[to] === ' ') to += 1
+  else if (from > 0 && text[from - 1] === ' ') from -= 1
+  return text.slice(0, from) + text.slice(to)
+}
+
 /** Every `ultrathink`, case-insensitive and whole-word. */
 export function findUltrathink(text: string): Span[] {
   ULTRATHINK.lastIndex = 0
@@ -199,21 +227,26 @@ const commandMark = Decoration.mark({ class: 'cm-command' })
 const commandIcon = Decoration.widget({ widget: new CommandIconWidget(), side: -1 })
 const rainbow = Decoration.mark({ class: 'cm-ultrathink' })
 
-/** Line numbers the selection touches — a mention there stays editable text. */
-function activeLines(view: EditorView): Set<number> {
-  const lines = new Set<number>()
-  for (const range of view.state.selection.ranges) {
-    const first = view.state.doc.lineAt(range.from).number
-    const last = view.state.doc.lineAt(range.to).number
-    for (let n = first; n <= last; n++) lines.add(n)
-  }
-  return lines
+/**
+ * Does a cursor or selection reach this span?
+ *
+ * The rule used to be line granularity, which is why a pasted attachment stayed
+ * raw markdown until you broke the line: the marker goes in at the caret, so its
+ * line was always the line being edited. Touching an edge still counts — while
+ * you type `@src/comp` the caret sits at the end of the mention, and a
+ * strict-interior test would collapse it to a chip mid-word.
+ */
+export function spanTouched(
+  span: Span,
+  ranges: readonly { from: number; to: number }[]
+): boolean {
+  return ranges.some((r) => r.from <= span.to && r.to >= span.from)
 }
 
 function buildDecorations(view: EditorView): DecorationSet {
   const decorations: Range<Decoration>[] = []
   const text = view.state.doc.toString()
-  const active = activeLines(view)
+  const ranges = view.state.selection.ranges
 
   const command = findCommand(text)
   if (command) {
@@ -226,9 +259,9 @@ function buildDecorations(view: EditorView): DecorationSet {
   }
 
   for (const mention of findFileMentions(text)) {
-    // Collapsed to a chip, unless you are on that line — then it is the path you
-    // typed, so you can edit or delete it.
-    if (active.has(view.state.doc.lineAt(mention.from).number)) continue
+    // Collapsed to a chip, unless the caret is actually in it — then it is the
+    // path you are typing, so it stays text you can edit.
+    if (spanTouched(mention, ranges)) continue
     decorations.push(
       Decoration.replace({ widget: new FileChipWidget(mention.path) }).range(
         mention.from,
@@ -237,10 +270,22 @@ function buildDecorations(view: EditorView): DecorationSet {
     )
   }
 
-  for (const ref of findAttachmentRefs(text)) {
-    // Same rule as a file mention: on the line you are editing it is the text
-    // you can change, everywhere else it is the chip.
-    if (active.has(view.state.doc.lineAt(ref.from).number)) continue
+  return RangeSet.of(decorations, true)
+}
+
+/**
+ * The attachment chips, always.
+ *
+ * Unlike an @-mention there is nothing here anyone wants to hand-edit — the
+ * payload is a temp path like `/var/folders/…/nyra-image-8f2.png` — so it is a
+ * chip from the moment you paste, with no line break needed to reveal it and no
+ * flicker as the caret passes. Kept in its own set so it can also be handed to
+ * `atomicRanges`, which is what makes Backspace delete the whole thing rather
+ * than walking into the middle of a path it cannot see.
+ */
+function buildAttachments(view: EditorView): DecorationSet {
+  const decorations: Range<Decoration>[] = []
+  for (const ref of findAttachmentRefs(view.state.doc.toString())) {
     decorations.push(
       Decoration.replace({ widget: new AttachmentChipWidget(ref.kind, ref.target) }).range(
         ref.from,
@@ -248,23 +293,32 @@ function buildDecorations(view: EditorView): DecorationSet {
       )
     )
   }
-
   return RangeSet.of(decorations, true)
 }
 
-export const composerDecorations = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet
+class ComposerDecorations {
+  decorations: DecorationSet
+  attachments: DecorationSet
+  /** Both sets, so CodeMirror draws chips and mentions in one pass. */
+  all: DecorationSet
 
-    constructor(view: EditorView) {
-      this.decorations = buildDecorations(view)
-    }
+  constructor(view: EditorView) {
+    this.decorations = buildDecorations(view)
+    this.attachments = buildAttachments(view)
+    this.all = RangeSet.join([this.decorations, this.attachments])
+  }
 
-    update(update: ViewUpdate): void {
-      if (update.docChanged || update.selectionSet) {
-        this.decorations = buildDecorations(update.view)
-      }
-    }
-  },
-  { decorations: (plugin) => plugin.decorations }
-)
+  update(update: ViewUpdate): void {
+    if (!update.docChanged && !update.selectionSet) return
+    this.decorations = buildDecorations(update.view)
+    // Only the document can change these; the caret moving over one does not.
+    if (update.docChanged) this.attachments = buildAttachments(update.view)
+    this.all = RangeSet.join([this.decorations, this.attachments])
+  }
+}
+
+export const composerDecorations = ViewPlugin.fromClass(ComposerDecorations, {
+  decorations: (plugin) => plugin.all,
+  provide: (plugin) =>
+    EditorView.atomicRanges.of((view) => view.plugin(plugin)?.attachments ?? Decoration.none)
+})

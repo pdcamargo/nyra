@@ -11,6 +11,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
+    "core:webview:allow-set-webview-zoom",
     "core:event:default",
     "dialog:default",
     "opener:default",

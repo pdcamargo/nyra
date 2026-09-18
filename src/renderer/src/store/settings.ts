@@ -26,9 +26,24 @@ export function migrateSettings(
   if (raw?.defaultCwd && raw?.onboardingComplete === undefined) {
     merged.onboardingComplete = true
   }
+  // `fontSize` was 'small' | 'medium' | 'large' and only ever styled the message
+  // scroller. `contentFontSize` is px and reaches the composer too.
+  //
+  // This is a rename rather than a retype for a reason worth keeping written
+  // down: settings.rs declares `font_size: String`, and the whole store is sent
+  // to `settings_sync` on every change. A numeric `fontSize` is a serde type
+  // error — container-level `#[serde(default)]` fills missing fields, it does
+  // not coerce wrong ones — so it would reject every sync from then on, quietly,
+  // leaving the backend running on whatever it last accepted.
+  const legacyFontSize = raw?.fontSize
+  if (typeof legacyFontSize === 'string' && raw?.contentFontSize === undefined) {
+    merged.contentFontSize = legacyFontSize === 'small' ? 13 : legacyFontSize === 'large' ? 17 : 15
+  }
+
   // Drop retired keys so they stop round-tripping through settings_sync.
   delete (merged as Record<string, unknown>).defaultCwd
   delete (merged as Record<string, unknown>).compactMode
+  delete (merged as Record<string, unknown>).fontSize
   return merged
 }
 

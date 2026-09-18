@@ -32,7 +32,7 @@ export default function FinishedChecklist({
           <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
         )}
         <ListTodo className="size-3.5 shrink-0 text-success/70" />
-        <span className="text-xs text-muted-foreground">
+        <span className="text-c-md text-muted-foreground">
           {tasks.length} task{tasks.length === 1 ? '' : 's'} done
         </span>
       </button>
@@ -41,7 +41,7 @@ export default function FinishedChecklist({
           {tasks.map((task) => (
             <li key={task.taskId} className="flex items-start gap-2 py-0.5">
               <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-success" />
-              <span className="text-xs leading-snug text-muted-foreground line-through">
+              <span className="text-c-md leading-snug text-muted-foreground line-through">
                 {task.subject}
               </span>
             </li>

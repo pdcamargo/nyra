@@ -184,8 +184,53 @@
 :root,
 .dark {
   --border-strong: color-mix(in oklab, var(--border) 65%, var(--foreground) 35%);
-  --scrollbar-thumb: color-mix(in oklab, var(--muted-foreground) 35%, transparent);
-  --scrollbar-thumb-hover: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+}
+
+/*
+ * Scrollbars come off --foreground, not --muted-foreground.
+ *
+ * A scrollbar is an affordance, not metadata. The muted ramp sits at 0.51
+ * lightness on a 0.955 background in light mode, so at the old 35% alpha there
+ * was nothing to see — a table that scrolled sideways gave no sign it did.
+ * Split per theme because light needs more of the ramp than dark does.
+ */
+/* A hairline that separates two rows without drawing a box around them. A hair
+ * off the surface it sits on rather than a border colour — `--border` reads as
+ * an edge, and a settings list wants a rhythm, not fourteen edges. */
+:root {
+  --separator: color-mix(in oklab, var(--foreground) 7%, transparent);
+  /* Weaker still, for lines on the darker surfaces — the settings nav sits on
+     --background rather than --popover, and the same value that reads as a
+     hairline on a pane reads as a stripe against it. */
+  --separator-subtle: color-mix(in oklab, var(--foreground) 4%, transparent);
+  --scrollbar-thumb: color-mix(in oklab, var(--foreground) 30%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklab, var(--foreground) 55%, transparent);
+}
+
+.dark {
+  --separator: color-mix(in oklab, var(--foreground) 10%, transparent);
+  --separator-subtle: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --scrollbar-thumb: color-mix(in oklab, var(--foreground) 22%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklab, var(--foreground) 45%, transparent);
+}
+
+/*
+ * Fonts live in a plain `@theme`, not `@theme inline`.
+ *
+ * With `inline`, Tailwind resolves the variable at build time and bakes the
+ * literal stack into every `.font-sans` / `.font-mono` rule — the utilities come
+ * out as `font-family:Fira Code Variable,ui-monospace,...` rather than
+ * `font-family:var(--font-mono)`. Appearance settings work by overriding the
+ * variable on <html>, so under `inline` they would reach the CodeMirror theme
+ * (which names the var directly) and nothing else in the app.
+ *
+ * --font-content is the conversation's own face: the message list and the
+ * composer, which should match each other and need not match the chrome.
+ */
+@theme {
+  --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Fira Code Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-content: var(--font-sans);
 }
 
 @theme inline {
@@ -232,6 +277,8 @@
   --color-info-foreground: var(--info-foreground);
 
   --color-border-strong: var(--border-strong);
+  --color-separator: var(--separator);
+  --color-separator-subtle: var(--separator-subtle);
 
   --radius-xs: calc(var(--radius) * 0.5);
   --radius-sm: calc(var(--radius) * 0.75);
@@ -239,9 +286,6 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.5);
   --radius-2xl: calc(var(--radius) * 2);
-
-  --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'Fira Code Variable', ui-monospace, 'SF Mono', Menlo, monospace;
 
   --shadow-2xs: var(--shadow-2xs);
   --shadow-xs: var(--shadow-xs);
@@ -251,6 +295,45 @@
   --shadow-lg: var(--shadow-lg);
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
+}
+
+/*
+ * Type inside the conversation, sized against --content-font-size.
+ *
+ * The message prose followed the setting but everything beside it did not: tool
+ * cards, plan cards, table headers and captions were all hardcoded px, so at
+ * 17px the words got bigger and the chat around them stayed the size it was.
+ *
+ * calc() against the variable rather than `em`, so a component sizes the same
+ * whether it is rendered in the transcript or pinned above the composer — the
+ * plan card is mounted in both.
+ */
+@utility text-c-xxs {
+  font-size: calc(var(--content-font-size, 15px) * 0.6);
+}
+@utility text-c-xs {
+  font-size: calc(var(--content-font-size, 15px) * 0.67);
+}
+@utility text-c-sm {
+  font-size: calc(var(--content-font-size, 15px) * 0.73);
+}
+@utility text-c-md {
+  font-size: calc(var(--content-font-size, 15px) * 0.8);
+}
+@utility text-c-lg {
+  font-size: calc(var(--content-font-size, 15px) * 0.87);
+}
+@utility text-c-base {
+  font-size: var(--content-font-size, 15px);
+}
+@utility text-c-xl {
+  font-size: calc(var(--content-font-size, 15px) * 1.2);
+}
+
+/* The composer's own box. Padding in the same currency as its text, or the
+ * placeholder sits against the border as soon as the text grows. */
+@utility composer-box {
+  padding: calc(var(--content-font-size, 15px) * 0.62) calc(var(--content-font-size, 15px) * 0.8);
 }
 
 @layer base {
@@ -280,7 +363,17 @@
     background: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
+    font-weight: var(--ui-font-weight, 400);
     -webkit-font-smoothing: antialiased;
+  }
+
+  /* Inside the layer on purpose: unlayered CSS outranks every layered utility,
+     so `font-semibold` on a heading has to keep winning over this. */
+  code,
+  kbd,
+  pre,
+  samp {
+    font-weight: var(--code-font-weight, 400);
   }
 }
 
@@ -288,10 +381,40 @@
  * on and WKWebView does not implement, so it did nothing after the Tauri port.
  * TitleBar asks the window to move instead, through the bridge. */
 
-::-webkit-scrollbar { width: 4px; }
+/* `height` was never set, so every horizontal scrollbar in the app — the markdown
+ * table, the wide code block — fell back to WebKit's default and looked nothing
+ * like the vertical ones. The thumb is 4px inside a 10px track: the visible mark
+ * stays slight, the thing you have to hit does not. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  /* Thousands of messages in, the thumb had shrunk to a couple of pixels. */
+  min-height: 32px;
+}
+/* `background` is a shorthand and resets background-clip, so it is repeated. */
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+/*
+ * A table wide enough to run past the column should say so.
+ *
+ * `overflow-x: auto` only paints a scrollbar when there is something to scroll,
+ * so drawing the track means the groove appears exactly when the table scrolls
+ * and never when it does not. Deliberately not `min-width: max-content` on the
+ * table: that stops prose cells wrapping and makes a two-column table enormous.
+ */
+.md-scroll-x::-webkit-scrollbar { height: 8px; }
+.md-scroll-x::-webkit-scrollbar-track {
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+  border-radius: 999px;
+}
 
 /* Monaco editor overrides to blend with app background */
 .monaco-editor,
@@ -313,10 +436,6 @@
 .xterm {
   padding: 6px 8px;
 }
-
-.xterm-viewport::-webkit-scrollbar { width: 4px; }
-.xterm-viewport::-webkit-scrollbar-track { background: transparent; }
-.xterm-viewport::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 2px; }
 
 /* React Flow edge strokes — these sit on the canvas, not on a token surface,
  * so they follow the foreground rather than being hardcoded per theme. */

@@ -30,6 +30,7 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Slider } from './ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { useSettingsStore } from '../store/settings'
+import { useChatSettings } from '../hooks/useChatSettings'
 import { BUILT_IN_COMMANDS } from '../data/commands'
 import { KNOWN_MODELS as MODELS, MODEL_BLURB } from '../lib/models'
 
@@ -48,8 +49,7 @@ function AddMenu({
   onPickFiles: () => void
   onInsert: (command: string) => void
 }): React.JSX.Element {
-  const planMode = useSettingsStore((s) => s.planMode)
-  const updateSettings = useSettingsStore((s) => s.updateSettings)
+  const { planMode, update } = useChatSettings()
 
   return (
     <DropdownMenu>
@@ -67,7 +67,7 @@ function AddMenu({
         <DropdownMenuSeparator />
         <DropdownMenuCheckboxItem
           checked={planMode}
-          onCheckedChange={(checked) => updateSettings({ planMode: checked === true })}
+          onCheckedChange={(checked) => update({ planMode: checked === true })}
         >
           <ListChecks />
           Plan mode
@@ -153,13 +153,12 @@ function ApprovalMenu(): React.JSX.Element {
 
 /** Shown only while plan mode is on, so the state is never silent. */
 function PlanModePill(): React.JSX.Element | null {
-  const planMode = useSettingsStore((s) => s.planMode)
-  const updateSettings = useSettingsStore((s) => s.updateSettings)
+  const { planMode, update } = useChatSettings()
   if (!planMode) return null
   return (
     <Tooltip>
       <TooltipTrigger
-        onClick={() => updateSettings({ planMode: false })}
+        onClick={() => update({ planMode: false })}
         className="flex h-7 items-center gap-1.5 rounded-md bg-info/10 px-2 text-xs text-info transition-colors hover:bg-info/20"
       >
         <ListChecks className="size-3.5" />
@@ -182,9 +181,7 @@ function PlanModePill(): React.JSX.Element | null {
  * a plain checklist. So both live behind one trigger without a submenu.
  */
 function ModelEffort(): React.JSX.Element {
-  const model = useSettingsStore((s) => s.model)
-  const effort = useSettingsStore((s) => s.effort)
-  const updateSettings = useSettingsStore((s) => s.updateSettings)
+  const { model, effort, update } = useChatSettings()
   const [page, setPage] = React.useState<'effort' | 'model'>('effort')
   const [custom, setCustom] = React.useState('')
 
@@ -196,7 +193,7 @@ function ModelEffort(): React.JSX.Element {
 
   const setEffort = (index: number): void => {
     const next = EFFORTS[Math.min(EFFORTS.length - 1, Math.max(0, index))].value
-    updateSettings({ effort: next === 'high' ? '' : next })
+    update({ effort: next === 'high' ? '' : next })
   }
 
   return (
@@ -236,7 +233,7 @@ function ModelEffort(): React.JSX.Element {
               </div>
               <Tooltip>
                 <TooltipTrigger
-                  onClick={() => updateSettings({ model: '', effort: '' })}
+                  onClick={() => update({ model: '', effort: '' })}
                   disabled={isDefault}
                   aria-label="Reset to default"
                   className="size-6 justify-self-end rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:opacity-30"
@@ -290,7 +287,7 @@ function ModelEffort(): React.JSX.Element {
                 <button
                   key={m}
                   onClick={() => {
-                    updateSettings({ model: m === 'opus' ? '' : m })
+                    update({ model: m === 'opus' ? '' : m })
                     setPage('effort')
                   }}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-accent/50"
@@ -308,7 +305,7 @@ function ModelEffort(): React.JSX.Element {
                 e.preventDefault()
                 const value = custom.trim()
                 if (!value) return
-                updateSettings({ model: value })
+                update({ model: value })
                 setCustom('')
                 setPage('effort')
               }}
