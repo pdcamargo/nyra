@@ -285,6 +285,11 @@ pub async fn fs_list_dir(dir_path: String) -> file_tree::DirListing {
     file_tree::list_dir(&dir_path).await
 }
 
+#[tauri::command]
+pub async fn fs_search_tree(cwd: String, query: String, limit: Option<usize>) -> file_tree::TreeSearchResult {
+    file_tree::search_tree(&cwd, &query, limit.unwrap_or(200)).await
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn fs_read_text_file(file_path: String) -> fs_ops::ReadTextOutcome {
     fs_ops::read_text_file(&file_path).await

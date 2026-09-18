@@ -29,6 +29,7 @@ import type {
   MemoryListResult,
   ProcessFileResult,
   ReadTextOutcome,
+  TreeSearchResult,
   ReadImageResult,
   Scope,
   ScopedList,
@@ -217,7 +218,9 @@ export const api = {
     /** A file's text for the read-only preview. Bounded, unlike `readFile`,
      *  which backs editors that write what they read back. */
     readTextFile: (filePath: string) => call<ReadTextOutcome>('fs_read_text_file', { filePath }),
-    statFile: (filePath: string) => call<FileStamp>('fs_stat_file', { filePath })
+    statFile: (filePath: string) => call<FileStamp>('fs_stat_file', { filePath }),
+    searchTree: (cwd: string, query: string, limit = 200) =>
+      call<TreeSearchResult>('fs_search_tree', { cwd, query, limit })
   },
 
   system: {

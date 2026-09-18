@@ -234,6 +234,73 @@ pub async fn list_dir(dir: &str) -> DirListing {
     }
 }
 
+/// A flat search result. The filter box is a mode switch, not a tree filter: a
+/// lazily-expanded tree only contains what you already opened, so filtering it
+/// would match nothing in a fresh panel and look broken.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeSearchResult {
+    /// Repo-relative, forward slashes, as `git ls-files` prints them.
+    pub paths: Vec<String>,
+    pub truncated: bool,
+}
+
+/// How well a path answers a query. Lower is better; None means no match.
+///
+/// A hit in the base name beats a hit in a directory, because typing "auth"
+/// should find `useAuth.ts` before `src/auth/legacy/internal/util.ts`. An
+/// earlier hit beats a later one, so a prefix wins over a suffix.
+fn match_score(path: &str, needle_lower: &str) -> Option<u32> {
+    let lower = path.to_lowercase();
+    let at = lower.find(needle_lower)?;
+
+    let name_start = lower.rfind('/').map_or(0, |i| i + 1);
+    let in_name = at >= name_start;
+    let offset = if in_name { at - name_start } else { at };
+
+    // 0 for a base-name hit, 1000 for a directory one: no offset within a
+    // directory path can outrank a name match.
+    let base = if in_name { 0 } else { 1000 };
+    Some(base + offset.min(999) as u32)
+}
+
+/// Every tracked-or-untracked path under `cwd` that matches, best first.
+pub async fn search_tree(cwd: &str, query: &str, limit: usize) -> TreeSearchResult {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return TreeSearchResult { paths: Vec::new(), truncated: false };
+    }
+
+    let listed = match tokio::time::timeout(
+        GIT_TIMEOUT,
+        tokio::process::Command::new("git")
+            .args(["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
+            .current_dir(cwd)
+            .output(),
+    )
+    .await
+    {
+        Ok(Ok(out)) if out.status.success() => out.stdout,
+        _ => return TreeSearchResult { paths: Vec::new(), truncated: false },
+    };
+
+    let text = String::from_utf8_lossy(&listed);
+    let mut scored: Vec<(u32, &str)> = text
+        .split('\0')
+        .filter(|p| !p.is_empty())
+        .filter_map(|p| match_score(p, &needle).map(|score| (score, p)))
+        .collect();
+
+    // Ties broken by path, so the same query twice gives the same order.
+    scored.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(b.1)));
+
+    let truncated = scored.len() > limit;
+    TreeSearchResult {
+        paths: scored.into_iter().take(limit).map(|(_, p)| p.to_string()).collect(),
+        truncated,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,6 +371,26 @@ mod tests {
         assert_eq!(json["entries"][0]["name"], "src");
         // Absent rather than null, so `error` reads as optional on the far side.
         assert!(json.get("error").is_none());
+    }
+
+    #[test]
+    fn ranks_a_name_hit_above_a_directory_hit() {
+        let name = match_score("src/useAuth.ts", "auth").unwrap();
+        let dir = match_score("src/auth/legacy/internal/util.ts", "auth").unwrap();
+        assert!(name < dir);
+    }
+
+    #[test]
+    fn ranks_an_earlier_hit_above_a_later_one() {
+        let early = match_score("src/authorize.ts", "auth").unwrap();
+        let late = match_score("src/reauthorize.ts", "auth").unwrap();
+        assert!(early < late);
+    }
+
+    #[test]
+    fn matches_without_regard_to_case_and_misses_cleanly() {
+        assert!(match_score("src/UseAuth.ts", "auth").is_some());
+        assert!(match_score("src/index.ts", "auth").is_none());
     }
 
     #[test]

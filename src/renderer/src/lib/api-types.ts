@@ -122,6 +122,14 @@ export type DirListing = {
   error?: string
 }
 
+/** A flat search result. The filter box is a mode switch rather than a tree
+ *  filter: a lazily-expanded tree only holds what you already opened, so
+ *  filtering it would match nothing in a fresh panel and look broken. */
+export type TreeSearchResult = {
+  paths: string[]
+  truncated: boolean
+}
+
 export type TextFileResult = {
   kind: 'text'
   content: string

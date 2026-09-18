@@ -136,6 +136,7 @@ pub fn run() {
             commands::fs_revert_file,
             commands::fs_list_files,
             commands::fs_list_dir,
+            commands::fs_search_tree,
             commands::fs_read_text_file,
             commands::fs_stat_file,
             commands::system_homedir,

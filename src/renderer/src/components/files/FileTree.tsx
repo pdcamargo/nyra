@@ -7,9 +7,10 @@
  * can afford a round trip.
  */
 import React, { useCallback, useEffect, useState } from 'react'
-import { ChevronRight, Folder, FolderOpen, RefreshCw } from 'lucide-react'
+import { ChevronRight, Folder, FolderOpen, RefreshCw, Search } from 'lucide-react'
 import { joinPath, relativeTo } from './paths'
 import { useWorkspaceStore } from '../../store/workspace'
+import { basenameOf } from './paths'
 import type { DirEntryInfo, DirListing } from '../../lib/api-types'
 
 type Listings = Record<string, DirListing | 'loading'>
@@ -29,6 +30,32 @@ export default function FileTree({
   onOpen: (absolutePath: string) => void
 }): React.JSX.Element {
   const [listings, setListings] = useState<Listings>({})
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<string[] | null>(null)
+  const [truncated, setTruncated] = useState(false)
+
+  // Two characters, because one matches most of a repo and the round trip is
+  // real work. Below that the pane is the tree again.
+  const searching = query.trim().length >= 2
+
+  useEffect(() => {
+    if (!searching || !root) {
+      setResults(null)
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void window.api.fs.searchTree(root, query.trim()).then((found) => {
+        if (cancelled) return
+        setResults(found.paths)
+        setTruncated(found.truncated)
+      })
+    }, 120)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [query, root, searching])
 
   const load = useCallback(async (dir: string) => {
     setListings((prev) => (prev[dir] ? prev : { ...prev, [dir]: 'loading' }))
@@ -80,17 +107,44 @@ export default function FileTree({
           <RefreshCw className="size-3" />
         </button>
       </div>
+      <div className="px-2 pb-1">
+        <div className="flex items-center gap-1.5 rounded-md bg-muted/40 px-1.5 py-1 focus-within:bg-secondary">
+          <Search className="size-3 shrink-0 text-muted-foreground/70" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setQuery('')
+            }}
+            spellCheck={false}
+            placeholder="Filter files…"
+            aria-label="Filter files"
+            className="min-w-0 flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground/60"
+          />
+        </div>
+      </div>
+
       <div className="min-h-0 flex-1 overflow-auto pb-2">
-        <Level
-          dir={root}
-          root={root}
-          depth={0}
-          listings={listings}
-          expanded={expanded}
-          selectedPath={selectedPath}
-          onToggle={toggle}
-          onOpen={onOpen}
-        />
+        {searching ? (
+          <SearchResults
+            root={root}
+            paths={results}
+            truncated={truncated}
+            selectedPath={selectedPath}
+            onOpen={onOpen}
+          />
+        ) : (
+          <Level
+            dir={root}
+            root={root}
+            depth={0}
+            listings={listings}
+            expanded={expanded}
+            selectedPath={selectedPath}
+            onToggle={toggle}
+            onOpen={onOpen}
+          />
+        )}
       </div>
     </div>
   )
@@ -233,5 +287,53 @@ function Note({ depth, children }: { depth: number; children: React.ReactNode })
     >
       {children}
     </p>
+  )
+}
+
+/**
+ * What the filter box shows instead of the tree.
+ *
+ * A flat list rather than a pruned tree: the tree only holds folders you have
+ * already opened, so pruning it would silently miss most of the repo.
+ */
+function SearchResults({
+  root,
+  paths,
+  truncated,
+  selectedPath,
+  onOpen
+}: {
+  root: string
+  paths: string[] | null
+  truncated: boolean
+  selectedPath: string | null
+  onOpen: (path: string) => void
+}): React.JSX.Element {
+  if (paths === null) return <Note depth={0}>Searching…</Note>
+  if (paths.length === 0) return <Note depth={0}>No files match.</Note>
+
+  return (
+    <>
+      {paths.map((relative) => {
+        const path = joinPath(root, relative)
+        return (
+          <button
+            key={relative}
+            type="button"
+            title={relative}
+            onClick={() => onOpen(path)}
+            className={`flex w-full flex-col items-start px-2 py-[3px] text-left transition-colors ${
+              path === selectedPath
+                ? 'bg-accent text-foreground'
+                : 'text-foreground/80 hover:bg-accent/50 hover:text-foreground'
+            }`}
+          >
+            <span className="w-full truncate text-[11px]">{basenameOf(relative)}</span>
+            <span className="w-full truncate text-[10px] text-muted-foreground/60">{relative}</span>
+          </button>
+        )
+      })}
+      {truncated && <Note depth={0}>More matches than shown — narrow the filter.</Note>}
+    </>
   )
 }
