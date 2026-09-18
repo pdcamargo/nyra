@@ -270,12 +270,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
       setFilePath: (sessionId, fileTabId, path) =>
         set((s) =>
-          patch(s, sessionId, (ws) => ({
-            ...ws,
-            tabs: ws.tabs.map((t) =>
-              t.kind === 'file' && t.id === fileTabId ? { ...t, path } : t
-            )
-          }))
+          patch(s, sessionId, (ws) => {
+            const current = ws.tabs.find((t) => t.kind === 'file' && t.id === fileTabId)
+            if (!current || (current.kind === 'file' && current.path === path)) return ws
+            return {
+              ...ws,
+              tabs: ws.tabs.map((t) =>
+                t.kind === 'file' && t.id === fileTabId ? { ...t, path } : t
+              )
+            }
+          })
         ),
 
       closeTab: (sessionId, key) =>
@@ -292,15 +296,23 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
       selectTab: (sessionId, key) =>
         set((s) =>
-          patch(s, sessionId, (ws) =>
-            ws.tabs.some((t) => tabKey(t) === key)
-              ? { ...ws, activeKey: key, pendingSelectKey: null }
-              : { ...ws, pendingSelectKey: key }
-          )
+          patch(s, sessionId, (ws) => {
+            if (ws.tabs.some((t) => tabKey(t) === key)) {
+              // Selecting what is already selected is a no-op, not a re-render —
+              // the pip and the summary both call this on every click.
+              if (ws.activeKey === key && ws.pendingSelectKey === null) return ws
+              return { ...ws, activeKey: key, pendingSelectKey: null }
+            }
+            return ws.pendingSelectKey === key ? ws : { ...ws, pendingSelectKey: key }
+          })
         ),
 
-      setTreeOpen: (sessionId, treeOpen) => set((s) => patch(s, sessionId, { treeOpen })),
-      setTreeWidth: (sessionId, treeWidth) => set((s) => patch(s, sessionId, { treeWidth })),
+      setTreeOpen: (sessionId, treeOpen) =>
+        set((s) => patch(s, sessionId, (ws) => (ws.treeOpen === treeOpen ? ws : { ...ws, treeOpen }))),
+      setTreeWidth: (sessionId, treeWidth) =>
+        set((s) =>
+          patch(s, sessionId, (ws) => (ws.treeWidth === treeWidth ? ws : { ...ws, treeWidth }))
+        ),
 
       toggleTreeDir: (sessionId, dirPath) =>
         set((s) =>
