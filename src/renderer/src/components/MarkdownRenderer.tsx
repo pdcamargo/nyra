@@ -10,6 +10,7 @@ import { useResolvedTheme } from '../hooks/useResolvedTheme'
 import { useSessionsStore, activeCwd } from '../store/sessions'
 import { resolvePath } from '../utils/paths'
 import { cachedImage, loadImage, type ImageEntry } from '../lib/imageCache'
+import { remarkPromptDecorations } from '../lib/promptMarkdown'
 
 const THEME_DARK = 'github-dark-dimmed'
 const THEME_LIGHT = 'github-light-default'
@@ -138,7 +139,11 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
   )
 })
 
-const remarkPlugins = [remarkGfm]
+type RemarkPlugins = React.ComponentProps<typeof ReactMarkdown>['remarkPlugins']
+
+const remarkPlugins = [remarkGfm] as RemarkPlugins
+/** What a message you wrote is parsed with. See `promptMarkdown`. */
+const promptPlugins = [remarkGfm, remarkPromptDecorations] as RemarkPlugins
 
 // Matches file paths: must contain /, end with .ext, no spaces
 const FILE_PATH_RE = /^\.{0,2}\/\S+\.\w+$/
@@ -237,9 +242,92 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }): React.JSX.
   return <span className="my-1 inline-block h-32 w-48 animate-pulse rounded-lg border border-border/55 bg-muted" />
 }
 
-function MarkdownRendererInner({ children }: { children: string }): React.JSX.Element {
+/**
+ * The composer's chips, rendered in the message they were sent as.
+ *
+ * Same class names the CodeMirror widgets use, and the styles live in index.css
+ * rather than in the editor's theme so there is one definition for both. The
+ * labels arrive as children — `promptMarkdown` has already shortened a path to
+ * the part that fits.
+ */
+function FileChip({ path, children }: { path?: string; children?: React.ReactNode }): React.JSX.Element {
+  const open = (): void => {
+    if (path) openFileInPanel(path)
+  }
+  return (
+    <span
+      className="nyra-file-chip"
+      role="button"
+      tabIndex={0}
+      title={path}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          open()
+        }
+      }}
+    >
+      <span className="nyra-file-chip-icon" aria-hidden="true" />
+      {children}
+    </span>
+  )
+}
+
+/**
+ * Not clickable, unlike the @-mention beside it: what it points at is a temp
+ * path like `/var/folders/…/nyra-image-8f2.png`, and the picture itself is
+ * already in the bubble.
+ */
+function AttachChip({
+  kind,
+  target,
+  children
+}: {
+  kind?: string
+  target?: string
+  children?: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <span className="nyra-attach-chip" title={target}>
+      <span
+        className={`nyra-attach-chip-icon nyra-attach-chip-icon-${kind === 'image' ? 'image' : 'file'}`}
+        aria-hidden="true"
+      />
+      {children}
+    </span>
+  )
+}
+
+function MarkdownRendererInner({
+  children,
+  prompt = false
+}: {
+  children: string
+  /** Render the composer's syntax too — set for messages you wrote. */
+  prompt?: boolean
+}): React.JSX.Element {
 
   const components = useMemo(() => ({
+    // The tags `promptMarkdown` invents. Registered unconditionally: nothing
+    // emits them unless that plugin ran, so the map stays one stable object.
+    'nyra-file-chip'({ path, children }: { path?: string; children: React.ReactNode }) {
+      return <FileChip path={path}>{children}</FileChip>
+    },
+    'nyra-attach-chip'({ kind, target, children }: { kind?: string; target?: string; children: React.ReactNode }) {
+      return <AttachChip kind={kind} target={target}>{children}</AttachChip>
+    },
+    'nyra-command'({ children }: { children: React.ReactNode }) {
+      return (
+        <span className="nyra-command">
+          <span className="nyra-command-icon" aria-hidden="true" />
+          {children}
+        </span>
+      )
+    },
+    'nyra-ultrathink'({ children }: { children: React.ReactNode }) {
+      return <span className="nyra-ultrathink">{children}</span>
+    },
     pre({ children }: { children: React.ReactNode }) {
       return <>{children}</>
     },
@@ -330,7 +418,10 @@ function MarkdownRendererInner({ children }: { children: string }): React.JSX.El
   }), [])
 
   return (
-    <ReactMarkdown remarkPlugins={remarkPlugins} components={components as Components}>
+    <ReactMarkdown
+      remarkPlugins={prompt ? promptPlugins : remarkPlugins}
+      components={components as Components}
+    >
       {children}
     </ReactMarkdown>
   )

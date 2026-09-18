@@ -16,6 +16,11 @@ import { openFileInPanel } from './openFile'
  * These mark things the CLI treats specially — a slash command, the `ultrathink`
  * keyword — so the composer shows you what Claude is going to see rather than
  * leaving them as undifferentiated text.
+ *
+ * The finders below are shared: `promptMarkdown` draws the same four things in
+ * the message once it has been sent, so a draft and the bubble it becomes agree
+ * on what counts as a mention. Only the drawing is separate — CodeMirror widgets
+ * here, React elements there, one set of classes in index.css.
  */
 
 const KNOWN_COMMANDS = new Set(BUILT_IN_COMMANDS.map((c) => c.name.slice(1).split(' ')[0]))
@@ -157,9 +162,9 @@ class AttachmentChipWidget extends WidgetType {
   }
   toDOM(): HTMLElement {
     const el = document.createElement('span')
-    el.className = 'cm-attach-chip'
+    el.className = 'nyra-attach-chip'
     const icon = document.createElement('span')
-    icon.className = `cm-attach-chip-icon cm-attach-chip-icon-${this.kind.toLowerCase()}`
+    icon.className = `nyra-attach-chip-icon nyra-attach-chip-icon-${this.kind.toLowerCase()}`
     icon.setAttribute('aria-hidden', 'true')
     el.appendChild(icon)
     el.appendChild(document.createTextNode(mentionLabel(this.target)))
@@ -180,9 +185,9 @@ class FileChipWidget extends WidgetType {
   }
   toDOM(): HTMLElement {
     const el = document.createElement('span')
-    el.className = 'cm-file-chip'
+    el.className = 'nyra-file-chip'
     const icon = document.createElement('span')
-    icon.className = 'cm-file-chip-icon'
+    icon.className = 'nyra-file-chip-icon'
     icon.setAttribute('aria-hidden', 'true')
     el.appendChild(icon)
     el.appendChild(document.createTextNode(mentionLabel(this.path)))
@@ -214,7 +219,7 @@ class CommandIconWidget extends WidgetType {
   }
   toDOM(): HTMLElement {
     const el = document.createElement('span')
-    el.className = 'cm-command-icon'
+    el.className = 'nyra-command-icon'
     el.setAttribute('aria-hidden', 'true')
     return el
   }
@@ -223,9 +228,9 @@ class CommandIconWidget extends WidgetType {
   }
 }
 
-const commandMark = Decoration.mark({ class: 'cm-command' })
+const commandMark = Decoration.mark({ class: 'nyra-command' })
 const commandIcon = Decoration.widget({ widget: new CommandIconWidget(), side: -1 })
-const rainbow = Decoration.mark({ class: 'cm-ultrathink' })
+const rainbow = Decoration.mark({ class: 'nyra-ultrathink' })
 
 /**
  * Does a cursor or selection reach this span?

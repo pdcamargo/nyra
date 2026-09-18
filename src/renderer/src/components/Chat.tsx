@@ -18,6 +18,7 @@ import { extractPlan } from '../utils/permission'
 import ToolCallGroup from './ToolCallGroup'
 import PermissionDialog, { type PermissionRequest } from './PermissionDialog'
 import ChatInput from './ChatInput'
+import EditMessageBox from './EditMessageBox'
 import TaskStrip from './TaskStrip'
 import ActivityStrip from './ActivityStrip'
 import SettingsModal from './settings/SettingsModal'
@@ -39,6 +40,7 @@ import { useRunningStore, isSessionRunning } from '../store/running'
 import { useUiStore } from '../store/ui'
 import { useLoopsStore } from '../store/loops'
 import { BUILT_IN_COMMANDS } from '../data/commands'
+import { openFileInPanel } from '../lib/openFile'
 
 const EMPTY_MESSAGES: Message[] = []
 const BOUNCE_DOTS = [0, 1, 2]
@@ -1643,31 +1645,13 @@ export default function Chat(): React.JSX.Element {
                   >
                     <div data-message-id={msg.id} className={`flex justify-end ${gap}`}>
                       <div className="max-w-[75%] w-full">
-                        {textMsg.images && textMsg.images.length > 0 && (
-                          <div className="flex gap-2 flex-wrap mb-2 justify-end">
-                            {textMsg.images.map((img, i) => (
-                              <img key={i} src={img.dataUrl} alt="" className="h-20 rounded-lg object-cover max-w-[200px]" />
-                            ))}
-                          </div>
-                        )}
-                        <textarea
-                          autoFocus
+                        <EditMessageBox
                           value={editText}
-                          onChange={(e) => setEditText(e.target.value)}
-                          className="w-full resize-none rounded-2xl bg-info px-4 py-3 text-info-foreground outline-hidden text-sm leading-relaxed"
-                          rows={Math.max(2, editText.split('\n').length)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Escape') { setEditingMessageId(null); setEditText('') }
-                          }}
+                          images={textMsg.images}
+                          onChange={setEditText}
+                          onCancel={() => { setEditingMessageId(null); setEditText('') }}
+                          onSave={() => { const mid = editingMessageId!; const text = editText; setEditingMessageId(null); setEditText(''); editAndResend(mid, text) }}
                         />
-                        <div className="flex justify-end gap-2 mt-2">
-                          <button onClick={() => { setEditingMessageId(null); setEditText('') }} className="rounded-lg px-3 py-1 text-xs text-foreground/80 hover:text-foreground transition-colors">Cancel</button>
-                          <button
-                            disabled={!editText.trim()}
-                            onClick={() => { const mid = editingMessageId!; const text = editText; setEditingMessageId(null); setEditText(''); editAndResend(mid, text) }}
-                            className="rounded-lg bg-info px-3 py-1 text-xs font-medium text-info-foreground hover:bg-info disabled:opacity-25 transition-colors"
-                          >Save</button>
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -1916,15 +1900,27 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
           )}
           {textMsg.files && textMsg.files.length > 0 && (
             <div className="flex gap-1.5 flex-wrap mb-2">
+              {/* Clickable, like the @-mention chips below it: a file you
+                  attached is a file you may want to look at again, and the
+                  panel is where every other path in the app opens. */}
               {textMsg.files.map((file) => (
-                <span key={file.id} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2 py-0.5 text-c-sm">
+                <button
+                  key={file.id}
+                  onClick={() => openFileInPanel(file.path)}
+                  title={file.path}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2 py-0.5 text-c-sm transition-colors hover:bg-accent/60"
+                >
                   <FileText className="size-2.5 opacity-60" />
                   {file.name}
-                </span>
+                </button>
               ))}
             </div>
           )}
-          <div className="whitespace-pre-wrap wrap-break-word wrap-anywhere">{textMsg.text}</div>
+          {/* The same markdown the composer previewed while it was being
+              written, chips and all — not the raw characters. */}
+          <div className="wrap-break-word wrap-anywhere">
+            <MarkdownRenderer prompt>{textMsg.text}</MarkdownRenderer>
+          </div>
         </div>
         {/* Outside the bubble, or the bubble reserves a line for a timestamp
             nobody is looking at and sits taller than its own text. */}

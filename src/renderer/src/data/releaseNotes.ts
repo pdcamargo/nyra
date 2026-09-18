@@ -8,7 +8,15 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Messages you send render the way the composer previewed them: lists, quotes, tables, code blocks and emphasis',
+      '@-mentions stay chips after you send; clicking one opens the file in the side panel',
+      'Attachments in a message show their filename instead of a temp path',
+      'Slash commands and ultrathink keep their colour once sent',
+      'Click a file you attached to open it in the side panel',
+      "Editing a message uses the composer's editor, with the same live preview and chips",
+      'Enter saves an edit; Shift+Enter breaks the line'
+    ]
   },
   {
     version: '0.0.4',

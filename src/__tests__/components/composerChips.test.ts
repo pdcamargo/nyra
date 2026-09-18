@@ -32,8 +32,8 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-const chips = (v: EditorView): number => v.dom.querySelectorAll('.cm-attach-chip').length
-const fileChips = (v: EditorView): number => v.dom.querySelectorAll('.cm-file-chip').length
+const chips = (v: EditorView): number => v.dom.querySelectorAll('.nyra-attach-chip').length
+const fileChips = (v: EditorView): number => v.dom.querySelectorAll('.nyra-file-chip').length
 
 describe('attachment chips', () => {
   // The exact case from the bug report: paste puts the marker in at the caret,

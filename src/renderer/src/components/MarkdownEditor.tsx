@@ -109,105 +109,10 @@ const theme = EditorView.theme({
     fontSize: '0.92em'
   },
 
-  // A slash command reads as a command, not as text that happens to start with
-  // a slash. Gold rather than the semantic accents: it is a mode, not a status.
-  '.cm-command': {
-    color: 'var(--warning)',
-    fontWeight: '600',
-    fontFamily: 'var(--font-mono)'
-  },
-  '.cm-command-icon': {
-    display: 'inline-block',
-    width: '0.95em',
-    height: '0.95em',
-    marginRight: '0.3em',
-    verticalAlign: '-0.12em',
-    backgroundColor: 'var(--warning)',
-    // A terminal chevron, drawn as a mask so it takes the colour above.
-    maskImage:
-      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4 17 10 11 4 5'/%3E%3Cline x1='12' y1='19' x2='20' y2='19'/%3E%3C/svg%3E\")",
-    maskSize: 'contain',
-    maskRepeat: 'no-repeat',
-    maskPosition: 'center'
-  },
-
-  // ultrathink gets the CLI's rainbow. Animated so it reads as the same easter
-  // egg rather than as an error.
-  '.cm-ultrathink': {
-    fontWeight: '600',
-    backgroundImage:
-      'linear-gradient(90deg, #ff6b6b, #ffa94d, #ffd43b, #69db7c, #4dabf7, #b197fc, #ff6b6b)',
-    backgroundSize: '200% 100%',
-    WebkitBackgroundClip: 'text',
-    backgroundClip: 'text',
-    color: 'transparent',
-    animation: 'cm-ultrathink-pan 4s linear infinite'
-  },
-  // An @-mention, collapsed to the filename. Clicking opens the previewer.
-  '.cm-file-chip': {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.25em',
-    padding: '0.05em 0.45em',
-    borderRadius: '4px',
-    backgroundColor: 'color-mix(in oklab, var(--info) 18%, transparent)',
-    color: 'var(--info)',
-    fontFamily: 'var(--font-mono)',
-    fontSize: '0.88em',
-    cursor: 'pointer',
-    verticalAlign: 'baseline'
-  },
-  '.cm-file-chip-icon': {
-    display: 'inline-block',
-    width: '0.85em',
-    height: '0.85em',
-    backgroundColor: 'currentColor',
-    // A document glyph, drawn as a mask so it takes the chip's colour.
-    maskImage:
-      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3C/svg%3E\")",
-    maskSize: 'contain',
-    maskRepeat: 'no-repeat',
-    maskPosition: 'center'
-  },
-  '.cm-file-chip:hover': {
-    backgroundColor: 'color-mix(in oklab, var(--info) 28%, transparent)'
-  },
-  // Something you brought to the conversation, rather than a repo file you
-  // pointed at. Warm, so the two never read as the same kind of thing.
-  '.cm-attach-chip': {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.3em',
-    padding: '0.05em 0.45em',
-    borderRadius: '4px',
-    backgroundColor: 'color-mix(in oklab, var(--warning) 18%, transparent)',
-    color: 'var(--warning)',
-    fontSize: '0.88em',
-    whiteSpace: 'nowrap',
-    verticalAlign: 'baseline'
-  },
-  '.cm-attach-chip-icon': {
-    display: 'inline-block',
-    width: '0.85em',
-    height: '0.85em',
-    flex: 'none',
-    backgroundColor: 'currentColor',
-    maskSize: 'contain',
-    maskRepeat: 'no-repeat',
-    maskPosition: 'center'
-  },
-  '.cm-attach-chip-icon-image': {
-    maskImage:
-      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21'/%3E%3C/svg%3E\")"
-  },
-  '.cm-attach-chip-icon-file': {
-    maskImage:
-      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.234 20.252 21 12.3'/%3E%3Cpath d='m16 6-8.414 8.586a2 2 0 0 0 0 2.828 2 2 0 0 0 2.828 0l8.414-8.586a4 4 0 0 0 0-5.656 4 4 0 0 0-5.656 0l-8.415 8.585a6 6 0 1 0 8.486 8.486'/%3E%3C/svg%3E\")"
-  },
-  '@keyframes cm-ultrathink-pan': {
-    '0%': { backgroundPosition: '0% 50%' },
-    '100%': { backgroundPosition: '200% 50%' }
-  }
+  // The composer chips — a slash command, ultrathink, an @-mention, an
+  // attachment — are not styled here. A CodeMirror theme scopes every rule
+  // under the editor, and the transcript draws the same chips now, so they
+  // live in index.css where both surfaces can read them.
 })
 
 export default function MarkdownEditor({
