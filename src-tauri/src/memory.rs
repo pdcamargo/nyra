@@ -54,6 +54,12 @@ pub fn project_memory_dir(cwd: &str) -> PathBuf {
 }
 
 /// Pull `description:` and `type:` out of a memory file's YAML frontmatter.
+///
+/// Lines are trimmed before the key is read, because the memory format nests
+/// `type:` under `metadata:` — matching at the margin found the description and
+/// nothing else, which is why the memory tab showed no type badges. The key is
+/// compared whole so `node_type:`, which sits directly above it, is not taken
+/// for it. Quotes come off the description: they are YAML's, not the author's.
 pub fn parse_frontmatter(content: &str) -> (String, Option<String>) {
     let Some(rest) = content.strip_prefix("---\n") else {
         return (String::new(), None);
@@ -66,16 +72,31 @@ pub fn parse_frontmatter(content: &str) -> (String, Option<String>) {
     let mut description = String::new();
     let mut memory_type = None;
     for line in yaml.lines() {
-        if let Some(v) = line.strip_prefix("description:") {
-            description = v.trim().to_string();
-        } else if let Some(v) = line.strip_prefix("type:") {
-            let raw = v.trim().to_lowercase();
-            if matches!(raw.as_str(), "user" | "feedback" | "project" | "reference") {
-                memory_type = Some(raw);
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match key.trim() {
+            "description" => description = unquote(value).to_string(),
+            "type" => {
+                let raw = value.to_lowercase();
+                if matches!(raw.as_str(), "user" | "feedback" | "project" | "reference") {
+                    memory_type = Some(raw);
+                }
             }
+            _ => {}
         }
     }
     (description, memory_type)
+}
+
+fn unquote(value: &str) -> &str {
+    for q in ['"', '\''] {
+        if value.len() >= 2 && value.starts_with(q) && value.ends_with(q) {
+            return &value[1..value.len() - 1];
+        }
+    }
+    value
 }
 
 async fn build_memory_file(
@@ -261,6 +282,15 @@ mod tests {
         let (d, t) = parse_frontmatter("---\nname: x\ndescription: Hello there\ntype: feedback\n---\n\nbody");
         assert_eq!(d, "Hello there");
         assert_eq!(t.as_deref(), Some("feedback"));
+    }
+
+    #[test]
+    fn reads_a_type_nested_under_metadata() {
+        let (d, t) = parse_frontmatter(
+            "---\nname: x\ndescription: \"Quoted, with a comma\"\nmetadata:\n  node_type: memory\n  type: project\n---\n\nbody",
+        );
+        assert_eq!(d, "Quoted, with a comma");
+        assert_eq!(t.as_deref(), Some("project"));
     }
 
     #[test]

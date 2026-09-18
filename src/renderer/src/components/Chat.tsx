@@ -15,6 +15,8 @@ import { extractAskBlocks } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
 import { extractChangeBlocks } from '../lib/changeBlocks'
 import ChangesCard from './ChangesCard'
+import { isMemoryWrite, memoryWriteFrom, type MemoryWrite } from '../lib/memoryWrites'
+import MemoryChip from './MemoryChip'
 import { formatMessageTime } from '../lib/messageTime'
 import { extractPlan } from '../utils/permission'
 import ToolCallGroup from './ToolCallGroup'
@@ -280,6 +282,7 @@ export default function Chat(): React.JSX.Element {
     | { kind: 'separator'; label: string }
     | { kind: 'message'; msg: Message; idx: number }
     | { kind: 'tool_group'; messages: ToolCallMessage[]; firstId: string }
+    | { kind: 'memory'; writes: MemoryWrite[]; firstId: string }
     | { kind: 'loading' }
 
   const virtualItems = useMemo((): VirtualItem[] => {
@@ -305,6 +308,16 @@ export default function Chat(): React.JSX.Element {
       // Group consecutive tool_call messages
       if (msg.role === 'tool_call') {
         const tc = msg as ToolCallMessage
+        // Writing a memory is one event even though it is two writes — the
+        // memory, then its pointer line in MEMORY.md — so consecutive ones
+        // collect into a single card rather than announcing the bookkeeping.
+        const memory = isMemoryWrite(tc) ? memoryWriteFrom(tc) : null
+        if (memory) {
+          const last = items[items.length - 1]
+          if (last?.kind === 'memory') last.writes.push(memory)
+          else items.push({ kind: 'memory', writes: [memory], firstId: tc.id })
+          continue
+        }
         // Anything the user has to read or answer stands alone. Folded into a
         // run of tool calls it becomes "1 other tool" inside a collapsed strip,
         // which is exactly where the plan card went missing.
@@ -344,6 +357,7 @@ export default function Chat(): React.JSX.Element {
       if (item.kind === 'separator') return `sep-${index}`
       if (item.kind === 'loading') return 'loading'
       if (item.kind === 'tool_group') return `tg-${item.firstId}`
+      if (item.kind === 'memory') return `mem-${item.firstId}`
       return item.msg.id
     },
   })
@@ -1642,6 +1656,19 @@ export default function Chat(): React.JSX.Element {
                         </div>
                       )}
                     </div>
+                  </div>
+                )
+              }
+
+              if (item.kind === 'memory') {
+                return (
+                  <div
+                    key={vItem.key}
+                    data-index={vItem.index}
+                    ref={virtualizer.measureElement}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                  >
+                    <MemoryChip writes={item.writes} />
                   </div>
                 )
               }
