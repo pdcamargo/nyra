@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.0.6',
+    date: '2026-09-18',
     notes: [
       'A new chat takes the title Claude gives it, instead of keeping the first line you typed',
       'Rename a chat yourself and it stays renamed',
