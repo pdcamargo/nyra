@@ -193,6 +193,64 @@ describe('Sessions Store', () => {
     })
   })
 
+  describe('applyAiTitle', () => {
+    it('replaces the title derived from the first message', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().addMessage(id, {
+        id: 'msg-1',
+        role: 'user',
+        text: 'Fix the authentication bug in the login form please'
+      })
+      useSessionsStore.getState().applyAiTitle(id, 'Login form auth bug')
+      expect(session(id).title).toBe('Login form auth bug')
+    })
+
+    it('keeps up with a title Claude revises', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().applyAiTitle(id, 'First guess')
+      useSessionsStore.getState().applyAiTitle(id, 'Second thoughts')
+      expect(session(id).title).toBe('Second thoughts')
+    })
+
+    it('never overwrites a name the user typed', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().renameSession(id, 'Mine')
+      useSessionsStore.getState().applyAiTitle(id, 'Claude knows better')
+      expect(session(id).title).toBe('Mine')
+    })
+
+    it('leaves a fork wearing its fork suffix', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().renameSession(id, 'Panel resizing')
+      const forkId = useSessionsStore.getState().forkSession(id)
+      useSessionsStore.getState().applyAiTitle(forkId, 'Panel resizing and persistence')
+      expect(session(forkId).title).toBe('Panel resizing – fork')
+    })
+
+    it('starts over on a cleared chat', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().renameSession(id, 'Mine')
+      useSessionsStore.getState().clearMessages(id)
+      useSessionsStore.getState().applyAiTitle(id, 'Whatever came next')
+      expect(session(id).title).toBe('Whatever came next')
+    })
+
+    it('ignores an empty title and an unknown chat', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().applyAiTitle(id, '   ')
+      useSessionsStore.getState().applyAiTitle('nope', 'Somewhere else')
+      expect(session(id).title).toBe('New session')
+    })
+
+    it('does not rebuild the session list for a title that has not changed', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().applyAiTitle(id, 'Settled')
+      const before = useSessionsStore.getState().sessions
+      useSessionsStore.getState().applyAiTitle(id, 'Settled')
+      expect(useSessionsStore.getState().sessions).toBe(before)
+    })
+  })
+
   describe('forkSession', () => {
     it('creates a forked session with copied messages and null claudeSessionId', () => {
       const id = createTestSession()

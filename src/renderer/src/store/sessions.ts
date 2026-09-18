@@ -177,6 +177,9 @@ export type Session = {
   autoCompacted?: boolean
   pendingAutoCompact?: boolean
   forkOf?: { sessionId: string; messageId: string; title: string }
+  /** The title was chosen deliberately — renamed by hand, or derived for a fork
+   *  — so the one Claude generates must not take it away again. */
+  titleManual?: boolean
   favorite?: boolean
   /** Manual sort position within Pinned (lower = higher up). Decoupled from recency. */
   favoriteOrder?: number
@@ -253,6 +256,7 @@ type SessionsStore = {
   clearMessages: (sessionId: string) => void
   restartSession: (sessionId: string) => void
   renameSession: (sessionId: string, title: string) => void
+  applyAiTitle: (sessionId: string, title: string) => void
   toggleFavorite: (sessionId: string) => void
   reorderFavorites: (orderedIds: string[]) => void
   deleteSession: (sessionId: string) => void
@@ -509,7 +513,7 @@ export const useSessionsStore = create<SessionsStore>()(
       clearMessages: (sessionId: string) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === sessionId ? { ...s, messages: [], tasks: [], agents: [], usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }, title: 'New session', autoCompacted: false, pendingAutoCompact: false } : s
+            s.id === sessionId ? { ...s, messages: [], tasks: [], agents: [], usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }, title: 'New session', titleManual: false, autoCompacted: false, pendingAutoCompact: false } : s
           )
         }))
       },
@@ -525,8 +529,31 @@ export const useSessionsStore = create<SessionsStore>()(
       renameSession: (sessionId: string, title: string) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === sessionId ? { ...s, title: title.trim() || s.title } : s
+            s.id === sessionId ? { ...s, title: title.trim() || s.title, titleManual: true } : s
           )
+        }))
+      },
+
+      /**
+       * The title Claude gave the conversation.
+       *
+       * A new chat is named after the first thing you typed into it, cut off
+       * mid-word at forty characters. The CLI writes a real title into the
+       * session transcript a few seconds later, and the Rust side reports it
+       * here — so the placeholder only has to hold for one turn.
+       *
+       * It keeps up with Claude's own later revisions, and stops the moment you
+       * rename the chat yourself: a name you typed is never overwritten.
+       */
+      applyAiTitle: (sessionId: string, title: string) => {
+        const next = title.trim().slice(0, 80)
+        if (!next) return
+        // Checked before `set`, because rebuilding the array re-renders every
+        // chat row — and a title Claude has not changed arrives on every turn.
+        const current = get().sessions.find((s) => s.id === sessionId)
+        if (!current || current.titleManual || current.title === next) return
+        set((state) => ({
+          sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, title: next } : s))
         }))
       },
 
@@ -802,6 +829,9 @@ export const useSessionsStore = create<SessionsStore>()(
             id: newId,
             claudeSessionId: null,
             title: `${source.title.slice(0, 30)} – fork`,
+            // Ours, not a placeholder: the suffix is the only thing on screen
+            // that says this chat is a fork, so Claude's title must not eat it.
+            titleManual: true,
             cwd: source.cwd,
             // A fork belongs to the same project as its source. Without this it
             // would drop into Recents and look lost.

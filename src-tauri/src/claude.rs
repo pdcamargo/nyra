@@ -25,6 +25,7 @@ use tokio::process::{ChildStdin, Command};
 use tokio::sync::oneshot;
 use tokio::sync::Mutex as AsyncMutex;
 
+use crate::ai_title;
 use crate::notify_user::notify;
 use crate::processes;
 use crate::settings::SpawnSettings;
@@ -278,7 +279,7 @@ fn get_session(id: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().get(id).cloned()
 }
 
-fn emit_event(nyra_session_id: &str, mut extra: Value) {
+pub(crate) fn emit_event(nyra_session_id: &str, mut extra: Value) {
     if let Value::Object(map) = &mut extra {
         map.insert(
             "nyraSessionId".into(),
@@ -344,6 +345,7 @@ pub fn dispose_session(nyra_session_id: &str) {
     };
     kill_session_pty(&sess);
     USAGE_CALLBACKS.lock().remove(nyra_session_id);
+    ai_title::forget(nyra_session_id);
     fail_result_callback(nyra_session_id, "Session disposed");
 }
 
@@ -1226,6 +1228,13 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
         clip(&raw.to_string(), 600)
     );
 
+    // The CLI writes the title it generates into the transcript rather than onto
+    // stdout, so every line is worth this much: which file to go and read.
+    if let Some(claude_session_id) = raw.get("session_id").and_then(Value::as_str) {
+        let cwd = sess.inner.lock().cwd.clone();
+        crate::ai_title::observe(nyra_session_id, &cwd, claude_session_id);
+    }
+
     if event_type == "result" {
         let is_error = raw.get("is_error").and_then(Value::as_bool).unwrap_or(false);
         let should_retry = {
@@ -1255,6 +1264,7 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
                 .map(str::to_string);
             let _ = turn.send(Ok(session_id));
         }
+        crate::ai_title::turn_ended(nyra_session_id);
     }
 
     if event_type == "assistant" {

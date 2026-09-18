@@ -1,6 +1,7 @@
 //! Nyra — a desktop GUI for Claude Code, on Tauri.
 
 mod updates;
+mod ai_title;
 mod browser;
 mod claude;
 mod commands;

@@ -63,6 +63,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'background_task_progress'; task_id: string; tool_use_id: string; activity: string; last_tool_name: string; subagent_type: string; duration_ms: number }
   | { type: 'plan_ready'; tool_id: string; path: string; plan: string }
   | { type: 'session_reset'; reason: string }
+  | { type: 'ai_title'; title: string }
   | { type: 'auth_required'; message: string }
 )
 
@@ -527,6 +528,11 @@ export default function Chat(): React.JSX.Element {
       // Route events to the session identified by nyraSessionId tag
       const sid = event.nyraSessionId ?? useSessionsStore.getState().activeSessionId
       if (!sid) return
+
+      if (event.type === 'ai_title') {
+        useSessionsStore.getState().applyAiTitle(sid, event.title)
+        return
+      }
 
       if (event.type === 'system' && event.subtype === 'init') {
         if (event.mcp_servers) {
