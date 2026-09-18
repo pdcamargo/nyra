@@ -2,6 +2,12 @@ import React, { useState } from 'react'
 import { ChevronDown, Globe, X } from 'lucide-react'
 import BrowserCanvas from './BrowserCanvas'
 import { EMPTY_BROWSER, useBrowserStore, type BrowserPhase } from '../../store/browser'
+import {
+  activeBrowserTabId,
+  browserKey,
+  useWorkspaceStore,
+  workspaceFor
+} from '../../store/workspace'
 import { useSessionsStore } from '../../store/sessions'
 import { useSettingsStore } from '../../store/settings'
 import { useUiStore } from '../../store/ui'
@@ -76,7 +82,7 @@ export function usePipVisible(): boolean {
 export default function BrowserPip(): React.JSX.Element | null {
   const sessionId = useSessionsStore((s) => s.activeSessionId)
   const chat = useBrowserStore((s) => (sessionId ? s.bySession[sessionId] : null) ?? EMPTY_BROWSER)
-  const setActiveTab = useBrowserStore((s) => s.setActiveTab)
+  const ws = useWorkspaceStore((s) => workspaceFor(s, sessionId))
   const dismissPip = useBrowserStore((s) => s.dismissPip)
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const visible = usePipVisible()
@@ -87,12 +93,13 @@ export default function BrowserPip(): React.JSX.Element | null {
   // One tab at a time by default. Five live miniatures cost 0.09 MB/s, so this
   // is about the conversation underneath rather than the frame budget — the
   // stack is a click away when you want to compare two pages.
-  const active = chat.tabs.find((t) => t.tabId === chat.activeTabId) ?? chat.tabs[0]
+  const shownId = activeBrowserTabId(ws)
+  const active = chat.tabs.find((t) => t.tabId === shownId) ?? chat.tabs[0]
   const shown = expanded ? chat.tabs : [active]
   const others = chat.tabs.length - 1
 
   const open = (tabId: string): void => {
-    setActiveTab(sessionId, tabId)
+    useWorkspaceStore.getState().selectTab(sessionId, browserKey(tabId))
     toggleRightPanel()
   }
 

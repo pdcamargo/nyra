@@ -5,6 +5,13 @@ import BrowserCanvas from './BrowserCanvas'
 import BrowserTabStrip from './BrowserTabStrip'
 import { displayUrl, toUrl } from './url'
 import { EMPTY_BROWSER, useBrowserStore } from '../../store/browser'
+import {
+  activeBrowserTabId,
+  browserKey,
+  syncSidecarTabs,
+  useWorkspaceStore,
+  workspaceFor
+} from '../../store/workspace'
 import { usePanelLayoutStore } from '../../store/panelLayout'
 import { useSessionsStore } from '../../store/sessions'
 
@@ -20,7 +27,10 @@ export default function BrowserPanel(): React.JSX.Element {
   const viewport = useBrowserStore((s) => s.viewport)
   const [busy, setBusy] = useState(false)
 
-  const activeTab = chat.tabs.find((t) => t.tabId === chat.activeTabId) ?? null
+  const ws = useWorkspaceStore((s) => workspaceFor(s, sessionId))
+  // Which tab is on screen is the strip's business, not the sidecar's.
+  const activeTabId = activeBrowserTabId(ws)
+  const activeTab = chat.tabs.find((t) => t.tabId === activeTabId) ?? null
 
   // Start the browser for whichever chat is on screen. The sidecar launches
   // Chromium on the first chat that asks and keeps it for the rest.
@@ -53,7 +63,7 @@ export default function BrowserPanel(): React.JSX.Element {
       // A browser with no tabs has nothing to show, so give it one rather than
       // making the first thing the panel says be "there is nothing here".
       if (listed.tabs.length === 0) await window.api.browser.tabCreate(sessionId, 'about:blank')
-      else store.setTabs(sessionId, listed.tabs)
+      else syncSidecarTabs(sessionId, listed.tabs)
     })()
 
     return () => {
@@ -129,8 +139,10 @@ export default function BrowserPanel(): React.JSX.Element {
     <div className="flex h-full min-h-0 flex-col">
       <BrowserTabStrip
         tabs={chat.tabs}
-        activeTabId={chat.activeTabId}
-        onSelect={(tabId) => useBrowserStore.getState().setActiveTab(sessionId, tabId)}
+        activeTabId={activeTabId}
+        onSelect={(tabId) =>
+          useWorkspaceStore.getState().selectTab(sessionId, browserKey(tabId))
+        }
         onClose={(tabId) => void window.api.browser.tabClose(sessionId, tabId)}
         onCreate={() => void window.api.browser.tabCreate(sessionId, 'about:blank')}
       />

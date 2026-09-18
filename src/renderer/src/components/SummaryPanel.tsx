@@ -3,6 +3,7 @@ import { FileDiff, GitBranch, Laptop, RotateCw, TerminalSquare } from 'lucide-re
 import { useSessionsStore, findProject, type TextMessage, type ToolCallMessage } from '../store/sessions'
 import { useUiStore } from '../store/ui'
 import { EMPTY_BROWSER, useBrowserStore } from '../store/browser'
+import { browserKey, useWorkspaceStore } from '../store/workspace'
 import { collectAttachments, formatSize } from '../lib/summary'
 import { useProcessesStore, type BgProcess } from '../store/processes'
 import Modal from './Modal'
@@ -124,7 +125,6 @@ export default function SummaryPanel(): React.JSX.Element | null {
   )
   const browser = useBrowserStore((s) => (session ? s.bySession[session.id] : null) ?? EMPTY_BROWSER)
   const dismissPip = useBrowserStore((s) => s.dismissPip)
-  const setActiveTab = useBrowserStore((s) => s.setActiveTab)
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const [stat, setStat] = useState<Stat | null>(null)
   const [projectBranch, setProjectBranch] = useState('')
@@ -328,7 +328,9 @@ export default function SummaryPanel(): React.JSX.Element | null {
               type="button"
               onClick={() => {
                 if (!session) return
-                setActiveTab(session.id, tab.tabId)
+                // Parks if the strip has not caught up yet, so this works
+                // whichever way the race goes.
+                useWorkspaceStore.getState().selectTab(session.id, browserKey(tab.tabId))
                 toggleRightPanel()
               }}
               title={tab.url}

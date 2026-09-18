@@ -9,6 +9,10 @@
  * One chat, one `BrowserContext`, its own cookies and storage. Two chats
  * browsing at once are two independent browsers as far as either can tell, even
  * though there is one Chromium underneath.
+ *
+ * This is a mirror of what the sidecar says, and only that. Which tab is on
+ * screen is not something the sidecar knows, so it lives in `workspace.ts`
+ * alongside the file tabs the sidecar has never heard of.
  */
 import { create } from 'zustand'
 import type { BrowserTab } from '../lib/api-types'
@@ -27,7 +31,6 @@ export type ChatBrowser = {
   cursor: AgentCursor | null
   error: string | null
   tabs: BrowserTab[]
-  activeTabId: string | null
   /** Per chat, and deliberately not persisted: dismissing the miniature hides
    *  a browser that will not be there after a restart anyway. */
   pipDismissed: boolean
@@ -38,7 +41,6 @@ export const EMPTY_BROWSER: ChatBrowser = {
   cursor: null,
   error: null,
   tabs: [],
-  activeTabId: null,
   pipDismissed: false
 }
 
@@ -51,7 +53,6 @@ type BrowserStore = {
   install: { percent: number; totalMb: number } | null
   setPhase: (sessionId: string, phase: BrowserPhase, error?: string | null) => void
   setTabs: (sessionId: string, tabs: BrowserTab[]) => void
-  setActiveTab: (sessionId: string, tabId: string | null) => void
   setEndpoint: (cdpUrl: string | null, viewport?: { width: number; height: number }) => void
   setCursor: (sessionId: string, cursor: AgentCursor) => void
   setInstall: (install: { percent: number; totalMb: number } | null) => void
@@ -80,16 +81,10 @@ export const useBrowserStore = create<BrowserStore>()((set) => ({
   install: null,
   setPhase: (sessionId, phase, error = null) =>
     set((s) => patch(s, sessionId, { phase, error })),
-  setTabs: (sessionId, tabs) =>
-    set((s) => {
-      const current = s.bySession[sessionId] ?? EMPTY_BROWSER
-      // Keep the selection pointing at something that still exists, and follow
-      // the agent when it opens a tab into an empty strip.
-      const activeTabId =
-        tabs.find((t) => t.tabId === current.activeTabId)?.tabId ?? tabs[0]?.tabId ?? null
-      return patch(s, sessionId, { tabs, activeTabId })
-    }),
-  setActiveTab: (sessionId, activeTabId) => set((s) => patch(s, sessionId, { activeTabId })),
+  // A mirror write and nothing more. Selection used to be computed here, which
+  // made the sidecar's list the only thing that could decide what you were
+  // looking at — see `workspace.ts`, which owns that now.
+  setTabs: (sessionId, tabs) => set((s) => patch(s, sessionId, { tabs })),
   setEndpoint: (cdpUrl, viewport) =>
     set((s) => ({ cdpUrl, viewport: viewport ?? s.viewport })),
   setCursor: (sessionId, cursor) => set((s) => patch(s, sessionId, { cursor })),
@@ -108,7 +103,7 @@ export const useBrowserStore = create<BrowserStore>()((set) => ({
       bySession: Object.fromEntries(
         Object.entries(s.bySession).map(([id, chat]) => [
           id,
-          { ...chat, phase: 'off' as const, tabs: [], activeTabId: null }
+          { ...chat, phase: 'off' as const, tabs: [] }
         ])
       )
     }))

@@ -20,6 +20,7 @@ import { useWorkflowStore } from './store/workflow'
 import { useProcessesStore, type BgProcess } from './store/processes'
 import { applySessionPanels, useUiStore } from './store/ui'
 import { dropBrowserHub, useBrowserStore } from './store/browser'
+import { syncBrowserGone, syncSidecarTabs, useWorkspaceStore } from './store/workspace'
 import { handleBinding, usePanelLayoutStore } from './store/panelLayout'
 import { usePanelSizesStore } from './store/panelSizes'
 
@@ -65,7 +66,15 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     // Rehydrate first: the synchronous half of the projects backfill runs inside
     // the store's merge, and the git-dependent half has to follow it.
-    void Promise.resolve(useSessionsStore.persist.rehydrate()).then(attachWorktreeSessions)
+    void Promise.resolve(useSessionsStore.persist.rehydrate())
+      .then(attachWorktreeSessions)
+      .then(() => {
+        // The workspace store keeps file tabs per chat and hydrates on its own,
+        // so it can be holding rows for chats this one no longer has. Pruned
+        // here rather than on write, because only now is the session list real.
+        const ids = useSessionsStore.getState().sessions.map((x) => x.id)
+        useWorkspaceStore.getState().prune(ids)
+      })
     void primeHomedir()
   }, [])
 
@@ -144,14 +153,14 @@ export default function App(): React.JSX.Element {
       const store = useBrowserStore.getState()
       switch (event.event) {
         case 'tabs':
-          store.setTabs(event.params.chatId, event.params.tabs)
+          syncSidecarTabs(event.params.chatId, event.params.tabs)
           break
         case 'browser':
           if (event.params.state === 'ready' && event.params.cdpUrl) {
             store.setEndpoint(event.params.cdpUrl)
           } else if (event.params.state === 'gone') {
             dropBrowserHub()
-            store.browserGone()
+            syncBrowserGone()
           }
           break
         case 'install':
@@ -173,11 +182,11 @@ export default function App(): React.JSX.Element {
           // The context is gone but the chat is not; it starts again on the
           // next look.
           store.setPhase(event.params.chatId, 'off')
-          store.setTabs(event.params.chatId, [])
+          syncSidecarTabs(event.params.chatId, [])
           break
         case 'exit':
           dropBrowserHub()
-          store.browserGone()
+          syncBrowserGone()
           break
       }
     })

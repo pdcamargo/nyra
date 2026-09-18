@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { createIdbStorage } from './idbStorage'
 import { useRunningStore } from './running'
 import { useBrowserStore } from './browser'
+import { useWorkspaceStore } from './workspace'
 import { backfillProjects, nameForPath } from './projects-migration'
 import { homedir } from '../lib/homedir'
 import { useTerminalsStore } from './terminals'
@@ -574,6 +575,9 @@ export const useSessionsStore = create<SessionsStore>()(
         // chat must not keep one alive with nothing left to show it in.
         try { window.api.browser.closeChat(sessionId) } catch { /* ignore */ }
         useBrowserStore.getState().forget(sessionId)
+        // And its side-panel tabs, which outlive the browser and would otherwise
+        // be restored forever for a chat that is gone.
+        useWorkspaceStore.getState().forget(sessionId)
         // Take the chat's managed worktree with it, snapshotting first — a
         // permanent one is shared with other chats and stays put. Fire-and-forget
         // so deleting a chat never blocks on git.
