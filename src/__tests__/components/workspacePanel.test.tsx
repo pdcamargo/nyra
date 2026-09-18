@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import WorkspacePanel from '@renderer/components/workspace/WorkspacePanel'
 import WorkspaceTabStrip from '@renderer/components/workspace/WorkspaceTabStrip'
@@ -151,8 +151,9 @@ describe('WorkspacePanel', () => {
 
     render(<WorkspacePanel />)
 
-    expect(screen.getByRole('tablist')).toBeInTheDocument()
-    expect(screen.getByText('a.ts')).toBeInTheDocument()
+    // Scoped to the strip: the breadcrumb says the file's name too.
+    const strip = screen.getByRole('tablist')
+    expect(within(strip).getByRole('tab', { name: /a\.ts/ })).toBeInTheDocument()
   })
 
   it('offers the download when something asked for a browser and there is none', () => {

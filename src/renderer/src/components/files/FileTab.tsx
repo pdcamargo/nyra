@@ -1,31 +1,125 @@
-import React from 'react'
-import { FileText } from 'lucide-react'
-import Empty from '../workspace/Empty'
-import type { FileWorkspaceTab } from '../../store/workspace'
-
 /**
- * One file tab: a preview on the left, a tree on the right.
+ * One file tab: the file on the left, the tree on the right.
  *
- * Both halves land in the next step; for now it is the empty state, which is
- * what the tab shows until a file is picked anyway.
+ * The tree's open state and width are per chat rather than per tab — two file
+ * tabs in one conversation disagreeing about whether the tree is open would
+ * read as a bug, not a feature.
  */
+import React from 'react'
+import { PanelRight } from 'lucide-react'
+import FileBreadcrumb from './FileBreadcrumb'
+import FilePreviewPane from './FilePreviewPane'
+import FileTree from './FileTree'
+import { clampTreeWidth, TREE_DEFAULT_WIDTH, treeFits } from './treeWidth'
+
+import ResizeHandle from '../ResizeHandle'
+import { usePanelLayoutStore } from '../../store/panelLayout'
+import { cwdForSession, useSessionsStore } from '../../store/sessions'
+import { useWorkspaceStore, workspaceFor, type FileWorkspaceTab } from '../../store/workspace'
+
 export default function FileTab({
-  sessionId: _sessionId,
+  sessionId,
   tab
 }: {
   sessionId: string
   tab: FileWorkspaceTab
 }): React.JSX.Element {
-  if (!tab.path) {
-    return (
-      <Empty>
-        <FileText className="mb-3 size-6 text-muted-foreground/50" />
-        <p className="mb-1 text-[12px] text-foreground">Open file</p>
-        <p className="max-w-[240px] text-[11px] leading-relaxed text-muted-foreground">
-          Select a file from the workspace tree.
-        </p>
-      </Empty>
-    )
+  // The chat's directory, which for a worktree chat is the worktree — not the
+  // project it was cut from, whose files are a different checkout.
+  const root = useSessionsStore((s) => cwdForSession(s, sessionId))
+  const ws = useWorkspaceStore((s) => workspaceFor(s, sessionId))
+  const panelWidth = usePanelLayoutStore((s) => s.rightPanelWidth)
+
+  const fits = treeFits(panelWidth)
+  const showTree = ws.treeOpen && fits
+  const treeWidth = clampTreeWidth(ws.treeWidth ?? TREE_DEFAULT_WIDTH, panelWidth)
+
+  const openFile = (path: string, sameTab = true): void => {
+    const store = useWorkspaceStore.getState()
+    if (sameTab) store.setFilePath(sessionId, tab.id, path)
+    else store.openFileTab(sessionId, path)
   }
-  return <Empty>{tab.path}</Empty>
+
+  /** A folder picked from a breadcrumb: open it in the tree rather than in the
+   *  preview, which is the only thing a folder can mean here. */
+  const revealDir = (dir: string): void => {
+    const store = useWorkspaceStore.getState()
+    if (!workspaceFor(store, sessionId).treeExpanded.includes(dir)) {
+      store.toggleTreeDir(sessionId, dir)
+    }
+    if (!ws.treeOpen) store.setTreeOpen(sessionId, true)
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-1 border-b border-border/55">
+        <div className="min-w-0 flex-1">
+          {tab.path ? (
+            <FileBreadcrumb
+              root={root}
+              path={tab.path}
+              onOpenFile={openFile}
+              onRevealDir={revealDir}
+            />
+          ) : (
+            <p className="truncate px-2 py-1 text-[11px] text-muted-foreground/40">No file open</p>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="Toggle file tree"
+          aria-pressed={showTree}
+          disabled={!fits}
+          title={fits ? 'Toggle file tree' : 'The panel is too narrow for the tree'}
+          onClick={() => useWorkspaceStore.getState().setTreeOpen(sessionId, !ws.treeOpen)}
+          className={`mr-1.5 shrink-0 rounded p-1 transition-colors disabled:opacity-30 ${
+            showTree
+              ? 'bg-accent text-foreground'
+              : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+          }`}
+        >
+          <PanelRight className="size-3.5" />
+        </button>
+      </div>
+
+      <div className="flex min-h-0 flex-1">
+        <div className="min-w-0 flex-1">
+          <FilePreviewPane path={tab.path} />
+        </div>
+        {showTree && (
+          <>
+            <ResizeHandle
+              side="right"
+              label="Resize file tree"
+              getSize={() =>
+                clampTreeWidth(
+                  workspaceFor(useWorkspaceStore.getState(), sessionId).treeWidth ??
+                    TREE_DEFAULT_WIDTH,
+                  usePanelLayoutStore.getState().rightPanelWidth
+                )
+              }
+              clamp={(candidate) =>
+                clampTreeWidth(candidate, usePanelLayoutStore.getState().rightPanelWidth)
+              }
+              onSize={(px) => useWorkspaceStore.getState().setTreeWidth(sessionId, px)}
+              onReset={() => useWorkspaceStore.getState().setTreeWidth(sessionId, null)}
+            />
+            <aside
+              style={{ width: treeWidth }}
+              className="shrink-0 border-l border-border/55 bg-card"
+            >
+              <FileTree
+                sessionId={sessionId}
+                root={root}
+                selectedPath={tab.path}
+                expanded={ws.treeExpanded}
+                onOpen={(path) => openFile(path)}
+              />
+            </aside>
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
+
