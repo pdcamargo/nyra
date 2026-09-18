@@ -8,7 +8,19 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'The side panel holds files as well as pages, mixed in any order',
+      "Read a file from the chat's folder beside the conversation, with syntax highlighting",
+      'The file tree respects .gitignore, and a filter box searches the whole repo',
+      'Clicking a breadcrumb lists the files beside it, so you can switch without the tree',
+      'Right-click a file to open it in an editor you have installed, reveal it in Finder, copy its path, or add it to the chat',
+      'Edit a file outside Nyra and the preview follows',
+      'File paths in the conversation open in the panel instead of a modal',
+      'Cmd T opens a browser tab, Cmd P a file tab; both are rebindable in Settings',
+      'Drag a tab to reorder it',
+      'Opening the panel no longer starts a browser; it waits until you ask for one',
+      'File tabs come back when you reopen Nyra'
+    ]
   },
   {
     version: '0.0.3',
