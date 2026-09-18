@@ -154,6 +154,8 @@ pub fn run() {
             commands::git_worktree_create_managed,
             commands::git_worktree_list,
             commands::git_diff_stat,
+            commands::git_diff_files,
+            commands::git_diff_patch,
             commands::git_worktree_snapshot,
             commands::git_worktree_restore,
             commands::git_snapshot_exists,

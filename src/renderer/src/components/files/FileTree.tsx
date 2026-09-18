@@ -13,6 +13,7 @@ import { useWorkspaceStore } from '../../store/workspace'
 import FileRowMenu from './FileRowMenu'
 import { basenameOf } from './paths'
 import type { DirEntryInfo, DirListing } from '../../lib/api-types'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
 type Listings = Record<string, DirListing | 'loading'>
 
@@ -98,15 +99,19 @@ export default function FileTree({
         <span className="truncate text-[10px] font-medium uppercase tracking-widest text-muted-foreground/70">
           Files
         </span>
-        <button
-          type="button"
-          aria-label="Refresh tree"
-          title="Refresh"
-          onClick={refresh}
-          className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-        >
-          <RefreshCw className="size-3" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="Refresh tree"
+              onClick={refresh}
+              className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+            >
+              <RefreshCw className="size-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Refresh</TooltipContent>
+        </Tooltip>
       </div>
       <div className="px-2 pb-1">
         <div className="flex items-center gap-1.5 rounded-md bg-muted/40 px-1.5 py-1 focus-within:bg-secondary">

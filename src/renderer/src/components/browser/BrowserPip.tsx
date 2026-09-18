@@ -8,6 +8,7 @@ import {
   useWorkspaceStore,
   workspaceFor
 } from '../../store/workspace'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { useSessionsStore } from '../../store/sessions'
 import { useSettingsStore } from '../../store/settings'
 import { useUiStore } from '../../store/ui'
@@ -120,16 +121,20 @@ export default function BrowserPip(): React.JSX.Element | null {
             <ChevronDown className={`size-2.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
           </button>
         )}
-        <button
-          // Codex ships a preview that cannot be reliably dismissed, and it is
-          // the single loudest complaint about their browser. This one closes.
-          aria-label="Hide browser preview"
-          title="Hide — bring it back from the Summary"
-          onClick={() => dismissPip(sessionId, true)}
-          className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <X className="size-3" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              // Codex ships a preview that cannot be reliably dismissed, and it is
+              // the single loudest complaint about their browser. This one closes.
+              aria-label="Hide browser preview"
+              onClick={() => dismissPip(sessionId, true)}
+              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Hide — bring it back from the Summary</TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="max-h-[46vh] space-y-px overflow-y-auto">

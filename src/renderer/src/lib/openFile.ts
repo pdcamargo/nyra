@@ -8,6 +8,8 @@
  */
 import { cwdForSession, useSessionsStore } from '../store/sessions'
 import { useUiStore } from '../store/ui'
+import { usePanelSizesStore } from '../store/panelSizes'
+import { useChangesStore, type ChangeScope } from '../store/changes'
 import {
   activeTab,
   tabKey,
@@ -15,6 +17,15 @@ import {
   workspaceFor
 } from '../store/workspace'
 import { resolvePath } from '../utils/paths'
+
+/**
+ * Wide enough for a diff.
+ *
+ * The panel ships at 256, and `treeFits` wants 280 — so at the default the tree
+ * can never appear and a code line is cut off around column 35. A row list reads
+ * fine that narrow; a diff does not. Opening the tab is the moment to fix that.
+ */
+export const CHANGES_MIN_WIDTH = 420
 
 /**
  * Show a file in the side panel.
@@ -49,4 +60,40 @@ export function openFileInPanel(filePath: string): void {
   }
 
   store.openFileTab(sessionId, absolute)
+}
+
+/**
+ * Show the repo's changes in the side panel.
+ *
+ * `focusPath` opens that file's row once the list arrives — a click on a card row
+ * in the transcript, which should land you on the diff rather than on a list you
+ * then have to search.
+ *
+ * `scope` is how a card stays honest: it passes the SHA it recorded, so the diff
+ * that opens is the one the card described even after the work is committed. A
+ * click from the summary passes nothing and gets the working tree.
+ */
+export function openChangesInPanel(opts?: {
+  scope?: ChangeScope
+  focusPath?: string
+}): void {
+  const sessions = useSessionsStore.getState()
+  const sessionId = sessions.activeSessionId
+  if (!sessionId) return
+
+  const changes = useChangesStore.getState()
+  if (opts?.scope) changes.setScope(sessionId, opts.scope)
+  if (opts?.focusPath) changes.focusFile(sessionId, opts.focusPath)
+
+  useUiStore.getState().setRightPanelOpen(true)
+
+  // Clamp up only. A width the user dragged to is a preference and survives;
+  // the shipped default is not one, and leaving it would make the first open of
+  // this tab look broken.
+  const sizes = usePanelSizesStore.getState()
+  if (sizes.rightPanelWidth < CHANGES_MIN_WIDTH) {
+    sizes.setSize('rightPanelWidth', CHANGES_MIN_WIDTH)
+  }
+
+  useWorkspaceStore.getState().openChangesTab(sessionId)
 }

@@ -43,7 +43,19 @@ export type NyraSettings = {
   uiFontSize: number
   /** The conversation's measure. */
   chatWidth: ChatWidth
+  /** How the Changes tab draws a patch. Preferences rather than per-chat state:
+   *  someone who reads diffs unified reads every diff unified. */
+  diffView: DiffViewMode
+  diffWrap: boolean
+  /** Passes `-w` to git. Unlike the other two this is not a rendering choice —
+   *  the library draws a patch that git already computed, so whitespace has to
+   *  be dropped when the patch is made, not when it is shown. */
+  diffIgnoreWhitespace: boolean
 }
+
+/** Side-by-side, or one column. `auto` picks by the panel's width, which is what
+ *  makes the default read well in a 420px panel and in a 1000px one. */
+export type DiffViewMode = 'auto' | 'unified' | 'split'
 
 /** How wide the conversation column is allowed to get. */
 export type ChatWidth = 'compact' | 'default' | 'wide' | 'full'
@@ -105,5 +117,8 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   codeFontWeight: 400,
   contentFontSize: 15,
   uiFontSize: 13,
-  chatWidth: 'wide'
+  chatWidth: 'wide',
+  diffView: 'auto',
+  diffWrap: false,
+  diffIgnoreWhitespace: false
 }

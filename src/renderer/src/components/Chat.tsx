@@ -13,6 +13,8 @@ import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
 import { extractAskBlocks } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
+import { extractChangeBlocks } from '../lib/changeBlocks'
+import ChangesCard from './ChangesCard'
 import { formatMessageTime } from '../lib/messageTime'
 import { extractPlan } from '../utils/permission'
 import ToolCallGroup from './ToolCallGroup'
@@ -23,7 +25,6 @@ import TaskStrip from './TaskStrip'
 import ActivityStrip from './ActivityStrip'
 import SettingsModal from './settings/SettingsModal'
 import { useChordLabel } from './ui/kbd'
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { COLUMN_OFFSET, columnVars } from '../lib/chatColumn'
 import StatsModal from './StatsModal'
 import CopyBlocksModal from './CopyBlocksModal'
@@ -41,6 +42,7 @@ import { useUiStore } from '../store/ui'
 import { useLoopsStore } from '../store/loops'
 import { BUILT_IN_COMMANDS } from '../data/commands'
 import { openFileInPanel } from '../lib/openFile'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const EMPTY_MESSAGES: Message[] = []
 const BOUNCE_DOTS = [0, 1, 2]
@@ -739,10 +741,18 @@ export default function Chat(): React.JSX.Element {
         // so it replaces what is there rather than adding to it.
         const withoutTasks = extractTaskBlocks(event.text)
         if (withoutTasks.tasks) foldOrSetTasks(sid, withoutTasks.tasks)
-        const { text, questions } = extractAskBlocks(withoutTasks.text)
-        if (text) {
+        // Before the ask block, so a reply that both summarises and asks keeps
+        // the summary attached to the prose rather than to the questionnaire.
+        const withoutChanges = extractChangeBlocks(withoutTasks.text)
+        const { text, questions } = extractAskBlocks(withoutChanges.text)
+        if (text || withoutChanges.changes) {
           streamedTextRef.current.add(sid)
-          addMessage(sid, { id: `${Date.now()}-${event.text.length}`, role: 'assistant', text })
+          addMessage(sid, {
+            id: `${Date.now()}-${event.text.length}`,
+            role: 'assistant',
+            text,
+            ...(withoutChanges.changes ? { changes: withoutChanges.changes } : {})
+          })
         }
         if (questions.length > 0) {
           streamedTextRef.current.add(sid)
@@ -1356,79 +1366,92 @@ export default function Chat(): React.JSX.Element {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-border/55 px-4 py-2">
         {/* CWD pill */}
-        <button
-          onClick={handlePickFolder}
-          className="flex items-center gap-2 rounded-md border border-border/55 bg-muted/40 hover:bg-accent/50 px-2.5 py-1 transition-colors min-w-0 max-w-[420px]"
-          title="Click to change project folder"
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full shrink-0 ${isLoading ? 'bg-warning animate-pulse' : 'bg-success/70'}`}
-          />
-          <span className="text-[11px] text-foreground/80 font-mono truncate">
-            {homedir && cwd.startsWith(homedir) ? '~' + cwd.slice(homedir.length) : cwd}
-          </span>
-          {activeSession?.branch && (
-            <>
-              <span className="h-3 w-px bg-border shrink-0" />
-              <span className={`flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
-                activeSession.worktree
-                  ? 'bg-success/15 text-success/70'
-                  : 'bg-info/10 text-info/70'
-              }`}>
-                <GitBranch className="size-2.5" />
-                {activeSession.branch}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={handlePickFolder}
+              className="flex items-center gap-2 rounded-md border border-border/55 bg-muted/40 hover:bg-accent/50 px-2.5 py-1 transition-colors min-w-0 max-w-[420px]"
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full shrink-0 ${isLoading ? 'bg-warning animate-pulse' : 'bg-success/70'}`}
+              />
+              <span className="text-[11px] text-foreground/80 font-mono truncate">
+                {homedir && cwd.startsWith(homedir) ? '~' + cwd.slice(homedir.length) : cwd}
               </span>
-            </>
-          )}
-          {activeSession?.worktree && (
-            <span className="text-[9px] font-semibold text-info/60 bg-info/10 px-1.5 py-0.5 rounded-sm shrink-0">
-              worktree
-            </span>
-          )}
-        </button>
+              {activeSession?.branch && (
+                <>
+                  <span className="h-3 w-px bg-border shrink-0" />
+                  <span className={`flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
+                    activeSession.worktree
+                      ? 'bg-success/15 text-success/70'
+                      : 'bg-info/10 text-info/70'
+                  }`}>
+                    <GitBranch className="size-2.5" />
+                    {activeSession.branch}
+                  </span>
+                </>
+              )}
+              {activeSession?.worktree && (
+                <span className="text-[9px] font-semibold text-info/60 bg-info/10 px-1.5 py-0.5 rounded-sm shrink-0">
+                  worktree
+                </span>
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Click to change project folder</TooltipContent>
+        </Tooltip>
 
         {/* Right zone: status chips, model pill, mode group, divider, utility group */}
         <div className="flex items-center gap-2 shrink-0">
           {activeSession?.worktree && !isLoading && (
             <>
-              <button
-                onClick={async () => {
-                  const wt = activeSession.worktree!
-                  // Pass the session's own cwd — the backend resolves the main
-                  // working tree from it. Deriving that path here is what made
-                  // this button merge the branch into itself and report success.
-                  const result = await window.api.git.worktreeMerge(activeSession.cwd, wt.branch)
-                  const store = useSessionsStore.getState()
-                  if (result.success) {
-                    store.addMessage(activeSession.id, { id: newMessageId(), role: 'assistant', text: `Merged **${wt.branch}** into **${result.into ?? 'the main branch'}**.` })
-                  } else {
-                    store.addMessage(activeSession.id, { id: newMessageId(), role: 'error', text: `Merge failed: ${result.error}` })
-                  }
-                }}
-                className="flex items-center gap-1 rounded-md border border-success/20 px-2 py-0.5 text-[11px] text-success/70 hover:bg-success/10 transition-colors"
-                title="Merge worktree branch into main"
-              >
-                <GitMerge className="size-3" />
-                Merge
-              </button>
-              <button
-                onClick={async () => {
-                  const wt = activeSession.worktree!
-                  const result = await window.api.git.worktreeRemove(activeSession.cwd, wt.path)
-                  const store = useSessionsStore.getState()
-                  if (!result.success) {
-                    // Keep the session: it is the only handle left on a worktree
-                    // that is still on disk.
-                    store.addMessage(activeSession.id, { id: newMessageId(), role: 'error', text: `Could not remove the worktree: ${result.error}` })
-                    return
-                  }
-                  store.deleteSession(activeSession.id)
-                }}
-                className="rounded-md border border-danger/20 px-1.5 py-0.5 text-danger/50 hover:text-danger/80 hover:bg-danger/10 transition-colors"
-                title="Remove worktree and delete session"
-              >
-                <Trash2 className="size-3" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={async () => {
+                      const wt = activeSession.worktree!
+                      // Pass the session's own cwd — the backend resolves the main
+                      // working tree from it. Deriving that path here is what made
+                      // this button merge the branch into itself and report success.
+                      const result = await window.api.git.worktreeMerge(activeSession.cwd, wt.branch)
+                      const store = useSessionsStore.getState()
+                      if (result.success) {
+                        store.addMessage(activeSession.id, { id: newMessageId(), role: 'assistant', text: `Merged **${wt.branch}** into **${result.into ?? 'the main branch'}**.` })
+                      } else {
+                        store.addMessage(activeSession.id, { id: newMessageId(), role: 'error', text: `Merge failed: ${result.error}` })
+                      }
+                    }}
+                    className="flex items-center gap-1 rounded-md border border-success/20 px-2 py-0.5 text-[11px] text-success/70 hover:bg-success/10 transition-colors"
+                  >
+                    <GitMerge className="size-3" />
+                    Merge
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Merge worktree branch into main</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={async () => {
+                      const wt = activeSession.worktree!
+                      const result = await window.api.git.worktreeRemove(activeSession.cwd, wt.path)
+                      const store = useSessionsStore.getState()
+                      if (!result.success) {
+                        // Keep the session: it is the only handle left on a worktree
+                        // that is still on disk.
+                        store.addMessage(activeSession.id, { id: newMessageId(), role: 'error', text: `Could not remove the worktree: ${result.error}` })
+                        return
+                      }
+                      store.deleteSession(activeSession.id)
+                    }}
+                    className="rounded-md border border-danger/20 px-1.5 py-0.5 text-danger/50 hover:text-danger/80 hover:bg-danger/10 transition-colors"
+                    aria-label="Remove worktree and delete session"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Remove worktree and delete session</TooltipContent>
+              </Tooltip>
             </>
           )}
           {usagePct >= 70 && (() => {
@@ -1436,18 +1459,22 @@ export default function Chat(): React.JSX.Element {
             const fmt = (n: number): string => n >= 1000 ? Math.round(n / 1000) + 'k' : String(n)
             const isRed = usagePct >= 90
             return (
-              <button
-                onClick={() => { if (!rightPanelOpen) onToggleRightPanel() }}
-                title={`Context usage: ${Math.round(usagePct)}%`}
-                className={`rounded-md border px-2 py-0.5 text-[11px] font-mono transition-colors flex items-center gap-1 ${
-                  isRed
-                    ? 'border-danger/40 bg-danger/10 text-danger animate-pulse'
-                    : 'border-warning/40 bg-warning/10 text-warning'
-                }`}
-              >
-                <TriangleAlert className="size-3" />
-                {fmt(total)}/{fmt(CONTEXT_LIMIT)}
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => { if (!rightPanelOpen) onToggleRightPanel() }}
+                    className={`rounded-md border px-2 py-0.5 text-[11px] font-mono transition-colors flex items-center gap-1 ${
+                      isRed
+                        ? 'border-danger/40 bg-danger/10 text-danger animate-pulse'
+                        : 'border-warning/40 bg-warning/10 text-warning'
+                    }`}
+                  >
+                    <TriangleAlert className="size-3" />
+                    {fmt(total)}/{fmt(CONTEXT_LIMIT)}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{`Context usage: ${Math.round(usagePct)}%`}</TooltipContent>
+              </Tooltip>
             )
           })()}
 
@@ -1875,22 +1902,32 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
       <div className="flex flex-col items-end group/msg">
         <div className="relative max-w-[85%] rounded-2xl bg-secondary px-4 py-2.5 text-secondary-foreground">
           {onEdit && (
-            <button
-              onClick={() => onEdit(textMsg.id, textMsg.text)}
-              className="absolute -left-8 top-2 rounded-md p-1 text-transparent transition-colors group-hover/msg:text-muted-foreground hover:text-foreground!"
-              title="Edit message"
-            >
-              <SquarePen className="size-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => onEdit(textMsg.id, textMsg.text)}
+                  className="absolute -left-8 top-2 rounded-md p-1 text-transparent transition-colors group-hover/msg:text-muted-foreground hover:text-foreground!"
+                  aria-label="Edit message"
+                >
+                  <SquarePen className="size-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Edit message</TooltipContent>
+            </Tooltip>
           )}
           {onFork && (
-            <button
-              onClick={() => onFork(textMsg.id)}
-              className="absolute -left-14 top-2 rounded-md p-1 text-transparent transition-colors group-hover/msg:text-muted-foreground hover:text-foreground!"
-              title="Fork from this message"
-            >
-              <GitFork className="size-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => onFork(textMsg.id)}
+                  className="absolute -left-14 top-2 rounded-md p-1 text-transparent transition-colors group-hover/msg:text-muted-foreground hover:text-foreground!"
+                  aria-label="Fork from this message"
+                >
+                  <GitFork className="size-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Fork from this message</TooltipContent>
+            </Tooltip>
           )}
           {textMsg.images && textMsg.images.length > 0 && (
             <div className="flex gap-2 flex-wrap mb-2">
@@ -1969,19 +2006,27 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
       <div ref={contentRef}>
         <MarkdownRenderer>{message.text}</MarkdownRenderer>
       </div>
+      {/* Outside `contentRef` on purpose: Copy yields the reply's prose, and a
+          table of line counts is not something you want in your clipboard. */}
+      {message.changes && <ChangesCard block={message.changes} />}
       {/* Actions sit under the reply, not floating beside its first line — a long
           answer's controls belong where you finish reading it. */}
       <div className="mt-1 flex opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
-        <button
-          onClick={copyText}
-          title="Copy response"
-          className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 text-c-md transition-colors hover:bg-accent/50 ${
-            copied ? 'text-success' : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-          {copied ? 'Copied' : 'Copy'}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={copyText}
+              className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 text-c-md transition-colors hover:bg-accent/50 ${
+                copied ? 'text-success' : 'text-muted-foreground hover:text-foreground'
+              }`}
+              aria-label="Copy response"
+            >
+              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Copy response</TooltipContent>
+        </Tooltip>
         {message.timestamp && (
           <span className="flex items-center px-1.5 text-c-md text-muted-foreground/60">
             {formatMessageTime(message.timestamp)}

@@ -1,5 +1,6 @@
+import type React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render as rtlRender, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import WorkspacePanel from '@renderer/components/workspace/WorkspacePanel'
 import WorkspaceTabStrip from '@renderer/components/workspace/WorkspaceTabStrip'
@@ -8,6 +9,12 @@ import { useSessionsStore } from '@renderer/store/sessions'
 import { useUiStore } from '@renderer/store/ui'
 import { browserKey, tabKey, useWorkspaceStore, type WorkspaceTab } from '@renderer/store/workspace'
 import type { BrowserTab } from '@renderer/lib/api-types'
+import { TooltipProvider } from '@renderer/components/ui/tooltip'
+
+/** The panel's buttons carry real tooltips now, and Radix requires the provider
+ *  App mounts at the root. Rendering a slice of the tree has to supply it. */
+const render = (ui: React.ReactElement): ReturnType<typeof rtlRender> =>
+  rtlRender(<TooltipProvider>{ui}</TooltipProvider>)
 
 const SID = 'chat-1'
 

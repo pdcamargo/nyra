@@ -10,11 +10,11 @@
  * Imported through a lazy boundary because this module pulls the monaco chunk.
  */
 import React from 'react'
-import { loader, Editor } from '@monaco-editor/react'
-import * as monaco from 'monaco-editor'
+import { Editor } from '@monaco-editor/react'
 import { useMonacoNyraTheme } from '../../hooks/useMonacoNyraTheme'
+import { installMonacoEnvironment } from '../../lib/monacoEnv'
 
-loader.config({ monaco })
+installMonacoEnvironment()
 
 export default function MonacoPreview({
   value,

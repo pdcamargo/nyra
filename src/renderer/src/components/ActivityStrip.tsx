@@ -3,6 +3,7 @@ import { Square } from 'lucide-react'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
 import { useSessionsStore } from '../store/sessions'
 import { useRunningStore } from '../store/running'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 /** `1m 24s`, or `14s` under a minute. Seconds only — this is a pulse, not a stopwatch. */
 export function formatElapsed(ms: number): string {
@@ -65,14 +66,19 @@ export default function ActivityStrip({
         <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
           {formatElapsed(now - execution.startedAt)}
         </span>
-        <button
-          type="button"
-          onClick={onStop}
-          title="Stop"
-          className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-        >
-          <Square className="size-3 fill-current" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onStop}
+              className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+              aria-label="Stop"
+            >
+              <Square className="size-3 fill-current" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Stop</TooltipContent>
+        </Tooltip>
       </div>
 
       {outstanding > 0 && (

@@ -1,6 +1,7 @@
 import React from 'react'
 import { FileText, Loader2, X } from 'lucide-react'
 import type { FileAttachment, ImageAttachment } from '../store/sessions'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 /** An attachment still being read, so the strip is never empty while you wait. */
 export type PendingAttachment = { id: string; name: string }
@@ -41,14 +42,18 @@ function Tile({
     <div className="group/tile relative size-24 shrink-0 overflow-hidden rounded-lg border border-border bg-background">
       {children}
       {onRemove && (
-        <button
-          onClick={onRemove}
-          aria-label={removeLabel}
-          title={removeLabel}
-          className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-background/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:text-foreground group-hover/tile:opacity-100 focus-visible:opacity-100"
-        >
-          <X className="size-3" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onRemove}
+              aria-label={removeLabel}
+              className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-background/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:text-foreground group-hover/tile:opacity-100 focus-visible:opacity-100"
+            >
+              <X className="size-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{removeLabel}</TooltipContent>
+        </Tooltip>
       )}
     </div>
   )

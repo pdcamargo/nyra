@@ -409,6 +409,22 @@ pub async fn git_diff_stat(cwd: String, base: Option<String>) -> Value {
 }
 
 #[tauri::command(rename_all = "camelCase")]
+pub async fn git_diff_files(cwd: String, base: Option<String>) -> Value {
+    git::diff_files(&cwd, base.as_deref()).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn git_diff_patch(
+    cwd: String,
+    base: Option<String>,
+    path: String,
+    untracked: bool,
+    ignore_whitespace: bool,
+) -> Value {
+    git::diff_patch(&cwd, base.as_deref(), &path, untracked, ignore_whitespace).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
 pub async fn git_worktree_snapshot(
     worktree_path: String,
     branch: String,

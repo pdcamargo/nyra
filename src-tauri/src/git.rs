@@ -444,21 +444,36 @@ pub async fn worktree_create_managed(
     }
 }
 
-/// Insertions and deletions for a chat's changes.
+/// What a diff is measured against.
 ///
 /// `base` empty compares the working tree against HEAD — the right question for a
 /// chat running in the main checkout. A worktree chat passes its base branch, and
 /// gets everything the branch has done since it diverged, working tree included.
-pub async fn diff_stat(cwd: &str, base: Option<&str>) -> Value {
-    let target = match base.filter(|b| !b.is_empty()) {
-        Some(base) => match git(cwd, &["merge-base", base, "HEAD"], 5000).await {
-            Ok(out) if out.status.success() => {
-                String::from_utf8_lossy(&out.stdout).trim().to_string()
-            }
-            _ => "HEAD".to_string(),
-        },
-        None => "HEAD".to_string(),
+/// A `nyra-changes` card passes the short SHA it recorded, so the diff it links to
+/// is still the one it described after the work has been committed.
+///
+/// Shared by all three diff commands: the rule for "what am I comparing to" must
+/// have exactly one copy, or the summary's numbers and the tab's rows drift apart.
+async fn diff_target(cwd: &str, base: Option<&str>) -> String {
+    let Some(base) = base.filter(|b| !b.is_empty()) else {
+        return "HEAD".to_string();
     };
+    match git(cwd, &["merge-base", base, "HEAD"], 5000).await {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        // A base that no longer resolves — rebased away, or a fresh clone. Falling
+        // back to HEAD is wrong here in a way that matters: it would silently show
+        // "what changed just now" under a card that promised something older. The
+        // caller checks `base_resolved` and says so instead.
+        _ => String::new(),
+    }
+}
+
+/// Insertions and deletions for a chat's changes.
+pub async fn diff_stat(cwd: &str, base: Option<&str>) -> Value {
+    let target = diff_target(cwd, base).await;
+    if target.is_empty() {
+        return json!({ "insertions": 0, "deletions": 0, "filesChanged": 0 });
+    }
 
     let Ok(out) = git(cwd, &["diff", "--shortstat", &target], 10_000).await else {
         return json!({ "insertions": 0, "deletions": 0, "filesChanged": 0 });
@@ -493,6 +508,164 @@ fn parse_shortstat(text: &str) -> Value {
     json!({ "filesChanged": files, "insertions": insertions, "deletions": deletions })
 }
 
+
+/// Untracked files, and how many lines each one adds.
+///
+/// `git diff` does not see them at all, which is why a brand new file Claude just
+/// wrote used to count as nothing. Counted by reading the file rather than by
+/// `git add -N`: intent-to-add would mutate the user's index behind their back,
+/// and this is a read-only surface.
+async fn untracked_files(cwd: &str) -> Vec<Value> {
+    let Ok(out) = git(cwd, &["ls-files", "--others", "--exclude-standard"], 10_000).await else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+
+    let root = std::path::Path::new(cwd);
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|p| !p.trim().is_empty())
+        // A repo with thousands of ignored-but-unlisted files should not turn one
+        // panel open into thousands of reads.
+        .take(500)
+        .map(|path| {
+            let full = root.join(path);
+            // Big files are reported without a count rather than slurped whole.
+            let insertions = match std::fs::metadata(&full) {
+                Ok(m) if m.len() <= 1_000_000 => std::fs::read(&full)
+                    .map(|b| b.iter().filter(|c| **c == b'\n').count() as u64)
+                    .unwrap_or(0),
+                _ => 0,
+            };
+            json!({
+                "path": path,
+                "status": "A",
+                "insertions": insertions,
+                "deletions": 0,
+                "untracked": true,
+            })
+        })
+        .collect()
+}
+
+/// One row per changed file: what the Changes tab lists before any patch is read.
+///
+/// Per-file and stat-only on purpose. A 400-file changeset must not ship every
+/// patch into the webview to draw a list — the body of each file arrives from
+/// `diff_patch` when its row is actually opened.
+pub async fn diff_files(cwd: &str, base: Option<&str>) -> Value {
+    let target = diff_target(cwd, base).await;
+    if target.is_empty() {
+        return json!({ "baseResolved": false, "files": [] });
+    }
+
+    // Status letters and line counts come from two different commands, so they are
+    // read separately and joined on the path.
+    let mut status: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if let Ok(out) = git(cwd, &["diff", "--name-status", &target], 15_000).await {
+        if out.status.success() {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                let mut parts = line.splitn(2, '\t');
+                let (Some(code), Some(path)) = (parts.next(), parts.next()) else {
+                    continue;
+                };
+                // A rename is `R096\told\tnew` — the row belongs to the new path.
+                let path = path.rsplit('\t').next().unwrap_or(path);
+                status.insert(
+                    path.to_string(),
+                    code.chars().next().unwrap_or('M').to_string(),
+                );
+            }
+        }
+    }
+
+    let Ok(out) = git(cwd, &["diff", "--numstat", &target], 15_000).await else {
+        return json!({ "baseResolved": true, "files": [] });
+    };
+    if !out.status.success() {
+        return json!({ "baseResolved": true, "files": [] });
+    }
+
+    let mut files: Vec<Value> = Vec::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let mut parts = line.splitn(3, '\t');
+        let (Some(add), Some(del), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        let path = path.rsplit(" => ").next().unwrap_or(path).to_string();
+        files.push(json!({
+            "status": status.get(&path).cloned().unwrap_or_else(|| "M".to_string()),
+            // `-` rather than a number means binary. Zeroes read as "no line
+            // changes", which is the truth for a binary file.
+            "insertions": add.parse::<u64>().unwrap_or(0),
+            "deletions": del.parse::<u64>().unwrap_or(0),
+            "binary": add == "-",
+            "untracked": false,
+            "path": path,
+        }));
+    }
+
+    // Only the working tree can have untracked files. Against a base ref the
+    // question is "what did this branch do", and an unsaved scratch file is not
+    // part of the answer.
+    if base.filter(|b| !b.is_empty()).is_none() {
+        files.extend(untracked_files(cwd).await);
+    }
+
+    json!({ "baseResolved": true, "files": files })
+}
+
+/// One file's unified patch.
+///
+/// Untracked files go through `--no-index` against `/dev/null`, which is the only
+/// way to get a real patch for something git has never seen.
+pub async fn diff_patch(
+    cwd: &str,
+    base: Option<&str>,
+    path: &str,
+    untracked: bool,
+    ignore_whitespace: bool,
+) -> Value {
+    // `-w` belongs here rather than in the renderer: the view draws a patch git
+    // already computed, so dropping whitespace is a property of making it.
+    let ws: &[&str] = if ignore_whitespace {
+        &["--ignore-all-space"]
+    } else {
+        &[]
+    };
+
+    if untracked {
+        let mut args = vec!["diff", "--no-index"];
+        args.extend_from_slice(ws);
+        args.extend_from_slice(&["--", "/dev/null", path]);
+        let out = git(cwd, &args, 20_000).await;
+        // `--no-index` exits 1 when the files differ, which is the normal case
+        // here — only a failure to run at all is an error.
+        return match out {
+            Ok(out) => json!({ "patch": String::from_utf8_lossy(&out.stdout) }),
+            Err(e) => json!({ "patch": "", "error": e }),
+        };
+    }
+
+    let target = diff_target(cwd, base).await;
+    if target.is_empty() {
+        return json!({ "patch": "", "error": "base no longer resolves" });
+    }
+
+    let mut args = vec!["diff"];
+    args.extend_from_slice(ws);
+    args.extend_from_slice(&[&target, "--", path]);
+    match git(cwd, &args, 20_000).await {
+        Ok(out) if out.status.success() => json!({ "patch": String::from_utf8_lossy(&out.stdout) }),
+        Ok(out) => json!({
+            "patch": "",
+            "error": String::from_utf8_lossy(&out.stderr).trim(),
+        }),
+        Err(e) => json!({ "patch": "", "error": e }),
+    }
+}
 
 /// Where a pruned worktree's work is parked so it can come back.
 pub fn snapshots_root() -> std::path::PathBuf {
@@ -927,4 +1100,135 @@ mod tests {
         assert!(!is_repo(plain.to_str().unwrap()).await);
         std::fs::remove_dir_all(&plain).ok();
     }
+
+    fn files_of(v: &Value) -> Vec<(String, u64, u64, bool)> {
+        v["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| {
+                (
+                    f["path"].as_str().unwrap().to_string(),
+                    f["insertions"].as_u64().unwrap(),
+                    f["deletions"].as_u64().unwrap(),
+                    f["untracked"].as_bool().unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn diff_files_reports_a_row_per_changed_file() {
+        let repo = TempRepo::new("diff-files");
+        std::fs::write(repo.path().join("README.md"), "base\nsecond\nthird\n").unwrap();
+        let cwd = repo.path().to_str().unwrap();
+
+        let files = files_of(&diff_files(cwd, None).await);
+        assert_eq!(files, vec![("README.md".to_string(), 2, 0, false)]);
+    }
+
+    /// The hole this feature was built around: `git diff` does not see a file it
+    /// has never been told about, so a brand new file used to count as nothing.
+    #[tokio::test]
+    async fn diff_files_counts_untracked_files() {
+        let repo = TempRepo::new("diff-untracked");
+        std::fs::write(repo.path().join("new.ts"), "a\nb\nc\n").unwrap();
+        let cwd = repo.path().to_str().unwrap();
+
+        let files = files_of(&diff_files(cwd, None).await);
+        assert_eq!(files, vec![("new.ts".to_string(), 3, 0, true)]);
+    }
+
+    /// And it must not do so by staging anything — the panel is read-only, and an
+    /// `add -N` behind the user's back would show up in their next `git status`.
+    #[tokio::test]
+    async fn diff_files_leaves_the_index_alone() {
+        let repo = TempRepo::new("diff-noindex");
+        std::fs::write(repo.path().join("new.ts"), "a\n").unwrap();
+        let cwd = repo.path().to_str().unwrap();
+
+        diff_files(cwd, None).await;
+
+        assert_eq!(repo.git(&["diff", "--cached", "--name-only"]), "");
+    }
+
+    #[tokio::test]
+    async fn diff_files_ignores_untracked_when_measured_against_a_base() {
+        let repo = TempRepo::new("diff-base-untracked");
+        let cwd = repo.path().to_str().unwrap();
+        repo.git(&["checkout", "-b", "work"]);
+        std::fs::write(repo.path().join("tracked.ts"), "x\n").unwrap();
+        repo.git(&["add", "."]);
+        repo.git(&["commit", "-m", "work"]);
+        std::fs::write(repo.path().join("scratch.txt"), "junk\n").unwrap();
+
+        let paths: Vec<String> = files_of(&diff_files(cwd, Some("main")).await)
+            .into_iter()
+            .map(|(p, _, _, _)| p)
+            .collect();
+
+        assert!(paths.contains(&"tracked.ts".to_string()));
+        assert!(!paths.contains(&"scratch.txt".to_string()));
+    }
+
+    /// A base that cannot be resolved must read as "I cannot answer", not as
+    /// "nothing changed" — the card links here, and an empty list under a card
+    /// promising a diff is exactly the Codex bug this design avoids.
+    #[tokio::test]
+    async fn an_unresolvable_base_is_reported_rather_than_read_as_empty() {
+        let repo = TempRepo::new("diff-badbase");
+        let cwd = repo.path().to_str().unwrap();
+
+        let result = diff_files(cwd, Some("deadbee")).await;
+
+        assert_eq!(result["baseResolved"], json!(false));
+        assert!(result["files"].as_array().unwrap().is_empty());
+        assert_eq!(diff_stat(cwd, Some("deadbee")).await["filesChanged"], json!(0));
+    }
+
+    #[tokio::test]
+    async fn diff_patch_returns_a_unified_patch() {
+        let repo = TempRepo::new("patch");
+        std::fs::write(repo.path().join("README.md"), "base\nadded\n").unwrap();
+        let cwd = repo.path().to_str().unwrap();
+
+        let patch = diff_patch(cwd, None, "README.md", false, false).await["patch"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        assert!(patch.contains("@@"), "no hunk header in: {patch}");
+        assert!(patch.contains("+added"));
+    }
+
+    #[tokio::test]
+    async fn diff_patch_handles_a_file_git_has_never_seen() {
+        let repo = TempRepo::new("patch-untracked");
+        std::fs::write(repo.path().join("new.ts"), "hello\n").unwrap();
+        let cwd = repo.path().to_str().unwrap();
+
+        let patch = diff_patch(cwd, None, "new.ts", true, false).await["patch"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        assert!(patch.contains("+hello"), "no added line in: {patch}");
+    }
+
+    #[tokio::test]
+    async fn a_path_with_spaces_survives_the_round_trip() {
+        let repo = TempRepo::new("patch-spaces");
+        std::fs::write(repo.path().join("my notes.md"), "hello\n").unwrap();
+        let cwd = repo.path().to_str().unwrap();
+
+        let files = files_of(&diff_files(cwd, None).await);
+        assert_eq!(files[0].0, "my notes.md");
+
+        let patch = diff_patch(cwd, None, "my notes.md", true, false).await["patch"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(patch.contains("+hello"));
+    }
+
 }

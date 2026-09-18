@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react'
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 interface Props {
   query: string
@@ -58,30 +59,45 @@ export default function InSessionSearchBar({
         </span>
       )}
       <div className="flex items-center gap-0.5">
-        <button
-          onClick={onPrev}
-          disabled={matchCount === 0}
-          className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground/80 disabled:opacity-25 transition-colors"
-          title="Previous (Shift+Enter)"
-        >
-          <ChevronUp className="size-3.5" />
-        </button>
-        <button
-          onClick={onNext}
-          disabled={matchCount === 0}
-          className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground/80 disabled:opacity-25 transition-colors"
-          title="Next (Enter)"
-        >
-          <ChevronDown className="size-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onPrev}
+              disabled={matchCount === 0}
+              className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground/80 disabled:opacity-25 transition-colors"
+              aria-label="Previous (Shift+Enter)"
+            >
+              <ChevronUp className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Previous (Shift+Enter)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onNext}
+              disabled={matchCount === 0}
+              className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground/80 disabled:opacity-25 transition-colors"
+              aria-label="Next (Enter)"
+            >
+              <ChevronDown className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Next (Enter)</TooltipContent>
+        </Tooltip>
       </div>
-      <button
-        onClick={onClose}
-        className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground/80 transition-colors"
-        title="Close (Esc)"
-      >
-        <X className="size-3.5" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={onClose}
+            className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground/80 transition-colors"
+            aria-label="Close (Esc)"
+          >
+            <X className="size-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Close (Esc)</TooltipContent>
+      </Tooltip>
     </div>
   )
 }

@@ -152,3 +152,27 @@ Object.defineProperty(globalThis, 'api', {
     login: { start: noop, input: noop, resize: noop, cancel: noop, onData: unsub, onExit: unsub }
   }
 })
+
+// Radix positions tooltips and popovers with a ResizeObserver, which jsdom does
+// not implement. Without this the observer throws mid-interaction and the click
+// it was measuring never lands — a failure that reads as "the button is broken"
+// rather than "the environment is missing an API".
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver
+
+// Radix also probes these before opening a floating layer. Guarded, because some
+// suites run in a node environment with no DOM at all.
+if (typeof Element !== 'undefined') {
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = (): boolean => false
+    Element.prototype.setPointerCapture = (): void => {}
+    Element.prototype.releasePointerCapture = (): void => {}
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = (): void => {}
+  }
+}

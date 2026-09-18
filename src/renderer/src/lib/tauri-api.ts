@@ -262,6 +262,22 @@ export const api = {
         cwd,
         base
       }),
+    diffFiles: (cwd: string, base: string | null) =>
+      call<import('./api-types').DiffFiles>('git_diff_files', { cwd, base }),
+    diffPatch: (
+      cwd: string,
+      base: string | null,
+      path: string,
+      untracked: boolean,
+      ignoreWhitespace = false
+    ) =>
+      call<{ patch: string; error?: string }>('git_diff_patch', {
+        cwd,
+        base,
+        path,
+        untracked,
+        ignoreWhitespace
+      }),
     worktreeSnapshot: (worktreePath: string, branch: string, sessionId: string) =>
       call<{ success: boolean; path?: string; error?: string }>('git_worktree_snapshot', {
         worktreePath,

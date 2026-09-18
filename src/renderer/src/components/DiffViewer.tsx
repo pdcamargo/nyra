@@ -1,17 +1,23 @@
+/**
+ * Two versions of a file, side by side.
+ *
+ * Used by the permission dialog and the tool card, where what is on offer is a
+ * pair of blobs — `Edit`'s old and new strings, or `Write`'s whole file — rather
+ * than a patch. `DiffFile.createInstance` covers exactly that case: given both
+ * contents and no hunks, it computes the diff itself.
+ *
+ * This was Monaco's `DiffEditor`. It moved so the app has one diff renderer
+ * rather than two that would drift in colour, font and wrapping — the Changes tab
+ * needs to draw real unified patches, which Monaco cannot do at all. Monaco
+ * itself stays, as the file preview and the two editors.
+ *
+ * The props are unchanged so the two call sites did not have to be.
+ */
 import React from 'react'
-import { loader, DiffEditor } from '@monaco-editor/react'
-import * as monaco from 'monaco-editor'
+import { DiffView, DiffFile, DiffModeEnum } from '@git-diff-view/react'
+import '@git-diff-view/react/styles/diff-view.css'
 import { detectLanguage } from '../utils/diff'
-import { useMonacoNyraTheme } from '../hooks/useMonacoNyraTheme'
-
-// Use local monaco-editor instead of CDN — the app's CSP blocks remote scripts.
-loader.config({ monaco })
-
-// Disable Monaco's built-in workers (we only use it for diffs, not editing)
-// This prevents the "ts.worker.js does not exist" warning from Vite
-self.MonacoEnvironment = {
-  getWorker: () => new Worker(URL.createObjectURL(new Blob([''], { type: 'text/javascript' })))
-}
+import { useResolvedTheme } from '../hooks/useResolvedTheme'
 
 export type DiffViewerProps = {
   filePath: string
@@ -28,52 +34,33 @@ export default function DiffViewer({
   height = 360,
   renderSideBySide = true
 }: DiffViewerProps): React.JSX.Element {
-  const { defined: themeDefined, theme } = useMonacoNyraTheme({ withDiff: true })
-  const language = detectLanguage(filePath)
+  const theme = useResolvedTheme()
   const fileName = filePath.split('/').pop() ?? filePath
+  const language = detectLanguage(filePath)
+
+  const diffFile = React.useMemo(() => {
+    const file = DiffFile.createInstance({
+      oldFile: { fileName, fileLang: language, content: original },
+      newFile: { fileName, fileLang: language, content: modified }
+    })
+    file.initRaw()
+    return file
+  }, [fileName, language, original, modified])
 
   return (
-    <div className="rounded-lg overflow-hidden border border-border/55">
-      {/* File path header */}
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/40 border-b border-border/55">
-        <span className="text-[10px] font-mono text-muted-foreground truncate">{fileName}</span>
-        <span className="text-[10px] text-muted-foreground/70 truncate ml-auto">{filePath}</span>
+    <div className="overflow-hidden rounded-lg border border-border/55">
+      <div className="flex items-center gap-2 border-b border-border/55 bg-muted/40 px-3 py-1.5">
+        <span className="truncate font-mono text-[10px] text-muted-foreground">{fileName}</span>
+        <span className="ml-auto truncate text-[10px] text-muted-foreground/70">{filePath}</span>
       </div>
-
-      {/* Monaco DiffEditor */}
-      <div style={{ height }}>
-        {themeDefined ? (
-          <DiffEditor
-            original={original}
-            modified={modified}
-            language={language}
-            theme={theme}
-            options={{
-              readOnly: true,
-              renderSideBySide,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              fontSize: 12,
-              lineNumbers: 'on',
-              folding: false,
-              glyphMargin: false,
-              lineDecorationsWidth: 0,
-              lineNumbersMinChars: 3,
-              renderOverviewRuler: false,
-              overviewRulerBorder: false,
-              scrollbar: {
-                vertical: 'auto',
-                horizontal: 'auto',
-                verticalScrollbarSize: 4,
-                horizontalScrollbarSize: 4
-              }
-            }}
-          />
-        ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground/70 text-xs">
-            Loading diff...
-          </div>
-        )}
+      <div style={{ maxHeight: height }} className="nyra-diff overflow-auto">
+        <DiffView
+          diffFile={diffFile}
+          diffViewMode={renderSideBySide ? DiffModeEnum.Split : DiffModeEnum.Unified}
+          diffViewTheme={theme}
+          diffViewHighlight
+          diffViewFontSize={12}
+        />
       </div>
     </div>
   )

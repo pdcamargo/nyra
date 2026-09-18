@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { useSessionsStore } from '../store/sessions'
 import { useProcessesStore, EMPTY_PROCESSES, type BgProcess } from '../store/processes'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 export default function ProcessesView(): React.JSX.Element {
   const activeSessionId = useSessionsStore((s) => s.activeSessionId)
@@ -97,20 +98,31 @@ function ProcessRow({ proc, sessionId }: { proc: BgProcess; sessionId: string })
         </span>
         <div className="shrink-0 w-[56px] flex justify-end">
           {isAlive ? (
-            <button
-              onClick={handleKill}
-              disabled={killing || proc.pid == null}
-              className="text-[10px] font-medium px-2 py-0.5 rounded-sm border border-danger/30 text-danger/70 hover:bg-danger/10 hover:border-danger/50 hover:text-danger transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              title={
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleKill}
+                  disabled={killing || proc.pid == null}
+                  className="text-[10px] font-medium px-2 py-0.5 rounded-sm border border-danger/30 text-danger/70 hover:bg-danger/10 hover:border-danger/50 hover:text-danger transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label={
                 proc.pid == null
                   ? proc.status === 'untracked'
                     ? "Couldn't match this shell to a process — Nyra can't kill it"
                     : 'PID not yet resolved'
                   : 'Send SIGTERM (then SIGKILL after 3s)'
               }
-            >
-              {killing ? 'Killing…' : 'Kill'}
-            </button>
+                >
+                  {killing ? 'Killing…' : 'Kill'}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{
+                proc.pid == null
+                  ? proc.status === 'untracked'
+                    ? "Couldn't match this shell to a process — Nyra can't kill it"
+                    : 'PID not yet resolved'
+                  : 'Send SIGTERM (then SIGKILL after 3s)'
+              }</TooltipContent>
+            </Tooltip>
           ) : null}
         </div>
       </div>

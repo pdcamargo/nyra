@@ -1,10 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, FileText, RefreshCw, Search } from 'lucide-react'
 import Editor from '@monaco-editor/react'
+import { installMonacoEnvironment } from '../lib/monacoEnv'
 import { useSessionsStore } from '../store/sessions'
 import { useUiStore } from '../store/ui'
 import { useMonacoNyraTheme } from '../hooks/useMonacoNyraTheme'
 import MarkdownRenderer from './MarkdownRenderer'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
+
+installMonacoEnvironment()
 
 const SOURCE_ORDER: MemorySource[] = ['project-memory', 'project-claude', 'global-claude', 'subagent-claude']
 const SOURCE_LABEL: Record<MemorySource, string> = {
@@ -134,13 +138,18 @@ export default function MemoryTab(): React.JSX.Element {
           placeholder="Search memories…"
           className="flex-1 bg-transparent text-[11px] text-foreground/80 placeholder:text-muted-foreground/70 outline-hidden font-mono"
         />
-        <button
-          onClick={refresh}
-          className="p-0.5 rounded-sm hover:bg-accent/50 text-muted-foreground/70 hover:text-muted-foreground"
-          title="Reload"
-        >
-          <RefreshCw className="size-3" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={refresh}
+              className="p-0.5 rounded-sm hover:bg-accent/50 text-muted-foreground/70 hover:text-muted-foreground"
+              aria-label="Reload"
+            >
+              <RefreshCw className="size-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Reload</TooltipContent>
+        </Tooltip>
       </div>
 
       {loading && files.length === 0 ? (
@@ -359,13 +368,18 @@ function MemoryEditor({
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2">
       <div className="flex items-center gap-1.5 px-3 pt-3 pb-2 border-b border-border/55">
-        <button
-          onClick={onBack}
-          className="p-0.5 rounded-sm hover:bg-accent/50 text-foreground/80 hover:text-foreground"
-          title="Back"
-        >
-          <ChevronLeft className="size-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onBack}
+              className="p-0.5 rounded-sm hover:bg-accent/50 text-foreground/80 hover:text-foreground"
+              aria-label="Back"
+            >
+              <ChevronLeft className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Back</TooltipContent>
+        </Tooltip>
         <span className="text-[11px] font-medium text-foreground truncate flex-1" title={file.filePath}>
           {headerLabel}
         </span>
@@ -393,13 +407,17 @@ function MemoryEditor({
         </div>
         <div className="flex items-center gap-1">
           {canDelete && (
-            <button
-              onClick={onDelete}
-              className="px-1.5 py-0.5 rounded-sm hover:bg-danger/10 text-muted-foreground/70 hover:text-danger text-[10px] font-medium transition-colors"
-              title="Delete memory"
-            >
-              Delete
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onDelete}
+                  className="px-1.5 py-0.5 rounded-sm hover:bg-danger/10 text-muted-foreground/70 hover:text-danger text-[10px] font-medium transition-colors"
+                >
+                  Delete
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Delete memory</TooltipContent>
+            </Tooltip>
           )}
           <button
             onClick={save}

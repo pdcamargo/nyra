@@ -8,12 +8,17 @@ import {
   workspaceFor,
   type FileWorkspaceTab
 } from '@renderer/store/workspace'
+import { openChangesInPanel, CHANGES_MIN_WIDTH } from '@renderer/lib/openFile'
+import { PANEL_DEFAULTS, usePanelSizesStore } from '@renderer/store/panelSizes'
+import { useChangesStore } from '@renderer/store/changes'
 
 const SID = 'chat-1'
 
 const ws = () => workspaceFor(useWorkspaceStore.getState(), SID)
 const paths = (): (string | null)[] =>
-  ws().tabs.map((t) => (t.kind === 'file' ? t.path : `browser:${t.tabId}`))
+  ws().tabs.map((t) =>
+    t.kind === 'file' ? t.path : t.kind === 'browser' ? `browser:${t.tabId}` : 'changes'
+  )
 
 beforeEach(() => {
   useWorkspaceStore.setState({ bySession: {} })
@@ -78,5 +83,52 @@ describe('openFileInPanel', () => {
 
     expect(useUiStore.getState().rightPanelOpen).toBe(false)
     expect(ws().tabs).toEqual([])
+  })
+})
+
+describe('openChangesInPanel', () => {
+  beforeEach(() => {
+    usePanelSizesStore.setState({ rightPanelWidth: PANEL_DEFAULTS.rightPanelWidth })
+    useChangesStore.setState({ bySession: {} })
+  })
+
+  it('opens the panel and adds the changes tab', () => {
+    openChangesInPanel()
+
+    expect(useUiStore.getState().rightPanelOpen).toBe(true)
+    expect(paths()).toEqual(['changes'])
+  })
+
+  // The panel ships at 256 and `treeFits` wants 280, so at the default the tree
+  // can never appear and a code line is cut off around column 35.
+  it('widens a panel that is narrower than a diff needs', () => {
+    expect(PANEL_DEFAULTS.rightPanelWidth).toBeLessThan(CHANGES_MIN_WIDTH)
+
+    openChangesInPanel()
+
+    expect(usePanelSizesStore.getState().rightPanelWidth).toBe(CHANGES_MIN_WIDTH)
+  })
+
+  it('leaves a width the user dragged wider alone', () => {
+    usePanelSizesStore.setState({ rightPanelWidth: 900 })
+
+    openChangesInPanel()
+
+    expect(usePanelSizesStore.getState().rightPanelWidth).toBe(900)
+  })
+
+  it('carries a card’s base through, so the diff it opens is the one it described', () => {
+    openChangesInPanel({ scope: { kind: 'since', base: '50cb2a4' }, focusPath: 'src/a.ts' })
+
+    const changes = useChangesStore.getState().bySession[SID]
+    expect(changes.scope).toEqual({ kind: 'since', base: '50cb2a4' })
+    expect(changes.pendingFocus).toBe('src/a.ts')
+  })
+
+  it('reuses the row rather than opening a second one', () => {
+    openChangesInPanel()
+    openChangesInPanel()
+
+    expect(paths()).toEqual(['changes'])
   })
 })

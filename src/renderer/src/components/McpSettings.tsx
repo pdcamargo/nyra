@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Wrench } from 'lucide-react'
 import { useSessionsStore, type McpServerInfo, newMessageId } from '../store/sessions'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 type McpConfigEntry = {
   name: string
@@ -80,14 +81,18 @@ export default function McpSettings(): React.JSX.Element {
     <div>
       <div className="mb-2 flex items-center justify-end px-1">
         {failed > 0 && (
-          <button
-            onClick={handleReconnect}
-            className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 bg-info/10 hover:bg-info/20 transition-colors"
-            title="Restart session to reconnect MCP servers"
-          >
-            <RefreshCw className="size-2.5 text-info/70" />
-            <span className="text-[9px] font-medium text-info/70">Reconnect</span>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={handleReconnect}
+                className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 bg-info/10 hover:bg-info/20 transition-colors"
+              >
+                <RefreshCw className="size-2.5 text-info/70" />
+                <span className="text-[9px] font-medium text-info/70">Reconnect</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Restart session to reconnect MCP servers</TooltipContent>
+          </Tooltip>
         )}
       </div>
 

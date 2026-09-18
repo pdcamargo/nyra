@@ -2,6 +2,7 @@ import type React from 'react'
 import {
   ClipboardCopy,
   Eraser,
+  FileDiff,
   FileText,
   FolderPlus,
   Globe,
@@ -13,6 +14,7 @@ import {
   PanelRightOpen,
   Plus,
   Receipt,
+  RotateCw,
   Search,
   Settings,
   ShieldCheck,
@@ -25,9 +27,16 @@ import type { Chord } from '../lib/keys'
 import { useUiStore } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
-import { createSiblingSession, openFolderAsProject, useSessionsStore } from '../store/sessions'
+import {
+  createSiblingSession,
+  cwdForSession,
+  openFolderAsProject,
+  useSessionsStore
+} from '../store/sessions'
 import { useWorkspaceStore, workspaceFor } from '../store/workspace'
 import { startBrowserTab } from '../components/browser/useBrowserSession'
+import { openChangesInPanel } from '../lib/openFile'
+import { useChangesStore } from '../store/changes'
 
 /**
  * Everything the app can be asked to do, in one list.
@@ -57,6 +66,8 @@ export type CommandId =
   | 'panel.right'
   | 'panel.right.browser'
   | 'panel.right.file'
+  | 'panel.right.changes'
+  | 'panel.right.changes.refresh'
   | 'panel.right.tree'
   | 'panel.bottom'
   | 'panel.summary'
@@ -296,6 +307,34 @@ export const COMMANDS: Command[] = [
     icon: FileText,
     palette: true,
     run: () => void openWorkspaceTab('file')
+  },
+  {
+    id: 'panel.right.changes',
+    label: 'Open changes',
+    group: 'Panels',
+    // mod+shift+d: mod+d is the composer's own, and this is the diff.
+    defaultChord: 'mod+shift+d',
+    icon: FileDiff,
+    palette: true,
+    run: () => openChangesInPanel()
+  },
+  {
+    // Unbound by default — there is a button for it, and a refresh key that only
+    // works on one tab would be a surprise everywhere else.
+    id: 'panel.right.changes.refresh',
+    label: 'Refresh changes',
+    group: 'Panels',
+    defaultChord: null,
+    icon: RotateCw,
+    palette: true,
+    run: () => {
+      const sessionId = useSessionsStore.getState().activeSessionId
+      if (!sessionId) return
+      const state = useSessionsStore.getState()
+      void useChangesStore
+        .getState()
+        .refresh(sessionId, cwdForSession(state, sessionId))
+    }
   },
   {
     // Unbound by default — there is a button for it. Registered anyway so it can

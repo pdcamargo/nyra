@@ -172,6 +172,27 @@ export type FileEntry = {
 // Browser
 // ---------------------------------------------------------------------------
 
+/** One changed file, as `git_diff_files` reports it. Stat-only — the patch for a
+ *  row arrives from `git_diff_patch` when that row is opened. */
+export type ChangedFile = {
+  path: string
+  /** Git's status letter: A added, M modified, D deleted, R renamed. */
+  status: string
+  insertions: number
+  deletions: number
+  /** Git reported `-` for the counts; there are no lines to show. */
+  binary: boolean
+  /** Never seen by git, so its patch needs `--no-index`. */
+  untracked: boolean
+}
+
+export type DiffFiles = {
+  /** False when the base ref no longer exists — rebased away, or a fresh clone.
+   *  Distinct from "nothing changed", which the card must not render as. */
+  baseResolved: boolean
+  files: ChangedFile[]
+}
+
 /** One tab in one chat's browser, as the sidecar sees it. */
 export type BrowserTab = {
   tabId: string

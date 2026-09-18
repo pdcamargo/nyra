@@ -4,6 +4,7 @@ import MarkdownRenderer from './MarkdownRenderer'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { extractPlan } from '../utils/permission'
 import type { ToolCallMessage } from '../store/sessions'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 /**
  * What the user said about a plan.
@@ -146,24 +147,32 @@ export default function PlanCard({
           </button>
           {/* Two ways to say yes, as the CLI offers: approve the plan and keep
               the say over each edit, or hand that over too. */}
-          <button
-            type="button"
-            onClick={() => answer('approve')}
-            title="Leave plan mode. Each file change still asks."
-            className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-c-md font-medium text-foreground transition-colors hover:bg-accent/50"
-          >
-            <Check className="size-3.5" />
-            Approve
-          </button>
-          <button
-            type="button"
-            onClick={() => answer('approve-auto')}
-            title="Leave plan mode and stop asking about file changes, for this chat only."
-            className="flex items-center gap-1.5 rounded-md bg-success px-2.5 py-1 text-c-md font-medium text-success-foreground transition-opacity hover:opacity-85"
-          >
-            <Zap className="size-3.5" />
-            Approve &amp; auto-edit
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => answer('approve')}
+                className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-c-md font-medium text-foreground transition-colors hover:bg-accent/50"
+              >
+                <Check className="size-3.5" />
+                Approve
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Leave plan mode. Each file change still asks.</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => answer('approve-auto')}
+                className="flex items-center gap-1.5 rounded-md bg-success px-2.5 py-1 text-c-md font-medium text-success-foreground transition-opacity hover:opacity-85"
+              >
+                <Zap className="size-3.5" />
+                Approve &amp; auto-edit
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Leave plan mode and stop asking about file changes, for this chat only.</TooltipContent>
+          </Tooltip>
         </div>
       )}
 

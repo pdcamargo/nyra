@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import Modal from './Modal'
-import { loader, Editor } from '@monaco-editor/react'
-import * as monaco from 'monaco-editor'
+import { Editor } from '@monaco-editor/react'
+import { installMonacoEnvironment } from '../lib/monacoEnv'
 import { useSkillEditorStore } from '../store/skillEditor'
 import { useSessionsStore, activeProjectCwd } from '../store/sessions'
 import { homedir } from '../lib/homedir'
 import { useMonacoNyraTheme } from '../hooks/useMonacoNyraTheme'
 
-loader.config({ monaco })
+installMonacoEnvironment()
 
 const TEMPLATE = '# Skill Name\n\nInstructions for Claude when this skill is invoked...\n'
 

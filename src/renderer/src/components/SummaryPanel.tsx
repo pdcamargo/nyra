@@ -5,11 +5,14 @@ import { useUiStore } from '../store/ui'
 import { EMPTY_BROWSER, useBrowserStore } from '../store/browser'
 import { browserKey, useWorkspaceStore } from '../store/workspace'
 import { collectAttachments, formatSize } from '../lib/summary'
+import { openChangesInPanel } from '../lib/openFile'
+import { useChordLabel } from './ui/kbd'
 import { useProcessesStore, type BgProcess } from '../store/processes'
 import Modal from './Modal'
 import MarkdownRenderer from './MarkdownRenderer'
 import { cleanAgentReport } from '../lib/agentReport'
 import { formatElapsed } from './ActivityStrip'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 type Stat = { filesChanged: number; insertions: number; deletions: number }
 
@@ -126,6 +129,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const browser = useBrowserStore((s) => (session ? s.bySession[session.id] : null) ?? EMPTY_BROWSER)
   const dismissPip = useBrowserStore((s) => s.dismissPip)
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel)
+  const changesKeys = useChordLabel('panel.right.changes')
   const [stat, setStat] = useState<Stat | null>(null)
   const [projectBranch, setProjectBranch] = useState('')
 
@@ -198,31 +202,51 @@ export default function SummaryPanel(): React.JSX.Element | null {
       <Section
         label="Environment"
         action={
-          <button
-            onClick={refresh}
-            className="p-0.5 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
-            title="Refresh"
-          >
-            <RotateCw className="size-3" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              onClick={refresh}
+              aria-label="Refresh"
+              className="p-0.5 text-muted-foreground/70 transition-colors hover:text-foreground/80"
+            >
+              <RotateCw className="size-3" />
+            </TooltipTrigger>
+            <TooltipContent>Refresh</TooltipContent>
+          </Tooltip>
         }
       >
-        <Row
-          icon={
-            <FileDiff className="size-3.5" />
-          }
-          label="Changes"
-          trailing={
-            stat && (stat.insertions > 0 || stat.deletions > 0) ? (
-              <span className="text-[11px] font-mono shrink-0">
+        {/* The one row here that goes somewhere. It reported a number and left
+            you to find the diff yourself; now it opens it. The keycap is read
+            from the registry rather than written here, so it stays right after a
+            rebinding — same rule as the "+" menu. */}
+        <Tooltip>
+          <TooltipTrigger
+            onClick={() =>
+              openChangesInPanel({
+                scope: base ? { kind: 'branch', base } : { kind: 'worktree' }
+              })
+            }
+            aria-label="Open changes"
+            className="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+          >
+            <span className="shrink-0 text-muted-foreground/70">
+              <FileDiff className="size-3.5" />
+            </span>
+            <span className="flex-1 truncate text-[11px] text-foreground/80">Changes</span>
+            {stat && (stat.insertions > 0 || stat.deletions > 0) ? (
+              <span className="shrink-0 font-mono text-[11px]">
                 <span className="text-success/80">+{stat.insertions.toLocaleString()}</span>{' '}
                 <span className="text-danger/80">−{stat.deletions.toLocaleString()}</span>
               </span>
             ) : (
-              <span className="text-[11px] text-muted-foreground/40 shrink-0">{stat ? 'none' : '—'}</span>
-            )
-          }
-        />
+              <span className="shrink-0 text-[11px] text-muted-foreground/40">
+                {stat ? 'none' : '—'}
+              </span>
+            )}
+          </TooltipTrigger>
+          <TooltipContent>
+            {changesKeys ? `Open changes (${changesKeys})` : 'Open changes'}
+          </TooltipContent>
+        </Tooltip>
         <Row
           icon={
             <Laptop className="size-3.5" />
@@ -269,36 +293,40 @@ export default function SummaryPanel(): React.JSX.Element | null {
       {agents.length > 0 && (
         <Section label="Subagents">
           {agents.map((agent) => (
-            <button
-              key={agent.toolId}
-              type="button"
-              onClick={() => setOpenAgent(agent.toolId)}
-              title="Show what it reported"
-              className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
-            >
-              <span
-                className={`mt-1 size-1.5 shrink-0 rounded-full ${
-                  agent.status === 'running'
-                    ? 'bg-info animate-pulse'
-                    : agent.status === 'failed'
-                      ? 'bg-danger/60'
-                      : 'bg-success'
-                }`}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[11px] text-foreground/80">{agent.name}</span>
-                {agent.status === 'running' && agent.activity && (
-                  <span className="block truncate text-[10px] italic text-info/60">
-                    {agent.activity}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  key={agent.toolId}
+                  type="button"
+                  onClick={() => setOpenAgent(agent.toolId)}
+                  className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+                >
+                  <span
+                    className={`mt-1 size-1.5 shrink-0 rounded-full ${
+                      agent.status === 'running'
+                        ? 'bg-info animate-pulse'
+                        : agent.status === 'failed'
+                          ? 'bg-danger/60'
+                          : 'bg-success'
+                    }`}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] text-foreground/80">{agent.name}</span>
+                    {agent.status === 'running' && agent.activity && (
+                      <span className="block truncate text-[10px] italic text-info/60">
+                        {agent.activity}
+                      </span>
+                    )}
                   </span>
-                )}
-              </span>
-              {agent.durationMs != null && (
-                <span className="shrink-0 text-[10px] text-muted-foreground/40">
-                  {formatElapsed(agent.durationMs)}
-                </span>
-              )}
-            </button>
+                  {agent.durationMs != null && (
+                    <span className="shrink-0 text-[10px] text-muted-foreground/40">
+                      {formatElapsed(agent.durationMs)}
+                    </span>
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Show what it reported</TooltipContent>
+            </Tooltip>
           ))}
         </Section>
       )}

@@ -16,6 +16,7 @@ import {
   Position,
   BackgroundVariant
 } from '@xyflow/react'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import '@xyflow/react/dist/style.css'
 import { useWorkflowStore } from '../store/workflow'
 import { useSessionsStore, activeCwd } from '../store/sessions'
@@ -1403,13 +1404,17 @@ export default function WorkflowCanvas(): React.JSX.Element {
     <div className="flex flex-col h-full">
       {/* Toolbar */}
       <div className="h-[46px] bg-card border-b border-border/55 flex items-center px-3 gap-2 shrink-0">
-        <button
-          onClick={closeCanvas}
-          className="text-muted-foreground hover:text-foreground/80 text-sm shrink-0"
-          title="Back to workflow list"
-        >
-          ←
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={closeCanvas}
+              className="text-muted-foreground hover:text-foreground/80 text-sm shrink-0"
+            >
+              ←
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Back to workflow list</TooltipContent>
+        </Tooltip>
         <input
           value={currentWorkflow.name}
           onChange={(e) => updateCurrentWorkflow({ name: e.target.value })}
@@ -1475,13 +1480,17 @@ export default function WorkflowCanvas(): React.JSX.Element {
         <div className="flex-1 min-w-1" />
 
         {selectedNodeId && !isRunning && (
-          <button
-            onClick={deleteSelectedNode}
-            className="text-[10px] text-danger/70 bg-danger/10 px-2.5 py-1 rounded-sm hover:bg-danger/20 shrink-0"
-            title="Delete selected node"
-          >
-            Delete
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={deleteSelectedNode}
+                className="text-[10px] text-danger/70 bg-danger/10 px-2.5 py-1 rounded-sm hover:bg-danger/20 shrink-0"
+              >
+                Delete
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Delete selected node</TooltipContent>
+          </Tooltip>
         )}
 
         {/* Overflow menu: Import / Export */}
@@ -1773,18 +1782,22 @@ function OverflowMenu({
 
   return (
     <div ref={ref} className="relative shrink-0">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        disabled={disabled}
-        className={`text-[12px] w-7 h-7 rounded border flex items-center justify-center disabled:opacity-40 ${
-          open
-            ? 'text-foreground bg-accent border-border-strong'
-            : 'text-foreground/80 bg-muted/40 border-border hover:bg-accent'
-        }`}
-        title="More actions"
-      >
-        ⋯
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            disabled={disabled}
+            className={`text-[12px] w-7 h-7 rounded border flex items-center justify-center disabled:opacity-40 ${
+              open
+                ? 'text-foreground bg-accent border-border-strong'
+                : 'text-foreground/80 bg-muted/40 border-border hover:bg-accent'
+            }`}
+          >
+            ⋯
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>More actions</TooltipContent>
+      </Tooltip>
       {open && (
         <div className="absolute top-full right-0 mt-1 bg-sidebar border border-border-strong rounded-lg shadow-2xl z-20 w-[200px] py-1">
           <button
@@ -1836,22 +1849,30 @@ function RunButton({
   }
   return (
     <div ref={ref} className="relative shrink-0 flex items-stretch">
-      <button
-        onClick={() => onRun()}
-        disabled={disabled}
-        className="text-[10px] font-semibold text-success-foreground bg-success px-3 py-1 rounded-l hover:bg-success disabled:opacity-40"
-        title={currentCwd ? `Run on ${currentCwd}` : 'Run'}
-      >
-        ▶ Run
-      </button>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        disabled={disabled}
-        className="text-[10px] font-semibold text-success-foreground bg-success hover:bg-success/85 px-1.5 rounded-r border-l border-success/50 disabled:opacity-40"
-        title="Run on…"
-      >
-        ▾
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => onRun()}
+            disabled={disabled}
+            className="text-[10px] font-semibold text-success-foreground bg-success px-3 py-1 rounded-l hover:bg-success disabled:opacity-40"
+          >
+            ▶ Run
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{currentCwd ? `Run on ${currentCwd}` : 'Run'}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            disabled={disabled}
+            className="text-[10px] font-semibold text-success-foreground bg-success hover:bg-success/85 px-1.5 rounded-r border-l border-success/50 disabled:opacity-40"
+          >
+            ▾
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Run on…</TooltipContent>
+      </Tooltip>
       {open && (
         <div className="absolute top-full right-0 mt-1 bg-sidebar border border-border-strong rounded-lg shadow-2xl z-20 w-[280px] py-1">
           {currentCwd && (
@@ -3017,13 +3038,17 @@ function MarketplaceTab({
         >
           {state.loading ? 'Refreshing…' : 'Refresh'}
         </button>
-        <button
-          onClick={() => window.api.workflow.marketplaceOpen()}
-          className="text-[10px] text-foreground/80 hover:text-foreground px-2"
-          title="Open the marketplace repo on GitHub"
-        >
-          Open repo ↗
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => window.api.workflow.marketplaceOpen()}
+              className="text-[10px] text-foreground/80 hover:text-foreground px-2"
+            >
+              Open repo ↗
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Open the marketplace repo on GitHub</TooltipContent>
+        </Tooltip>
       </div>
 
       {state.error && (

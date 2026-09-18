@@ -40,7 +40,7 @@ export function CommandKbd({
 }
 
 /** The plain-text form, for a tooltip or an aria-label. */
-export function useChordLabel(id: CommandId): string {
+export function useChordLabel(id: CommandId | undefined): string {
   const chord = useChordFor(id)
   return chord ? formatChord(chord) : ''
 }

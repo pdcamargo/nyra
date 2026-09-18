@@ -7,6 +7,7 @@ import { useWorkspaceStore } from './workspace'
 import { backfillProjects, nameForPath } from './projects-migration'
 import { homedir } from '../lib/homedir'
 import { useTerminalsStore } from './terminals'
+import type { ChangeBlock } from '../lib/changeBlocks'
 
 type PersistedState = { sessions: Session[]; projects: Project[]; activeSessionId: string | null }
 
@@ -29,6 +30,10 @@ export type TextMessage = {
   timestamp?: number
   images?: ImageAttachment[]
   files?: FileAttachment[]
+  /** A `nyra-changes` block this reply carried. Stored with the message rather
+   *  than re-queried, so scrolling back shows what changed *then* — see
+   *  `changeBlocks.ts` for why that matters. */
+  changes?: ChangeBlock
 }
 
 export type ToolCallMessage = {

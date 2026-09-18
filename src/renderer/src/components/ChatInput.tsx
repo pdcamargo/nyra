@@ -17,6 +17,7 @@ import {
   toggleInlineMarker,
   type Edit
 } from '../lib/markdownEditing'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { CornerDownLeft, Trash2 } from 'lucide-react'
 import { useLoopsStore } from '../store/loops'
 import { compressImage } from '../utils/imageCompression'
@@ -835,17 +836,21 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
             <div key={i} className="group/q flex items-center gap-2 px-3 py-1.5">
               <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate text-foreground/80">{queued.text}</span>
-              <button
-                onClick={() => {
-                  const sid = useSessionsStore.getState().activeSessionId
-                  if (sid) useSessionsStore.getState().removeQueuedMessage(sid, i)
-                }}
-                title="Remove from queue"
-                aria-label="Remove from queue"
-                className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-colors group-hover/q:opacity-100 hover:bg-accent/50 hover:text-danger"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => {
+                      const sid = useSessionsStore.getState().activeSessionId
+                      if (sid) useSessionsStore.getState().removeQueuedMessage(sid, i)
+                    }}
+                    aria-label="Remove from queue"
+                    className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-colors group-hover/q:opacity-100 hover:bg-accent/50 hover:text-danger"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Remove from queue</TooltipContent>
+              </Tooltip>
             </div>
           ))}
         </div>

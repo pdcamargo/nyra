@@ -4,6 +4,7 @@ import TerminalPanel from './TerminalPanel'
 import ProcessesView from './ProcessesView'
 import { useUiStore } from '../store/ui'
 import { useTerminalsStore, panelFor, NO_PROJECT } from '../store/terminals'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const PROCESSES_TAB_ID = '__processes__'
 
@@ -89,34 +90,47 @@ export default function BottomPanel({
             >
               <SquareTerminal className="size-3" />
               <span>{tab.title}</span>
-              <button
-                onClick={(e) => { e.stopPropagation(); closeTerminal(tab.id) }}
-                className="text-muted-foreground/70 hover:text-foreground/80 ml-1"
-                title="Close terminal"
-              >
-                <X className="size-2.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); closeTerminal(tab.id) }}
+                    className="text-muted-foreground/70 hover:text-foreground/80 ml-1"
+                    aria-label="Close terminal"
+                  >
+                    <X className="size-2.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Close terminal</TooltipContent>
+              </Tooltip>
             </div>
           )
         })}
-        <button
-          onClick={createTerminal}
-          className="text-muted-foreground/70 hover:text-foreground/80 px-2 py-1 text-[13px] transition-colors"
-          title="New terminal"
-        >
-          +
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={createTerminal}
+              className="text-muted-foreground/70 hover:text-foreground/80 px-2 py-1 text-[13px] transition-colors"
+            >
+              +
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>New terminal</TooltipContent>
+        </Tooltip>
         <div className="flex-1" />
-        <div
-          className={`flex items-center gap-1.5 px-3 py-1 text-[11px] cursor-pointer rounded-t transition-colors ${
-            showingProcesses ? 'text-foreground/80 bg-background' : 'text-muted-foreground hover:text-foreground/80'
-          }`}
-          onClick={() => useTerminalsStore.getState().setActiveTab(key, null)}
-          title="Background processes"
-        >
-          <Activity className="size-3" />
-          <span>Processes</span>
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1 text-[11px] cursor-pointer rounded-t transition-colors ${
+                showingProcesses ? 'text-foreground/80 bg-background' : 'text-muted-foreground hover:text-foreground/80'
+              }`}
+              onClick={() => useTerminalsStore.getState().setActiveTab(key, null)}
+            >
+              <Activity className="size-3" />
+              <span>Processes</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>Background processes</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Terminal view — kept mounted to preserve xterm state when toggling tabs */}

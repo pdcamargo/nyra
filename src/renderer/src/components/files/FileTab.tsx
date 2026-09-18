@@ -13,6 +13,8 @@ import FileTree from './FileTree'
 import { clampTreeWidth, TREE_DEFAULT_WIDTH, treeFits } from './treeWidth'
 
 import ResizeHandle from '../ResizeHandle'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+import { useChordLabel } from '../ui/kbd'
 import { usePanelLayoutStore } from '../../store/panelLayout'
 import { cwdForSession, useSessionsStore } from '../../store/sessions'
 import { useWorkspaceStore, workspaceFor, type FileWorkspaceTab } from '../../store/workspace'
@@ -29,6 +31,7 @@ export default function FileTab({
   const root = useSessionsStore((s) => cwdForSession(s, sessionId))
   const ws = useWorkspaceStore((s) => workspaceFor(s, sessionId))
   const panelWidth = usePanelLayoutStore((s) => s.rightPanelWidth)
+  const treeKeys = useChordLabel('panel.right.tree')
 
   const fits = treeFits(panelWidth)
   const showTree = ws.treeOpen && fits
@@ -65,21 +68,28 @@ export default function FileTab({
             <p className="truncate px-2 py-1 text-[11px] text-muted-foreground/40">No file open</p>
           )}
         </div>
-        <button
-          type="button"
-          aria-label="Toggle file tree"
-          aria-pressed={showTree}
-          disabled={!fits}
-          title={fits ? 'Toggle file tree' : 'The panel is too narrow for the tree'}
-          onClick={() => useWorkspaceStore.getState().setTreeOpen(sessionId, !ws.treeOpen)}
-          className={`mr-1.5 shrink-0 rounded p-1 transition-colors disabled:opacity-30 ${
-            showTree
-              ? 'bg-accent text-foreground'
-              : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-          }`}
-        >
-          <PanelRight className="size-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            aria-label="Toggle file tree"
+            aria-pressed={showTree}
+            disabled={!fits}
+            onClick={() => useWorkspaceStore.getState().setTreeOpen(sessionId, !ws.treeOpen)}
+            className={`mr-1.5 shrink-0 rounded p-1 transition-colors disabled:opacity-30 ${
+              showTree
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+            }`}
+          >
+            <PanelRight className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent>
+            {fits
+              ? treeKeys
+                ? `Toggle file tree (${treeKeys})`
+                : 'Toggle file tree'
+              : 'The panel is too narrow for the tree'}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="flex min-h-0 flex-1">

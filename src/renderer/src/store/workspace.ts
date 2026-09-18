@@ -25,7 +25,13 @@ export type BrowserWorkspaceTab = { kind: 'browser'; tabId: string }
 /** `path` is absolute. The mtime poller keys on it, which is what lets a chat's
  *  cwd move under an open tab without the preview needing to care. */
 export type FileWorkspaceTab = { kind: 'file'; id: string; path: string | null }
-export type WorkspaceTab = BrowserWorkspaceTab | FileWorkspaceTab
+/** The repo's changes. Never reachable from "+": `NEW_TAB_CHOICES` is a separate
+ *  list from this union, so a kind absent from it simply cannot be created that
+ *  way. It is opened from the Pinned Summary's Changes row, or from a card in the
+ *  transcript. What it is *showing* lives in `changes.ts`; this is only the row
+ *  in the strip. */
+export type ChangesWorkspaceTab = { kind: 'changes'; id: string }
+export type WorkspaceTab = BrowserWorkspaceTab | FileWorkspaceTab | ChangesWorkspaceTab
 
 export type ChatWorkspace = {
   /** The strip, in the order it is drawn. Ours, not the sidecar's. */
@@ -54,9 +60,11 @@ export const EMPTY_WORKSPACE: ChatWorkspace = {
 
 export const browserKey = (tabId: string): string => `browser:${tabId}`
 export const fileKey = (id: string): string => `file:${id}`
+export const changesKey = (id: string): string => `changes:${id}`
 
 export function tabKey(tab: WorkspaceTab): string {
-  return tab.kind === 'browser' ? browserKey(tab.tabId) : fileKey(tab.id)
+  if (tab.kind === 'browser') return browserKey(tab.tabId)
+  return tab.kind === 'file' ? fileKey(tab.id) : changesKey(tab.id)
 }
 
 let counter = 0
@@ -113,7 +121,7 @@ function nextActiveKey(ws: ChatWorkspace, tabs: WorkspaceTab[]): {
  */
 export function reconcileTabs(ws: ChatWorkspace, liveTabIds: string[]): ChatWorkspace {
   const live = new Set(liveTabIds)
-  const survivors = ws.tabs.filter((t) => t.kind === 'file' || live.has(t.tabId))
+  const survivors = ws.tabs.filter((t) => t.kind !== 'browser' || live.has(t.tabId))
   const known = new Set(
     survivors.filter((t): t is BrowserWorkspaceTab => t.kind === 'browser').map((t) => t.tabId)
   )
@@ -142,17 +150,27 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Partial<ChatWorkspace>
 
-  // Only file tabs come back. A restored browser row would name a page in a
-  // Chromium that does not exist any more.
+  // File and changes rows come back; browser rows do not, since a restored one
+  // would name a page in a Chromium that does not exist any more. A changes row
+  // is only an id — what it shows is re-read from the repo on mount, so there is
+  // nothing behind it that a restart can invalidate.
   const seen = new Set<string>()
-  const tabs: WorkspaceTab[] = (Array.isArray(r.tabs) ? r.tabs : []).flatMap((t) => {
-    if (!t || typeof t !== 'object') return []
-    const tab = t as Partial<FileWorkspaceTab>
-    if (tab.kind !== 'file' || typeof tab.id !== 'string' || seen.has(tab.id)) return []
-    if (tab.path !== null && typeof tab.path !== 'string') return []
-    seen.add(tab.id)
-    return [{ kind: 'file', id: tab.id, path: tab.path ?? null }]
-  })
+  const tabs: WorkspaceTab[] = (Array.isArray(r.tabs) ? r.tabs : []).flatMap(
+    (t): WorkspaceTab[] => {
+      if (!t || typeof t !== 'object') return []
+      const tab = t as Partial<FileWorkspaceTab | ChangesWorkspaceTab>
+      if (typeof tab.id !== 'string' || seen.has(tab.id)) return []
+      if (tab.kind === 'changes') {
+        seen.add(tab.id)
+        return [{ kind: 'changes', id: tab.id }]
+      }
+      if (tab.kind !== 'file') return []
+      const path = (tab as Partial<FileWorkspaceTab>).path
+      if (path !== null && path !== undefined && typeof path !== 'string') return []
+      seen.add(tab.id)
+      return [{ kind: 'file', id: tab.id, path: path ?? null }]
+    }
+  )
 
   const keys = tabs.map(tabKey)
   const activeKey =
@@ -215,6 +233,9 @@ type WorkspaceStore = {
   reconcileAllEmpty: () => void
   /** Returns the new tab's key. */
   openFileTab: (sessionId: string, path?: string | null) => string
+  /** The chat's changes row, reusing the one already in the strip. One per chat:
+   *  two of them would be two views of the same repo fighting over a scope. */
+  openChangesTab: (sessionId: string) => string
   setFilePath: (sessionId: string, fileTabId: string, path: string) => void
   /** Strip-local. Closing a *browser* tab is the sidecar's to report — removing
    *  the row here would let an in-flight broadcast re-append it at the far end. */
@@ -245,7 +266,7 @@ const patch = (
 
 export const useWorkspaceStore = create<WorkspaceStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       bySession: {},
 
       reconcile: (sessionId, liveTabIds) =>
@@ -260,6 +281,26 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
       openFileTab: (sessionId, path = null) => {
         const tab: FileWorkspaceTab = { kind: 'file', id: nextFileTabId(), path }
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: [...ws.tabs, tab],
+            activeKey: tabKey(tab)
+          }))
+        )
+        return tabKey(tab)
+      },
+
+      openChangesTab: (sessionId) => {
+        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
+          (t): t is ChangesWorkspaceTab => t.kind === 'changes'
+        )
+        if (existing) {
+          const key = tabKey(existing)
+          set((s) => patch(s, sessionId, (ws) => ({ ...ws, activeKey: key })))
+          return key
+        }
+        const tab: ChangesWorkspaceTab = { kind: 'changes', id: nextFileTabId() }
         set((s) =>
           patch(s, sessionId, (ws) => ({
             ...ws,
@@ -370,7 +411,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           Object.entries(s.bySession)
             .map(([id, ws]) => [
               id,
-              { ...ws, tabs: ws.tabs.filter((t) => t.kind === 'file'), pendingSelectKey: null }
+              { ...ws, tabs: ws.tabs.filter((t) => t.kind !== 'browser'), pendingSelectKey: null }
             ])
             .filter(([, ws]) => !isForgettable(ws as ChatWorkspace))
         )

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { FileText, Globe, Loader2, X } from 'lucide-react'
+import { FileDiff, FileText, Globe, Loader2, X } from 'lucide-react'
 import NewTabMenu from './NewTabMenu'
 import type { NewTabKind } from './tabs'
 import { tabKey, type WorkspaceTab } from '../../store/workspace'
@@ -56,8 +56,15 @@ export default function WorkspaceTabStrip({
         const label =
           tab.kind === 'browser'
             ? live?.title || hostOf(live?.url ?? '') || 'New tab'
-            : (basename(tab.path) ?? 'Open file')
-        const hint = tab.kind === 'browser' ? live?.url : (tab.path ?? 'No file open')
+            : tab.kind === 'changes'
+              ? 'Changes'
+              : (basename(tab.path) ?? 'Open file')
+        const hint =
+          tab.kind === 'browser'
+            ? live?.url
+            : tab.kind === 'changes'
+              ? "This chat's changes"
+              : (tab.path ?? 'No file open')
 
         return (
           <div
@@ -107,6 +114,8 @@ export default function WorkspaceTabStrip({
               <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
             ) : tab.kind === 'browser' ? (
               <Globe className="size-3 shrink-0 text-muted-foreground/70" />
+            ) : tab.kind === 'changes' ? (
+              <FileDiff className="size-3 shrink-0 text-muted-foreground/70" />
             ) : (
               <FileText className="size-3 shrink-0 text-muted-foreground/70" />
             )}

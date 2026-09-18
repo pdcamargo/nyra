@@ -1,5 +1,12 @@
+import type React from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render as rtlRender, screen } from '@testing-library/react'
+import { TooltipProvider } from '@renderer/components/ui/tooltip'
+
+/** Controls carry real tooltips now, and Radix needs the provider App mounts at
+ *  the root. A slice of the tree has to supply its own. */
+const render = (ui: React.ReactElement): ReturnType<typeof rtlRender> =>
+  rtlRender(<TooltipProvider>{ui}</TooltipProvider>)
 import userEvent from '@testing-library/user-event'
 import PlanCard, { splitPlan } from '../../renderer/src/components/PlanCard'
 import { usePlanApprovalStore } from '../../renderer/src/store/planApprovals'

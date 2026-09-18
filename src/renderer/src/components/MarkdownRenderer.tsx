@@ -11,6 +11,7 @@ import { useSessionsStore, activeCwd } from '../store/sessions'
 import { resolvePath } from '../utils/paths'
 import { cachedImage, loadImage, type ImageEntry } from '../lib/imageCache'
 import { remarkPromptDecorations } from '../lib/promptMarkdown'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const THEME_DARK = 'github-dark-dimmed'
 const THEME_LIGHT = 'github-light-default'
@@ -94,27 +95,35 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
             rather than a gap — the hit target and the spacing are then the same
             thing, so they cannot drift apart. */}
         <div className="-mr-1.5 flex items-center">
-          <button
-            onClick={() => setWrapped((w) => !w)}
-            aria-pressed={wrapped}
-            title={wrapped ? 'Stop wrapping — scroll long lines' : 'Wrap long lines'}
-            aria-label={wrapped ? 'Stop wrapping long lines' : 'Wrap long lines'}
-            className={`rounded-md p-1.5 transition-colors hover:bg-accent/50 ${
-              wrapped ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <WrapText className="size-3.5" />
-          </button>
-          <button
-            onClick={handleCopy}
-            title={copied ? 'Copied' : 'Copy code'}
-            aria-label={copied ? 'Copied' : 'Copy code'}
-            className={`rounded-md p-1.5 transition-colors hover:bg-accent/50 ${
-              copied ? 'text-success' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setWrapped((w) => !w)}
+                aria-pressed={wrapped}
+                aria-label={wrapped ? 'Stop wrapping long lines' : 'Wrap long lines'}
+                className={`rounded-md p-1.5 transition-colors hover:bg-accent/50 ${
+                  wrapped ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <WrapText className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{wrapped ? 'Stop wrapping — scroll long lines' : 'Wrap long lines'}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={handleCopy}
+                aria-label={copied ? 'Copied' : 'Copy code'}
+                className={`rounded-md p-1.5 transition-colors hover:bg-accent/50 ${
+                  copied ? 'text-success' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{copied ? 'Copied' : 'Copy code'}</TooltipContent>
+          </Tooltip>
         </div>
       </div>
       {html ? (

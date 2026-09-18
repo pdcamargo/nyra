@@ -91,8 +91,10 @@ export function chordFor(id: CommandId, overrides: Overrides): Chord | null {
 }
 
 /** Convenience for components, which mostly want the live value. */
-export function useChordFor(id: CommandId): Chord | null {
-  return useShortcutsStore((s) => chordFor(id, s.overrides))
+/** `undefined` for an action with no registered command — callers that may or
+ *  may not have one still have to call this unconditionally. */
+export function useChordFor(id: CommandId | undefined): Chord | null {
+  return useShortcutsStore((s) => (id ? chordFor(id, s.overrides) : null))
 }
 
 /**

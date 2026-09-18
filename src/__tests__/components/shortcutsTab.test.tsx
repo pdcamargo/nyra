@@ -1,5 +1,12 @@
+import type React from 'react'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render as rtlRender, screen } from '@testing-library/react'
+import { TooltipProvider } from '@renderer/components/ui/tooltip'
+
+/** Controls carry real tooltips now, and Radix needs the provider App mounts at
+ *  the root. A slice of the tree has to supply its own. */
+const render = (ui: React.ReactElement): ReturnType<typeof rtlRender> =>
+  rtlRender(<TooltipProvider>{ui}</TooltipProvider>)
 import userEvent from '@testing-library/user-event'
 import ShortcutsTab from '../../renderer/src/components/settings/ShortcutsTab'
 import { useShortcutsStore, chordFor } from '../../renderer/src/store/shortcuts'
@@ -109,7 +116,7 @@ describe('ShortcutsTab', () => {
     useShortcutsStore.setState({ overrides: { 'session.new': 'mod+shift+y' } })
     render(<ShortcutsTab />)
 
-    await user.click(screen.getByTitle('Reset to default'))
+    await user.click(screen.getByRole('button', { name: 'Reset to default' }))
     expect(chordFor('session.new', overrides())).toBe('mod+n')
     expect(overrides()).toEqual({})
 

@@ -10,7 +10,16 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     date: '',
     notes: [
       'A new chat takes the title Claude gives it, instead of keeping the first line you typed',
-      'Rename a chat yourself and it stays renamed'
+      'Rename a chat yourself and it stays renamed',
+      "A Changes tab in the side panel: every changed file, with its diff in place",
+      'Open it from the Changes row in the summary, or with Cmd Shift D',
+      'Compare against the working tree, your base branch, or the commit a summary named',
+      'New files are counted too, not just ones git already knew about',
+      'Pick split or unified, wrap long lines, or ignore whitespace — and it remembers',
+      'Diffs follow your theme instead of always being dark',
+      'Claude can summarise what it changed in the chat; click a file to open its diff',
+      'Picking a file in the tree scrolls the list to it',
+      'Icon buttons across the app have proper tooltips now, with their shortcut'
     ]
   },
   {

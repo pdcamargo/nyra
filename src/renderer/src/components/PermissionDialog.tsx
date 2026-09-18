@@ -5,6 +5,7 @@ import DiffViewer from './LazyDiffViewer'
 import MarkdownRenderer from './MarkdownRenderer'
 import { buildDiffFromToolInput } from '../utils/diff'
 import { computeDiffHeight } from '../utils/permission'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 export type PermissionRequest = {
   tool_id: string
@@ -181,13 +182,17 @@ export default function PermissionDialog({
             {isFileOp ? 'Reject' : 'Deny'}
           </button>
           {onAlwaysAllow && (
-            <button
-              onClick={onAlwaysAllow}
-              title={`Auto-approve ${permission.tool_name} from now on`}
-              className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground/80 hover:bg-accent hover:text-foreground/80 transition-colors whitespace-nowrap"
-            >
-              Always allow
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onAlwaysAllow}
+                  className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground/80 hover:bg-accent hover:text-foreground/80 transition-colors whitespace-nowrap"
+                >
+                  Always allow
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{`Auto-approve ${permission.tool_name} from now on`}</TooltipContent>
+            </Tooltip>
           )}
           <button
             onClick={onAllow}

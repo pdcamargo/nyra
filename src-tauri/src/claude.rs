@@ -780,6 +780,39 @@ const TASKS_CONVENTION: &str = concat!(
     "or anything conversational: a checklist of one item is noise."
 );
 
+/// Third of the fenced conventions, and taught for the same reason as the
+/// checklist: nothing in the headless CLI reports a turn's file changes, so the
+/// model has to say it. The renderer draws it as a card that links into the
+/// Changes tab; see `changeBlocks.ts`.
+///
+/// Two clauses here are load-bearing rather than stylistic. The numbers must come
+/// from `git diff --numstat` — Codex's equivalent card runs on turn telemetry and
+/// disagrees with the repo, so it offers a review that opens empty. And `base:`
+/// is what keeps a row clickable after the work is committed: it names the commit
+/// the counts were true at, so the diff that opens is the one described.
+const CHANGES_CONVENTION: &str = concat!(
+    "\n\nWhen you finish a piece of work that changed two or more files, end your ",
+    "reply with a ```nyra-changes fenced block so the user can see what moved. The ",
+    "first line is `base: <short sha>` from `git rev-parse --short HEAD`; then one ",
+    "`path | +N -M` line per file. For example:\n",
+    "```nyra-changes\n",
+    "base: 50cb2a4\n",
+    "src/renderer/src/components/ComposerBar.tsx | +212 -23\n",
+    "src-tauri/src/git.rs | +33 -2\n",
+    "```\n",
+    "Take the numbers from git rather than estimating them — each row opens a real ",
+    "diff, and a count you guessed will not match what appears. `git diff --numstat` ",
+    "alone is not enough: it cannot see a file git has never been told about, so a ",
+    "turn that adds files would report none of them. This covers both:\n",
+    "```sh\n",
+    "git diff --numstat; git ls-files --others --exclude-standard | \\\n",
+    "  while read -r f; do printf '%s\\t0\\t%s\\n' \"$(wc -l < \"$f\")\" \"$f\"; done\n",
+    "```\n",
+    "Write it once, when the work is done, not after each edit: a single changed ",
+    "file is already visible in its tool card, and while you are still working the ",
+    "checklist is the right surface. Skip it for a turn that only read things."
+);
+
 /// Taught only when the browser tools are actually attached.
 ///
 /// The MCP tools describe themselves, so the model can work out *how* to click
@@ -827,6 +860,7 @@ fn compose_system_prompt(cwd: &str, user_prompt: &str, has_browser: bool) -> Str
     parts.push(ASK_CONVENTION);
     parts.push(IMAGE_CONVENTION);
     parts.push(TASKS_CONVENTION);
+    parts.push(CHANGES_CONVENTION);
     if has_browser {
         parts.push(BROWSER_CONVENTION);
     }
@@ -2049,10 +2083,26 @@ mod tests {
         assert!(!without.contains("browser_snapshot"));
 
         // Everything else is taught either way.
-        for shared in ["```nyra-ask", "```nyra-tasks", "![alt](/absolute/path.png)"] {
+        for shared in [
+            "```nyra-ask",
+            "```nyra-tasks",
+            "```nyra-changes",
+            "![alt](/absolute/path.png)",
+        ] {
             assert!(with.contains(shared), "{shared}");
             assert!(without.contains(shared), "{shared}");
         }
+    }
+
+    /// The gap a second agent caught while testing the card: `git diff --numstat`
+    /// cannot see a file git has never been told about, so a turn that adds files
+    /// would summarise none of them. The convention has to say so.
+    #[test]
+    fn the_changes_convention_covers_files_git_has_never_seen() {
+        let composed = compose_system_prompt("/tmp/x", "", false);
+        assert!(composed.contains("git diff --numstat"));
+        assert!(composed.contains("git ls-files --others --exclude-standard"));
+        assert!(composed.contains("base: <short sha>"));
     }
 
     #[test]

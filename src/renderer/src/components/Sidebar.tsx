@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSessionsStore, activeProjectCwd, sortProjects } from '../store/sessions'
 import { useUiStore, type SidebarTab } from '../store/ui'
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBrowserStore } from '../store/browser'
@@ -16,6 +15,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from './ui/context-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -218,15 +218,19 @@ function UpdateBadge(): React.JSX.Element | null {
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
   if (!version) return null
   return (
-    <button
-      type="button"
-      onClick={() => setSettingsOpen(true)}
-      title={`Nyra ${version} is available`}
-      className="mx-2 mt-2 flex items-center gap-1.5 rounded-md bg-info/10 px-2 py-1 text-[0.85em] text-info transition-colors hover:bg-info/20"
-    >
-      <ArrowDownToLine className="size-3 shrink-0" />
-      <span className="truncate">Update to {version}</span>
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="mx-2 mt-2 flex items-center gap-1.5 rounded-md bg-info/10 px-2 py-1 text-[0.85em] text-info transition-colors hover:bg-info/20"
+        >
+          <ArrowDownToLine className="size-3 shrink-0" />
+          <span className="truncate">Update to {version}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{`Nyra ${version} is available`}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -523,18 +527,23 @@ function SessionsList(): React.JSX.Element {
           <div className="absolute top-[-2px] left-1 right-1 h-0.5 rounded-full bg-info" />
         )}
         {isPinned && !opts.indented && (
-          <div
-            draggable
-            onDragStart={() => setDragId(session.id)}
-            onDragEnd={() => {
-              setDragId(null)
-              setDragOverId(null)
-            }}
-            className="flex items-center pl-1.5 cursor-grab active:cursor-grabbing text-muted-foreground/70 hover:text-foreground/80 transition-colors"
-            title="Drag to reorder"
-          >
-            <GripVertical className="size-2.5" />
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                draggable
+                onDragStart={() => setDragId(session.id)}
+                onDragEnd={() => {
+                  setDragId(null)
+                  setDragOverId(null)
+                }}
+                className="flex items-center pl-1.5 cursor-grab active:cursor-grabbing text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+                aria-label="Drag to reorder"
+              >
+                <GripVertical className="size-2.5" />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Drag to reorder</TooltipContent>
+          </Tooltip>
         )}
         <Tooltip>
         <TooltipTrigger asChild>
@@ -592,20 +601,25 @@ function SessionsList(): React.JSX.Element {
         </TooltipContent>
         </Tooltip>
         <div className="flex items-center shrink-0 pr-1.5">
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              toggleFavorite(session.id)
-            }}
-            className={`p-1 transition-all ${
-              isPinned
-                ? 'text-warning/80 hover:text-warning'
-                : 'text-muted-foreground/70 hover:text-foreground/80 opacity-0 group-hover:opacity-100'
-            }`}
-            title={isPinned ? 'Unpin' : 'Pin'}
-          >
-            <Star className="size-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleFavorite(session.id)
+                }}
+                className={`p-1 transition-all ${
+                  isPinned
+                    ? 'text-warning/80 hover:text-warning'
+                    : 'text-muted-foreground/70 hover:text-foreground/80 opacity-0 group-hover:opacity-100'
+                }`}
+                aria-label={isPinned ? 'Unpin' : 'Pin'}
+              >
+                <Star className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{isPinned ? 'Unpin' : 'Pin'}</TooltipContent>
+          </Tooltip>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -655,16 +669,21 @@ function SessionsList(): React.JSX.Element {
           </button>
           <div className="flex items-center shrink-0 pr-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <ProjectMenu project={project} />
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                newChatIn(project)
-              }}
-              className="p-1 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
-              title={`New chat in ${project.name}`}
-            >
-              <SquarePen className="size-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    newChatIn(project)
+                  }}
+                  className="p-1 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+                  aria-label={`New chat in ${project.name}`}
+                >
+                  <SquarePen className="size-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{`New chat in ${project.name}`}</TooltipContent>
+            </Tooltip>
           </div>
         </div>
         {!collapsed && (
@@ -706,13 +725,18 @@ function SessionsList(): React.JSX.Element {
           <span className="text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground/70">
             Projects
           </span>
-          <button
-            onClick={addProject}
-            className="p-0.5 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
-            title="Add project"
-          >
-            <Plus className="size-3" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={addProject}
+                className="p-0.5 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+                aria-label="Add project"
+              >
+                <Plus className="size-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Add project</TooltipContent>
+          </Tooltip>
         </div>
         {projects.length === 0 ? (
           <button
@@ -731,13 +755,18 @@ function SessionsList(): React.JSX.Element {
           <span className="text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground/70">
             Recents
           </span>
-          <button
-            onClick={newRecentChat}
-            className="p-0.5 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
-            title="New chat with no project (runs in ~)"
-          >
-            <Plus className="size-3" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={newRecentChat}
+                className="p-0.5 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+                aria-label="New chat with no project (runs in ~)"
+              >
+                <Plus className="size-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>New chat with no project (runs in ~)</TooltipContent>
+          </Tooltip>
         </div>
         {recents.length === 0 ? (
           <p className="px-2 py-1 text-[0.77em] text-muted-foreground/40">Nothing outside a project</p>
@@ -971,16 +1000,20 @@ function WorkflowsList(): React.JSX.Element {
               {wf.nodes.length} nodes
             </div>
           </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              handleDelete(wf.id)
-            }}
-            className="opacity-0 group-hover:opacity-100 text-muted-foreground/70 hover:text-danger text-[0.92em] transition-opacity ml-1"
-            title="Delete workflow"
-          >
-            ×
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleDelete(wf.id)
+                }}
+                className="opacity-0 group-hover:opacity-100 text-muted-foreground/70 hover:text-danger text-[0.92em] transition-opacity ml-1"
+              >
+                ×
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Delete workflow</TooltipContent>
+          </Tooltip>
         </div>
       ))}
     </div>

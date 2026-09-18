@@ -2,6 +2,7 @@ import React from 'react'
 import { useSessionsStore } from '../store/sessions'
 import { useProcessesStore, EMPTY_PROCESSES, type BgProcess } from '../store/processes'
 import { useUiStore } from '../store/ui'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 /**
  * Background processes, as a chip on the conversation's status line.
@@ -31,14 +32,19 @@ export default function TasksChip(): React.JSX.Element | null {
   }
 
   return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-1.5 px-1.5 py-px h-[18px] rounded-sm transition-colors hover:bg-accent/50 ${bottomOpen ? 'bg-accent/50 text-foreground/80' : ''}`}
-      title="Background processes"
-    >
-      <span className={`w-1.5 h-1.5 rounded-full ${summary.dotClass}`} />
-      <span>{summary.label}</span>
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={onClick}
+          className={`flex items-center gap-1.5 px-1.5 py-px h-[18px] rounded-sm transition-colors hover:bg-accent/50 ${bottomOpen ? 'bg-accent/50 text-foreground/80' : ''}`}
+          aria-label="Background processes"
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${summary.dotClass}`} />
+          <span>{summary.label}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Background processes</TooltipContent>
+    </Tooltip>
   )
 }
 

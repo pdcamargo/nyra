@@ -8,6 +8,7 @@ import {
   type CommandGroup,
   type CommandId
 } from '../../commands/registry'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { chordFor, conflictFor, useShortcutsStore } from '../../store/shortcuts'
 import { eventToChord, formatChord, normalizeChord, type Chord } from '../../lib/keys'
 import { Kbd } from '../ui/kbd'
@@ -191,13 +192,18 @@ export default function ShortcutsTab(): React.JSX.Element {
 
                   <div className="flex shrink-0 items-center gap-1.5">
                     {overridden && !command.readOnly && (
-                      <button
-                        onClick={() => resetBinding(command.id)}
-                        title="Reset to default"
-                        className="text-muted-foreground/70 transition-colors hover:text-foreground"
-                      >
-                        <RotateCcw className="size-3" />
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => resetBinding(command.id)}
+                            className="text-muted-foreground/70 transition-colors hover:text-foreground"
+                            aria-label="Reset to default"
+                          >
+                            <RotateCcw className="size-3" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Reset to default</TooltipContent>
+                      </Tooltip>
                     )}
                     {command.readOnly ? (
                       chord ? (

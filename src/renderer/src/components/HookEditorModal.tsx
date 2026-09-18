@@ -11,6 +11,7 @@ import {
   type MatcherGroup,
   type HooksConfig
 } from '../../../shared/hookTypes'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 export default function HookEditorModal(): React.JSX.Element | null {
   const { isOpen, initialScope, close } = useHookEditorStore()
@@ -299,13 +300,17 @@ function EventSection({
           <ChevronDown className="size-2.5" />
           {event}
         </button>
-        <button
-          onClick={onRemoveEvent}
-          className="text-muted-foreground/70 hover:text-danger/70 transition-colors text-sm leading-none"
-          title="Remove event"
-        >
-          &times;
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onRemoveEvent}
+              className="text-muted-foreground/70 hover:text-danger/70 transition-colors text-sm leading-none"
+            >
+              &times;
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Remove event</TooltipContent>
+        </Tooltip>
       </div>
 
       {!collapsed && (
@@ -359,13 +364,17 @@ function MatcherGroupCard({
           placeholder="e.g. Edit|Write (optional)"
           className="flex-1 rounded-sm border border-border/55 bg-muted/40 px-2 py-1 text-[11px] text-foreground/80 font-mono placeholder-muted-foreground/70 outline-hidden focus:border-border-strong transition-colors"
         />
-        <button
-          onClick={onRemove}
-          className="text-muted-foreground/70 hover:text-danger/60 transition-colors text-xs leading-none"
-          title="Remove matcher group"
-        >
-          &times;
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onRemove}
+              className="text-muted-foreground/70 hover:text-danger/60 transition-colors text-xs leading-none"
+            >
+              &times;
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Remove matcher group</TooltipContent>
+        </Tooltip>
       </div>
 
       {group.hooks.map((hook, hIdx) => (
@@ -433,17 +442,22 @@ function HookHandlerRow({
           onUpdate({ timeout: v })
         }}
         placeholder="t/s"
-        title="Timeout (seconds)"
+        // A label for the field, not truncated text — `t/s` alone names nothing.
+        aria-label="Timeout (seconds)"
         className="w-12 rounded-sm border border-border/55 bg-muted/40 px-1.5 py-1 text-[11px] text-muted-foreground font-mono placeholder-muted-foreground/70 outline-hidden focus:border-border-strong transition-colors text-center shrink-0"
       />
 
-      <button
-        onClick={onRemove}
-        className="text-muted-foreground/70 hover:text-danger/60 transition-colors text-xs leading-none mt-1 shrink-0"
-        title="Remove hook"
-      >
-        &times;
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={onRemove}
+            className="text-muted-foreground/70 hover:text-danger/60 transition-colors text-xs leading-none mt-1 shrink-0"
+          >
+            &times;
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Remove hook</TooltipContent>
+      </Tooltip>
     </div>
   )
 }
