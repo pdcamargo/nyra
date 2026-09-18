@@ -23,6 +23,7 @@ import type {
   BrowserStatus,
   BrowserTab,
   DirListing,
+  EditorApp,
   FileEntry,
   FileStamp,
   McpEntry,
@@ -220,7 +221,14 @@ export const api = {
     readTextFile: (filePath: string) => call<ReadTextOutcome>('fs_read_text_file', { filePath }),
     statFile: (filePath: string) => call<FileStamp>('fs_stat_file', { filePath }),
     searchTree: (cwd: string, query: string, limit = 200) =>
-      call<TreeSearchResult>('fs_search_tree', { cwd, query, limit })
+      call<TreeSearchResult>('fs_search_tree', { cwd, query, limit }),
+    /** Editors installed on this machine. Empty off macOS, where the menu falls
+     *  back to the system default. */
+    listEditors: () => call<EditorApp[]>('fs_list_editors'),
+    openWith: (filePath: string, appPath: string | null) =>
+      call<{ ok?: boolean; error?: string }>('fs_open_with', { filePath, appPath }),
+    reveal: (filePath: string) =>
+      call<{ ok?: boolean; error?: string }>('fs_reveal', { filePath })
   },
 
   system: {

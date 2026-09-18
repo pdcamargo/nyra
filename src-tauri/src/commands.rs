@@ -15,8 +15,8 @@ use crate::workflow::helpers::{build_marketplace_share_url, marketplace_repo_url
 use crate::workflow::types::{MarketplaceEntry, TriggerSource};
 use crate::workflow::{engine, marketplace, store, triggers};
 use crate::{
-    browser, claude, file_extractor, file_tree, fs_ops, git, hooks, login, mcp, memory, processes,
-    skills,
+    browser, claude, file_extractor, file_tree, fs_ops, git, hooks, login, mcp, memory,
+    open_with, processes, skills,
 };
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
 
@@ -288,6 +288,52 @@ pub async fn fs_list_dir(dir_path: String) -> file_tree::DirListing {
 #[tauri::command]
 pub async fn fs_search_tree(cwd: String, query: String, limit: Option<usize>) -> file_tree::TreeSearchResult {
     file_tree::search_tree(&cwd, &query, limit.unwrap_or(200)).await
+}
+
+#[tauri::command]
+pub fn fs_list_editors() -> Vec<open_with::EditorApp> {
+    open_with::detect_editors()
+}
+
+/// `app_path` of None means the system default.
+///
+/// Sync, and guarded: `open_path` only checks the file exists when it is opening
+/// with the default, so "Open with Zed" on a file that has been deleted would
+/// otherwise launch Zed on nothing.
+#[tauri::command(rename_all = "camelCase")]
+pub fn fs_open_with(app: AppHandle, file_path: String, app_path: Option<String>) -> Value {
+    if std::fs::metadata(&file_path).is_err() {
+        return json!({ "error": "That file no longer exists." });
+    }
+    match app.opener().open_path(file_path, app_path) {
+        Ok(()) => json!({ "ok": true }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+/// Show the file in Finder.
+///
+/// `reveal_item_in_dir` canonicalises first and so errors on a path that is
+/// gone; falling back to the parent directory is more useful than an error
+/// toast when a file was just deleted out from under the panel.
+#[tauri::command(rename_all = "camelCase")]
+pub fn fs_reveal(app: AppHandle, file_path: String) -> Value {
+    if std::fs::metadata(&file_path).is_ok() {
+        return match app.opener().reveal_item_in_dir(&file_path) {
+            Ok(()) => json!({ "ok": true }),
+            Err(e) => json!({ "error": e.to_string() }),
+        };
+    }
+    match std::path::Path::new(&file_path).parent() {
+        Some(parent) if parent.exists() => match app.opener().open_path(
+            parent.to_string_lossy().to_string(),
+            None::<String>,
+        ) {
+            Ok(()) => json!({ "ok": true }),
+            Err(e) => json!({ "error": e.to_string() }),
+        },
+        _ => json!({ "error": "That file no longer exists." }),
+    }
 }
 
 #[tauri::command(rename_all = "camelCase")]

@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { ChevronRight, Folder, FolderOpen, RefreshCw, Search } from 'lucide-react'
 import { joinPath, relativeTo } from './paths'
 import { useWorkspaceStore } from '../../store/workspace'
+import FileRowMenu from './FileRowMenu'
 import { basenameOf } from './paths'
 import type { DirEntryInfo, DirListing } from '../../lib/api-types'
 
@@ -232,6 +233,7 @@ function Row({
 
   return (
     <>
+      <FileRowMenu root={root} path={path} isDir={isDir} className="block">
       <button
         type="button"
         title={relativeTo(root, path)}
@@ -263,6 +265,7 @@ function Row({
         <span className="truncate">{entry.name}</span>
         {entry.symlink && <span className="shrink-0 text-muted-foreground/40">↗</span>}
       </button>
+      </FileRowMenu>
       {isOpen && (
         <Level
           dir={path}

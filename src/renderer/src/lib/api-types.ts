@@ -130,6 +130,9 @@ export type TreeSearchResult = {
   truncated: boolean
 }
 
+/** An editor this machine actually has. Detected, not hardcoded. */
+export type EditorApp = { name: string; path: string }
+
 export type TextFileResult = {
   kind: 'text'
   content: string

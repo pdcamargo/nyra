@@ -15,6 +15,7 @@ mod login;
 mod mcp;
 mod memory;
 mod notify_user;
+mod open_with;
 mod processes;
 mod settings;
 mod skills;
@@ -137,6 +138,9 @@ pub fn run() {
             commands::fs_list_files,
             commands::fs_list_dir,
             commands::fs_search_tree,
+            commands::fs_list_editors,
+            commands::fs_open_with,
+            commands::fs_reveal,
             commands::fs_read_text_file,
             commands::fs_stat_file,
             commands::system_homedir,
