@@ -28,11 +28,13 @@ type UiStore = {
   bottomPanelFocusNonce: number
   /** The projects rail. The title bar toggles it; Codex hides it the same way. */
   projectsPanelOpen: boolean
-  /** The right panel, which is the browser. It used to carry agents, context,
-   *  MCP and memory tabs as well, and the browser fought the rest for the same
-   *  space: two title-bar buttons for one strip of window. Agents and context
-   *  are gone, MCP is in settings and memory is in the left rail, so the panel
-   *  is one thing and one button opens it. */
+  /** The right panel: a workspace whose strip holds browser tabs and file tabs
+   *  side by side. It used to carry agents, context, MCP and memory tabs, with
+   *  the browser fighting them for the same strip of window and a second
+   *  title-bar button that could close it out from under you. Agents and context
+   *  said what the summary already says, MCP is configuration, memory is a
+   *  library and lives in the left rail. What is left is one panel behind one
+   *  button, and what is *in* it is the tab strip's business. */
   rightPanelOpen: boolean
   /** The conversation's own environment. Spec calls it the Pinned Summary, but
    *  "pinned" now means something else in the sidebar, so it is just Summary.
@@ -59,6 +61,9 @@ type UiStore = {
   toggleBottomPanel: () => void
   focusProcessesTab: () => void
   toggleRightPanel: () => void
+  /** Open or close it outright. Anything acting on "show me this" wants this
+   *  rather than the toggle, which would close the panel half the time. */
+  setRightPanelOpen: (open: boolean) => void
   toggleSummary: () => void
   toggleProjectsPanel: () => void
   setSettingsOpen: (open: boolean) => void
@@ -136,6 +141,12 @@ export const useUiStore = create<UiStore>()(persist((set, get) => ({
   toggleRightPanel: () =>
     set((s) => {
       const rightPanelOpen = !s.rightPanelOpen
+      rememberPanels({ right: rightPanelOpen })
+      return { rightPanelOpen }
+    }),
+  setRightPanelOpen: (rightPanelOpen) =>
+    set((s) => {
+      if (s.rightPanelOpen === rightPanelOpen) return s
       rememberPanels({ right: rightPanelOpen })
       return { rightPanelOpen }
     }),

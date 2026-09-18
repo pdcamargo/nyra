@@ -82,9 +82,15 @@ Object.defineProperty(globalThis, 'api', {
     appWindow: { startDragging: noop, toggleMaximize: noop },
     terminal: { spawn: noop, write: noop, resize: noop, kill: noop, onData: unsub, onExit: unsub },
     browser: {
-      status: noop, configure: noop, install: noop,
-      openChat: noop, closeChat: noop, touch: noop,
-      tabCreate: noop, tabClose: noop, tabNavigate: noop, tabHistory: noop, tabList: noop,
+      // A test machine has no Chromium, and saying so is the honest default —
+      // `noop` resolved undefined, which every caller then read `.ok` off.
+      status: () => Promise.resolve({ ok: true, chromium: 'missing' }),
+      configure: noop, install: noop,
+      openChat: () => Promise.resolve({ ok: false, error: 'no browser in tests' }),
+      closeChat: noop, touch: noop,
+      tabCreate: () => Promise.resolve({ ok: false, error: 'no browser in tests' }),
+      tabClose: noop, tabNavigate: noop, tabHistory: noop,
+      tabList: () => Promise.resolve({ ok: true, tabs: [] }),
       onEvent: unsub
     },
     agents: { list: () => Promise.resolve([]) },

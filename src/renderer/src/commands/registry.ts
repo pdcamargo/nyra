@@ -2,12 +2,15 @@ import type React from 'react'
 import {
   ClipboardCopy,
   Eraser,
+  FileText,
   FolderPlus,
+  Globe,
   LogIn,
   Maximize2,
   Minimize2,
   PanelLeft,
   PanelRight,
+  PanelRightOpen,
   Plus,
   Receipt,
   Search,
@@ -23,6 +26,8 @@ import { useUiStore } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
 import { createSiblingSession, openFolderAsProject, useSessionsStore } from '../store/sessions'
+import { useWorkspaceStore, workspaceFor } from '../store/workspace'
+import { startBrowserTab } from '../components/browser/useBrowserSession'
 
 /**
  * Everything the app can be asked to do, in one list.
@@ -50,6 +55,9 @@ export type CommandId =
   | 'project.add'
   | 'panel.left'
   | 'panel.right'
+  | 'panel.right.browser'
+  | 'panel.right.file'
+  | 'panel.right.tree'
   | 'panel.bottom'
   | 'panel.summary'
   | 'panel.canvas'
@@ -94,6 +102,20 @@ export type Command = {
 }
 
 const ui = (): ReturnType<typeof useUiStore.getState> => useUiStore.getState()
+
+/**
+ * Put a tab in the side panel, opening the panel if it is shut.
+ *
+ * Deliberately `setRightPanelOpen` rather than the toggle: this is always "show
+ * me this", and a toggle would close the panel half the time.
+ */
+async function openWorkspaceTab(kind: 'browser' | 'file'): Promise<void> {
+  const sessionId = useSessionsStore.getState().activeSessionId
+  if (!sessionId) return
+  ui().setRightPanelOpen(true)
+  if (kind === 'file') useWorkspaceStore.getState().openFileTab(sessionId)
+  else await startBrowserTab(sessionId)
+}
 
 function cycleSession(step: 1 | -1): void {
   const { sessions, activeSessionId, setActiveSession } = useSessionsStore.getState()
@@ -256,6 +278,40 @@ export const COMMANDS: Command[] = [
     icon: PanelRight,
     palette: true,
     run: () => ui().toggleRightPanel()
+  },
+  {
+    id: 'panel.right.browser',
+    label: 'New browser tab',
+    group: 'Panels',
+    defaultChord: 'mod+t',
+    icon: Globe,
+    palette: true,
+    run: () => void openWorkspaceTab('browser')
+  },
+  {
+    id: 'panel.right.file',
+    label: 'New file tab',
+    group: 'Panels',
+    defaultChord: 'mod+p',
+    icon: FileText,
+    palette: true,
+    run: () => void openWorkspaceTab('file')
+  },
+  {
+    // Unbound by default — there is a button for it. Registered anyway so it can
+    // be given a key and so it shows up in the palette with everything else.
+    id: 'panel.right.tree',
+    label: 'Toggle file tree',
+    group: 'Panels',
+    defaultChord: null,
+    icon: PanelRightOpen,
+    palette: true,
+    run: () => {
+      const sessionId = useSessionsStore.getState().activeSessionId
+      if (!sessionId) return
+      const store = useWorkspaceStore.getState()
+      store.setTreeOpen(sessionId, !workspaceFor(store, sessionId).treeOpen)
+    }
   },
   {
     id: 'panel.bottom',
