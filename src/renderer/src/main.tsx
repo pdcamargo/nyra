@@ -1,6 +1,9 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+// Above `./App` on purpose — it renames the persisted storage keys, and the
+// stores `./App` pulls in read those keys as they are evaluated.
+import './lib/legacy-storage'
 import App from './App'
 import { initTauriApi } from './lib/tauri-api'
 import { bootTheme } from './lib/theme'

@@ -16,6 +16,7 @@ import { useSettingsStore } from './store/settings'
 import { useSessionsStore } from './store/sessions'
 import { attachWorktreeSessions } from './store/attachWorktrees'
 import { primeHomedir } from './lib/homedir'
+import { migrateSessionsDb } from './lib/legacy-storage'
 import { useWorkflowStore } from './store/workflow'
 import { useProcessesStore, type BgProcess } from './store/processes'
 import { applySessionPanels, useUiStore } from './store/ui'
@@ -64,8 +65,11 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     // Rehydrate first: the synchronous half of the projects backfill runs inside
-    // the store's merge, and the git-dependent half has to follow it.
-    void Promise.resolve(useSessionsStore.persist.rehydrate())
+    // the store's merge, and the git-dependent half has to follow it. The key
+    // migration goes in front of it — rehydrating before the history has been
+    // carried across would come up empty and then persist that emptiness.
+    void migrateSessionsDb()
+      .then(() => useSessionsStore.persist.rehydrate())
       .then(attachWorktreeSessions)
       .then(() => {
         // The workspace store keeps file tabs per chat and hydrates on its own,

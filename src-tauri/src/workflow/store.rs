@@ -21,36 +21,6 @@ static BUILT_IN_TEMPLATES: Lazy<Vec<Value>> = Lazy::new(|| {
     serde_json::from_str(include_str!("templates.json")).unwrap_or_default()
 });
 
-/// Carry over workflows from a previous Nyra install, once, on first launch.
-pub fn migrate_legacy_data_dir() {
-    if DATA_DIR.exists() {
-        return;
-    }
-    let legacy = util::home_dir().join(".nyra");
-    if !legacy.exists() {
-        return;
-    }
-    if let Err(e) = copy_dir_recursive(&legacy, &DATA_DIR) {
-        crate::log!("store", "legacy data migration failed: {e}");
-    } else {
-        crate::log!("store", "migrated workflows from ~/.nyra to ~/.nyra");
-    }
-}
-
-fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let dest = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir_recursive(&entry.path(), &dest)?;
-        } else {
-            std::fs::copy(entry.path(), dest)?;
-        }
-    }
-    Ok(())
-}
-
 async fn ensure_dir(dir: &PathBuf) {
     let _ = tokio::fs::create_dir_all(dir).await;
 }

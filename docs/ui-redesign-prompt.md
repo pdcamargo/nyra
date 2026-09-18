@@ -79,9 +79,10 @@ CONSTRAINTS:
 - The renderer talks to the backend only through `window.api`
   (`src/renderer/src/lib/tauri-api.ts`). New capability = new Tauri command +
   new bridge method. Never import `@tauri-apps/api` inside a component.
-- Internal `nyra*` identifiers stay: `nyraSessionId` on the wire, `nyra:` DOM
-  event names, the `nyra-sessions` / `nyra-settings` storage keys. Renaming
-  them drops existing user data. Only user-visible copy says Nyra.
+- Everything says Nyra now, identifiers included: `nyraSessionId` on the wire,
+  `nyra:` DOM event names, the `nyra-sessions` / `nyra-settings` storage keys.
+  `src/renderer/src/lib/legacy-storage.ts` carries an older install's data across
+  on first launch, so don't reintroduce a raw rename without one.
 - Must stay green: `npm test` (176), `npm run test:rust` (89),
   `npx tsc --noEmit -p tsconfig.web.json`, and
   `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`.

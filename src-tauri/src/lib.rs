@@ -66,7 +66,6 @@ fn install_signal_handlers() {}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logger::init();
-    workflow::store::migrate_legacy_data_dir();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
