@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.0.4',
+    date: '2026-09-18',
     notes: [
       'The side panel holds files as well as pages, mixed in any order',
       "Read a file from the chat's folder beside the conversation, with syntax highlighting",
