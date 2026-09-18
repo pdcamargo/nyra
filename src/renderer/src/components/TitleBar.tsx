@@ -1,8 +1,8 @@
 import React from 'react'
 import {
   FolderOpen,
-  Globe,
   PanelLeft,
+  PanelRight,
   Search,
   Settings,
   SquareTerminal,
@@ -82,7 +82,7 @@ export default function TitleBar(): React.JSX.Element {
   const paletteKeys = useChordLabel('palette.open')
   const terminalKeys = useChordLabel('panel.bottom')
   const summaryKeys = useChordLabel('panel.summary')
-  const browserKeys = useChordLabel('panel.right')
+  const panelKeys = useChordLabel('panel.right')
   const settingsKeys = useChordLabel('app.settings')
   const projectsKeys = useChordLabel('panel.left')
   const openPalette = useUiStore((s) => s.openPalette)
@@ -128,10 +128,12 @@ export default function TitleBar(): React.JSX.Element {
         <TitleBarButton label={withKeys('Summary', summaryKeys)} active={summaryOpen} onClick={toggleSummary}>
           <TextQuote className="size-4" />
         </TitleBarButton>
-        {/* One button, because the panel is one thing. The globe used to sit
-            beside this and each could close the other out from under you. */}
-        <TitleBarButton label={withKeys('Browser', browserKeys)} active={rightPanelOpen} onClick={toggleRightPanel}>
-          <Globe className="size-4" />
+        {/* One button, though the panel now holds two kinds of tab. The globe
+            used to sit beside this as a separate browser toggle and each could
+            close the other out from under you; what opens is a workspace, and
+            what is in it is the strip's business. */}
+        <TitleBarButton label={withKeys('Side panel', panelKeys)} active={rightPanelOpen} onClick={toggleRightPanel}>
+          <PanelRight className="size-4" />
         </TitleBarButton>
         <TitleBarButton label={withKeys('Settings', settingsKeys)} onClick={() => openSettings()}>
           <Settings className="size-4" />

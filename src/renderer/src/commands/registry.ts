@@ -3,7 +3,6 @@ import {
   ClipboardCopy,
   Eraser,
   FolderPlus,
-  Globe,
   LogIn,
   Maximize2,
   Minimize2,
@@ -248,10 +247,13 @@ export const COMMANDS: Command[] = [
   },
   {
     id: 'panel.right',
-    label: 'Toggle browser',
+    // Keeps mod+shift+b though the panel is no longer only the browser: the
+    // shortcuts store persists overrides, not defaults, so moving this would
+    // silently rebind the key under everyone who never customised it.
+    label: 'Toggle side panel',
     group: 'Panels',
     defaultChord: 'mod+shift+b',
-    icon: Globe,
+    icon: PanelRight,
     palette: true,
     run: () => ui().toggleRightPanel()
   },
