@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.0.3',
+    date: '2026-09-18',
     notes: [
       'Fixed a browser process that kept running after quitting, pinning a CPU core',
       'Settings redesigned as vertical tabs, with permissions and shortcuts alongside',
