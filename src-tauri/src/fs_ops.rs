@@ -193,22 +193,37 @@ fn looks_binary(head: &[u8]) -> bool {
 ///
 /// The boundary matters: half a token is what makes a highlighter produce a
 /// screenful of garbage for the rest of the file.
-fn truncate_to_budget(bytes: &[u8], max_bytes: usize, max_lines: usize) -> (&[u8], bool) {
+///
+/// `more_follows` says `bytes` is a prefix of a longer file. It has to be told,
+/// because the caller reads through a `.take()` — so filling the buffer exactly
+/// looks identical to reaching the end, and guessing wrong there cuts the last
+/// line in half on every file at or over the budget.
+fn truncate_to_budget(
+    bytes: &[u8],
+    max_bytes: usize,
+    max_lines: usize,
+    more_follows: bool,
+) -> (&[u8], bool) {
     let mut end = bytes.len().min(max_bytes);
+    let mut hit_cap = end < bytes.len();
+
     let mut lines = 0usize;
     for (i, b) in bytes.iter().enumerate().take(end) {
         if *b == b'\n' {
             lines += 1;
             if lines >= max_lines {
                 end = i + 1;
+                hit_cap = true;
                 break;
             }
         }
     }
-    if end == bytes.len() {
+
+    if !hit_cap && !more_follows {
         return (bytes, false);
     }
-    // Back up to the last complete line, unless there is no newline at all.
+    // Back up to the last complete line, unless there is no newline to back up
+    // to — a single enormous line is cut where the budget says.
     let cut = bytes[..end].iter().rposition(|b| *b == b'\n').map_or(end, |i| i + 1);
     (&bytes[..cut], true)
 }
@@ -267,7 +282,11 @@ pub async fn read_text_file(file_path: &str) -> ReadTextOutcome {
         return ReadTextOutcome::Binary { size: meta.len() };
     }
 
-    let (kept, cut) = truncate_to_budget(&buf, PREVIEW_BUDGET_BYTES, PREVIEW_BUDGET_LINES);
+    // `buf` stops at the budget, so a shorter buffer than the file means the
+    // read was cut and the last line in it is probably half of one.
+    let more_follows = (buf.len() as u64) < meta.len();
+    let (kept, cut) =
+        truncate_to_budget(&buf, PREVIEW_BUDGET_BYTES, PREVIEW_BUDGET_LINES, more_follows);
     let text = String::from_utf8_lossy(kept);
     let lossy = matches!(text, std::borrow::Cow::Owned(_));
 
@@ -473,7 +492,7 @@ mod tests {
 
     #[test]
     fn truncates_to_a_line_boundary_not_mid_token() {
-        let (kept, cut) = truncate_to_budget(b"alpha\nbravo\ncharlie\n", 9, 100);
+        let (kept, cut) = truncate_to_budget(b"alpha\nbravo\ncharlie\n", 9, 100, false);
         assert!(cut);
         assert_eq!(kept, b"alpha\n");
     }
@@ -481,21 +500,21 @@ mod tests {
     #[test]
     fn stops_at_the_line_cap_before_the_byte_cap() {
         let src = b"a\nb\nc\nd\ne\n";
-        let (kept, cut) = truncate_to_budget(src, 1000, 2);
+        let (kept, cut) = truncate_to_budget(src, 1000, 2, false);
         assert!(cut);
         assert_eq!(kept, b"a\nb\n");
     }
 
     #[test]
     fn leaves_a_file_that_fits_alone() {
-        let (kept, cut) = truncate_to_budget(b"alpha\nbravo\n", 1000, 100);
+        let (kept, cut) = truncate_to_budget(b"alpha\nbravo\n", 1000, 100, false);
         assert!(!cut);
         assert_eq!(kept, b"alpha\nbravo\n");
     }
 
     #[test]
     fn handles_a_file_with_no_newline_at_all() {
-        let (kept, cut) = truncate_to_budget(b"one very long line", 8, 100);
+        let (kept, cut) = truncate_to_budget(b"one very long line", 8, 100, false);
         assert!(cut);
         // Nothing to back up to, so it cuts at the budget rather than returning
         // nothing at all.
@@ -507,7 +526,7 @@ mod tests {
     #[test]
     fn survives_a_multibyte_codepoint_across_the_boundary() {
         let src = "aé".as_bytes();
-        let (kept, _) = truncate_to_budget(src, 2, 100);
+        let (kept, _) = truncate_to_budget(src, 2, 100, false);
         assert_eq!(String::from_utf8_lossy(kept), "a\u{fffd}");
     }
 
@@ -553,6 +572,16 @@ mod tests {
         assert_eq!(stamp["exists"], true);
     }
 
+    // The bug the real-file test caught: a buffer that exactly fills the budget
+    // looks complete, but the caller only ever hands over a `.take()` prefix, so
+    // the last line was being cut in half on every file at or over 1 MiB.
+    #[test]
+    fn cuts_back_to_a_line_when_the_buffer_is_only_a_prefix() {
+        let (kept, cut) = truncate_to_budget(b"alpha\nbravo\nchar", 16, 100, true);
+        assert!(cut);
+        assert_eq!(kept, b"alpha\nbravo\n");
+    }
+
     #[test]
     fn refuses_only_what_is_over_the_ceiling() {
         assert_eq!(preview_rejection(true, MAX_PREVIEW_BYTES), None);
@@ -571,5 +600,119 @@ mod tests {
         assert!(renderable_media_type("out.png").is_err());
         assert!(renderable_media_type("./out.png").is_err());
         assert!(renderable_media_type("../out.png").is_err());
+    }
+
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("nyra-read-{tag}-{}", crate::util::rand_suffix(8)));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[tokio::test]
+    async fn reads_a_source_file_whole() {
+        let dir = scratch("text");
+        let at = dir.join("a.ts");
+        std::fs::write(&at, "export const x = 1\n").unwrap();
+
+        match read_text_file(at.to_str().unwrap()).await {
+            ReadTextOutcome::Text(result) => {
+                assert_eq!(result.content, "export const x = 1\n");
+                assert!(!result.truncated);
+                assert!(!result.lossy);
+                assert!(result.mtime_ms > 0);
+            }
+            other => panic!("expected text, got {other:?}"),
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn refuses_a_binary_without_trying_to_decode_it() {
+        let dir = scratch("bin");
+        let at = dir.join("a.bin");
+        std::fs::write(&at, [0x7f, b'E', b'L', b'F', 0, 0, 0, 1]).unwrap();
+
+        assert!(matches!(
+            read_text_file(at.to_str().unwrap()).await,
+            ReadTextOutcome::Binary { .. }
+        ));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // The point of the byte budget: a file far larger than it must come back
+    // bounded, and must say that it did.
+    #[tokio::test]
+    async fn truncates_a_file_past_the_budget_and_admits_it() {
+        let dir = scratch("big");
+        let at = dir.join("big.txt");
+        let line = "x".repeat(99);
+        let body: String = std::iter::repeat(line.as_str())
+            .take(PREVIEW_BUDGET_BYTES / 100 + 500)
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&at, &body).unwrap();
+
+        match read_text_file(at.to_str().unwrap()).await {
+            ReadTextOutcome::Text(result) => {
+                assert!(result.truncated);
+                assert!(result.returned_bytes <= PREVIEW_BUDGET_BYTES);
+                assert!(result.total_bytes > result.returned_bytes as u64);
+                // Cut on a line boundary, so the last line is whole.
+                assert!(result.content.ends_with('\n'));
+            }
+            other => panic!("expected text, got {other:?}"),
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn distinguishes_a_missing_file_from_a_directory() {
+        let dir = scratch("missing");
+        assert_eq!(
+            read_text_file(dir.join("nope.ts").to_str().unwrap()).await,
+            ReadTextOutcome::Missing
+        );
+        assert_eq!(
+            read_text_file(dir.to_str().unwrap()).await,
+            ReadTextOutcome::NotAFile
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn shows_latin1_rather_than_refusing_it() {
+        let dir = scratch("lossy");
+        let at = dir.join("a.txt");
+        // 0xE9 is 'é' in Latin-1 and invalid on its own in UTF-8.
+        std::fs::write(&at, [b'c', b'a', b'f', 0xE9, b'\n']).unwrap();
+
+        match read_text_file(at.to_str().unwrap()).await {
+            ReadTextOutcome::Text(result) => {
+                assert!(result.lossy);
+                assert!(result.content.starts_with("caf"));
+            }
+            other => panic!("expected text, got {other:?}"),
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn stat_notices_a_file_appearing_and_changing() {
+        let dir = scratch("stamp");
+        let at = dir.join("a.txt");
+
+        let before = stat_file(at.to_str().unwrap()).await;
+        assert!(!before.exists);
+
+        std::fs::write(&at, "one").unwrap();
+        let after = stat_file(at.to_str().unwrap()).await;
+        assert!(after.exists);
+        assert_eq!(after.size, 3);
+
+        std::fs::write(&at, "one more").unwrap();
+        let grown = stat_file(at.to_str().unwrap()).await;
+        assert_ne!(grown.size, after.size);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

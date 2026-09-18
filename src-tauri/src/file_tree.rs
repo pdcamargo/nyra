@@ -304,6 +304,59 @@ pub async fn search_tree(cwd: &str, query: &str, limit: usize) -> TreeSearchResu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    /// A throwaway repo with a .gitignore that has something to say.
+    struct TempRepo(PathBuf);
+
+    impl TempRepo {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("nyra-tree-{tag}-{}", crate::util::rand_suffix(8)));
+            std::fs::create_dir_all(&dir).unwrap();
+            let repo = TempRepo(dir);
+            repo.git(&["init", "-b", "main"]);
+            repo.git(&["config", "user.email", "test@nyra.local"]);
+            repo.git(&["config", "user.name", "Nyra Test"]);
+            repo
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+
+        fn write(&self, rel: &str, body: &str) {
+            let at = self.0.join(rel);
+            std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+            std::fs::write(at, body).unwrap();
+        }
+
+        fn mkdir(&self, rel: &str) {
+            std::fs::create_dir_all(self.0.join(rel)).unwrap();
+        }
+
+        fn git(&self, args: &[&str]) -> String {
+            let out = Command::new("git").args(args).current_dir(&self.0).output().unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+    }
+
+    impl Drop for TempRepo {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn names(listing: &DirListing) -> Vec<&str> {
+        listing.entries.iter().map(|e| e.name.as_str()).collect()
+    }
+
 
     fn entry(name: &str, kind: EntryKind) -> DirEntryInfo {
         DirEntryInfo { name: name.into(), kind, symlink: false, size: 0 }
@@ -400,5 +453,129 @@ mod tests {
         assert!(validate_dir_path("./src").is_err());
         assert!(validate_dir_path("../src").is_err());
         assert!(validate_dir_path("/Users/x/project").is_ok());
+    }
+
+    #[tokio::test]
+    async fn filters_what_gitignore_says_and_keeps_the_rest() {
+        let repo = TempRepo::new("ignore");
+        repo.write(".gitignore", "node_modules/\ndist/\n*.log\n");
+        repo.write("README.md", "hi");
+        repo.write("app.log", "noise");
+        repo.mkdir("node_modules");
+        repo.mkdir("dist");
+        repo.mkdir("src");
+
+        let listing = list_dir(repo.path().to_str().unwrap()).await;
+
+        assert!(listing.ignore_applied);
+        // Directories first, then case-insensitively: src, then the two files.
+        assert_eq!(names(&listing), ["src", ".gitignore", "README.md"]);
+    }
+
+    // The case a pure pattern matcher gets wrong: the file is tracked, so it is
+    // visible however well it matches an ignore rule.
+    #[tokio::test]
+    async fn keeps_a_tracked_file_that_an_ignore_rule_would_have_caught() {
+        let repo = TempRepo::new("tracked");
+        repo.write(".gitignore", ".env*\n");
+        repo.write(".env.example", "KEY=");
+        repo.write(".env", "SECRET=");
+        repo.git(&["add", "-f", ".env.example", ".gitignore"]);
+        repo.git(&["commit", "-m", "add example"]);
+
+        let listing = list_dir(repo.path().to_str().unwrap()).await;
+
+        assert!(names(&listing).contains(&".env.example"));
+        assert!(!names(&listing).contains(&".env"));
+    }
+
+    // Exit 1 from check-ignore means "nothing matched". Reading it as failure
+    // would leave the directory unfiltered and ignore_applied false.
+    #[tokio::test]
+    async fn a_directory_with_nothing_ignored_still_counts_as_filtered() {
+        let repo = TempRepo::new("clean");
+        repo.write("a.txt", "a");
+        repo.write("b.txt", "b");
+
+        let listing = list_dir(repo.path().to_str().unwrap()).await;
+
+        assert!(listing.ignore_applied);
+        assert_eq!(names(&listing), ["a.txt", "b.txt"]);
+    }
+
+    #[tokio::test]
+    async fn never_shows_the_git_directory() {
+        let repo = TempRepo::new("dotgit");
+        repo.write("a.txt", "a");
+
+        let listing = list_dir(repo.path().to_str().unwrap()).await;
+
+        assert!(!names(&listing).contains(&".git"));
+    }
+
+    // A worktree's .git is a *file*, so a type-based filter would leak it.
+    #[tokio::test]
+    async fn never_shows_the_git_file_in_a_worktree_either() {
+        let repo = TempRepo::new("wt");
+        repo.write("README.md", "base");
+        repo.git(&["add", "."]);
+        repo.git(&["commit", "-m", "init"]);
+        let wt = repo.path().parent().unwrap().join(format!("nyra-wt-{}", crate::util::rand_suffix(6)));
+        repo.git(&["worktree", "add", "-b", "feat", wt.to_str().unwrap()]);
+
+        let listing = list_dir(wt.to_str().unwrap()).await;
+        assert!(!names(&listing).contains(&".git"));
+        assert!(names(&listing).contains(&"README.md"));
+
+        repo.git(&["worktree", "remove", wt.to_str().unwrap(), "--force"]);
+    }
+
+    #[tokio::test]
+    async fn outside_a_repo_it_shows_everything_and_says_so() {
+        let dir = std::env::temp_dir().join(format!("nyra-norepo-{}", crate::util::rand_suffix(8)));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("a.txt"), "a").unwrap();
+
+        let listing = list_dir(dir.to_str().unwrap()).await;
+
+        assert!(!listing.ignore_applied);
+        assert_eq!(names(&listing), ["sub", "a.txt"]);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn reports_a_directory_that_is_not_there() {
+        let listing = list_dir("/nyra/definitely/not/here").await;
+        assert!(listing.error.is_some());
+        assert!(listing.entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn search_ranks_a_name_match_first_and_skips_ignored_files() {
+        let repo = TempRepo::new("search");
+        repo.write(".gitignore", "dist/\n");
+        repo.write("src/auth/util.ts", "x");
+        repo.write("src/useAuth.ts", "x");
+        repo.write("dist/auth.js", "x");
+
+        let found = search_tree(repo.path().to_str().unwrap(), "auth", 10).await;
+
+        assert_eq!(found.paths.first().map(String::as_str), Some("src/useAuth.ts"));
+        assert!(found.paths.iter().any(|p| p == "src/auth/util.ts"));
+        assert!(!found.paths.iter().any(|p| p.starts_with("dist/")));
+    }
+
+    #[tokio::test]
+    async fn search_says_when_it_held_results_back() {
+        let repo = TempRepo::new("limit");
+        for i in 0..5 {
+            repo.write(&format!("match{i}.ts"), "x");
+        }
+
+        let found = search_tree(repo.path().to_str().unwrap(), "match", 2).await;
+
+        assert_eq!(found.paths.len(), 2);
+        assert!(found.truncated);
     }
 }
