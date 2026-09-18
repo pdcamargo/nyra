@@ -5,6 +5,7 @@ import WorkspacePanel from '@renderer/components/workspace/WorkspacePanel'
 import WorkspaceTabStrip from '@renderer/components/workspace/WorkspaceTabStrip'
 import { useBrowserStore } from '@renderer/store/browser'
 import { useSessionsStore } from '@renderer/store/sessions'
+import { useUiStore } from '@renderer/store/ui'
 import { browserKey, tabKey, useWorkspaceStore, type WorkspaceTab } from '@renderer/store/workspace'
 import type { BrowserTab } from '@renderer/lib/api-types'
 
@@ -25,6 +26,7 @@ beforeEach(() => {
   useWorkspaceStore.setState({ bySession: {} })
   useBrowserStore.setState({ bySession: {}, cdpUrl: null, install: null })
   useSessionsStore.setState({ activeSessionId: SID })
+  useUiStore.setState({ rightPanelOpen: true })
   vi.restoreAllMocks()
 })
 
@@ -160,6 +162,63 @@ describe('WorkspacePanel', () => {
     useBrowserStore.getState().setPhase(SID, 'needs-chromium')
     render(<WorkspacePanel />)
     expect(screen.getByText('Nyra needs a browser engine')).toBeInTheDocument()
+  })
+
+  // A chat keeps its browser context after its last tab closes, so the phase
+  // stays `ready` — which the panel used to read as "a browser is starting".
+  it('offers the two choices again once the tabs are gone, not a starting browser', () => {
+    useBrowserStore.getState().setPhase(SID, 'ready')
+
+    render(<WorkspacePanel />)
+
+    expect(screen.queryByText('Starting the browser…')).toBeNull()
+    expect(screen.getByRole('button', { name: /Browser/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Files/ })).toBeInTheDocument()
+  })
+
+  it('puts the panel away when the last tab is closed', async () => {
+    const user = userEvent.setup()
+    useWorkspaceStore.getState().openFileTab(SID, '/repo/a.ts')
+
+    render(<WorkspacePanel />)
+    await user.click(screen.getByLabelText('Close tab'))
+
+    expect(useUiStore.getState().rightPanelOpen).toBe(false)
+  })
+
+  it('stays open while another tab is left', async () => {
+    const user = userEvent.setup()
+    useWorkspaceStore.getState().openFileTab(SID, '/repo/a.ts')
+    useWorkspaceStore.getState().openFileTab(SID, '/repo/b.ts')
+
+    render(<WorkspacePanel />)
+    await user.click(screen.getAllByLabelText('Close tab')[0])
+
+    expect(useUiStore.getState().rightPanelOpen).toBe(true)
+  })
+
+  it('closes on the last browser tab too, without waiting for the sidecar', async () => {
+    const user = userEvent.setup()
+    const tabClose = vi.spyOn(window.api.browser, 'tabClose')
+    useWorkspaceStore.getState().reconcile(SID, ['t1'])
+    useBrowserStore.getState().setTabs(SID, [browserTab('t1')])
+
+    render(<WorkspacePanel />)
+    await user.click(screen.getByLabelText('Close tab'))
+
+    expect(tabClose).toHaveBeenCalledWith(SID, 't1')
+    expect(useUiStore.getState().rightPanelOpen).toBe(false)
+  })
+
+  // The panel must not vanish because the browser went down or was evicted —
+  // only because somebody put it away.
+  it('stays open when the strip empties on its own', () => {
+    useWorkspaceStore.getState().reconcile(SID, ['t1'])
+    render(<WorkspacePanel />)
+
+    useWorkspaceStore.getState().reconcile(SID, [])
+
+    expect(useUiStore.getState().rightPanelOpen).toBe(true)
   })
 
   it('says so with no chat on screen', () => {

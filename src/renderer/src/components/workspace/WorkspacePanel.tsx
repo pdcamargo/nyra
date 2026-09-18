@@ -11,13 +11,14 @@ import WorkspaceTabStrip from './WorkspaceTabStrip'
 import WorkspaceEmpty from './WorkspaceEmpty'
 import Empty from './Empty'
 import type { NewTabKind } from './tabs'
-import BrowserSurface, { BrowserPhaseState } from '../browser/BrowserSurface'
+import BrowserSurface, { BrowserPhaseState, browserPending } from '../browser/BrowserSurface'
 import { useBrowserSession, startBrowserTab } from '../browser/useBrowserSession'
 import FileTab from '../files/FileTab'
 import { useBrowserStore } from '../../store/browser'
 import type { BrowserTab } from '../../lib/api-types'
 import { useSessionsStore } from '../../store/sessions'
-import { activeTab, useWorkspaceStore, wantsBrowser, workspaceFor } from '../../store/workspace'
+import { useUiStore } from '../../store/ui'
+import { activeTab, tabKey, useWorkspaceStore, wantsBrowser, workspaceFor } from '../../store/workspace'
 
 /** Hoisted: a fresh `[]` from the selector is a new identity every call, which
  *  zustand reads as a change and re-renders into forever. */
@@ -52,12 +53,23 @@ export default function WorkspacePanel(): React.JSX.Element {
         browserTabs={browserTabs}
         onSelect={(key) => useWorkspaceStore.getState().selectTab(sessionId, key)}
         onClose={(key) => {
-          const tab = ws.tabs.find((t) => (t.kind === 'browser' ? `browser:${t.tabId}` : `file:${t.id}`) === key)
+          const tab = ws.tabs.find((t) => tabKey(t) === key)
+          if (!tab) return
+          // Read before the removal, and before the round trip a browser tab
+          // needs: whether this was the last tab is not in doubt, and the
+          // sidecar will not say so for another frame or two.
+          const wasLast = ws.tabs.length === 1
+
           // A browser tab's removal is the sidecar's to report. Splicing it out
           // here would let the broadcast already in flight put it back, at the
           // far end of the strip rather than where it was.
-          if (tab?.kind === 'browser') void window.api.browser.tabClose(sessionId, tab.tabId)
+          if (tab.kind === 'browser') void window.api.browser.tabClose(sessionId, tab.tabId)
           else useWorkspaceStore.getState().closeTab(sessionId, key)
+
+          // Closing the last tab is a way of putting the panel away. Tied to the
+          // click rather than to the strip emptying, so an eviction or a browser
+          // that went down does not close the panel out from under you.
+          if (wasLast) useUiStore.getState().setRightPanelOpen(false)
         }}
         onNew={newTab}
       />
@@ -70,7 +82,7 @@ export default function WorkspacePanel(): React.JSX.Element {
           />
         ) : active?.kind === 'file' ? (
           <FileTab sessionId={sessionId} tab={active} />
-        ) : phase !== 'off' ? (
+        ) : browserPending(phase) ? (
           // No tab, but somebody asked for a browser and it has not produced one
           // — the download prompt lives here rather than taking the whole panel.
           <BrowserPhaseState sessionId={sessionId} />

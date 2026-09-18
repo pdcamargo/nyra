@@ -11,7 +11,7 @@ import AgentCursor from './AgentCursor'
 import BrowserCanvas from './BrowserCanvas'
 import { displayUrl, toUrl } from './url'
 import Empty from '../workspace/Empty'
-import { EMPTY_BROWSER, useBrowserStore } from '../../store/browser'
+import { EMPTY_BROWSER, useBrowserStore, type BrowserPhase } from '../../store/browser'
 import { usePanelLayoutStore } from '../../store/panelLayout'
 import type { BrowserTab } from '../../lib/api-types'
 
@@ -69,6 +69,18 @@ export default function BrowserSurface({
 }
 
 /**
+ * Is the browser on its way, or did it fail on the way?
+ *
+ * Deliberately not `phase !== 'off'`. A chat whose tabs have all been closed
+ * keeps its context, so its phase stays `ready` — and reading that as "something
+ * is coming" is what made an empty panel claim to be starting a browser nobody
+ * had asked for.
+ */
+export function browserPending(phase: BrowserPhase): boolean {
+  return phase === 'starting' || phase === 'needs-chromium' || phase === 'error'
+}
+
+/**
  * What the browser half of the panel says when it has no page to show.
  *
  * Reachable two ways: the strip is empty and something asked for a browser, or a
@@ -122,7 +134,8 @@ export function BrowserPhaseState({ sessionId }: { sessionId: string }): React.J
     )
   }
 
-  return <Empty>Starting the browser…</Empty>
+  // `ready` here means the browser is up and a tab is on its way.
+  return <Empty>{chat.phase === 'ready' ? 'Opening…' : 'Starting the browser…'}</Empty>
 }
 
 function UrlBar({
