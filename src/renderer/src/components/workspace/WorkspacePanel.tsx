@@ -71,6 +71,9 @@ export default function WorkspacePanel(): React.JSX.Element {
           // that went down does not close the panel out from under you.
           if (wasLast) useUiStore.getState().setRightPanelOpen(false)
         }}
+        onReorder={(fromKey, beforeKey) =>
+          useWorkspaceStore.getState().moveTab(sessionId, fromKey, beforeKey)
+        }
         onNew={newTab}
       />
 

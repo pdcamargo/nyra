@@ -219,6 +219,8 @@ type WorkspaceStore = {
   /** Strip-local. Closing a *browser* tab is the sidecar's to report — removing
    *  the row here would let an in-flight broadcast re-append it at the far end. */
   closeTab: (sessionId: string, key: string) => void
+  /** Move a tab so it sits immediately before `beforeKey`, or last when null. */
+  moveTab: (sessionId: string, fromKey: string, beforeKey: string | null) => void
   /** An unknown key parks rather than dangling, so selecting a tab that is still
    *  being created works whichever way the race goes. */
   selectTab: (sessionId: string, key: string) => void
@@ -291,6 +293,24 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             if (ws.activeKey !== key) return { ...ws, tabs }
             const keys = tabs.map(tabKey)
             return { ...ws, tabs, activeKey: keys[at] ?? keys[keys.length - 1] ?? null }
+          })
+        ),
+
+      moveTab: (sessionId, fromKey, beforeKey) =>
+        set((s) =>
+          patch(s, sessionId, (ws) => {
+            const from = ws.tabs.findIndex((t) => tabKey(t) === fromKey)
+            if (from === -1) return ws
+
+            const tabs = [...ws.tabs]
+            const [moved] = tabs.splice(from, 1)
+            // Resolved *after* the removal, which is what keeps this free of the
+            // off-by-one every reorder gets wrong when dragging rightward.
+            const at = beforeKey === null ? tabs.length : tabs.findIndex((t) => tabKey(t) === beforeKey)
+            if (at === -1 || at === from) return ws
+
+            tabs.splice(at, 0, moved)
+            return { ...ws, tabs }
           })
         ),
 

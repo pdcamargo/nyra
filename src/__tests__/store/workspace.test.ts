@@ -159,6 +159,75 @@ describe('the store', () => {
     expect((ws().tabs.find((t) => tabKey(t) === ws().activeKey) as { path: string }).path).toBe('/c')
   })
 
+  describe('moveTab', () => {
+    const setup = (): string[] => {
+      const store = useWorkspaceStore.getState()
+      const a = store.openFileTab(SID, '/a')
+      const b = store.openFileTab(SID, '/b')
+      const c = store.openFileTab(SID, '/c')
+      return [a, b, c]
+    }
+    const order = (): string[] => ws().tabs.map(tabKey)
+
+    it('moves a tab rightward, in front of the one named', () => {
+      const [a, b, c] = setup()
+      useWorkspaceStore.getState().moveTab(SID, a, c)
+      // Before c, so it lands between b and c — not after c. This is the
+      // direction an insert-before reorder gets off by one.
+      expect(order()).toEqual([b, a, c])
+    })
+
+    it('moves a tab leftward', () => {
+      const [a, b, c] = setup()
+      useWorkspaceStore.getState().moveTab(SID, c, a)
+      expect(order()).toEqual([c, a, b])
+    })
+
+    // Unreachable without it: every drop would insert *before* something, so the
+    // last position could never be chosen.
+    it('moves a tab to the end when told nothing to go before', () => {
+      const [a, b, c] = setup()
+      useWorkspaceStore.getState().moveTab(SID, a, null)
+      expect(order()).toEqual([b, c, a])
+    })
+
+    it('keeps the selection on the tab that moved', () => {
+      const [a, , c] = setup()
+      useWorkspaceStore.getState().selectTab(SID, a)
+      useWorkspaceStore.getState().moveTab(SID, a, c)
+      expect(ws().activeKey).toBe(a)
+    })
+
+    it('is a no-op when the tab would not move', () => {
+      const [a, b] = setup()
+      const before = ws()
+
+      useWorkspaceStore.getState().moveTab(SID, a, a)
+      useWorkspaceStore.getState().moveTab(SID, a, b)
+      useWorkspaceStore.getState().moveTab(SID, 'file:gone', b)
+      useWorkspaceStore.getState().moveTab(SID, a, 'file:gone')
+
+      expect(ws()).toBe(before)
+    })
+
+    it('leaves the last tab alone when sent to the end', () => {
+      const [, , c] = setup()
+      const before = ws()
+      useWorkspaceStore.getState().moveTab(SID, c, null)
+      expect(ws()).toBe(before)
+    })
+
+    it('reorders browser tabs too, and the sidecar does not undo it', () => {
+      useWorkspaceStore.getState().reconcile(SID, ['t1', 't2'])
+      useWorkspaceStore.getState().moveTab(SID, browserKey('t2'), browserKey('t1'))
+      expect(order()).toEqual([browserKey('t2'), browserKey('t1')])
+
+      // The sidecar re-broadcasts in its own order on every navigation.
+      useWorkspaceStore.getState().reconcile(SID, ['t1', 't2'])
+      expect(order()).toEqual([browserKey('t2'), browserKey('t1')])
+    })
+  })
+
   it('parks a selection for a tab that does not exist yet', () => {
     useWorkspaceStore.getState().selectTab(SID, browserKey('t1'))
     expect(ws().activeKey).toBeNull()

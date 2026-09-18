@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import WorkspacePanel from '@renderer/components/workspace/WorkspacePanel'
 import WorkspaceTabStrip from '@renderer/components/workspace/WorkspaceTabStrip'
@@ -34,6 +34,7 @@ describe('WorkspaceTabStrip', () => {
   const renderStrip = (tabs: WorkspaceTab[], browserTabs: BrowserTab[] = []) => {
     const onSelect = vi.fn()
     const onClose = vi.fn()
+    const onReorder = vi.fn()
     render(
       <WorkspaceTabStrip
         tabs={tabs}
@@ -41,10 +42,11 @@ describe('WorkspaceTabStrip', () => {
         browserTabs={browserTabs}
         onSelect={onSelect}
         onClose={onClose}
+        onReorder={onReorder}
         onNew={vi.fn()}
       />
     )
-    return { onSelect, onClose }
+    return { onSelect, onClose, onReorder }
   }
 
   it('draws a browser row and a file row side by side', () => {
@@ -81,6 +83,83 @@ describe('WorkspaceTabStrip', () => {
     await user.click(screen.getAllByLabelText('Close tab')[1])
     expect(onClose).toHaveBeenCalledWith('file:y')
     expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  describe('reordering', () => {
+    const dataTransfer = (): DataTransfer =>
+      ({ effectAllowed: '', setData: vi.fn(), getData: vi.fn() }) as unknown as DataTransfer
+
+    /**
+     * jsdom implements neither DragEvent nor layout.
+     *
+     * testing-library falls back to a plain `Event` for drag types, which drops
+     * clientX — so a drag fired that way lands on the leading half every time and
+     * the two branches below would be indistinguishable. A MouseEvent named
+     * `dragover` carries the coordinate and still reaches React's handler.
+     */
+    const dragEvent = (type: string, clientX: number): Event => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX })
+      Object.defineProperty(event, 'dataTransfer', { value: dataTransfer() })
+      return event
+    }
+
+    /** Every element measures 0x0 in jsdom, so the midpoint has to be given. */
+    const withBox = (el: HTMLElement, left: number, width: number): HTMLElement => {
+      el.getBoundingClientRect = () => ({ left, width, right: left + width, top: 0, bottom: 0, height: 0, x: left, y: 0, toJSON: () => ({}) })
+      return el
+    }
+
+    const dragTo = (from: HTMLElement, onto: HTMLElement, clientX: number): void => {
+      fireEvent.dragStart(from, { dataTransfer: dataTransfer() })
+      withBox(onto, 100, 50)
+      fireEvent(onto, dragEvent('dragover', clientX))
+      fireEvent(onto, dragEvent('drop', clientX))
+    }
+
+    // jsdom reports a zero-size box for everything, so the midpoint is 0 and any
+    // positive clientX counts as the right half. That is enough to tell the two
+    // branches apart, which is what matters.
+    it('drops before a tab when released on its leading half', () => {
+      const { onReorder } = renderStrip([
+        { kind: 'file', id: 'x', path: '/a.ts' },
+        { kind: 'file', id: 'y', path: '/b.ts' }
+      ])
+      const tabs = screen.getAllByRole('tab')
+      dragTo(tabs[1], tabs[0], 110)
+      expect(onReorder).toHaveBeenCalledWith('file:y', 'file:x')
+    })
+
+    it('drops past the end when released on the last tab\u2019s trailing half', () => {
+      const { onReorder } = renderStrip([
+        { kind: 'file', id: 'x', path: '/a.ts' },
+        { kind: 'file', id: 'y', path: '/b.ts' }
+      ])
+      const tabs = screen.getAllByRole('tab')
+      dragTo(tabs[0], tabs[1], 140)
+      // null rather than a key: there is nothing after the last tab to go before.
+      expect(onReorder).toHaveBeenCalledWith('file:x', null)
+    })
+
+    it('dims the tab being dragged', () => {
+      renderStrip([
+        { kind: 'file', id: 'x', path: '/a.ts' },
+        { kind: 'file', id: 'y', path: '/b.ts' }
+      ])
+      const tabs = screen.getAllByRole('tab')
+      fireEvent.dragStart(tabs[0], { dataTransfer: { setData: vi.fn(), effectAllowed: '' } })
+      expect(tabs[0].className).toContain('opacity-40')
+    })
+
+    it('does not reorder when nothing was dragged', () => {
+      const { onReorder } = renderStrip([{ kind: 'file', id: 'x', path: '/a.ts' }])
+      fireEvent.drop(screen.getByRole('tab'))
+      expect(onReorder).not.toHaveBeenCalled()
+    })
+
+    it('leaves the close button out of the drag', () => {
+      renderStrip([{ kind: 'file', id: 'x', path: '/a.ts' }])
+      expect(screen.getByLabelText('Close tab')).toHaveAttribute('draggable', 'false')
+    })
   })
 
   it('asks which kind of tab rather than assuming', async () => {
