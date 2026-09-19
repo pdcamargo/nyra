@@ -19,6 +19,15 @@ import {
   Settings,
   ShieldCheck,
   SquareTerminal,
+  Braces,
+  ChartNoAxesColumn,
+  History,
+  LayoutGrid,
+  Play,
+  Info,
+  SlidersHorizontal,
+  Zap,
+  Square,
   Target,
   TextQuote,
   Workflow
@@ -72,6 +81,16 @@ export type CommandId =
   | 'panel.bottom'
   | 'panel.summary'
   | 'panel.canvas'
+  | 'flow.run'
+  | 'flow.addNode'
+  | 'flow.arrange'
+  | 'flow.panel.details'
+  | 'flow.panel.inputs'
+  | 'flow.panel.vars'
+  | 'flow.panel.history'
+  | 'flow.panel.metrics'
+  | 'flow.panel.triggers'
+  | 'flow.stop'
   | 'chat.planMode'
   | 'view.zoomIn'
   | 'view.zoomOut'
@@ -372,7 +391,7 @@ export const COMMANDS: Command[] = [
   },
   {
     id: 'panel.canvas',
-    label: 'Toggle workflow canvas',
+    label: 'Switch between Chats and Flows',
     group: 'Panels',
     defaultChord: 'mod+shift+w',
     icon: Workflow,
@@ -382,6 +401,112 @@ export const COMMANDS: Command[] = [
       if (isCanvasOpen) closeCanvas()
       else openCanvas()
     }
+  },
+
+  {
+    id: 'flow.run',
+    label: 'Run this flow',
+    group: 'Panels',
+    defaultChord: 'mod+enter',
+    icon: Play,
+    palette: true,
+    run: () => window.dispatchEvent(new Event('nyra:flow-run'))
+  },
+  {
+    id: 'flow.addNode',
+    label: 'Add a node to this flow',
+    group: 'Panels',
+    // A bare letter is safe: `isEditableTarget` stops chords firing in a field,
+    // and the canvas is where your hands are when you want one.
+    defaultChord: 'shift+n',
+    icon: Plus,
+    palette: true,
+    run: () => window.dispatchEvent(new Event('nyra:flow-add-node'))
+  },
+  {
+    id: 'flow.panel.details',
+    label: 'Flow details',
+    group: 'Panels',
+    defaultChord: 'mod+1',
+    icon: Info,
+    palette: true,
+    run: () => window.dispatchEvent(new Event('nyra:flow-panel-details'))
+  },
+  {
+    id: 'flow.panel.inputs',
+    label: 'Flow inputs',
+    group: 'Panels',
+    // mod+1..6, in toolbar order. These were unbound, which meant their
+    // tooltips showed no keycap at all and read as though the shortcut had been
+    // forgotten. The digits were entirely free.
+    defaultChord: 'mod+2',
+    icon: SlidersHorizontal,
+    palette: true,
+    run: () => window.dispatchEvent(new Event('nyra:flow-panel-inputs'))
+  },
+  {
+    id: 'flow.panel.vars',
+    label: 'Flow runtime variables',
+    group: 'Panels',
+    // Unbound by default: discoverable in the palette and rebindable, without
+    // spending five chords on panels most people open by clicking.
+    defaultChord: 'mod+3',
+    icon: Braces,
+    palette: true,
+    run: () => window.dispatchEvent(new Event('nyra:flow-panel-vars'))
+  },
+  {
+    id: 'flow.panel.history',
+    label: 'Flow execution history',
+    group: 'Panels',
+    // Unbound by default: discoverable in the palette and rebindable, without
+    // spending five chords on panels most people open by clicking.
+    defaultChord: 'mod+4',
+    icon: History,
+    palette: true,
+    run: () => window.dispatchEvent(new Event('nyra:flow-panel-history'))
+  },
+  {
+    id: 'flow.panel.metrics',
+    label: 'Flow execution metrics',
+    group: 'Panels',
+    // Unbound by default: discoverable in the palette and rebindable, without
+    // spending five chords on panels most people open by clicking.
+    defaultChord: 'mod+5',
+    icon: ChartNoAxesColumn,
+    palette: true,
+    run: () => window.dispatchEvent(new Event('nyra:flow-panel-metrics'))
+  },
+  {
+    id: 'flow.panel.triggers',
+    label: 'Flow triggers',
+    group: 'Panels',
+    // Unbound by default: discoverable in the palette and rebindable, without
+    // spending five chords on panels most people open by clicking.
+    defaultChord: 'mod+6',
+    icon: Zap,
+    palette: true,
+    run: () => window.dispatchEvent(new Event('nyra:flow-panel-triggers'))
+  },
+  {
+    id: 'flow.arrange',
+    label: 'Arrange nodes top to bottom',
+    group: 'Panels',
+    defaultChord: null,
+    icon: LayoutGrid,
+    palette: true,
+    run: () => window.dispatchEvent(new Event('nyra:flow-arrange'))
+  },
+  {
+    id: 'flow.stop',
+    label: 'Stop the running flow',
+    group: 'Panels',
+    // No chord by default: Escape belongs to whatever dialog is open, and
+    // stopping a run is one click away in the header.
+    defaultChord: null,
+    icon: Square,
+    palette: true,
+    run: () => window.dispatchEvent(new Event('nyra:flow-stop'))
   },
 
   // ---- View --------------------------------------------------------------

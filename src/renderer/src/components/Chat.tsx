@@ -25,7 +25,6 @@ import ChatInput from './ChatInput'
 import EditMessageBox from './EditMessageBox'
 import TaskStrip from './TaskStrip'
 import ActivityStrip from './ActivityStrip'
-import SettingsModal from './settings/SettingsModal'
 import { useChordLabel } from './ui/kbd'
 import { COLUMN_OFFSET, columnVars } from '../lib/chatColumn'
 import StatsModal from './StatsModal'
@@ -116,8 +115,6 @@ export default function Chat(): React.JSX.Element {
     [summaryOpen, pipVisible, chatWidth]
   )
   const onToggleRightPanel = useUiStore((s) => s.toggleRightPanel)
-  const settingsOpen = useUiStore((s) => s.settingsOpen)
-  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
   const thinkingSince = useRunningStore((s) => s.thinkingSince)
   const [permissionQueue, setPermissionQueue] = useState<(PermissionRequest & { nyraSessionId?: string })[]>([])
   const messagesRef = useRef<HTMLDivElement>(null)
@@ -1802,7 +1799,6 @@ export default function Chat(): React.JSX.Element {
         />
       )}
 
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {statsOpen && <StatsModal onClose={() => setStatsOpen(false)} />}
       {copyBlocksOpen && <CopyBlocksModal onClose={() => setCopyBlocksOpen(false)} />}
       {releaseNotesOpen && <ReleaseNotesModal onClose={() => setReleaseNotesOpen(false)} />}

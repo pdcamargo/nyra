@@ -7,6 +7,7 @@ import RightPanel from './components/RightPanel'
 import ResizeHandle from './components/ResizeHandle'
 import BottomDock from './components/BottomDock'
 import CommandPalette from './components/CommandPalette'
+import SettingsModal from './components/settings/SettingsModal'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useResolvedTheme } from './hooks/useResolvedTheme'
 import { applyThemeClass } from './lib/theme'
@@ -24,6 +25,7 @@ import { dropBrowserHub, useBrowserStore } from './store/browser'
 import { syncBrowserGone, syncSidecarTabs, useWorkspaceStore } from './store/workspace'
 import { handleBinding, usePanelLayoutStore } from './store/panelLayout'
 import { usePanelSizesStore } from './store/panelSizes'
+import { ViewErrorBoundary } from './components/ViewErrorBoundary'
 
 // Lazy-load heavy components — modals with Monaco, WorkflowCanvas with React Flow
 const WorkflowCanvas = React.lazy(() => import('./components/WorkflowCanvas'))
@@ -40,6 +42,7 @@ function combineUnsubscribe(...offs: (() => void)[]): () => void {
 export default function App(): React.JSX.Element {
   // Both side panels live in the ui store now, next to bottomPanelOpen — the
   // summary toggle in the chat header needs to reach one of them from there.
+  const settingsOpen = useUiStore((s) => s.settingsOpen)
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
   const projectsPanelOpen = useUiStore((s) => s.projectsPanelOpen)
   const isCanvasOpen = useWorkflowStore((s) => s.isCanvasOpen)
@@ -219,15 +222,28 @@ export default function App(): React.JSX.Element {
       <main className="flex flex-1 flex-col overflow-hidden min-w-0">
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           {isCanvasOpen ? (
-            <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground/70 text-xs">Loading workflow canvas…</div>}>
-              <WorkflowCanvas />
-            </Suspense>
+            <ViewErrorBoundary label="Flows">
+              <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground/70 text-xs">Loading workflow canvas…</div>}>
+                <WorkflowCanvas />
+              </Suspense>
+            </ViewErrorBoundary>
           ) : (
-            <Chat />
+            <ViewErrorBoundary label="Chat">
+              <Chat />
+            </ViewErrorBoundary>
           )}
         </div>
         <BottomDock />
       </main>
+
+      {/* Settings belongs to the app, not to one view. It used to live inside
+
+          Chat, so opening it in Flow mode did nothing at all — Flow renders the
+
+          canvas *instead of* Chat. */}
+
+      {settingsOpen && <SettingsModal onClose={() => useUiStore.getState().setSettingsOpen(false)} />}
+
 
       {/* Right Panel */}
       {rightPanelOpen && (

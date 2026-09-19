@@ -100,7 +100,13 @@ Object.defineProperty(globalThis, 'api', {
       write: noop,
       delete: noop
     },
-    skills: { list: () => Promise.resolve([]), write: noop, delete: noop },
+    skills: {
+      list: () => Promise.resolve([]),
+      write: noop,
+      delete: noop,
+      bundledNames: () => Promise.resolve([]),
+      restoreBundled: noop
+    },
     settings: { sync: noop },
     fonts: { list: () => Promise.resolve([]) },
     fs: {

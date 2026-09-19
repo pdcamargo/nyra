@@ -18,6 +18,7 @@ import { listen } from '@tauri-apps/api/event'
 import type {
   AgentInfo,
   BgProcessRow,
+  BundledSkill,
   BrowserEvent,
   BrowserReply,
   BrowserStatus,
@@ -189,7 +190,12 @@ export const api = {
     write: (scope: Scope, name: string, content: string, cwd: string) =>
       call<{ success?: boolean; error?: string }>('skills_write', { scope, name, content, cwd }),
     delete: (filePath: string) =>
-      call<{ success?: boolean; error?: string }>('skills_delete', { filePath })
+      call<{ success?: boolean; error?: string }>('skills_delete', { filePath }),
+    /** The skills Nyra ships, and whether it still updates each one. */
+    bundledNames: () => call<BundledSkill[]>('skills_bundled_names'),
+    /** Reinstall one of those, overwriting whatever is there. Confirm first. */
+    restoreBundled: (name: string) =>
+      call<{ success?: boolean; error?: string }>('skills_restore_bundled', { name })
   },
 
   settings: {
@@ -361,6 +367,9 @@ export const api = {
       call<{ success?: boolean; canceled?: boolean; workflow?: unknown; error?: string }>(
         'workflow_import'
       ),
+    /** Stop this flow's runs without needing an execution id. */
+    abortFlow: (workflowId: string) =>
+      call<{ aborted: number }>('workflow_abort_flow', { workflowId }),
     onEvent: (callback: (event: unknown) => void) => on('workflow:event', callback)
   },
 

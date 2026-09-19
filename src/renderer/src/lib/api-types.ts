@@ -14,6 +14,19 @@ export type SkillInfo = {
   filePath: string
 }
 
+/**
+ * A skill Nyra ships into `~/.claude/skills`.
+ *
+ * `managed` — Nyra wrote it and still updates it.
+ * `adopted` — someone edited it, so Nyra stopped touching it. Updates have
+ *             silently stopped, which is the one state worth surfacing.
+ * `removed` — deleted on purpose; Nyra will not reinstall it unprompted.
+ */
+export type BundledSkill = {
+  name: string
+  status: 'managed' | 'adopted' | 'removed'
+}
+
 export type AgentInfo = {
   name: string
   description: string

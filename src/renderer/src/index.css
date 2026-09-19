@@ -437,12 +437,74 @@
   padding: 6px 8px;
 }
 
+/* The flow canvas is its own surface.
+ *
+ * Deliberately not --background: the nodes are cards sitting on it, and at the
+ * light theme's 0.9551 a card and its backdrop were the same colour, which left
+ * the graph looking like floating text. Darker behind, so the cards read as
+ * cards and an edge between them has something to be seen against.
+ *
+ * The dots were #00000014 and #ffffff08 — 8% and 3%. Present in the DOM and
+ * invisible on a display that is not in a dark room. */
+:root {
+  --flow-canvas: oklch(0.9 0 0);
+  --flow-edge: oklch(0.52 0 0);
+  --flow-dot: oklch(0.72 0 0);
+}
+
+.dark {
+  --flow-canvas: oklch(0.18 0 0);
+  --flow-edge: oklch(0.66 0 0);
+  --flow-dot: oklch(0.42 0 0);
+}
+
+.nyra-flow-canvas {
+  background: var(--flow-canvas);
+}
+
 /* React Flow edge strokes — these sit on the canvas, not on a token surface,
- * so they follow the foreground rather than being hardcoded per theme. */
+ * so they follow the foreground rather than being hardcoded per theme. The
+ * `!important` is needed to beat React Flow's own stylesheet; the custom
+ * property is how an individual edge still gets a say, since an inline `stroke`
+ * cannot win against it. */
 .react-flow__edge-path,
 .react-flow__connection-path {
-  stroke: var(--color-foreground) !important;
+  stroke: var(--flow-edge-stroke, var(--flow-edge)) !important;
   stroke-width: 1.5 !important;
+}
+
+/* A lit segment travelling from source to target, so a running flow shows which
+ * way execution is going rather than only where it stopped.
+ *
+ * `pathLength="1"` makes the dash values fractions of the path instead of
+ * pixels, so a 40px edge and a 400px edge take exactly the same time to
+ * traverse. Without it short edges strobe and long ones crawl. */
+.nyra-flow-pulse {
+  fill: none;
+  stroke: var(--color-info);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 0.16 0.84;
+  animation: nyra-flow-pulse 1.5s linear infinite;
+}
+
+@keyframes nyra-flow-pulse {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Reduced motion still has to answer "which edge is live", so the segment stops
+ * travelling and the whole edge lights instead. */
+@media (prefers-reduced-motion: reduce) {
+  .nyra-flow-pulse {
+    animation: none;
+    stroke-dasharray: none;
+    stroke-width: 2;
+  }
 }
 
 /* In-session search highlights */
@@ -565,4 +627,90 @@ mark.nyra-search-highlight-active {
 }
 .nyra-attach-chip-icon-file {
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.234 20.252 21 12.3'/%3E%3Cpath d='m16 6-8.414 8.586a2 2 0 0 0 0 2.828 2 2 0 0 0 2.828 0l8.414-8.586a4 4 0 0 0 0-5.656 4 4 0 0 0-5.656 0l-8.415 8.585a6 6 0 1 0 8.486 8.486'/%3E%3C/svg%3E");
+}
+
+/*
+ * Variable references inside a flow prompt or expression.
+ *
+ * Two states, and the distinction is the point: a name that resolves reads as a
+ * value, one that does not reads as a mistake. `{{vars.scor}}` is otherwise
+ * indistinguishable from a working reference until the run produces an empty
+ * string and you go hunting for why.
+ *
+ * `--info` for known rather than a new colour: the canvas reserves its accents
+ * for run status, and these only ever appear inside a text field, never on a
+ * node, so the two never share a screen region.
+ */
+/* Two classes deep on purpose. CodeMirror generates single-class rules for the
+   grammar (`.̈́q { color: ... }`) and injects them at runtime, so a plain
+   `.nyra-var-scope` ties on specificity and loses or wins depending on which
+   stylesheet landed last. `.cm-content .nyra-var-scope` always wins.
+
+   In an expression the grammar is already colouring things, so a scope
+   identifier only needs the colour — and it must survive being split into
+   several spans, which rules out padding or a background. */
+.cm-content .nyra-var-scope,
+.cm-content .nyra-var-scope * {
+  color: var(--info);
+}
+
+/* The descendant selector is load-bearing. With the JavaScript grammar running,
+   a marked identifier also carries the grammar's own span, and whichever element
+   ends up innermost sets the colour. Painting descendants too makes the outcome
+   independent of that nesting order. */
+.cm-content .nyra-var-known,
+.cm-content .nyra-var-known * {
+  color: var(--info);
+  background-color: color-mix(in oklab, var(--info) 12%, transparent);
+  border-radius: 3px;
+  padding: 0.05em 0.15em;
+}
+.cm-content .nyra-var-unknown,
+.cm-content .nyra-var-unknown * {
+  color: var(--warning);
+  background-color: color-mix(in oklab, var(--warning) 12%, transparent);
+  border-radius: 3px;
+  padding: 0.05em 0.15em;
+  text-decoration: underline wavy color-mix(in oklab, var(--warning) 60%, transparent);
+  text-underline-offset: 2px;
+}
+
+/* The drag handle only exists when the field is resizable; without a visible
+   corner the affordance is invisible. */
+.nyra-variable-field {
+  display: flex;
+  flex-direction: column;
+}
+.nyra-variable-field > .cm-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Bracket matching, and the squiggle under an expression the engine would
+   silently treat as false. */
+.nyra-variable-field .cm-matchingBracket {
+  background-color: color-mix(in oklab, var(--foreground) 12%, transparent);
+  outline: 1px solid color-mix(in oklab, var(--foreground) 25%, transparent);
+  border-radius: 2px;
+}
+.nyra-variable-field .cm-nonmatchingBracket {
+  color: var(--danger);
+}
+.nyra-variable-field .cm-lintRange-error {
+  background: none;
+  text-decoration: underline wavy var(--danger);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.nyra-variable-field .cm-tooltip.cm-tooltip-lint {
+  background-color: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--foreground);
+}
+.nyra-variable-field .cm-diagnostic {
+  padding: 4px 8px;
+  border-left: 2px solid var(--danger);
+  font-family: var(--font-sans, system-ui);
+  font-size: 12px;
 }

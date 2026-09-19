@@ -149,6 +149,12 @@ export type WorkflowDefinition = {
   id: string
   name: string
   description?: string
+  /** The project this flow belongs to, mirroring `projectId` on a session.
+   *  Null or absent means it belongs to none: `Lead Research` takes a company
+   *  and a product, and an installed template arrives owned by nobody. Those
+   *  pick a working directory when they run, which is what `recentCwds` records;
+   *  a scoped flow defaults to its project and never asks. */
+  projectId?: string | null
   inputs?: WorkflowInputVar[] // user-defined input variables
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]

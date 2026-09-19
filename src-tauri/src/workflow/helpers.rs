@@ -290,6 +290,42 @@ fn form_urlencode(s: &str) -> String {
 mod tests {
     use super::*;
 
+    /// The shapes the expression field warns about, proved against the engine.
+    ///
+    /// The canvas tells people a trailing `//` comment makes a condition always
+    /// false, and that a statement cannot go where an expression must. Those are
+    /// claims about *this* function, so they are asserted here rather than left
+    /// as reasoning in a lint module on the other side of the bridge.
+    #[test]
+    fn expression_shapes_the_editor_warns_about() {
+        let no_vars = HashMap::new();
+
+        // Baseline: the same expression without the comment is true.
+        assert!(evaluate_condition("true", "", &no_vars, 1));
+
+        // The wrapper is built on one line, so a line comment eats the `); }})`
+        // that follows it.
+        assert!(
+            !evaluate_condition("true // looks fine", "", &no_vars, 1),
+            "a trailing line comment must swallow the rest of the line"
+        );
+
+        // A block comment does not, which is what the warning tells people to use.
+        assert!(evaluate_condition("true /* fine */", "", &no_vars, 1));
+
+        // Statement forms land inside Boolean(...) and fail to parse.
+        assert!(!evaluate_condition("return true", "", &no_vars, 1));
+        assert!(!evaluate_condition("const ok = true", "", &no_vars, 1));
+        assert!(!evaluate_condition("true;", "", &no_vars, 1));
+
+        // A leading comment is genuinely fine, which is why the editor stopped
+        // flagging it.
+        assert!(evaluate_condition("// why\ntrue", "", &no_vars, 1));
+
+        // And an empty expression is Boolean() — false, not an error.
+        assert!(!evaluate_condition("", "", &no_vars, 1));
+    }
+
     fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
             .iter()

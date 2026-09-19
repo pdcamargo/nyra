@@ -26,6 +26,10 @@ tauri-plugin-updater = "2.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Change detection for the skills Nyra keeps current in ~/.claude/skills.
+# Already in the tree as a transitive dep, so this costs no extra build.
+sha2 = "0.10"
+
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time", "fs", "signal"] }
 futures = "0.3"
 async-recursion = "1"

@@ -39,7 +39,10 @@ export function migrateLocalStorage(): void {
       if (localStorage.getItem(`nyra-${key}`) === null) {
         localStorage.setItem(`nyra-${key}`, carried)
       }
-      localStorage.removeItem(`coide-${key}`)
+      // The old key is copied, never deleted. Dev and the installed app share one
+      // WebKit store under `com.nyra.app`, so a build that deletes on migrate
+      // strips the settings, panel sizes and shortcuts of whichever build has not
+      // been updated yet. Dead bytes are cheaper than that.
     } catch {
       // A quota or security error is survivable here — the app comes up on
       // defaults, rather than not coming up.

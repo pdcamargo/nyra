@@ -19,10 +19,13 @@ describe('legacy storage key migration', () => {
     expect(localStorage.getItem('nyra-settings')).toBe('{"state":{"model":"opus"}}')
   })
 
-  it('removes the old key so the migration only happens once', async () => {
+  it('leaves the old key in place for whichever build has not updated yet', async () => {
+    // Dev and the installed app share one WebKit store. Deleting on migrate
+    // would strip the settings of the build still reading the old names.
     localStorage.setItem('coide-shortcuts', '{"state":{}}')
     await migrate()
-    expect(localStorage.getItem('coide-shortcuts')).toBeNull()
+    expect(localStorage.getItem('coide-shortcuts')).toBe('{"state":{}}')
+    expect(localStorage.getItem('nyra-shortcuts')).toBe('{"state":{}}')
   })
 
   it('leaves an existing nyra- key alone rather than clobbering it', async () => {
@@ -32,7 +35,6 @@ describe('legacy storage key migration', () => {
     localStorage.setItem('coide-ui', 'stale')
     await migrate()
     expect(localStorage.getItem('nyra-ui')).toBe('current')
-    expect(localStorage.getItem('coide-ui')).toBeNull()
   })
 
   it('does nothing on a fresh install', async () => {

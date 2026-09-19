@@ -26,6 +26,7 @@ use crate::util;
 const MAX_SUBWORKFLOW_DEPTH: usize = 3;
 const SCRIPT_TIMEOUT: Duration = Duration::from_secs(120);
 
+#[derive(Default)]
 struct ExecState {
     aborted: bool,
     vars: HashMap<String, String>,
@@ -506,6 +507,167 @@ async fn run_from_node(
     result
 }
 
+/// What one node produced, before anything follows an edge out of it.
+struct NodeOutcome {
+    /// What the node records as its own result.
+    recorded: String,
+    /// What flows on to whatever runs next. Usually the same string — a review
+    /// gate is the exception: it records "approved" but hands the previous
+    /// output onward untouched, so approving does not overwrite the work.
+    forwarded: String,
+    /// A reviewer said no. Nothing after this node runs.
+    stop: bool,
+}
+
+impl NodeOutcome {
+    fn from(output: String) -> Self {
+        Self {
+            recorded: output.clone(),
+            forwarded: output,
+            stop: false,
+        }
+    }
+}
+
+/// Node types that only mean anything as part of the graph walk.
+///
+/// `parallel` fans out across every outgoing edge and `join` waits for several
+/// to arrive, so neither can be run on its own the way a prompt can. A loop body
+/// is a bounded single chain by construction, which is why these two are the one
+/// gap `execute_one` cannot close.
+fn needs_graph(data: &WorkflowNodeData) -> bool {
+    matches!(
+        data,
+        WorkflowNodeData::Parallel {} | WorkflowNodeData::Join { .. }
+    )
+}
+
+/// Run one node and return what it produced, following no edge out of it.
+///
+/// The single place that knows what each node type *does*, so the graph walk and
+/// a loop body cannot disagree about it. They did: the body walk matched on
+/// three types and passed the previous output straight through for the rest, so
+/// a `humanReview` inside a loop never paused, a `subworkflow` never ran, and a
+/// nested `loop` never looped — with no error and nothing in the log.
+///
+/// Recursive because a `loop` runs its own body, and a body runs nodes.
+#[async_recursion]
+async fn execute_one(
+    node: &WorkflowNode,
+    prev_output: &str,
+    exec: &ExecRef,
+) -> Result<NodeOutcome, String> {
+    match &node.data {
+        WorkflowNodeData::Prompt { .. } => Ok(NodeOutcome::from(
+            execute_prompt_node(node, prev_output, exec, 1).await?,
+        )),
+
+        WorkflowNodeData::Script { .. } => Ok(NodeOutcome::from(
+            execute_script_node(node, prev_output, exec).await?,
+        )),
+
+        WorkflowNodeData::Subworkflow { .. } => Ok(NodeOutcome::from(
+            execute_subworkflow_node(node, prev_output, exec).await?,
+        )),
+
+        WorkflowNodeData::Condition { expression } => {
+            let vars = exec.state.lock().vars.clone();
+            let yes = evaluate_condition(expression, prev_output, &vars, 1);
+            Ok(NodeOutcome::from(
+                if yes { "yes" } else { "no" }.to_string(),
+            ))
+        }
+
+        WorkflowNodeData::HumanReview { .. } => {
+            exec.state.lock().node_states.insert(
+                node.id.clone(),
+                WorkflowNodeRunState {
+                    node_id: node.id.clone(),
+                    status: WorkflowNodeStatus::AwaitingReview,
+                    output: None,
+                    error: None,
+                    started_at: Some(util::now_ms()),
+                    finished_at: None,
+                    iteration: None,
+                    tokens: None,
+                },
+            );
+            let approved = wait_for_review(node, prev_output, exec).await?;
+            Ok(NodeOutcome {
+                recorded: if approved { "approved" } else { "rejected" }.to_string(),
+                forwarded: prev_output.to_string(),
+                stop: !approved,
+            })
+        }
+
+        WorkflowNodeData::Loop {
+            condition,
+            max_iterations,
+        } => Ok(NodeOutcome::from(
+            run_loop(node, condition, *max_iterations, prev_output, exec).await?,
+        )),
+
+        // Guarded by `needs_graph` at both call sites; an error rather than a
+        // panic in case a third caller ever forgets.
+        WorkflowNodeData::Parallel {} | WorkflowNodeData::Join { .. } => Err(format!(
+            "{} only runs as part of the graph, not on its own",
+            node.label
+        )),
+    }
+}
+
+/// Every iteration of a loop, returning what the last one produced.
+///
+/// Do-while: run the body chain, then test the condition.
+#[async_recursion]
+async fn run_loop(
+    node: &WorkflowNode,
+    condition: &str,
+    max_iterations: i64,
+    prev_output: &str,
+    exec: &ExecRef,
+) -> Result<String, String> {
+    let mut current_output = prev_output.to_string();
+    let mut iteration = 0i64;
+    let max_iter = max_iterations.clamp(1, 1000);
+
+    while iteration < max_iter && !is_aborted(exec) {
+        iteration += 1;
+        send_event(json!({
+            "type": "loop:iterate",
+            "executionId": exec.id,
+            "nodeId": node.id,
+            "iteration": iteration,
+        }));
+        mark_node_start(exec, &node.id, Some(iteration));
+
+        // The body is walked as a linear chain; it ends when an edge points
+        // back at the loop node or the chain runs out.
+        let body_targets: Vec<String> = outgoing_edges(&exec.wf, &node.id, Some("body"))
+            .iter()
+            .map(|e| e.target.clone())
+            .collect();
+        let body_visited: Visited = Arc::new(Mutex::new(HashSet::new()));
+        for target in body_targets {
+            current_output = run_loop_body(
+                target,
+                current_output,
+                exec.clone(),
+                body_visited.clone(),
+                node.id.clone(),
+            )
+            .await?;
+        }
+
+        let vars = exec.state.lock().vars.clone();
+        if !evaluate_condition(condition, &current_output, &vars, iteration) {
+            break;
+        }
+    }
+
+    Ok(current_output)
+}
+
 async fn run_node_body(
     node: &WorkflowNode,
     prev_output: &str,
@@ -515,45 +677,46 @@ async fn run_node_body(
 ) -> Result<(), String> {
     mark_node_start(exec, &node.id, None);
 
+    // `parallel` is the fan-out itself rather than work, so it never reaches
+    // `execute_one` — it has nothing to produce, only edges to follow.
+    if matches!(node.data, WorkflowNodeData::Parallel {}) {
+        mark_node_done(exec, &node.id, prev_output);
+        let branches: Vec<String> = outgoing_edges(&exec.wf, &node.id, None)
+            .iter()
+            .map(|e| e.target.clone())
+            .collect();
+        // Each branch gets its own visited set so siblings don't block each other.
+        let base = visited.lock().clone();
+        let futures = branches.into_iter().map(|target| {
+            run_from_node(
+                target,
+                prev_output.to_string(),
+                exec.clone(),
+                Arc::new(Mutex::new(base.clone())),
+                collectors.clone(),
+            )
+        });
+        return first_error(join_all(futures).await);
+    }
+    if matches!(node.data, WorkflowNodeData::Join { .. }) {
+        return Ok(()); // handled in run_from_node, before we get here
+    }
+
+    let outcome = execute_one(node, prev_output, exec).await?;
+    mark_node_done(exec, &node.id, &outcome.recorded);
+    if outcome.stop {
+        return Ok(()); // a rejection ends this branch
+    }
+    let output = outcome.forwarded;
+
     match &node.data {
-        WorkflowNodeData::Prompt { .. } => {
-            let output = execute_prompt_node(node, prev_output, exec, 1).await?;
-            mark_node_done(exec, &node.id, &output);
-            run_successors(&node.id, &output, exec, visited, collectors).await
-        }
-
-        WorkflowNodeData::Script { .. } => {
-            let output = execute_script_node(node, prev_output, exec).await?;
-            mark_node_done(exec, &node.id, &output);
-            run_successors(&node.id, &output, exec, visited, collectors).await
-        }
-
-        WorkflowNodeData::Parallel {} => {
-            mark_node_done(exec, &node.id, prev_output);
-            let branches: Vec<String> = outgoing_edges(&exec.wf, &node.id, None)
-                .iter()
-                .map(|e| e.target.clone())
-                .collect();
-            // Each branch gets its own visited set so siblings don't block each other.
-            let base = visited.lock().clone();
-            let futures = branches.into_iter().map(|target| {
-                run_from_node(
-                    target,
-                    prev_output.to_string(),
-                    exec.clone(),
-                    Arc::new(Mutex::new(base.clone())),
-                    collectors.clone(),
-                )
-            });
-            first_error(join_all(futures).await)
-        }
-
-        WorkflowNodeData::Condition { expression } => {
-            let (vars, iteration) = (exec.state.lock().vars.clone(), 1);
-            let result = evaluate_condition(expression, prev_output, &vars, iteration);
-            mark_node_done(exec, &node.id, if result { "yes" } else { "no" });
-
-            let (taken, skipped) = if result { ("yes", "no") } else { ("no", "yes") };
+        // Two outputs: take one edge, and tell the canvas the other was skipped.
+        WorkflowNodeData::Condition { .. } => {
+            let (taken, skipped) = if outcome.recorded == "yes" {
+                ("yes", "no")
+            } else {
+                ("no", "yes")
+            };
             for edge in outgoing_edges(&exec.wf, &node.id, Some(skipped)) {
                 send_event(json!({
                     "type": "node:skipped",
@@ -582,7 +745,7 @@ async fn run_node_body(
             let futures = next.into_iter().map(|target| {
                 run_from_node(
                     target,
-                    prev_output.to_string(),
+                    output.clone(),
                     exec.clone(),
                     visited.clone(),
                     collectors.clone(),
@@ -591,74 +754,8 @@ async fn run_node_body(
             first_error(join_all(futures).await)
         }
 
-        WorkflowNodeData::Subworkflow { .. } => {
-            let output = execute_subworkflow_node(node, prev_output, exec).await?;
-            mark_node_done(exec, &node.id, &output);
-            run_successors(&node.id, &output, exec, visited, collectors).await
-        }
-
-        WorkflowNodeData::HumanReview { .. } => {
-            exec.state.lock().node_states.insert(
-                node.id.clone(),
-                WorkflowNodeRunState {
-                    node_id: node.id.clone(),
-                    status: WorkflowNodeStatus::AwaitingReview,
-                    output: None,
-                    error: None,
-                    started_at: Some(util::now_ms()),
-                    finished_at: None,
-                    iteration: None,
-                    tokens: None,
-                },
-            );
-            let approved = wait_for_review(node, prev_output, exec).await?;
-            if !approved {
-                mark_node_done(exec, &node.id, "rejected");
-                return Ok(()); // a rejection ends this branch
-            }
-            mark_node_done(exec, &node.id, "approved");
-            run_successors(&node.id, prev_output, exec, visited, collectors).await
-        }
-
-        WorkflowNodeData::Loop {
-            condition,
-            max_iterations,
-        } => {
-            // Do-while: run the body chain, then test the condition.
-            let mut current_output = prev_output.to_string();
-            let mut iteration = 0i64;
-            let max_iter = (*max_iterations).clamp(1, 1000);
-
-            while iteration < max_iter && !is_aborted(exec) {
-                iteration += 1;
-                send_event(json!({
-                    "type": "loop:iterate",
-                    "executionId": exec.id,
-                    "nodeId": node.id,
-                    "iteration": iteration,
-                }));
-                mark_node_start(exec, &node.id, Some(iteration));
-
-                // The body is walked as a linear chain; it ends when an edge points
-                // back at the loop node or the chain runs out.
-                let body_targets: Vec<String> = outgoing_edges(&exec.wf, &node.id, Some("body"))
-                    .iter()
-                    .map(|e| e.target.clone())
-                    .collect();
-                let body_visited: Visited = Arc::new(Mutex::new(HashSet::new()));
-                for target in body_targets {
-                    current_output =
-                        run_loop_body(target, current_output, exec.clone(), body_visited.clone(), node.id.clone())
-                            .await?;
-                }
-
-                let vars = exec.state.lock().vars.clone();
-                if !evaluate_condition(condition, &current_output, &vars, iteration) {
-                    break;
-                }
-            }
-
-            mark_node_done(exec, &node.id, &current_output);
+        // The body already ran inside `execute_one`; only `exit` continues.
+        WorkflowNodeData::Loop { .. } => {
             let exits: Vec<String> = outgoing_edges(&exec.wf, &node.id, Some("exit"))
                 .iter()
                 .map(|e| e.target.clone())
@@ -666,7 +763,7 @@ async fn run_node_body(
             let futures = exits.into_iter().map(|target| {
                 run_from_node(
                     target,
-                    current_output.clone(),
+                    output.clone(),
                     exec.clone(),
                     visited.clone(),
                     collectors.clone(),
@@ -675,10 +772,20 @@ async fn run_node_body(
             first_error(join_all(futures).await)
         }
 
-        WorkflowNodeData::Join { .. } => Ok(()), // handled before we get here
+        _ => run_successors(&node.id, &output, exec, visited, collectors).await,
     }
 }
 
+/// One node of a loop body, then the next.
+///
+/// Runs every node type `execute_one` can, which is all of them but `parallel`
+/// and `join`. Those two are reported as a failure rather than skipped: passing
+/// the previous output through as though the node had run is how a body could
+/// quietly do nothing at all.
+///
+/// A rejected review ends the chain for this iteration. The loop then tests its
+/// condition as usual, so a body that asks for approval asks again next time
+/// round rather than the run stopping outright.
 #[async_recursion]
 async fn run_loop_body(
     start_node_id: String,
@@ -706,34 +813,45 @@ async fn run_loop_body(
     }
 
     mark_node_start(&exec, &node.id, None);
-    let output = match &node.data {
-        WorkflowNodeData::Prompt { .. } => execute_prompt_node(&node, &prev_output, &exec, 1).await,
-        WorkflowNodeData::Script { .. } => execute_script_node(&node, &prev_output, &exec).await,
-        WorkflowNodeData::Condition { expression } => {
-            let vars = exec.state.lock().vars.clone();
-            Ok(if evaluate_condition(expression, &prev_output, &vars, 1) {
-                "yes".to_string()
-            } else {
-                "no".to_string()
-            })
-        }
-        _ => Ok(prev_output.clone()),
-    };
 
-    let output = match output {
+    if needs_graph(&node.data) {
+        let err = format!(
+            "{} cannot run inside a loop body: the body is a single chain, so there is no fan-out for it to split or rejoin. Put the fan-out in a flow of its own and call it from the body with a subworkflow node, which gets its own join state per iteration.",
+            node.label
+        );
+        mark_node_failed(&exec, &node.id, &err);
+        return Err(err);
+    }
+
+    let outcome = match execute_one(&node, &prev_output, &exec).await {
         Ok(o) => o,
         Err(err) => {
             mark_node_failed(&exec, &node.id, &err);
             return Err(err);
         }
     };
-    mark_node_done(&exec, &node.id, &output);
+    mark_node_done(&exec, &node.id, &outcome.recorded);
+    if outcome.stop {
+        return Ok(outcome.forwarded);
+    }
+    let output = outcome.forwarded;
 
-    // Linear chain — follow the first outgoing edge only.
-    let Some(next) = outgoing_edges(&exec.wf, &node.id, None)
-        .first()
-        .map(|e| e.target.clone())
-    else {
+    // Linear chain: follow the first outgoing edge only.
+    //
+    // A nested loop is the exception. It has already run its own body inside
+    // `execute_one`, so the chain resumes past it on `exit`. Taking the first
+    // edge would take `body` and run the nested body a second time, out here in
+    // the outer chain where nothing bounds it.
+    let next = if matches!(node.data, WorkflowNodeData::Loop { .. }) {
+        outgoing_edges(&exec.wf, &node.id, Some("exit"))
+            .first()
+            .map(|e| e.target.clone())
+    } else {
+        outgoing_edges(&exec.wf, &node.id, None)
+            .first()
+            .map(|e| e.target.clone())
+    };
+    let Some(next) = next else {
         return Ok(output);
     };
     run_loop_body(next, output, exec, visited, loop_node_id).await
@@ -1049,6 +1167,24 @@ pub fn abort_workflow(execution_id: &str) {
     }
 }
 
+/// Abort every run of a given flow, and report how many there were.
+///
+/// The canvas knows which flow it is showing; it does not reliably know the
+/// execution id, because `workflow_run` only returns one after the whole run is
+/// over. Stopping by flow needs nothing that arrives late.
+pub fn abort_workflows_of(workflow_id: &str) -> usize {
+    let ids: Vec<String> = ACTIVE
+        .lock()
+        .iter()
+        .filter(|(_, exec)| exec.wf.id == workflow_id)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in &ids {
+        abort_workflow(id);
+    }
+    ids.len()
+}
+
 pub fn respond_to_review(execution_id: &str, node_id: &str, approved: bool) -> bool {
     let Some(exec) = ACTIVE.lock().get(execution_id).cloned() else {
         return false;
@@ -1063,6 +1199,60 @@ pub fn respond_to_review(execution_id: &str, node_id: &str, approved: bool) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Stop has to work without an execution id.
+    ///
+    /// `workflow_run` awaits the whole run before returning one, so for the
+    /// entire time the button matters the canvas may not have it. It knows the
+    /// flow id, which is why aborting resolves by flow.
+    #[test]
+    fn aborts_every_run_of_a_flow_by_flow_id() {
+        let wf = wf_with_edges(vec![], &["a"]);
+        let exec = Arc::new(Exec {
+            id: "exec-1".into(),
+            wf: wf.clone(),
+            cwd: "/tmp".into(),
+            settings: Default::default(),
+            input_values: HashMap::new(),
+            depth: 0,
+            triggered_by: TriggerSource::Manual,
+            state: Mutex::new(ExecState {
+                aborted: false,
+                ..Default::default()
+            }),
+            active_sessions: Arc::new(Mutex::new(HashSet::new())),
+        });
+        ACTIVE.lock().insert("exec-1".into(), exec.clone());
+
+        // A run of some other flow must be left alone.
+        let mut other_wf = wf.clone();
+        other_wf.id = "someone-else".into();
+        let other = Arc::new(Exec {
+            id: "exec-2".into(),
+            wf: other_wf,
+            cwd: "/tmp".into(),
+            settings: Default::default(),
+            input_values: HashMap::new(),
+            depth: 0,
+            triggered_by: TriggerSource::Manual,
+            state: Mutex::new(ExecState {
+                aborted: false,
+                ..Default::default()
+            }),
+            active_sessions: Arc::new(Mutex::new(HashSet::new())),
+        });
+        ACTIVE.lock().insert("exec-2".into(), other.clone());
+
+        assert_eq!(abort_workflows_of("wf"), 1);
+        assert!(is_aborted(&exec), "the flow's own run must stop");
+        assert!(!is_aborted(&other), "another flow's run must not");
+
+        // Nothing running for that flow is not an error.
+        assert_eq!(abort_workflows_of("nothing-here"), 0);
+
+        ACTIVE.lock().remove("exec-1");
+        ACTIVE.lock().remove("exec-2");
+    }
 
     fn wf_with_edges(edges: Vec<(&str, &str, Option<&str>)>, node_ids: &[&str]) -> WorkflowDefinition {
         WorkflowDefinition {
@@ -1153,6 +1343,71 @@ mod tests {
             find_terminal_node(&wf, &states).unwrap().output.unwrap(),
             "last"
         );
+    }
+
+    #[test]
+    fn a_chain_resumes_past_a_nested_loop_on_exit_not_body() {
+        // The outer body walk takes the first outgoing edge, which for a loop is
+        // whichever was saved first. If that is `body`, the nested body runs a
+        // second time out in the outer chain, where the inner loop's iteration
+        // count does not bound it.
+        let mut wf = wf_with_edges(
+            vec![
+                ("outer", "inner", Some("body")),
+                ("inner", "deep", Some("body")),
+                ("inner", "after", Some("exit")),
+            ],
+            &["outer", "inner", "deep", "after"],
+        );
+        for node in &mut wf.nodes {
+            if node.id == "outer" || node.id == "inner" {
+                node.data = WorkflowNodeData::Loop {
+                    condition: "false".into(),
+                    max_iterations: 1,
+                };
+            }
+        }
+        let inner = find_node(&wf, "inner").unwrap();
+        assert!(matches!(inner.data, WorkflowNodeData::Loop { .. }));
+        assert_eq!(outgoing_edges(&wf, "inner", None).first().unwrap().target, "deep");
+        assert_eq!(
+            outgoing_edges(&wf, "inner", Some("exit")).first().unwrap().target,
+            "after"
+        );
+    }
+
+    #[test]
+    fn only_parallel_and_join_need_the_graph() {
+        // `NEEDS_THE_GRAPH` in flowLayout.ts mirrors this, so the canvas can warn
+        // before a run rather than after. The two lists have to agree.
+        assert!(needs_graph(&WorkflowNodeData::Parallel {}));
+        assert!(needs_graph(&WorkflowNodeData::Join { separator: None }));
+
+        for data in [
+            WorkflowNodeData::Script { command: "true".into() },
+            WorkflowNodeData::Condition { expression: "true".into() },
+            WorkflowNodeData::HumanReview { message: None },
+            WorkflowNodeData::Loop { condition: "false".into(), max_iterations: 1 },
+        ] {
+            assert!(!needs_graph(&data), "{data:?} should run inside a loop body");
+        }
+    }
+
+    #[test]
+    fn a_review_gate_records_its_answer_but_forwards_the_work() {
+        // Approving must not overwrite the output with the string "approved" —
+        // whatever the gate was reviewing is what continues down the chain.
+        let outcome = NodeOutcome {
+            recorded: "approved".into(),
+            forwarded: "the draft".into(),
+            stop: false,
+        };
+        assert_eq!(outcome.recorded, "approved");
+        assert_eq!(outcome.forwarded, "the draft");
+
+        let plain = NodeOutcome::from("output".to_string());
+        assert_eq!(plain.recorded, plain.forwarded);
+        assert!(!plain.stop);
     }
 
     #[test]

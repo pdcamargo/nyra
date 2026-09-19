@@ -36,3 +36,7 @@ src-tauri/gen/schemas/
 # Playwright MCP scratch output
 .playwright-mcp/
 latest.json
+
+# Pencil mockups from the Flows redesign. The decisions they informed live in
+# docs/flows-redesign.md; the PNGs themselves are 2.5MB of process.
+design-exports/

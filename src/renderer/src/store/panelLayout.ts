@@ -5,6 +5,7 @@ import {
   clampRail,
   clampWidths,
   usePanelSizesStore,
+  PANEL_MINS,
   type PanelKey,
   type PanelSizes,
   type RailKey,
@@ -29,8 +30,9 @@ function railsOpen(): RailsOpen {
 }
 
 function desiredSizes(): PanelSizes {
-  const { sidebarWidth, rightPanelWidth, bottomPanelHeight } = usePanelSizesStore.getState()
-  return { sidebarWidth, rightPanelWidth, bottomPanelHeight }
+  const { sidebarWidth, rightPanelWidth, bottomPanelHeight, flowInspectorWidth, flowPanelWidth } =
+    usePanelSizesStore.getState()
+  return { sidebarWidth, rightPanelWidth, bottomPanelHeight, flowInspectorWidth, flowPanelWidth }
 }
 
 function computeLayout(): PanelLayout {
@@ -89,6 +91,19 @@ export function handleBinding(key: PanelKey): {
     return {
       getSize: () => usePanelLayoutStore.getState().bottomPanelHeight,
       clamp: (candidate) => clampBottomHeight(candidate, viewport().height)
+    }
+  }
+  if (key === 'flowInspectorWidth' || key === 'flowPanelWidth') {
+    // Not arbitrated against the rails: it sits inside the canvas, so the only
+    // thing it can starve is the graph next to it. Half the window is a
+    // generous ceiling for a panel holding one node's prompt.
+    return {
+      getSize: () => usePanelSizesStore.getState()[key],
+      clamp: (candidate) =>
+        Math.max(
+          PANEL_MINS[key],
+          Math.min(candidate, Math.max(PANEL_MINS[key], viewport().width / 2))
+        )
     }
   }
   const rail: RailKey = key

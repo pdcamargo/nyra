@@ -13,6 +13,7 @@ mod git;
 mod hooks;
 pub mod logger;
 mod login;
+mod managed_skills;
 mod mcp;
 mod memory;
 mod notify_user;
@@ -96,6 +97,10 @@ pub fn run() {
             }
 
             tauri::async_runtime::spawn(async {
+                // Install and refresh the skills we ship. Off the startup path
+                // because it touches the user's home directory; nothing waits
+                // on it, and a failure only means a stale or absent skill.
+                managed_skills::sync().await;
                 webhook_server::start(8787).await;
                 workflow::triggers::start_trigger_runtime().await;
             });
@@ -126,6 +131,8 @@ pub fn run() {
             commands::skills_list,
             commands::skills_write,
             commands::skills_delete,
+            commands::skills_restore_bundled,
+            commands::skills_bundled_names,
             commands::memory_list,
             commands::memory_read,
             commands::memory_write,
@@ -171,6 +178,7 @@ pub fn run() {
             commands::workflow_templates,
             commands::workflow_run,
             commands::workflow_abort,
+            commands::workflow_abort_flow,
             commands::workflow_review_response,
             commands::workflow_executions_list,
             commands::workflow_executions_get,

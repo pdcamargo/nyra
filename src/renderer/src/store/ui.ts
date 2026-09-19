@@ -2,9 +2,11 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { useSessionsStore } from './sessions'
 
-/** The left rail's tabs. In the store rather than in Sidebar, because opening a
- *  memory file from elsewhere has to be able to bring that tab forward. */
-export type SidebarTab = 'sessions' | 'skills' | 'commands' | 'workflows' | 'memory'
+/** The left rail's tabs in Chat mode. In the store rather than in Sidebar,
+ *  because opening a memory file from elsewhere has to be able to bring that tab
+ *  forward. Flows used to be one of these; it is a view mode now, because a rail
+ *  full of chat tabs is no use while you are looking at a graph. */
+export type SidebarTab = 'sessions' | 'skills' | 'commands' | 'memory'
 
 /** Settings' left nav. Exported so anything that deep-links into a pane names a
  *  tab rather than firing a window event and hoping. */

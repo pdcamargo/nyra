@@ -15,6 +15,7 @@ declare global {
   // Components have referenced these as globals since the Electron build; the
   // definitions now live in `lib/api-types` next to the bridge that returns them.
   type SkillInfo = ApiTypes.SkillInfo
+  type BundledSkill = ApiTypes.BundledSkill
   type AgentInfo = ApiTypes.AgentInfo
   type MemorySource = ApiTypes.MemorySource
   type MemoryType = ApiTypes.MemoryType

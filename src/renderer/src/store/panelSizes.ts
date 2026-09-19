@@ -1,8 +1,21 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type PanelKey = 'sidebarWidth' | 'rightPanelWidth' | 'bottomPanelHeight'
-export type RailKey = Exclude<PanelKey, 'bottomPanelHeight'>
+export type PanelKey =
+  | 'sidebarWidth'
+  | 'rightPanelWidth'
+  | 'bottomPanelHeight'
+  /** The flow inspector. Sized independently of the workspace rail, because it
+   *  holds a prompt you edit rather than a list you glance at. */
+  | 'flowInspectorWidth'
+  | 'flowPanelWidth'
+/** The two rails the workspace layout arbitrates between. The flow inspector is
+ *  not one: it lives inside the canvas, so it competes with the canvas rather
+ *  than with the chat. */
+export type RailKey = Exclude<
+  PanelKey,
+  'bottomPanelHeight' | 'flowInspectorWidth' | 'flowPanelWidth'
+>
 export type PanelSizes = Record<PanelKey, number>
 export type RailsOpen = { sidebar: boolean; rightPanel: boolean }
 
@@ -10,14 +23,18 @@ export type RailsOpen = { sidebar: boolean; rightPanel: boolean }
 export const PANEL_DEFAULTS: PanelSizes = {
   sidebarWidth: 256,
   rightPanelWidth: 256,
-  bottomPanelHeight: 250
+  bottomPanelHeight: 250,
+  flowInspectorWidth: 320,
+  flowPanelWidth: 320
 }
 
 /** 120 is the floor the bottom panel's drag already used. */
 export const PANEL_MINS: PanelSizes = {
   sidebarWidth: 180,
   rightPanelWidth: 200,
-  bottomPanelHeight: 120
+  bottomPanelHeight: 120,
+  flowInspectorWidth: 260,
+  flowPanelWidth: 260
 }
 
 /**

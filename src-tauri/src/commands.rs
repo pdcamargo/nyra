@@ -224,6 +224,23 @@ pub async fn skills_delete(file_path: String) -> Value {
     }
 }
 
+/// Put Nyra's own skills back. The way out of a deletion or an edit, so neither
+/// is permanent — destructive to a customised skill, so the UI confirms first.
+#[tauri::command]
+pub async fn skills_restore_bundled(name: String) -> Value {
+    match crate::managed_skills::restore(&name).await {
+        Ok(()) => json!({ "success": true }),
+        Err(e) => json!({ "error": e }),
+    }
+}
+
+/// Which skills Nyra ships and whether it still updates each one, so a row can
+/// distinguish "kept current" from "you edited this, updates stopped".
+#[tauri::command]
+pub async fn skills_bundled_names() -> Value {
+    json!(crate::managed_skills::bundled_status().await)
+}
+
 #[tauri::command]
 pub async fn memory_list(cwd: String) -> Value {
     json!(memory::list_memory_files(&cwd).await)
@@ -541,6 +558,12 @@ pub async fn workflow_run(
 pub fn workflow_abort(execution_id: String) -> Value {
     engine::abort_workflow(&execution_id);
     json!({ "success": true })
+}
+
+/// Stop whatever this flow is running, without needing an execution id.
+#[tauri::command]
+pub fn workflow_abort_flow(workflow_id: String) -> Value {
+    json!({ "aborted": engine::abort_workflows_of(&workflow_id) })
 }
 
 #[tauri::command(rename_all = "camelCase")]

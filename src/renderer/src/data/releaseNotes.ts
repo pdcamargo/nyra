@@ -8,7 +8,22 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Flows is a view now, not a tab — switch with the Chat/Flow toggle or Cmd Shift W',
+      'The rail lists flows under their project, with a + on each to make one there',
+      'Right-click a flow to duplicate it, move it between projects, or delete it',
+      'Flows run top to bottom, with loops drawn as a box around what they repeat',
+      'A travelling pulse shows which edge the run is on',
+      'Prompts and conditions highlight the variables they reference, and autocomplete them',
+      'A reference that names nothing gets flagged before you run it',
+      'Conditions are checked as you type — a broken one used to just be false, silently',
+      'Shell commands in a script node are highlighted too',
+      'The run panel summarises where the run is, and each step opens for its output',
+      'Stop actually stops the run',
+      'Flow details, inputs, variables, history, metrics and triggers are resizable panels',
+      'Cmd 1 through Cmd 6 open them',
+      'Claude can write a flow for you — Nyra installs the skill and keeps it current'
+    ]
   },
   {
     version: '0.0.6',
