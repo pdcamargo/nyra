@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.0.7',
+    date: '2026-09-19',
     notes: [
       'Flows is a view now, not a tab — switch with the Chat/Flow toggle or Cmd Shift W',
       'The rail lists flows under their project, with a + on each to make one there',
