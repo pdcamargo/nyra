@@ -8,7 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'The debug log is readable only by you now',
+      'Attaching a file no longer breaks after another Nyra quits',
+      'Screenshot a dev build, read its console, and run JS in it from outside'
+    ]
   },
   {
     version: '0.0.7',

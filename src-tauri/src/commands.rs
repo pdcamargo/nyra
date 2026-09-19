@@ -15,8 +15,8 @@ use crate::workflow::helpers::{build_marketplace_share_url, marketplace_repo_url
 use crate::workflow::types::{MarketplaceEntry, TriggerSource};
 use crate::workflow::{engine, marketplace, store, triggers};
 use crate::{
-    browser, claude, file_extractor, file_tree, fs_ops, git, hooks, login, mcp, memory,
-    open_with, processes, skills,
+    browser, claude, devtools, file_extractor, file_tree, fs_ops, git, hooks, login, mcp,
+    memory, open_with, processes, skills,
 };
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
 
@@ -856,4 +856,36 @@ pub async fn update_install(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Devtools
+// ---------------------------------------------------------------------------
+//
+// Exposed as commands as well as over HTTP so the pieces can be exercised from
+// the renderer's own console — `with_webview`'s dispatch semantics are the part
+// most likely to surprise, and debugging that through a socket is miserable.
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn devtools_screenshot(max_width: Option<u32>) -> Value {
+    match devtools::capture_to_file(max_width).await {
+        Ok(shot) => json!(shot),
+        Err(error) => json!({ "error": error }),
+    }
+}
+
+#[tauri::command]
+pub async fn devtools_eval(code: String) -> Value {
+    match devtools::eval_js(&code).await {
+        Ok(value) => serde_json::from_str(&value)
+            .unwrap_or_else(|_| json!({ "ok": false, "error": "the page did not answer with JSON" })),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+/// The renderer's console, batched. See `devlog.ts` — the lines land in the
+/// same file as the backend's so the two read in causal order.
+#[tauri::command]
+pub async fn dev_log_push(lines: Vec<devtools::ConsoleLine>) {
+    devtools::push_console_lines(lines);
 }

@@ -82,3 +82,20 @@ turn that added files summarised none of them.
   identifier, one WebKit store. Quit it properly rather than killing it.
 - Never reuse a dev server that is already running; a stale module graph has
   read as a real regression before.
+- `npm run dev` is **passive**: it skips the workflow trigger runtime and the
+  managed-skills sync, because both act on state shared with the installed app
+  and would otherwise fire every trigger twice. `npm run dev:active` when those
+  are the thing being worked on.
+
+### Seeing into a running instance
+
+A change with a rendered surface gets looked at, not described. `node
+scripts/nyra-dev.mjs shot` prints a PNG path for the dev window — the real
+WKWebView, not the renderer in a browser tab, where there is no Tauri IPC and
+nothing works. Also `eval`, `log`, and `instances`. The `nyra-dev` skill has the
+detail, including what a software snapshot cannot capture.
+
+Anything running two instances contends over is a bug waiting to happen: the
+scratch dirs under `$TMPDIR` are `{name}-{pid}` for exactly that reason, after a
+shared `nyra-files` meant a dev restart broke attachments in the installed app.
+Give anything new the same treatment.

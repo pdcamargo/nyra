@@ -11,8 +11,16 @@
 import fs from 'node:fs'
 
 const args = process.argv.slice(2)
-const path = args.find((a) => !a.startsWith('--')) ?? '/tmp/nyra-debug.log'
 const top = Number(args[args.indexOf('--top') + 1]) || 15
+
+// A dev instance and the installed app log to separate files. With no path
+// given, take whichever was written most recently — that is the one you just ran.
+const defaultPath = () =>
+  ['/tmp/nyra-debug-dev.log', '/tmp/nyra-debug.log']
+    .filter((p) => fs.existsSync(p))
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0] ?? '/tmp/nyra-debug.log'
+
+const path = args.find((a) => !a.startsWith('--')) ?? defaultPath()
 
 if (!fs.existsSync(path)) {
   console.error(`no log at ${path} — run the app first`)

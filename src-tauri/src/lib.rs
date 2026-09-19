@@ -5,6 +5,7 @@ mod ai_title;
 mod browser;
 mod claude;
 mod commands;
+mod devtools;
 mod file_extractor;
 mod file_tree;
 mod fonts;
@@ -27,6 +28,19 @@ mod webhook_server;
 mod workflow;
 
 use tauri::{Manager, RunEvent, WindowEvent};
+
+/// An instance that must not act on state it shares with another one.
+///
+/// Both `~/.nyra/workflows` and `~/.claude/skills` are global, and neither the
+/// trigger runtime nor the skills sync knows about a second Nyra: two running
+/// instances fire every cron and file-watch trigger twice — two Claude runs per
+/// trigger — and overwrite each other's skill files with whatever bytes their
+/// build was compiled from. `npm run dev` sets this so a dev instance is
+/// something to inspect rather than a second actor. `npm run dev:active` when
+/// triggers or managed skills are themselves the thing being worked on.
+fn passive_dev() -> bool {
+    std::env::var("NYRA_DEV_PASSIVE").as_deref() == Ok("1")
+}
 
 /// Everything that must be torn down before the process goes away. Runs on
 /// window close and again on exit, so it has to be idempotent.
@@ -97,6 +111,20 @@ pub fn run() {
             }
 
             tauri::async_runtime::spawn(async {
+                // Reap scratch dirs from instances that died without cleaning up.
+                // Before the webhook server, so a crashed run's leftovers are gone
+                // by the time anything new is staged.
+                fs_ops::sweep_orphan_dirs();
+
+                if passive_dev() {
+                    crate::log!(
+                        "startup",
+                        "NYRA_DEV_PASSIVE=1 — skipping managed-skills sync and the trigger runtime"
+                    );
+                    webhook_server::start(8787).await;
+                    return;
+                }
+
                 // Install and refresh the skills we ship. Off the startup path
                 // because it touches the user's home directory; nothing waits
                 // on it, and a failure only means a stale or absent skill.
@@ -218,6 +246,9 @@ pub fn run() {
             commands::update_check,
             commands::update_install,
             commands::app_version,
+            commands::devtools_screenshot,
+            commands::devtools_eval,
+            commands::dev_log_push,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Nyra")

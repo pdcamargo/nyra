@@ -9,8 +9,29 @@ use std::time::Duration;
 
 use crate::util;
 
-pub static IMAGES_DIR: Lazy<PathBuf> = Lazy::new(|| util::temp_dir().join("nyra-images"));
-pub static FILES_DIR: Lazy<PathBuf> = Lazy::new(|| util::temp_dir().join("nyra-files"));
+/// Scratch dirs for attachments, scoped to this process.
+///
+/// The pid suffix is load-bearing. These were `nyra-images` and `nyra-files`,
+/// shared by every running Nyra — and `cleanup_temp_dirs` below wipes them on
+/// quit, which `shutdown` also runs on SIGTERM, which is what `tauri dev` sends
+/// on every hot restart. So a dev rebuild deleted the installed app's staged
+/// attachments, and every later attach in that app failed. Same shape as
+/// `nyra-editors-{pid}` in `open_with.rs` and `nyra-title-{pid}` in `ai_title.rs`.
+pub static IMAGES_DIR: Lazy<PathBuf> =
+    Lazy::new(|| util::temp_dir().join(format!("nyra-images-{}", std::process::id())));
+pub static FILES_DIR: Lazy<PathBuf> =
+    Lazy::new(|| util::temp_dir().join(format!("nyra-files-{}", std::process::id())));
+
+/// Scratch-dir names owned by exactly one instance, shaped `{prefix}{pid}`.
+/// `nyra-devshots-` belongs to `devtools.rs`; it is swept here so there is one
+/// place that knows what a per-instance scratch dir looks like.
+const SCRATCH_PREFIXES: [&str; 3] = ["nyra-images-", "nyra-files-", "nyra-devshots-"];
+
+// The un-suffixed `nyra-images` / `nyra-files` this replaced are deliberately
+// left alone. A surviving one means either an older build is running right now
+// or it was killed, and nothing here can tell those apart — so sweeping them
+// would delete a live instance's staged attachments, which is the bug the pid
+// suffix exists to fix. They are a few KB, and the OS reclaims $TMPDIR anyway.
 
 const EXT_MAP: [(&str, &str); 4] = [
     ("image/png", "png"),
@@ -445,15 +466,103 @@ pub async fn write_text_file(file_path: &str, content: &str) -> Result<(), Strin
         .map_err(|e| e.to_string())
 }
 
-/// Wipe the scratch dirs on quit, same as the Electron `will-quit` handler.
+/// Wipe our own scratch dirs on quit, same as the Electron `will-quit` handler.
+/// Ours only — see `IMAGES_DIR` for what wiping everyone's cost.
 pub fn cleanup_temp_dirs() {
     let _ = std::fs::remove_dir_all(&*IMAGES_DIR);
     let _ = std::fs::remove_dir_all(&*FILES_DIR);
 }
 
+/// Scratch dirs whose owning process is gone.
+///
+/// Split out from `sweep_orphan_dirs` so the pid parsing and the liveness rule
+/// are testable without a real process table.
+fn orphan_dirs(root: &Path, alive: &dyn Fn(i32) -> bool) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let owner = SCRATCH_PREFIXES
+            .iter()
+            .find_map(|prefix| name.strip_prefix(prefix))
+            .and_then(|pid| pid.parse::<i32>().ok());
+        if let Some(pid) = owner {
+            if !alive(pid) {
+                out.push(entry.path());
+            }
+        }
+    }
+    out
+}
+
+/// Reap scratch dirs left by instances that are gone.
+///
+/// Per-pid dirs are only cleaned by the process that owns them, so a SIGKILL —
+/// or a crash — strands one. Without this, the fix for the shared-directory bug
+/// would trade it for a slow leak of one directory per unclean exit.
+pub fn sweep_orphan_dirs() {
+    for dir in orphan_dirs(&util::temp_dir(), &|pid| crate::processes::is_alive(pid)) {
+        crate::log!("temp-sweep", "Removing orphaned scratch dir {}", dir.display());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reason the pid suffix exists: two instances must not be able to name
+    /// — and so wipe — each other's scratch dirs.
+    #[test]
+    fn scratch_dirs_are_scoped_to_this_process() {
+        let suffix = format!("-{}", std::process::id());
+        for dir in [&*IMAGES_DIR, &*FILES_DIR] {
+            let name = dir.file_name().unwrap().to_string_lossy().to_string();
+            assert!(name.ends_with(&suffix), "{name} is not scoped to this process");
+        }
+        assert_ne!(*IMAGES_DIR, *FILES_DIR);
+    }
+
+    #[test]
+    fn sweeps_dead_instances_and_nothing_else() {
+        let root = util::temp_dir().join(format!("nyra-sweep-{}", util::rand_suffix(8)));
+        std::fs::create_dir_all(&root).unwrap();
+        let dir = |name: &str| {
+            let path = root.join(name);
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        };
+
+        let dead_images = dir("nyra-images-4242");
+        let dead_shots = dir("nyra-devshots-4242");
+        let legacy = dir("nyra-images");
+        let live_files = dir("nyra-files-77");
+        let another_module = dir("nyra-editors-77");
+        let not_a_pid = dir("nyra-files-scratch");
+        // A plain file wearing a scratch name must not trip the dir walk.
+        std::fs::write(root.join("nyra-files-99"), b"not a directory").unwrap();
+
+        // Only pid 77 is still running.
+        let orphans = orphan_dirs(&root, &|pid| pid == 77);
+
+        assert!(orphans.contains(&dead_images));
+        assert!(orphans.contains(&dead_shots));
+        assert!(!orphans.contains(&live_files), "wiped a live instance's dir");
+        assert!(!orphans.contains(&another_module), "wiped a dir it does not own");
+        assert!(!orphans.contains(&not_a_pid));
+        // An older build that is still running owns this one, and nothing here
+        // can tell that from one left by a build that was killed.
+        assert!(!orphans.contains(&legacy), "wiped a pre-pid dir a running old build may own");
+        assert_eq!(orphans.len(), 2, "swept something unexpected: {orphans:?}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn accepts_png_and_jpeg_by_extension() {

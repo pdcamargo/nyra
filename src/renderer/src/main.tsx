@@ -1,3 +1,7 @@
+// First, and above every import that can throw: it patches the console and
+// attaches the error listeners as it evaluates, so a module-level failure
+// further down this list is still visible from outside the app.
+import './lib/devlog'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { getCurrentWindow } from '@tauri-apps/api/window'

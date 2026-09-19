@@ -17,7 +17,6 @@ use crate::settings::NyraSettings;
 
 static APP: OnceCell<AppHandle> = OnceCell::new();
 static SETTINGS: Lazy<RwLock<NyraSettings>> = Lazy::new(|| RwLock::new(NyraSettings::default()));
-static ENSURED_DIRS: Lazy<RwLock<HashSet<PathBuf>>> = Lazy::new(|| RwLock::new(HashSet::new()));
 static CHILD_PATH: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
 pub fn set_app_handle(app: AppHandle) {
@@ -57,14 +56,16 @@ pub fn temp_dir() -> PathBuf {
     std::env::temp_dir()
 }
 
-/// `mkdir -p`, memoised so a hot path doesn't syscall on every call.
+/// `mkdir -p`.
+///
+/// Deliberately not memoised. It was, and the cache short-circuited before
+/// touching the filesystem — so once another instance deleted a scratch dir out
+/// from under us, this returned `Ok` forever and every attachment in the
+/// surviving process failed for the rest of its life. All three callers are on
+/// the cold path of a user attaching a file; the saved syscall was worth nothing
+/// and cost that.
 pub fn ensure_dir(dir: &Path) -> std::io::Result<()> {
-    if ENSURED_DIRS.read().contains(dir) {
-        return Ok(());
-    }
-    std::fs::create_dir_all(dir)?;
-    ENSURED_DIRS.write().insert(dir.to_path_buf());
-    Ok(())
+    std::fs::create_dir_all(dir)
 }
 
 pub fn now_ms() -> i64 {
@@ -309,6 +310,24 @@ impl Utf8Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `ensure_dir` used to memoise, and the memo answered `Ok` for a directory
+    /// another instance had since deleted — so every attachment in the surviving
+    /// process failed until it was restarted.
+    #[test]
+    fn ensure_dir_recreates_a_directory_that_vanished() {
+        let dir = temp_dir().join(format!("nyra-ensure-{}", rand_suffix(8)));
+        ensure_dir(&dir).unwrap();
+        assert!(dir.is_dir());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(!dir.exists());
+
+        ensure_dir(&dir).unwrap();
+        assert!(dir.is_dir(), "a vanished directory has to come back");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn decoder_joins_a_split_code_point() {

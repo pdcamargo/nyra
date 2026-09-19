@@ -79,6 +79,33 @@ log = "0.4"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Inspecting our own WKWebView: a screenshot that needs no Screen Recording
+# permission, and JS evaluation that needs no cooperation from the renderer.
+# See src/devtools.rs.
+#
+# All five are already in the tree via wry at these versions; what this adds is
+# generated code wry had no use for (`WKSnapshotConfiguration`,
+# `NSBitmapImageRep`). Turning those on does pull three more binding crates —
+# objc2-core-video, objc2-javascript-core, objc2-security — which are feature
+# dependencies of objc2-app-kit and objc2-web-kit rather than anything we call.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSError", "NSDictionary", "NSValue"] }
+objc2-app-kit = { version = "0.3", features = [
+  "NSImage",
+  "NSImageRep",
+  "NSBitmapImageRep",
+  "NSGraphicsContext",
+  "objc2-core-graphics",
+] }
+objc2-web-kit = { version = "0.3", features = [
+  "objc2-app-kit",
+  "block2",
+  "WKWebView",
+  "WKSnapshotConfiguration",
+] }
+
 [features]
 # Used by `tauri dev` / `tauri build --debug`
 default = []

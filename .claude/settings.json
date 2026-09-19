@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node scripts/nyra-dev.mjs:*)",
+      "Bash(node scripts/log-gaps.mjs:*)"
+    ]
+  }
+}

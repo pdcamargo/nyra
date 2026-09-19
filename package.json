@@ -6,7 +6,8 @@
   "type": "module",
   "author": "Patrick Dias <https://github.com/pdcamargo>",
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "NYRA_DEV_PASSIVE=1 tauri dev",
+    "dev:active": "tauri dev",
     "build": "node scripts/prebundle.mjs && TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/nyra-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD= tauri build",
     "vite:dev": "vite",
     "vite:build": "tsc --noEmit -p tsconfig.web.json && vite build",
