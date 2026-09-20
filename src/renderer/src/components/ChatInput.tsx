@@ -18,7 +18,7 @@ import {
   type Edit
 } from '../lib/markdownEditing'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
-import { CornerDownLeft, Trash2 } from 'lucide-react'
+import { CornerDownLeft, Navigation, Trash2 } from 'lucide-react'
 import { useLoopsStore } from '../store/loops'
 import { compressImage } from '../utils/imageCompression'
 import type { Agent, ToolCallMessage } from '../store/sessions'
@@ -44,6 +44,11 @@ type ChatInputProps = {
   liveQuestion?: ToolCallMessage | null
   onQuestionAnswer?: (toolId: string, answer: string) => void
   sendMessage: (text: string, images?: ImageAttachment[], files?: FileAttachment[]) => Promise<void>
+  /**
+   * Send a queued message into the turn that is already running. Resolves false
+   * when there was no live turn to send it into, so the row stays queued.
+   */
+  steerMessage?: (msg: QueuedMessage) => Promise<boolean>
   /** Abort the running turn. Owned by Chat, which also has a permission queue to clear. */
   onStop?: () => void
 }
@@ -52,6 +57,7 @@ export default function ChatInput({
   cwd,
   isLoading,
   sendMessage,
+  steerMessage,
   onStop,
   pendingPlan = null,
   onPlanAnswer,
@@ -890,6 +896,30 @@ export default function ChatInput({
             <div key={i} className="group/q flex items-center gap-2 px-3 py-1.5">
               <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate text-foreground/80">{queued.text}</span>
+              {/* Only while a turn is live: with nothing running there is nothing
+                  to steer, and the queue outlives the turn when a result errors. */}
+              {isLoading && steerMessage && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={async () => {
+                        const sid = useSessionsStore.getState().activeSessionId
+                        if (!sid) return
+                        // Dropped from the queue only once it is in, so a turn
+                        // that ended first leaves the message where it was.
+                        if (await steerMessage(queued)) {
+                          useSessionsStore.getState().removeQueuedMessage(sid, i)
+                        }
+                      }}
+                      className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                    >
+                      <Navigation className="size-3" />
+                      Steer
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Send this into the running turn</TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

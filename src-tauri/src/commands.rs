@@ -60,6 +60,13 @@ pub fn claude_abort(nyra_session_id: Option<String>) {
     claude::abort_claude(nyra_session_id.as_deref());
 }
 
+/// Steer the running turn. False when there was no turn to steer, so the caller
+/// can leave the message in the queue rather than lose it.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn claude_steer(prompt: String, nyra_session_id: String) -> bool {
+    claude::steer_session(&nyra_session_id, &prompt).await
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub fn claude_dispose(nyra_session_id: String) {
     claude::dispose_session(&nyra_session_id);

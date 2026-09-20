@@ -1012,6 +1012,48 @@ async fn send_prompt_to_session(
     Ok(rx)
 }
 
+/// Write a user message into a turn that is already running, so the model reads
+/// it at its next step instead of after the result. Answers whether it went in.
+///
+/// Deliberately not `send_prompt_to_session`: that function *owns* a turn. It
+/// parks a oneshot in `current_turn` and clears the permission and event state,
+/// so calling it twice in one turn would drop the first sender on the floor —
+/// its `run_claude` would never resolve — and reset bookkeeping mid-flight.
+/// Steering writes the line and touches nothing else.
+///
+/// No turn in flight means there is nothing to steer: the CLI would open a fresh
+/// turn nobody is listening for, while the UI still believes it is idle. Say so
+/// and let the caller leave the message queued.
+pub async fn steer_session(nyra_session_id: &str, prompt: &str) -> bool {
+    let Some(sess) = get_session(nyra_session_id) else {
+        return false;
+    };
+    {
+        let inner = sess.inner.lock();
+        if !inner.alive || inner.current_turn.is_none() {
+            return false;
+        }
+    }
+
+    let payload = format_user_message(prompt);
+    let mut guard = sess.stdin.lock().await;
+    let Some(stdin) = guard.as_mut() else {
+        return false;
+    };
+    let wrote = stdin
+        .write_all(payload.as_bytes())
+        .await
+        .and(stdin.flush().await);
+    if let Err(err) = wrote {
+        crate::logf!(
+            "Steer failed for [{}]: {err}",
+            util::short(nyra_session_id)
+        );
+        return false;
+    }
+    true
+}
+
 pub async fn run_claude(
     prompt: String,
     cwd: String,
@@ -1917,6 +1959,30 @@ mod tests {
             inner: Mutex::new(inner),
             stdin: AsyncMutex::new(None),
         })
+    }
+
+    #[tokio::test]
+    async fn steering_needs_a_turn_already_running() {
+        // Nothing here to steer into.
+        assert!(!steer_session("never-spawned", "hello").await);
+
+        let sess = test_session(false);
+        SESSIONS.lock().insert("steer1".into(), sess.clone());
+
+        // Alive but idle: the line would open a turn nobody is waiting on, so the
+        // caller is told no and keeps the message queued.
+        assert!(!steer_session("steer1", "hello").await);
+
+        // A turn in flight, but the pipe is gone — still no.
+        let (tx, _rx) = oneshot::channel();
+        sess.inner.lock().current_turn = Some(tx);
+        assert!(!steer_session("steer1", "hello").await);
+
+        // Steering must not disturb the turn it writes into.
+        assert!(sess.inner.lock().current_turn.is_some());
+        assert!(sess.inner.lock().turn_prompt.is_empty());
+
+        SESSIONS.lock().remove("steer1");
     }
 
     #[tokio::test]

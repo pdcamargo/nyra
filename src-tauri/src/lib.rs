@@ -146,6 +146,7 @@ pub fn run() {
             commands::claude_query,
             commands::claude_permission_response,
             commands::claude_abort,
+            commands::claude_steer,
             commands::claude_dispose,
             commands::claude_check_binary,
             commands::claude_save_image,

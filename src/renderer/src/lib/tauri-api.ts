@@ -130,6 +130,13 @@ export const api = {
     abort: (nyraSessionId?: string) =>
       call<void>('claude_abort', { nyraSessionId: nyraSessionId ?? null }),
 
+    /**
+     * Drop a message into the turn that is already running. Resolves false when
+     * there was no live turn to drop it into — the caller keeps it queued.
+     */
+    steer: (prompt: string, nyraSessionId: string) =>
+      call<boolean>('claude_steer', { prompt, nyraSessionId }),
+
     dispose: (nyraSessionId: string) => call<void>('claude_dispose', { nyraSessionId }),
 
     saveImage: (base64: string, mediaType: string) =>

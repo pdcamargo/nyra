@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitBranch, GitFork, GitMerge, Info, Search, SquarePen, Trash2, TriangleAlert } from 'lucide-react'
-import { useSessionsStore, activeCwd, activeProjectCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type AgentStatus, newMessageId } from '../store/sessions'
+import { useSessionsStore, activeCwd, activeProjectCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
@@ -11,6 +11,7 @@ import AskUserQuestionCard from './AskUserQuestionCard'
 import PlanCard, { splitPlan, type PlanAnswer } from './PlanCard'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
+import { withAttachments } from '../lib/promptAttachments'
 import { extractAskBlocks } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
 import { extractChangeBlocks } from '../lib/changeBlocks'
@@ -1117,32 +1118,7 @@ export default function Chat(): React.JSX.Element {
     const fls = files ?? []
 
     // Build the full prompt with attachment data for Claude CLI.
-    //
-    // The composer drops `[Image: path]` at the caret as you attach, so most of
-    // these are already in the text, in the sentence they belong to. Appending
-    // them again would show Claude the same screenshot twice; this catches the
-    // ones that are not there — an attachment whose chip was deleted, or a
-    // message sent from somewhere that never had a composer.
-    const sep = (): string => (prompt ? '\n\n' : '')
-    const referenced = (path: string): boolean => prompt.includes(`[Image: ${path}]`)
-    const orphanImages = imgs.filter((img) => !referenced(img.path))
-    if (orphanImages.length > 0) {
-      const imagePaths = orphanImages.map((img) => `[Image: ${img.path}]`).join('\n')
-      prompt = `${prompt}${sep()}${imagePaths}`
-    }
-    if (fls.length > 0) {
-      const imageFiles = fls.filter((f) => f.category === 'image' && !referenced(f.path))
-      if (imageFiles.length > 0) {
-        const imgPaths = imageFiles.map((f) => `[Image: ${f.path}]`).join('\n')
-        prompt = `${prompt}${sep()}${imgPaths}`
-      }
-      const fileParts = fls
-        .filter((f) => f.category !== 'image' && f.extractedText)
-        .map((f) => `<attached_file name="${f.name}">\n${f.extractedText}\n</attached_file>`)
-      if (fileParts.length > 0) {
-        prompt = `${prompt}${sep()}${fileParts.join('\n\n')}`
-      }
-    }
+    prompt = withAttachments(prompt, imgs, fls)
 
     const userMessage: TextMessage = {
       id: newMessageId(),
@@ -1188,6 +1164,48 @@ export default function Chat(): React.JSX.Element {
   }, [])
 
   sendMessageRef.current = sendMessage
+
+  /**
+   * Hand a queued message to the turn that is already running instead of waiting
+   * for it to finish. The CLI reads stdin between steps, so the model picks it up
+   * at its next one and changes course inside the same turn — one result, no
+   * second run.
+   *
+   * Answers whether it landed. A turn that ended between the render and the click
+   * has nothing to steer, and the caller leaves the message queued for the drain
+   * rather than dropping it.
+   */
+  const steerMessage = useCallback(async (msg: QueuedMessage): Promise<boolean> => {
+    const sid = useSessionsStore.getState().activeSessionId
+    if (!sid) return false
+
+    const text = msg.text.trim()
+    const prompt = withAttachments(text, msg.images, msg.files)
+    if (!prompt) return false
+
+    let steered = false
+    try {
+      steered = await window.api.claude.steer(prompt, sid)
+    } catch {
+      return false
+    }
+    if (!steered) return false
+
+    // Appended where it happened, between the tool calls it interrupted, because
+    // that is where it will read back — the turn kept going around it.
+    useSessionsStore.getState().addMessage(sid, {
+      id: newMessageId(),
+      role: 'user',
+      text,
+      ...(msg.images && msg.images.length > 0 ? { images: msg.images } : {}),
+      ...(msg.files && msg.files.length > 0
+        ? { files: msg.files.map(({ extractedText: _, ...f }) => f) }
+        : {})
+    })
+    // Whatever was asked, saying something is an answer to it.
+    useSessionsStore.getState().setNeedsAnswer(sid, false)
+    return true
+  }, [])
 
   const editAndResend = useCallback(async (messageId: string, newText: string): Promise<void> => {
     const sid = useSessionsStore.getState().activeSessionId
@@ -1811,6 +1829,7 @@ export default function Chat(): React.JSX.Element {
           cwd={cwd}
           isLoading={isLoading}
           sendMessage={sendMessage}
+          steerMessage={steerMessage}
           onStop={handleStopTurn}
           pendingPlan={pendingPlan}
           onPlanAnswer={handlePlanAnswer}
