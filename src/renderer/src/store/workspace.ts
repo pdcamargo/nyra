@@ -36,11 +36,18 @@ export type ChangesWorkspaceTab = { kind: 'changes'; id: string }
  *  says which plan; the text itself stays on the session message, so a revision
  *  mid-turn updates the open tab without anything here changing. */
 export type PlanWorkspaceTab = { kind: 'plan'; id: string; toolId: string }
+/** This chat's subagents. One tab with two modes rather than one tab per agent:
+ *  a fan-out of five agents would otherwise bury every other tab in the strip.
+ *  `focus` is null for the list and a `Task` toolId for that agent's stream; the
+ *  back arrow just sets it to null. Like `changes` and `plan`, never reachable
+ *  from "+" — it is about this conversation, not a blank workspace. */
+export type SubagentsWorkspaceTab = { kind: 'subagents'; id: string; focus: string | null }
 export type WorkspaceTab =
   | BrowserWorkspaceTab
   | FileWorkspaceTab
   | ChangesWorkspaceTab
   | PlanWorkspaceTab
+  | SubagentsWorkspaceTab
 
 export type ChatWorkspace = {
   /** The strip, in the order it is drawn. Ours, not the sidecar's. */
@@ -71,6 +78,7 @@ export const browserKey = (tabId: string): string => `browser:${tabId}`
 export const fileKey = (id: string): string => `file:${id}`
 export const changesKey = (id: string): string => `changes:${id}`
 export const planKey = (id: string): string => `plan:${id}`
+export const subagentsKey = (id: string): string => `subagents:${id}`
 
 export function tabKey(tab: WorkspaceTab): string {
   switch (tab.kind) {
@@ -80,6 +88,8 @@ export function tabKey(tab: WorkspaceTab): string {
       return fileKey(tab.id)
     case 'plan':
       return planKey(tab.id)
+    case 'subagents':
+      return subagentsKey(tab.id)
     default:
       return changesKey(tab.id)
   }
@@ -168,17 +178,24 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Partial<ChatWorkspace>
 
-  // File, changes and plan rows come back; browser rows do not, since a restored
-  // one would name a page in a Chromium that does not exist any more. A changes
-  // row is only an id — what it shows is re-read from the repo on mount. A plan
-  // row is the file case rather than the browser one: the plan text lives on a
-  // session message and those are persisted, so quitting mid-review keeps your
-  // place. `PlanTab` still copes with the message being gone.
+  // File, changes, plan and subagents rows come back; browser rows do not, since
+  // a restored one would name a page in a Chromium that does not exist any more.
+  // A changes row is only an id — what it shows is re-read from the repo on
+  // mount. A plan row is the file case rather than the browser one: the plan text
+  // lives on a session message and those are persisted, so quitting mid-review
+  // keeps your place. `PlanTab` still copes with the message being gone. A
+  // subagents row keeps its `focus` because the roster is persisted and the
+  // transcript is re-read off disk.
+  //
+  // This list is a whitelist, unlike `reconcileTabs`' filter — a kind that is not
+  // handled here is silently dropped on the next restart.
   const seen = new Set<string>()
   const tabs: WorkspaceTab[] = (Array.isArray(r.tabs) ? r.tabs : []).flatMap(
     (t): WorkspaceTab[] => {
       if (!t || typeof t !== 'object') return []
-      const tab = t as Partial<FileWorkspaceTab | ChangesWorkspaceTab | PlanWorkspaceTab>
+      const tab = t as Partial<
+        FileWorkspaceTab | ChangesWorkspaceTab | PlanWorkspaceTab | SubagentsWorkspaceTab
+      >
       if (typeof tab.id !== 'string' || seen.has(tab.id)) return []
       if (tab.kind === 'changes') {
         seen.add(tab.id)
@@ -189,6 +206,12 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
         if (typeof toolId !== 'string') return []
         seen.add(tab.id)
         return [{ kind: 'plan', id: tab.id, toolId }]
+      }
+      if (tab.kind === 'subagents') {
+        const focus = (tab as Partial<SubagentsWorkspaceTab>).focus
+        if (focus !== null && focus !== undefined && typeof focus !== 'string') return []
+        seen.add(tab.id)
+        return [{ kind: 'subagents', id: tab.id, focus: focus ?? null }]
       }
       if (tab.kind !== 'file') return []
       const path = (tab as Partial<FileWorkspaceTab>).path
@@ -266,6 +289,10 @@ type WorkspaceStore = {
    *  at `toolId`. One per chat: opening a second plan is still reviewing a plan,
    *  and two rows would just be two places to close. */
   openPlanTab: (sessionId: string, toolId: string) => string
+  /** This chat's subagents, reusing the row already in the strip. `focus` is null
+   *  for the list and a `Task` toolId for one agent's stream — the same action
+   *  drives the summary row, the "See all" header and the back arrow. */
+  openSubagentsTab: (sessionId: string, focus: string | null) => string
   setFilePath: (sessionId: string, fileTabId: string, path: string) => void
   /** Strip-local. Closing a *browser* tab is the sidecar's to report — removing
    *  the row here would let an in-flight broadcast re-append it at the far end. */
@@ -359,6 +386,34 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           return key
         }
         const tab: PlanWorkspaceTab = { kind: 'plan', id: nextFileTabId(), toolId }
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: [...ws.tabs, tab],
+            activeKey: tabKey(tab)
+          }))
+        )
+        return tabKey(tab)
+      },
+
+      openSubagentsTab: (sessionId, focus) => {
+        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
+          (t): t is SubagentsWorkspaceTab => t.kind === 'subagents'
+        )
+        if (existing) {
+          const key = tabKey(existing)
+          set((s) =>
+            patch(s, sessionId, (ws) => ({
+              ...ws,
+              // Retarget rather than stack. The back arrow is this same call with
+              // a null focus, so navigating inside the tab costs no extra row.
+              tabs: ws.tabs.map((t) => (t.kind === 'subagents' ? { ...t, focus } : t)),
+              activeKey: key
+            }))
+          )
+          return key
+        }
+        const tab: SubagentsWorkspaceTab = { kind: 'subagents', id: nextFileTabId(), focus }
         set((s) =>
           patch(s, sessionId, (ws) => ({
             ...ws,

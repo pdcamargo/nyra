@@ -1,16 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { FileDiff, GitBranch, Laptop, RotateCw, TerminalSquare } from 'lucide-react'
-import { useSessionsStore, findProject, type TextMessage, type ToolCallMessage } from '../store/sessions'
+import { useSessionsStore, findProject, type TextMessage } from '../store/sessions'
 import { useUiStore } from '../store/ui'
 import { EMPTY_BROWSER, useBrowserStore } from '../store/browser'
 import { browserKey, useWorkspaceStore } from '../store/workspace'
 import { collectAttachments, formatSize } from '../lib/summary'
-import { openChangesInPanel } from '../lib/openFile'
+import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
 import { useChordLabel } from './ui/kbd'
 import { useProcessesStore, type BgProcess } from '../store/processes'
-import Modal from './Modal'
-import MarkdownRenderer from './MarkdownRenderer'
-import { cleanAgentReport } from '../lib/agentReport'
 import { formatElapsed } from './ActivityStrip'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
@@ -40,7 +37,10 @@ function Section({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <section className="px-3 py-2.5 border-b border-border/55 last:border-b-0">
+    // `group` on the section rather than the header row: hovering a row is how
+    // you find out the section has an action at all, and the rows are the part
+    // you were reaching for.
+    <section className="group px-3 py-2.5 border-b border-border/55 last:border-b-0">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[11px] font-medium text-foreground/80">{label}</span>
         {action}
@@ -77,48 +77,6 @@ function Row({
  * every time you glanced at it, and it is separate from the workspace panel,
  * which is about the project rather than this chat.
  */
-/**
- * What a subagent actually reported.
- *
- * Its whole answer comes back as the `Task` tool's result and has been sitting in
- * the store all along — collapsed inside a tool strip nobody opens, filed under a
- * name like "Task". Here it is under the agent that produced it.
- */
-function AgentReport({ toolId, onClose }: { toolId: string; onClose: () => void }): React.JSX.Element {
-  const agent = useSessionsStore((s) => {
-    const session = s.sessions.find((x) => x.id === s.activeSessionId)
-    return session?.agents?.find((a) => a.toolId === toolId) ?? null
-  })
-  const report = useSessionsStore((s) => {
-    const session = s.sessions.find((x) => x.id === s.activeSessionId)
-    const msg = session?.messages.find(
-      (m) => m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId
-    )
-    // A background subagent's tool result is the launch receipt, not the report,
-    // and showing it verbatim is how this panel came to display an agent id and
-    // a "do not quote any of this" notice where the answer should be.
-    return cleanAgentReport((msg as ToolCallMessage | undefined)?.result)
-  })
-
-  return (
-    <Modal open onClose={onClose} title={agent?.name ?? 'Subagent'} className="max-w-2xl">
-      <div className="max-h-[78vh] overflow-y-auto px-5 pb-5 text-xs">
-        {agent?.status === 'running' || (!report && agent?.status !== 'failed') ? (
-          <p className="italic text-info/70">
-            {agent?.activity ? agent.activity : 'Still working — nothing reported yet.'}
-          </p>
-        ) : report ? (
-          <MarkdownRenderer>{report}</MarkdownRenderer>
-        ) : (
-          <p className="italic text-muted-foreground/60">
-            It finished without leaving a report.
-          </p>
-        )}
-      </div>
-    </Modal>
-  )
-}
-
 export default function SummaryPanel(): React.JSX.Element | null {
   const open = useUiStore((s) => s.summaryOpen)
   const session = useSessionsStore((s) => s.sessions.find((x) => x.id === s.activeSessionId) ?? null)
@@ -180,8 +138,6 @@ export default function SummaryPanel(): React.JSX.Element | null {
   // not in a summary of what this conversation has in flight.
   const liveProcesses = processes.filter((p) => p.status === 'running')
   const now = useClock(open && liveProcesses.length > 0)
-  /** Which subagent's report is open, if any. */
-  const [openAgent, setOpenAgent] = useState<string | null>(null)
 
   if (!open || !session) return null
 
@@ -285,20 +241,34 @@ export default function SummaryPanel(): React.JSX.Element | null {
         </Section>
       )}
 
-      {openAgent && <AgentReport toolId={openAgent} onClose={() => setOpenAgent(null)} />}
-
       {/* One line each rather than a count. A count tells you two agents exist;
           this tells you which one is still going and what it is doing, which is
-          the question you actually had. */}
+          the question you actually had.
+
+          Reading it is the panel's job; watching it work is not. Both routes go
+          to the same tab — the header opens the list, a row opens that agent. */}
       {agents.length > 0 && (
-        <Section label="Subagents">
-          {agents.map((agent) => (
+        <Section
+          label="Subagents"
+          action={
             <Tooltip>
+              <TooltipTrigger
+                onClick={() => openSubagentsInPanel(null)}
+                aria-label="See all subagents"
+                className="rounded text-[10px] text-muted-foreground/60 opacity-0 transition-opacity hover:text-foreground/80 group-hover:opacity-100 focus-visible:opacity-100"
+              >
+                See all
+              </TooltipTrigger>
+              <TooltipContent>See all subagents</TooltipContent>
+            </Tooltip>
+          }
+        >
+          {agents.map((agent) => (
+            <Tooltip key={agent.toolId}>
               <TooltipTrigger asChild>
                 <button
-                  key={agent.toolId}
                   type="button"
-                  onClick={() => setOpenAgent(agent.toolId)}
+                  onClick={() => openSubagentsInPanel(agent.toolId)}
                   className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
                 >
                   <span
@@ -325,7 +295,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
                   )}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Show what it reported</TooltipContent>
+              <TooltipContent>Open this subagent</TooltipContent>
             </Tooltip>
           ))}
         </Section>

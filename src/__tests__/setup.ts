@@ -41,7 +41,7 @@ if (!globalThis.crypto?.randomUUID) {
   })
 }
 
-// `window.api` stub — all 14 namespaces.
+// `window.api` stub — all 15 namespaces.
 //
 // It used to cover 5, which was enough for the store tests but meant rendering
 // <App/> threw: it calls processes.onUpdate on mount. Component tests need the
@@ -155,6 +155,7 @@ Object.defineProperty(globalThis, 'api', {
       clear: noop,
       onUpdate: unsub
     },
+    subagents: { transcript: () => Promise.resolve({ model: null, entries: [] }) },
     login: { start: noop, input: noop, resize: noop, cancel: noop, onData: unsub, onExit: unsub }
   }
 })

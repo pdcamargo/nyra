@@ -80,6 +80,10 @@ export type Agent = {
   totalTokens?: number
   /** The latest line from the CLI — what it is doing, not what it was asked. */
   activity?: string
+  /** Which model it actually ran on, off its own `message.model`. */
+  model?: string
+  /** Its transcript on disk, so a tab opened later still has something to show. */
+  outputFile?: string
 }
 
 export type McpServerInfo = {

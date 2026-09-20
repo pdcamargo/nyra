@@ -44,3 +44,32 @@ export function modelOptions(stored: string): { value: string; label: string }[]
     ...(stored && !isKnown ? [{ value: stored, label: stored }] : [])
   ]
 }
+
+/**
+ * `claude-opus-5` → `Opus 5`. What a subagent actually ran on.
+ *
+ * The composer picks a model by alias; the CLI resolves it to a full id and
+ * stamps that onto every message, subagent ones included. Only the resolved id
+ * is worth showing next to an agent — the alias is a preference, this is a fact.
+ *
+ * Null rather than a guess when the shape is unfamiliar: a badge reading
+ * `custom-thing-v2` says less than no badge at all.
+ */
+export function shortModelLabel(id: string | null | undefined): string | null {
+  if (!id) return null
+  const bare = id
+    .replace(/\[1m\]$/i, '')
+    .replace(/^(?:[a-z]+\.)*anthropic\./i, '')
+    .replace(/^claude-/i, '')
+    .replace(/-\d{8}$/, '')
+    .replace(/-v\d+:\d+$/, '')
+  const parts = bare.split('-').filter(Boolean)
+  if (parts.length === 0) return null
+  const [family, ...rest] = parts
+  const known = (KNOWN_MODELS as readonly string[]).includes(family.toLowerCase())
+  if (!known) return null
+  const name = LABELS[family.toLowerCase() as KnownModel]
+  // `haiku-4-5` is one version, not two: the tail joins on a dot.
+  const version = rest.filter((p) => /^\d+$/.test(p)).join('.')
+  return version ? `${name} ${version}` : name
+}

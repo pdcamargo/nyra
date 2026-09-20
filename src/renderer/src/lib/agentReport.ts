@@ -42,3 +42,21 @@ export function cleanAgentReport(result: string | null | undefined): string | nu
     .trim()
   return trimmed || null
 }
+
+/**
+ * The transcript path a launch receipt names.
+ *
+ * The receipt tells the *model* not to read this file — it is the agent's whole
+ * JSONL transcript and would swamp a context window. Nyra is not a context
+ * window: it is the one thing that can follow the file and draw it as it grows,
+ * which is the difference between watching a background subagent work and
+ * staring at a spinner until it is done.
+ */
+export function outputFileFromReceipt(result: string | null | undefined): string | null {
+  if (!result) return null
+  for (const line of result.split('\n').slice(0, 40)) {
+    const match = line.match(/^\s*output_file:\s*(\S+)\s*$/i)
+    if (match) return match[1]
+  }
+  return null
+}

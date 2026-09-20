@@ -45,6 +45,7 @@ import type {
   WorkflowExecutionRecord,
   WorkflowMetrics
 } from '@shared/workflow-types'
+import type { SubagentWireEntry } from '../store/subagentTranscripts'
 
 const EVENT_NAMES = [
   'claude:event',
@@ -387,6 +388,12 @@ export const api = {
     clear: (nyraSessionId: string) => call<void>('processes_clear', { nyraSessionId }),
     onUpdate: (callback: (event: { nyraSessionId: string; processes: BgProcessRow[] }) => void) =>
       on('processes:update', callback)
+  },
+
+  subagents: {
+    /** A finished agent's transcript, off disk, for a tab opened after the fact. */
+    transcript: (path: string) =>
+      call<{ model: string | null; entries: SubagentWireEntry[] }>('subagent_transcript', { path })
   },
 
   login: {

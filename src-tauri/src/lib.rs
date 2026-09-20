@@ -22,6 +22,7 @@ mod open_with;
 mod processes;
 mod settings;
 mod skills;
+mod subagents;
 mod terminal;
 mod util;
 mod webhook_server;
@@ -225,6 +226,7 @@ pub fn run() {
             commands::processes_list,
             commands::processes_kill,
             commands::processes_clear,
+            commands::subagent_transcript,
             commands::login_start,
             commands::login_input,
             commands::login_resize,

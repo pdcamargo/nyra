@@ -16,7 +16,7 @@ use crate::workflow::types::{MarketplaceEntry, TriggerSource};
 use crate::workflow::{engine, marketplace, store, triggers};
 use crate::{
     browser, claude, devtools, file_extractor, file_tree, fs_ops, git, hooks, login, mcp,
-    memory, open_with, processes, skills,
+    memory, open_with, processes, skills, subagents,
 };
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
 
@@ -741,6 +741,18 @@ pub fn processes_kill(nyra_session_id: String, shell_id: String) -> Value {
 #[tauri::command(rename_all = "camelCase")]
 pub fn processes_clear(nyra_session_id: String) {
     processes::drop_session(&nyra_session_id);
+}
+
+// ---- subagents ----
+
+/// Everything a subagent wrote, read off disk.
+///
+/// For a tab opened after the fact: the live stream only exists while the agent
+/// runs, but its transcript outlives the session, so an agent from three turns
+/// ago still has something to show.
+#[tauri::command(rename_all = "camelCase")]
+pub fn subagent_transcript(path: String) -> Value {
+    subagents::read_transcript(&path)
 }
 
 // ---- login ----

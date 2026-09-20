@@ -1,5 +1,6 @@
 import type React from 'react'
 import {
+  Bot,
   ClipboardCopy,
   Eraser,
   FileDiff,
@@ -44,7 +45,7 @@ import {
 } from '../store/sessions'
 import { useWorkspaceStore, workspaceFor } from '../store/workspace'
 import { startBrowserTab } from '../components/browser/useBrowserSession'
-import { openChangesInPanel } from '../lib/openFile'
+import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
 import { useChangesStore } from '../store/changes'
 
 /**
@@ -77,6 +78,7 @@ export type CommandId =
   | 'panel.right.file'
   | 'panel.right.changes'
   | 'panel.right.changes.refresh'
+  | 'panel.right.subagents'
   | 'panel.right.tree'
   | 'panel.bottom'
   | 'panel.summary'
@@ -336,6 +338,21 @@ export const COMMANDS: Command[] = [
     icon: FileDiff,
     palette: true,
     run: () => openChangesInPanel()
+  },
+  {
+    // Unbound by default. There is a row for every agent in the summary and a
+    // "See all" above them, so the palette entry is for the times the summary is
+    // closed — worth a name and a rebindable key, not worth a chord of its own.
+    //
+    // Absent from `NEW_TAB_CHOICES` on purpose, like changes and plan: it is
+    // about this conversation, and "+" makes a blank workspace tab.
+    id: 'panel.right.subagents',
+    label: 'Open subagents',
+    group: 'Panels',
+    defaultChord: null,
+    icon: Bot,
+    palette: true,
+    run: () => openSubagentsInPanel(null)
   },
   {
     // Unbound by default — there is a button for it, and a refresh key that only

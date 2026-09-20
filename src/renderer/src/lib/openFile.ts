@@ -37,6 +37,16 @@ export const CHANGES_MIN_WIDTH = 420
 export const PLAN_MIN_WIDTH = 480
 
 /**
+ * Wide enough for an agent at work.
+ *
+ * Same as a plan, for the same reason: it is prose with tool trace lines
+ * threaded through it. The Pinned Summary already shows this at 308px and that
+ * is exactly why it can only show one line each — this is the surface where
+ * there is room to read.
+ */
+export const SUBAGENTS_MIN_WIDTH = 480
+
+/**
  * Show a file in the side panel.
  *
  * Replaces the file-preview modal, so there is one answer to "open this file"
@@ -133,4 +143,30 @@ export function openPlanInPanel(toolId: string): void {
   }
 
   useWorkspaceStore.getState().openPlanTab(sessionId, toolId)
+}
+
+/**
+ * Show this chat's subagents in the side panel.
+ *
+ * `focus` is null for the list and a `Task` toolId for one agent's stream. Both
+ * go through here rather than reaching into the store, so the panel opens and
+ * the width clamps whichever way you arrived — the summary row, the "See all"
+ * header, the command palette, or the back arrow inside the tab itself.
+ *
+ * This replaced a modal. A modal was the wrong shape for something you watch
+ * while it runs: it covered the conversation the agent was working on, and
+ * there is no reason you should not have two of these open in different chats.
+ */
+export function openSubagentsInPanel(focus: string | null): void {
+  const sessionId = useSessionsStore.getState().activeSessionId
+  if (!sessionId) return
+
+  useUiStore.getState().setRightPanelOpen(true)
+
+  const sizes = usePanelSizesStore.getState()
+  if (sizes.rightPanelWidth < SUBAGENTS_MIN_WIDTH) {
+    sizes.setSize('rightPanelWidth', SUBAGENTS_MIN_WIDTH)
+  }
+
+  useWorkspaceStore.getState().openSubagentsTab(sessionId, focus)
 }

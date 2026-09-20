@@ -11,6 +11,11 @@ import AskUserQuestionCard from './AskUserQuestionCard'
 import PlanCard, { splitPlan, type PlanAnswer } from './PlanCard'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
+import {
+  useSubagentTranscriptsStore,
+  type SubagentWireEntry
+} from '../store/subagentTranscripts'
+import { outputFileFromReceipt } from '../lib/agentReport'
 import { withAttachments } from '../lib/promptAttachments'
 import { extractAskBlocks } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
@@ -65,6 +70,9 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'assistant_text'; text: string }
   | { type: 'background_tasks'; tasks: { task_id: string; description: string; task_type?: string }[] }
   | { type: 'background_task_progress'; task_id: string; tool_use_id: string; activity: string; last_tool_name: string; subagent_type: string; duration_ms: number }
+  | { type: 'subagent_stream'; tool_id: string; at: number; entries: SubagentWireEntry[] }
+  | { type: 'subagent_model'; tool_id: string; model: string }
+  | { type: 'subagent_reset'; tool_id: string }
   | { type: 'plan_ready'; tool_id: string; path: string; plan: string }
   | { type: 'session_reset'; reason: string }
   | { type: 'ai_title'; title: string }
@@ -710,7 +718,12 @@ export default function Chat(): React.JSX.Element {
         const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         const agent = session?.agents?.find((a) => a.toolId === event.tool_id)
         if (agent) {
-          const updates: Partial<{ status: AgentStatus; durationMs: number; totalTokens: number }> = {
+          const updates: Partial<{
+            status: AgentStatus
+            durationMs: number
+            totalTokens: number
+            outputFile: string
+          }> = {
             status: 'done',
             durationMs: Date.now() - agent.startedAt
           }
@@ -719,6 +732,11 @@ export default function Chat(): React.JSX.Element {
             if (typeof parsed.totalTokens === 'number') updates.totalTokens = parsed.totalTokens
             if (typeof parsed.totalDurationMs === 'number') updates.durationMs = parsed.totalDurationMs
           } catch { /* result may not be JSON */ }
+          // A backgrounded agent answers with a launch receipt naming the file it
+          // streams to. Kept on the agent so a tab opened three turns later can
+          // still read back what it did, long after the live stream is gone.
+          const outputFile = outputFileFromReceipt(event.content)
+          if (outputFile) updates.outputFile = outputFile
           updateAgent(sid, event.tool_id, updates)
         }
       }
@@ -734,6 +752,11 @@ export default function Chat(): React.JSX.Element {
         )
         // An agent that finishes after its turn ended is still this session's
         // work, so the Agent Tree should stop calling it done at two seconds.
+        //
+        // Matched on description because that is all the roster carries. Two
+        // agents launched with the same description are indistinguishable here
+        // and both stay running until both stop, which is the safe way round:
+        // the alternative is calling a live agent dead.
         const outstanding = new Set(event.tasks.map((t) => t.description))
         const sess = useSessionsStore.getState().sessions.find((x) => x.id === sid)
         for (const agent of sess?.agents ?? []) {
@@ -743,6 +766,28 @@ export default function Chat(): React.JSX.Element {
             updateAgent(sid, agent.toolId, { status: 'done', durationMs: Date.now() - agent.startedAt })
           }
         }
+        return
+      }
+
+      // What the agent is actually saying, as it says it. Two sources feed this
+      // — a foreground subagent's own messages, and Rust tailing the transcript
+      // a background one writes — and neither is distinguishable here, which is
+      // the point: the panel behaves the same whichever kind you opened.
+      if (event.type === 'subagent_stream') {
+        useSubagentTranscriptsStore.getState().append(sid, event.tool_id, event.entries)
+        return
+      }
+
+      // A tail took over from the inline stream for this agent. Whichever got in
+      // first, only one of them ends up having written anything.
+      if (event.type === 'subagent_reset') {
+        useSubagentTranscriptsStore.getState().reset(sid, event.tool_id)
+        return
+      }
+
+      if (event.type === 'subagent_model') {
+        useSubagentTranscriptsStore.getState().noteModel(sid, event.tool_id, event.model)
+        updateAgent(sid, event.tool_id, { model: event.model })
         return
       }
 
@@ -937,6 +982,8 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'stream_end') {
+        const outstandingAtEnd =
+          useBackgroundAgentsStore.getState().bySession[sid] ?? []
         // The child is gone, so anything it had running is gone with it.
         useBackgroundAgentsStore.getState().forget(sid)
         useSessionsStore.getState().setExecuting(sid, null)
@@ -948,8 +995,13 @@ export default function Chat(): React.JSX.Element {
         // and a plan raised beside it would be a second one nobody invited.
         const endSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         if (!endSession?.needsAnswer) usePlanApprovalStore.getState().promote(sid)
-        // Mark any still-running agents as failed
+        // Anything still running when the child died did not finish — except a
+        // background agent, which is exactly the thing that outlives its turn.
+        // Read the roster before `forget` clears it, or every backgrounded agent
+        // is marked failed the moment the turn it was spawned in ends.
+        const stillOut = new Set(outstandingAtEnd.map((a) => a.description))
         endSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
+          if (stillOut.has(a.name)) return
           updateAgent(sid, a.toolId, { status: 'failed' })
         })
       }

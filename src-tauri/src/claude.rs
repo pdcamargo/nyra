@@ -29,6 +29,7 @@ use crate::ai_title;
 use crate::notify_user::notify;
 use crate::processes;
 use crate::settings::SpawnSettings;
+use crate::subagents;
 use crate::util;
 
 /// Tools that require explicit user approval before running.
@@ -346,6 +347,7 @@ pub fn dispose_session(nyra_session_id: &str) {
     kill_session_pty(&sess);
     USAGE_CALLBACKS.lock().remove(nyra_session_id);
     ai_title::forget(nyra_session_id);
+    subagents::forget_session(nyra_session_id);
     fail_result_callback(nyra_session_id, "Session disposed");
 }
 
@@ -564,6 +566,12 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                 json!({ "type": "tool_result", "tool_id": tool_id, "content": result_content }),
             );
             processes::note_tool_result(nyra_session_id, tool_id, &result_content);
+            // The launch receipt of a background subagent carries the same path
+            // `task_notification` does, and gets here first. Whichever wins, the
+            // other is a no-op.
+            if let Some(path) = subagents::output_file_from_receipt(&result_content) {
+                subagents::watch(nyra_session_id, tool_id, &path);
+            }
             emit_plan_ready(nyra_session_id, tool_id);
         }
     }
@@ -695,12 +703,30 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                     "subagent_type": raw.get("subagent_type").and_then(Value::as_str).unwrap_or_default(),
                 }),
             ),
-            Some("task_notification") => processes::note_task_notification(
-                nyra_session_id,
-                raw.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
-                raw.get("status").and_then(Value::as_str),
-                raw.get("output_file").and_then(Value::as_str),
-            ),
+            Some("task_notification") => {
+                let tool_use_id = raw
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let output_file = raw.get("output_file").and_then(Value::as_str);
+                let status = raw.get("status").and_then(Value::as_str);
+                processes::note_task_notification(
+                    nyra_session_id,
+                    tool_use_id,
+                    status,
+                    output_file,
+                );
+                // `note_task_notification` looks this up in `by_shell_id`, which
+                // only a backgrounded `Bash` ever populates — so for a `Task`
+                // the lookup misses and the path was dropped on the floor. It is
+                // the subagent's live transcript; follow it.
+                if let Some(path) = output_file.filter(|p| !p.is_empty()) {
+                    subagents::watch(nyra_session_id, tool_use_id, path);
+                }
+                if matches!(status, Some("completed") | Some("failed") | Some("killed")) {
+                    subagents::stop(nyra_session_id, tool_use_id);
+                }
+            }
             _ => {}
         }
     }
@@ -1371,6 +1397,22 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
                 cb(normalized);
             }
         }
+    }
+
+    // A subagent's own messages, on the same stdout as the parent's and told
+    // apart only by this field. Nothing read it, so a foreground subagent's
+    // thinking and tool calls landed in the transcript as if the parent had said
+    // them — while its own row in the summary stayed empty.
+    //
+    // Deliberately below the usage roll-up: a subagent's tokens are the
+    // session's tokens, and the meter should say so.
+    if let Some(parent) = raw
+        .get("parent_tool_use_id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        subagents::note_inline(nyra_session_id, parent, &raw);
+        return false;
     }
 
     if event_type == "rate_limit_event" {
