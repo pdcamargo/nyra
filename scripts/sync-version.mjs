@@ -24,7 +24,20 @@ const cargo = readFileSync('src-tauri/Cargo.toml', 'utf8')
 writeFileSync('src-tauri/Cargo.toml', cargo.replace(/^version = "[^"]+"/m, `version = "${version}"`))
 
 // Cargo.lock carries it too, and a stale one makes the next build dirty the tree.
-execSync('cargo update -p nyra --precise ' + version + ' 2>/dev/null || true', { stdio: 'ignore' })
+//
+// This ran from the repo root for nine releases and failed every time — the
+// manifest is in `src-tauri/`, so cargo exited 101 with "could not find
+// Cargo.toml", and `2>/dev/null || true` plus `stdio: 'ignore'` swallowed all of
+// it. Every release since has needed a follow-up "Carry 0.0.N into Cargo.lock"
+// commit. Hence: the manifest path, no `|| true`, and a read-back — a lockfile
+// that quietly does not move is the exact failure being fixed here.
+execSync(`cargo update -p nyra --precise ${version} --manifest-path src-tauri/Cargo.toml`, {
+  stdio: 'inherit'
+})
+const lock = readFileSync('src-tauri/Cargo.lock', 'utf8')
+if (!new RegExp(`name = "nyra"\\nversion = "${version.replace(/\./g, '\\.')}"`).test(lock)) {
+  throw new Error(`Cargo.lock still does not name nyra ${version} — the release would be dirty`)
+}
 execSync('git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock')
 
-console.log(`version → ${version} (package.json, tauri.conf.json, Cargo.toml)`)
+console.log(`version → ${version} (package.json, tauri.conf.json, Cargo.toml, Cargo.lock)`)
