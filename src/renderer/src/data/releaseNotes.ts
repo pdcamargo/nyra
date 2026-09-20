@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.0.9',
+    date: '2026-09-20',
     notes: [
       'The plan card waits until the plan is finished before asking for approval',
       'A plan still being written shows as one line in the transcript',
