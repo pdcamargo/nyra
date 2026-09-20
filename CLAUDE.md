@@ -78,8 +78,11 @@ turn that added files summarised none of them.
 ## Verifying
 
 - `npm test` (vitest), `npm run check` (tsc + cargo check), `cargo test --manifest-path src-tauri/Cargo.toml`.
-- `npm run dev` runs Tauri. **Dev shares storage with the installed app** — same
-  identifier, one WebKit store. Quit it properly rather than killing it.
+- `npm run dev` runs Tauri. Dev and the installed app have **separate** WebKit
+  stores (`~/Library/WebKit/nyra` vs `com.nyra.app`): the dev binary is
+  unbundled, so WebKit keys it on the executable name rather than the
+  identifier. Dev cannot reach real chat data. Quit it properly anyway, or
+  terminals, Claude processes and the sidecar are left running.
 - Never reuse a dev server that is already running; a stale module graph has
   read as a real regression before.
 - `npm run dev` is **passive**: it skips the workflow trigger runtime and the

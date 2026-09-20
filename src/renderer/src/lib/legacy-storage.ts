@@ -39,10 +39,11 @@ export function migrateLocalStorage(): void {
       if (localStorage.getItem(`nyra-${key}`) === null) {
         localStorage.setItem(`nyra-${key}`, carried)
       }
-      // The old key is copied, never deleted. Dev and the installed app share one
-      // WebKit store under `com.nyra.app`, so a build that deletes on migrate
-      // strips the settings, panel sizes and shortcuts of whichever build has not
-      // been updated yet. Dead bytes are cheaper than that.
+      // The old key is copied, never deleted: a rollback to an older build should
+      // still find its settings, panel sizes and shortcuts, and five small keys of
+      // dead bytes are cheaper than losing them. (Not, as this once claimed,
+      // because dev shares a WebKit store with the installed app. It does not —
+      // an unbundled binary gets its own, keyed on the executable name.)
     } catch {
       // A quota or security error is survivable here — the app comes up on
       // defaults, rather than not coming up.
