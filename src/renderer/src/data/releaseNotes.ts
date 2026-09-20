@@ -8,7 +8,17 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'The plan card waits until the plan is finished before asking for approval',
+      'A plan still being written shows as one line in the transcript',
+      'Editing a plan updates its card instead of adding another',
+      'Nyra no longer marks a plan "Kept planning" when you never turned one down',
+      'Click a plan to read it in the side panel',
+      'Type in the composer to keep planning, or press Approve',
+      "Claude's questions appear in the composer, and you answer by typing",
+      '"Something else" is gone; type your own answer instead',
+      'Pick an option or type your own, and whichever came last wins'
+    ]
   },
   {
     version: '0.0.8',

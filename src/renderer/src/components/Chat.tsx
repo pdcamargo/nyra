@@ -383,6 +383,24 @@ export default function Chat(): React.JSX.Element {
   }, [pendingPlans, activeSessionId, messages])
 
   /**
+   * The question waiting on an answer, if any.
+   *
+   * Fused into the composer rather than left in the transcript: you answer a
+   * question by typing, and the box you type into is down there. Only the newest
+   * one counts — an older question the turn moved past is a record, not a prompt.
+   */
+  const pendingQuestion = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role !== 'tool_call') continue
+      const tc = m as ToolCallMessage
+      if (tc.tool_name !== 'AskUserQuestion') continue
+      return tc.result === undefined && tc.denied !== true ? tc : null
+    }
+    return null
+  }, [messages])
+
+  /**
    * Re-read the branch this chat is on.
    *
    * It used to be written once, when a worktree was created, and never again —
@@ -783,6 +801,35 @@ export default function Chat(): React.JSX.Element {
         // Headless Claude cannot call ExitPlanMode, so the plan arrives as a file
         // it just wrote. Shaped like the tool call it would have been, so one card
         // renders both — whichever way the plan reaches us.
+        //
+        // An arrival is a draft, not a request. The plan workflow builds a plan up
+        // by re-editing one file, so the write that produces a plan is almost never
+        // the write that finishes it; it lands in `drafting` and becomes an ask
+        // only when the turn ends — see `stream_end`.
+        //
+        // Nothing here marks an earlier plan denied. The loop that used to do that
+        // existed so two cards could not both claim to be waiting, which dedupe by
+        // path now prevents — and "Kept planning" is a verdict the user gives, so
+        // faking one left a column of rejections nobody ever made.
+        const planStore = usePlanApprovalStore.getState()
+        const sessions = useSessionsStore.getState()
+        // Only a card still in play is refreshed. An answered plan at the same path
+        // is a finished one, and a new plan written there deserves its own card
+        // rather than quietly reopening a verdict.
+        const live = (id: string): boolean =>
+          planStore.drafting[id] === sid || planStore.pending[id] === sid
+        const existing = (sessions.sessions.find((s) => s.id === sid)?.messages ?? []).find(
+          (m): m is ToolCallMessage =>
+            m.role === 'tool_call' &&
+            (m as ToolCallMessage).tool_name === 'ExitPlanMode' &&
+            (m as ToolCallMessage).input.path === event.path &&
+            live((m as ToolCallMessage).tool_id)
+        )
+        if (existing) {
+          sessions.updateToolInput(sid, existing.tool_id, { plan: event.plan, path: event.path })
+          planStore.draft(existing.tool_id, sid)
+          return
+        }
         addMessage(sid, {
           id: event.tool_id,
           role: 'tool_call',
@@ -790,16 +837,7 @@ export default function Chat(): React.JSX.Element {
           tool_name: 'ExitPlanMode',
           input: { plan: event.plan, path: event.path }
         })
-        // A revised plan supersedes the draft above it. Marking the old card
-        // "kept planning" is what actually happened — planning carried on — and
-        // stops two cards both claiming to be waiting on an answer.
-        const planStore = usePlanApprovalStore.getState()
-        for (const [priorToolId, priorSid] of Object.entries(planStore.pending)) {
-          if (priorSid !== sid || priorToolId === event.tool_id) continue
-          useSessionsStore.getState().markToolDenied(sid, priorToolId)
-          planStore.resolve(priorToolId)
-        }
-        planStore.add(event.tool_id, sid)
+        planStore.draft(event.tool_id, sid)
         return
       }
 
@@ -903,8 +941,13 @@ export default function Chat(): React.JSX.Element {
         useSessionsStore.getState().setExecuting(sid, null)
         useRunningStore.getState().endRun(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
-        // Mark any still-running agents as failed
+        // A plan drafted during this turn becomes an ask now the turn is over:
+        // ending the turn in plan mode is what handing control back looks like.
+        // Unless the turn ended by asking something — a question is its own ask,
+        // and a plan raised beside it would be a second one nobody invited.
         const endSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)
+        if (!endSession?.needsAnswer) usePlanApprovalStore.getState().promote(sid)
+        // Mark any still-running agents as failed
         endSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
           updateAgent(sid, a.toolId, { status: 'failed' })
         })
@@ -1759,16 +1802,20 @@ export default function Chat(): React.JSX.Element {
       {/* Input */}
       {/* The composer lines up with the conversation, same geometry. */}
       <div style={{ ...columnGeometry, width: 'var(--col-w)', marginLeft: COLUMN_OFFSET } as React.CSSProperties}>
-        {pendingPlan && (
-          <PlanCard message={pendingPlan} onAnswer={handlePlanAnswer} pinned />
-        )}
         <ActivityStrip sessionId={activeSessionId} onStop={handleStopTurn} />
         <TaskStrip />
+        {/* The plan and the question are no longer siblings of the composer —
+            they live inside it, so each reads as the top half of the control you
+            answer it with rather than a card stacked above one. */}
         <ChatInput
           cwd={cwd}
           isLoading={isLoading}
           sendMessage={sendMessage}
           onStop={handleStopTurn}
+          pendingPlan={pendingPlan}
+          onPlanAnswer={handlePlanAnswer}
+          liveQuestion={pendingQuestion}
+          onQuestionAnswer={handleQuestionAnswer}
         />
       </div>
 

@@ -8,7 +8,12 @@ import {
   workspaceFor,
   type FileWorkspaceTab
 } from '@renderer/store/workspace'
-import { openChangesInPanel, CHANGES_MIN_WIDTH } from '@renderer/lib/openFile'
+import {
+  openChangesInPanel,
+  openPlanInPanel,
+  CHANGES_MIN_WIDTH,
+  PLAN_MIN_WIDTH
+} from '@renderer/lib/openFile'
 import { PANEL_DEFAULTS, usePanelSizesStore } from '@renderer/store/panelSizes'
 import { useChangesStore } from '@renderer/store/changes'
 
@@ -17,7 +22,13 @@ const SID = 'chat-1'
 const ws = () => workspaceFor(useWorkspaceStore.getState(), SID)
 const paths = (): (string | null)[] =>
   ws().tabs.map((t) =>
-    t.kind === 'file' ? t.path : t.kind === 'browser' ? `browser:${t.tabId}` : 'changes'
+    t.kind === 'file'
+      ? t.path
+      : t.kind === 'browser'
+        ? `browser:${t.tabId}`
+        : t.kind === 'plan'
+          ? `plan:${t.toolId}`
+          : 'changes'
   )
 
 beforeEach(() => {
@@ -130,5 +141,50 @@ describe('openChangesInPanel', () => {
     openChangesInPanel()
 
     expect(paths()).toEqual(['changes'])
+  })
+})
+
+describe('openPlanInPanel', () => {
+  beforeEach(() => {
+    usePanelSizesStore.setState({ rightPanelWidth: PANEL_DEFAULTS.rightPanelWidth })
+  })
+
+  it('opens the panel and adds the plan tab', () => {
+    openPlanInPanel('t1')
+
+    expect(useUiStore.getState().rightPanelOpen).toBe(true)
+    expect(paths()).toEqual(['plan:t1'])
+  })
+
+  it('widens a panel too narrow to read prose in', () => {
+    expect(PANEL_DEFAULTS.rightPanelWidth).toBeLessThan(PLAN_MIN_WIDTH)
+
+    openPlanInPanel('t1')
+
+    expect(usePanelSizesStore.getState().rightPanelWidth).toBe(PLAN_MIN_WIDTH)
+  })
+
+  it('leaves a width the user dragged wider alone', () => {
+    usePanelSizesStore.setState({ rightPanelWidth: 900 })
+
+    openPlanInPanel('t1')
+
+    expect(usePanelSizesStore.getState().rightPanelWidth).toBe(900)
+  })
+
+  it('retargets the one row rather than opening a tab per plan', () => {
+    openPlanInPanel('t1')
+    openPlanInPanel('t2')
+
+    expect(paths()).toEqual(['plan:t2'])
+  })
+
+  it('does nothing without an active chat, rather than opening an empty panel', () => {
+    useSessionsStore.setState({ activeSessionId: null } as never)
+
+    openPlanInPanel('t1')
+
+    expect(useUiStore.getState().rightPanelOpen).toBe(false)
+    expect(paths()).toEqual([])
   })
 })

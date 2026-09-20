@@ -28,6 +28,15 @@ import { resolvePath } from '../utils/paths'
 export const CHANGES_MIN_WIDTH = 420
 
 /**
+ * Wide enough for prose.
+ *
+ * A plan is paragraphs and bullets, not code, and it is the thing the panel
+ * exists to make readable — the whole reason it stopped living in a 45vh sliver
+ * above the composer. A little more than a diff needs.
+ */
+export const PLAN_MIN_WIDTH = 480
+
+/**
  * Show a file in the side panel.
  *
  * Replaces the file-preview modal, so there is one answer to "open this file"
@@ -96,4 +105,32 @@ export function openChangesInPanel(opts?: {
   }
 
   useWorkspaceStore.getState().openChangesTab(sessionId)
+}
+
+/**
+ * Show a plan in the side panel.
+ *
+ * Opened by clicking a plan card and by nothing else — there is no entry in
+ * `NEW_TAB_CHOICES`, no button in the panel and no command, because a plan is
+ * reviewed once and a permanent way back to it would outlive its use. Closing
+ * the tab is a real close; the card in the transcript is how you reopen it.
+ *
+ * The verdict is not here. The plan composer is docked above the composer the
+ * whole time this tab is open, so approving has a home already and a second set
+ * of buttons would only be a second thing to keep in step.
+ */
+export function openPlanInPanel(toolId: string): void {
+  const sessionId = useSessionsStore.getState().activeSessionId
+  if (!sessionId) return
+
+  useUiStore.getState().setRightPanelOpen(true)
+
+  // Clamp up only, as with changes: a width the user dragged to is a preference
+  // and survives; the shipped default is not one.
+  const sizes = usePanelSizesStore.getState()
+  if (sizes.rightPanelWidth < PLAN_MIN_WIDTH) {
+    sizes.setSize('rightPanelWidth', PLAN_MIN_WIDTH)
+  }
+
+  useWorkspaceStore.getState().openPlanTab(sessionId, toolId)
 }

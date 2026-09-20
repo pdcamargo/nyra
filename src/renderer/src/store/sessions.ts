@@ -246,6 +246,7 @@ type SessionsStore = {
   setActiveSession: (id: string) => void
   addMessage: (sessionId: string, message: Message) => void
   updateToolResult: (sessionId: string, toolId: string, content: string) => void
+  updateToolInput: (sessionId: string, toolId: string, input: Record<string, unknown>) => void
   markToolDenied: (sessionId: string, toolId: string) => void
   setAutoAcceptEdits: (sessionId: string, value: boolean) => void
   /** Override a spawn setting for one conversation. */
@@ -439,6 +440,29 @@ export const useSessionsStore = create<SessionsStore>()(
               messages: s.messages.map((m) =>
                 m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId
                   ? { ...m, result: content }
+                  : m
+              )
+            }
+          })
+        }))
+      },
+
+      /**
+       * Rewrite a tool call's input where it already sits.
+       *
+       * A plan is edited as often as it is written whole, and every edit arrives
+       * as a fresh tool call. Appending one card per edit left a column of
+       * near-identical plans; this keeps the first and refreshes its text.
+       */
+      updateToolInput: (sessionId: string, toolId: string, input: Record<string, unknown>) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            return {
+              ...s,
+              messages: s.messages.map((m) =>
+                m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId
+                  ? { ...m, input }
                   : m
               )
             }

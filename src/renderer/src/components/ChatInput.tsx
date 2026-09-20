@@ -21,7 +21,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { CornerDownLeft, Trash2 } from 'lucide-react'
 import { useLoopsStore } from '../store/loops'
 import { compressImage } from '../utils/imageCompression'
-import type { Agent } from '../store/sessions'
+import type { Agent, ToolCallMessage } from '../store/sessions'
+import QuestionDock from './QuestionDock'
+import PlanCard, { type PlanAnswer } from './PlanCard'
+import { useQuestionAnswerStore } from '../store/questionAnswer'
+import { composerIntent } from '../lib/composerIntent'
 
 const EMPTY_AGENTS: Agent[] = []
 const EMPTY_QUEUE: QueuedMessage[] = []
@@ -33,12 +37,31 @@ const SUPPORTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 type ChatInputProps = {
   cwd: string
   isLoading: boolean
+  /** The plan waiting on a verdict, fused into the top of the composer. */
+  pendingPlan?: ToolCallMessage | null
+  onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void
+  /** The question waiting on an answer, fused into the top of the composer. */
+  liveQuestion?: ToolCallMessage | null
+  onQuestionAnswer?: (toolId: string, answer: string) => void
   sendMessage: (text: string, images?: ImageAttachment[], files?: FileAttachment[]) => Promise<void>
   /** Abort the running turn. Owned by Chat, which also has a permission queue to clear. */
   onStop?: () => void
 }
 
-export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatInputProps): React.JSX.Element {
+export default function ChatInput({
+  cwd,
+  isLoading,
+  sendMessage,
+  onStop,
+  pendingPlan = null,
+  onPlanAnswer,
+  liveQuestion = null,
+  onQuestionAnswer
+}: ChatInputProps): React.JSX.Element {
+  const question = liveQuestion
+  useEffect(() => {
+    if (question) useQuestionAnswerStore.getState().open(question.tool_id)
+  }, [question])
   const [input, setInput] = useState('')
   const pendingPrefill = useUiStore((s) => s.pendingInputPrefill)
   const consumePrefill = useUiStore((s) => s.consumeInputPrefill)
@@ -359,6 +382,26 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
 
   // Send handler: if loading, queue the message; otherwise send immediately
   const handleSend = useCallback(async (): Promise<void> => {
+    const qs = useQuestionAnswerStore.getState()
+    const intent = composerIntent({
+      text: input,
+      question,
+      plan: pendingPlan,
+      mode: qs.mode,
+      picks: qs.picks
+    })
+    if (intent.kind === 'none') return
+    if (intent.kind === 'answer') {
+      setInput('')
+      qs.clear()
+      onQuestionAnswer?.(intent.toolId, intent.answer)
+      return
+    }
+    if (intent.kind === 'keep-planning') {
+      setInput('')
+      onPlanAnswer?.(intent.toolId, 'reject', intent.path, intent.note)
+      return
+    }
     const text = input
     const images = [...stagedImages]
     const files = [...stagedFiles]
@@ -429,7 +472,18 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
     }
 
     await sendMessage(text.trim(), images.length > 0 ? images : undefined, files.length > 0 ? files : undefined)
-  }, [input, stagedImages, stagedFiles, sendMessage, isLoading, executeCommand])
+  }, [
+    input,
+    stagedImages,
+    stagedFiles,
+    sendMessage,
+    isLoading,
+    executeCommand,
+    question,
+    pendingPlan,
+    onQuestionAnswer,
+    onPlanAnswer
+  ])
 
 
   const handleStash = useCallback((): void => {
@@ -869,6 +923,23 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
           set per turn — approvals on the left, model and effort on the right,
           attachments and commands behind the `+`. */}
       <div className="composer-box rounded-xl border border-muted bg-muted transition-colors focus-within:border-border-strong">
+        {/* Inside the box, not docked above it: one border, and `focus-within`
+            lights the question and the field together as the single control they
+            are. A question outranks a plan — the two cannot both be live, but if
+            they ever were, the question is the one that stops the turn. */}
+        {question ? (
+          <QuestionDock
+            message={question}
+            text={input}
+            onSubmit={(answer) => {
+              setInput('')
+              useQuestionAnswerStore.getState().clear()
+              onQuestionAnswer?.(question.tool_id, answer)
+            }}
+          />
+        ) : (
+          pendingPlan && <PlanCard message={pendingPlan} onAnswer={onPlanAnswer} pinned />
+        )}
         <AttachmentStrip
           images={stagedImages}
           files={stagedFiles}
@@ -879,10 +950,25 @@ export default function ChatInput({ cwd, isLoading, sendMessage, onStop }: ChatI
         <MarkdownEditor
           ref={editorRef}
           value={input}
-          onChange={setInput}
+          onChange={(v) => {
+            setInput(v)
+            // Typing is answering in your own words, so it clears the ticks. The
+            // store no-ops once there is nothing left to clear.
+            if (useQuestionAnswerStore.getState().toolId) {
+              useQuestionAnswerStore.getState().noteTyping()
+            }
+          }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={isLoading ? 'Type to queue next message…' : 'Message Claude…'}
+          placeholder={
+            question
+              ? 'I want something else…'
+              : pendingPlan
+                ? 'Keep planning — what should change?'
+                : isLoading
+                  ? 'Type to queue next message…'
+                  : 'Message Claude…'
+          }
         />
         <ComposerBar
           isLoading={isLoading}

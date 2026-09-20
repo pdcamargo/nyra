@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronRight, ListChecks, X, Zap } from 'lucide-react'
+import React, { useMemo } from 'react'
+import { Check, ListChecks, PanelRightOpen, Zap } from 'lucide-react'
 import MarkdownRenderer from './MarkdownRenderer'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { extractPlan } from '../utils/permission'
+import { openPlanInPanel } from '../lib/openFile'
 import type { ToolCallMessage } from '../store/sessions'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
@@ -56,6 +57,9 @@ export default function PlanCard({
   // moment the plan is answered, and a pending plan may carry no session id.
   const pendingSession = usePlanApprovalStore((s) => s.pending[message.tool_id])
   const isPending = usePlanApprovalStore((s) => message.tool_id in s.pending)
+  // Written, but the turn that wrote it is still going. A record of what Claude
+  // is drafting, not a question — so it keeps its header row and nothing else.
+  const isDrafting = usePlanApprovalStore((s) => message.tool_id in s.drafting)
   const resolve = usePlanApprovalStore((s) => s.resolve)
 
   // While it waits on you it lives above the composer, where it cannot be
@@ -63,14 +67,6 @@ export default function PlanCard({
   const plan = useMemo(() => extractPlan(message.input), [message.input])
   const { title, body } = useMemo(() => splitPlan(plan), [plan])
 
-  // Pinned, it opens to a few lines: enough to know what you are approving,
-  // little enough that a long plan does not become the whole screen. In the
-  // transcript it starts closed, because by then it is a record.
-  const [expanded, setExpanded] = useState(false)
-  // Non-null once "Keep planning" is clicked: turning it down is rarely the
-  // whole answer, and the reason is worth the least effort to give at the
-  // moment you have it rather than after hunting for the composer.
-  const [note, setNote] = useState<string | null>(null)
   const denied = message.denied === true
 
   // Two ways a plan gets here. Headless Claude writes it to a file, and the card
@@ -86,67 +82,67 @@ export default function PlanCard({
       void window.api.claude.respondPermission(verdict !== 'reject', pendingSession)
       resolve(message.tool_id)
     }
-    setNote(null)
-    setExpanded(false)
   }
+
+  // Reading a plan happens in the side panel now. It used to expand in place,
+  // capped at 45vh with the transcript and the composer squeezed either side,
+  // which is a sliver for a document meant to be read start to finish.
+  const open = (): void => openPlanInPanel(message.tool_id)
 
   if (isPending && !pinned) return null
 
   return (
     <div
-      className={`overflow-hidden rounded-lg border bg-card ${
-        pinned ? 'mb-2 border-info/40' : 'my-2 border-border'
-      }`}
+      className={
+        pinned
+          ? 'pb-2'
+          : 'my-2 overflow-hidden rounded-lg border border-border bg-card'
+      }
     >
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-accent/40"
+        onClick={open}
+        aria-label={`Open plan: ${title}`}
+        className={`flex w-full items-center gap-2 text-left transition-colors ${
+          pinned ? 'pb-2' : 'px-3 py-2.5 hover:bg-accent/40'
+        }`}
       >
-        {expanded ? (
-          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
         <ListChecks className="size-4 shrink-0 text-info" />
         <span className="min-w-0 flex-1 truncate text-c-md font-medium text-foreground">
           {title}
         </span>
         <span className="shrink-0 text-c-xs text-muted-foreground">
-          {isPending ? 'Awaiting your approval' : denied ? 'Kept planning' : 'Approved'}
+          {isPending
+            ? 'Awaiting your approval'
+            : isDrafting
+              ? 'Drafting…'
+              : denied
+                ? 'Kept planning'
+                : 'Approved'}
         </span>
+        <PanelRightOpen className="size-3.5 shrink-0 text-muted-foreground" />
       </button>
 
-      {/* Pinned and closed, the plan shows its first few lines under a fade — a
-          plan is written to be read, and a title alone is not enough to approve
-          on. Open, it is capped and scrolls rather than pushing the composer off
-          the bottom of the window. */}
-      {(expanded || pinned) && (
+      {/* Pinned, the plan shows its first few lines under a fade — a title alone
+          is not enough to approve on. The rest is a click away in the panel, so
+          this never grows past a glance. While it is still being drafted there
+          is nothing worth glancing at. */}
+      {pinned && !isDrafting && (
         <div
-          className={`relative border-t border-border/55 px-4 py-3 text-c-md ${
-            expanded ? 'max-h-[45vh] overflow-y-auto' : 'max-h-28 overflow-hidden'
-          }`}
+          onClick={open}
+          className="relative max-h-24 cursor-pointer overflow-hidden text-c-md"
         >
           <MarkdownRenderer>{body}</MarkdownRenderer>
-          {!expanded && (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-card to-transparent" />
-          )}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-muted to-transparent" />
         </div>
       )}
 
-      {isPending && note === null && (
-        <div className="flex items-center justify-end gap-2 border-t border-border/55 px-3 py-2">
-          <button
-            type="button"
-            onClick={() => setNote('')}
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-c-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-          >
-            <X className="size-3.5" />
-            Keep planning
-          </button>
-          {/* Two ways to say yes, as the CLI offers: approve the plan and keep
-              the say over each edit, or hand that over too. */}
+      {isPending && (
+        <div className="flex items-center justify-end gap-2 pt-2">
+          {/* No "Keep planning" button. The composer below is that answer: while a
+              plan waits, anything you type there means "not yet", and its
+              placeholder says so. A button whose only job was to reveal a text
+              field sitting two inches lower was a step with nothing in it. */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -171,33 +167,15 @@ export default function PlanCard({
                 Approve &amp; auto-edit
               </button>
             </TooltipTrigger>
-            <TooltipContent>Leave plan mode and stop asking about file changes, for this chat only.</TooltipContent>
+            <TooltipContent>
+              Leave plan mode and stop asking about file changes, for this chat only.
+            </TooltipContent>
           </Tooltip>
         </div>
       )}
 
-      {isPending && note !== null && (
-        <div className="flex items-center gap-2 border-t border-border/55 px-3 py-2">
-          <input
-            autoFocus
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') answer('reject', note)
-              if (e.key === 'Escape') setNote(null)
-            }}
-            placeholder="What should change? (optional)"
-            className="h-7 min-w-0 flex-1 rounded-md border border-input bg-input/20 px-2.5 text-c-md outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
-          />
-          <button
-            type="button"
-            onClick={() => answer('reject', note)}
-            className="shrink-0 rounded-md bg-secondary px-2.5 py-1 text-c-md font-medium text-secondary-foreground transition-opacity hover:opacity-85"
-          >
-            {note.trim() ? 'Send' : 'Keep planning'}
-          </button>
-        </div>
-      )}
+      {/* Inset, so the plan and the field below read as one card. */}
+      {pinned && <div className="mt-2 h-px bg-separator" />}
     </div>
   )
 }

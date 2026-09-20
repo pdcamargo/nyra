@@ -95,3 +95,36 @@ export function extractAskBlocks(reply: string): { text: string; questions: AskQ
   // Collapse the hole the fence left behind rather than leaving a gap mid-reply.
   return { text: text.replace(/\n{3,}/g, '\n\n').trim(), questions }
 }
+
+/** The questions off a synthesized `AskUserQuestion` tool call. */
+export function questionsOf(input: Record<string, unknown>): AskQuestion[] {
+  const raw = input.questions
+  if (!Array.isArray(raw)) return []
+  return raw.filter(
+    (q): q is AskQuestion =>
+      !!q && typeof q === 'object' && 'question' in q && Array.isArray((q as AskQuestion).options)
+  )
+}
+
+/**
+ * One reply out of a set of answered questions.
+ *
+ * Shared by the dock and the transcript card, so the wording cannot drift
+ * between the two places a question can be answered. A question with nothing
+ * ticked is left out rather than sent blank, and with more than one question the
+ * question text goes in front — "Postgres" on its own is not something the reader
+ * on the other end can make sense of.
+ */
+export function composeAnswer(
+  questions: AskQuestion[],
+  picks: Record<number, string[]>
+): string {
+  return questions
+    .map((q, i) => {
+      const chosen = (picks[i] ?? []).filter(Boolean)
+      if (chosen.length === 0) return null
+      return questions.length > 1 ? `${q.question} ${chosen.join(', ')}` : chosen.join(', ')
+    })
+    .filter((line): line is string => line !== null)
+    .join('\n')
+}

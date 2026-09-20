@@ -15,6 +15,7 @@ import BrowserSurface, { BrowserPhaseState, browserPending } from '../browser/Br
 import { useBrowserSession, startBrowserTab } from '../browser/useBrowserSession'
 import FileTab from '../files/FileTab'
 import ChangesTab from '../changes/ChangesTab'
+import PlanTab from '../plan/PlanTab'
 import { useBrowserStore } from '../../store/browser'
 import type { BrowserTab } from '../../lib/api-types'
 import { useSessionsStore } from '../../store/sessions'
@@ -88,6 +89,8 @@ export default function WorkspacePanel(): React.JSX.Element {
           <FileTab sessionId={sessionId} tab={active} />
         ) : active?.kind === 'changes' ? (
           <ChangesTab sessionId={sessionId} />
+        ) : active?.kind === 'plan' ? (
+          <PlanTab sessionId={sessionId} tab={active} />
         ) : browserPending(phase) ? (
           // No tab, but somebody asked for a browser and it has not produced one
           // — the download prompt lives here rather than taking the whole panel.

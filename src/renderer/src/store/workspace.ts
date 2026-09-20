@@ -31,7 +31,16 @@ export type FileWorkspaceTab = { kind: 'file'; id: string; path: string | null }
  *  transcript. What it is *showing* lives in `changes.ts`; this is only the row
  *  in the strip. */
 export type ChangesWorkspaceTab = { kind: 'changes'; id: string }
-export type WorkspaceTab = BrowserWorkspaceTab | FileWorkspaceTab | ChangesWorkspaceTab
+/** A plan under review. Like `changes`, never reachable from "+": it is opened by
+ *  clicking a plan card and by nothing else, because a plan is read once. `toolId`
+ *  says which plan; the text itself stays on the session message, so a revision
+ *  mid-turn updates the open tab without anything here changing. */
+export type PlanWorkspaceTab = { kind: 'plan'; id: string; toolId: string }
+export type WorkspaceTab =
+  | BrowserWorkspaceTab
+  | FileWorkspaceTab
+  | ChangesWorkspaceTab
+  | PlanWorkspaceTab
 
 export type ChatWorkspace = {
   /** The strip, in the order it is drawn. Ours, not the sidecar's. */
@@ -61,10 +70,19 @@ export const EMPTY_WORKSPACE: ChatWorkspace = {
 export const browserKey = (tabId: string): string => `browser:${tabId}`
 export const fileKey = (id: string): string => `file:${id}`
 export const changesKey = (id: string): string => `changes:${id}`
+export const planKey = (id: string): string => `plan:${id}`
 
 export function tabKey(tab: WorkspaceTab): string {
-  if (tab.kind === 'browser') return browserKey(tab.tabId)
-  return tab.kind === 'file' ? fileKey(tab.id) : changesKey(tab.id)
+  switch (tab.kind) {
+    case 'browser':
+      return browserKey(tab.tabId)
+    case 'file':
+      return fileKey(tab.id)
+    case 'plan':
+      return planKey(tab.id)
+    default:
+      return changesKey(tab.id)
+  }
 }
 
 let counter = 0
@@ -150,19 +168,27 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Partial<ChatWorkspace>
 
-  // File and changes rows come back; browser rows do not, since a restored one
-  // would name a page in a Chromium that does not exist any more. A changes row
-  // is only an id — what it shows is re-read from the repo on mount, so there is
-  // nothing behind it that a restart can invalidate.
+  // File, changes and plan rows come back; browser rows do not, since a restored
+  // one would name a page in a Chromium that does not exist any more. A changes
+  // row is only an id — what it shows is re-read from the repo on mount. A plan
+  // row is the file case rather than the browser one: the plan text lives on a
+  // session message and those are persisted, so quitting mid-review keeps your
+  // place. `PlanTab` still copes with the message being gone.
   const seen = new Set<string>()
   const tabs: WorkspaceTab[] = (Array.isArray(r.tabs) ? r.tabs : []).flatMap(
     (t): WorkspaceTab[] => {
       if (!t || typeof t !== 'object') return []
-      const tab = t as Partial<FileWorkspaceTab | ChangesWorkspaceTab>
+      const tab = t as Partial<FileWorkspaceTab | ChangesWorkspaceTab | PlanWorkspaceTab>
       if (typeof tab.id !== 'string' || seen.has(tab.id)) return []
       if (tab.kind === 'changes') {
         seen.add(tab.id)
         return [{ kind: 'changes', id: tab.id }]
+      }
+      if (tab.kind === 'plan') {
+        const toolId = (tab as Partial<PlanWorkspaceTab>).toolId
+        if (typeof toolId !== 'string') return []
+        seen.add(tab.id)
+        return [{ kind: 'plan', id: tab.id, toolId }]
       }
       if (tab.kind !== 'file') return []
       const path = (tab as Partial<FileWorkspaceTab>).path
@@ -236,6 +262,10 @@ type WorkspaceStore = {
   /** The chat's changes row, reusing the one already in the strip. One per chat:
    *  two of them would be two views of the same repo fighting over a scope. */
   openChangesTab: (sessionId: string) => string
+  /** The plan under review, reusing the row already in the strip and pointing it
+   *  at `toolId`. One per chat: opening a second plan is still reviewing a plan,
+   *  and two rows would just be two places to close. */
+  openPlanTab: (sessionId: string, toolId: string) => string
   setFilePath: (sessionId: string, fileTabId: string, path: string) => void
   /** Strip-local. Closing a *browser* tab is the sidecar's to report — removing
    *  the row here would let an in-flight broadcast re-append it at the far end. */
@@ -301,6 +331,34 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           return key
         }
         const tab: ChangesWorkspaceTab = { kind: 'changes', id: nextFileTabId() }
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: [...ws.tabs, tab],
+            activeKey: tabKey(tab)
+          }))
+        )
+        return tabKey(tab)
+      },
+
+      openPlanTab: (sessionId, toolId) => {
+        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
+          (t): t is PlanWorkspaceTab => t.kind === 'plan'
+        )
+        if (existing) {
+          const key = tabKey(existing)
+          set((s) =>
+            patch(s, sessionId, (ws) => ({
+              ...ws,
+              // Retarget rather than stack: clicking a second plan card means
+              // "show me this one instead", not "keep the old one around".
+              tabs: ws.tabs.map((t) => (t.kind === 'plan' ? { ...t, toolId } : t)),
+              activeKey: key
+            }))
+          )
+          return key
+        }
+        const tab: PlanWorkspaceTab = { kind: 'plan', id: nextFileTabId(), toolId }
         set((s) =>
           patch(s, sessionId, (ws) => ({
             ...ws,

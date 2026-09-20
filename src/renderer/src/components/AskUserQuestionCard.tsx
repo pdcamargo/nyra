@@ -14,32 +14,10 @@ import {
   QuestionnaireSubmit,
   QuestionnaireTitle
 } from './ui/questionnaire'
+import { composeAnswer, questionsOf } from '../lib/askBlocks'
 import { useUiStore } from '../store/ui'
 import { useSessionsStore, type ToolCallMessage } from '../store/sessions'
-
-/**
- * The value behind "Something else".
- *
- * The questionnaire refuses to submit an item whose status is `unanswered`, so a
- * free-text box sitting alongside the choices could be filled in and then
- * silently swallowed. Typing ticks this choice instead, which is what makes the
- * answer real; on submit it is swapped back out for what was actually typed.
- */
-const OTHER = '__other__'
-
-type Option = { label: string; description?: string }
-type Question = {
-  question: string
-  header?: string
-  options: Option[]
-  multiSelect?: boolean
-}
-
-function parseQuestions(input: Record<string, unknown>): Question[] {
-  const raw = input.questions
-  if (!Array.isArray(raw)) return []
-  return raw.filter((q): q is Question => !!q && typeof q === 'object' && 'question' in q)
-}
+import { useQuestionAnswerStore } from '../store/questionAnswer'
 
 /** The short label a question carries, so a set of them can be told apart. */
 function HeaderChip({ children }: { children: React.ReactNode }): React.JSX.Element {
@@ -68,58 +46,37 @@ export default function AskUserQuestionCard({
   message: ToolCallMessage
   /** Send the answer. Absent only where the card is a record, not a prompt. */
   onAnswer?: (toolId: string, answer: string) => void
-}): React.JSX.Element {
-  const questions = useMemo(() => parseQuestions(message.input), [message.input])
+}): React.JSX.Element | null {
+  const questions = useMemo(() => questionsOf(message.input), [message.input])
   const denied = message.denied === true
   const answered = message.result !== undefined || denied
   const prefillInput = useUiStore((s) => s.prefillInput)
   const [submitted, setSubmitted] = useState(false)
+  const dockedHere = useQuestionAnswerStore((s) => s.toolId === message.tool_id)
 
   const items = useMemo(
     () =>
       questions.map((q, i) => ({
         name: `q${i}`,
         required: false,
-        choices: [...q.options.map((opt) => ({ value: opt.label })), { value: OTHER }]
+        choices: q.options.map((opt) => ({ value: opt.label }))
       })),
     [questions]
   )
 
-  /** Typing is answering — keep the sentinel choice in step with the text box. */
-  const syncOther =
-    (index: number) =>
-    (event: React.FormEvent<HTMLInputElement>): void => {
-      const field = event.currentTarget
-      const wanted = field.value.trim().length > 0
-      const choice = field.form?.querySelector<HTMLInputElement>(
-        `input[name="q${index}"][value="${OTHER}"]`
-      )
-      if (choice && choice.checked !== wanted) choice.click()
-    }
-
   const onSubmit = (event: React.FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const lines = questions
-      .map((q, i) => {
-        const picked = data.getAll(`q${i}`).filter(Boolean) as string[]
-        // None of the options is often the true answer, and on a multi-select it
-        // sits happily beside one that is.
-        const other = String(data.get(`q${i}-other`) ?? '').trim()
-        const parts = picked.filter((p) => p !== OTHER)
-        if (other) parts.push(other)
-        if (parts.length === 0) return null
-        return questions.length > 1 ? `${q.question} ${parts.join(', ')}` : parts.join(', ')
-      })
-      .filter(Boolean)
-    if (lines.length === 0) return
-    const answer = lines.join('\n')
+    const picks = Object.fromEntries(
+      questions.map((_, i) => [i, data.getAll(`q${i}`).filter(Boolean) as string[]])
+    )
+    const answer = composeAnswer(questions, picks)
+    if (!answer) return
     setSubmitted(true)
     // Answering used to drop the text in the composer for you to send, on the
     // theory that you might want to edit it first. In practice you have just
     // picked from a list and pressed a button labelled Submit; stopping there to
-    // make you press Enter as well is a step with nothing in it. The free-text
-    // box is where editing belongs, and it is right there above.
+    // make you press Enter as well is a step with nothing in it.
     if (onAnswer) {
       onAnswer(message.tool_id, answer)
       return
@@ -130,6 +87,11 @@ export default function AskUserQuestionCard({
   }
 
   const interactive = !answered && !submitted && questions.length > 0
+
+  // The dock has it, so this would be the same question a second time. It comes
+  // back as a record the moment it is answered or waved away — the same trade
+  // `PlanCard` makes when a plan is pinned.
+  if (dockedHere) return null
 
   return (
     <div
@@ -168,21 +130,14 @@ export default function AskUserQuestionCard({
                     )}
                   </QuestionnaireChoice>
                 ))}
-                <QuestionnaireChoice value={OTHER}>Something else</QuestionnaireChoice>
               </QuestionnaireChoices>
-              <input
-                name={`q${i}-other`}
-                onInput={syncOther(i)}
-                placeholder="Something else — type it here"
-                autoComplete="off"
-                className="mt-2 h-8 w-full rounded-md border border-input bg-input/20 px-2.5 text-c-md outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
-              />
             </QuestionnaireItem>
           ))}
           <QuestionnaireActions>
             <QuestionnairePrevious />
-            {/* Typing ticks "Something else", so a written answer unlocks Next on
-                its own. This is for the question you would rather not answer. */}
+            {/* For the question you would rather not answer. Free text is the
+                composer's job now — this card only appears when the dock is not
+                already holding the same question. */}
             {questions.length > 1 && <QuestionnaireSkip />}
             <QuestionnaireNext />
             <QuestionnaireSubmit />

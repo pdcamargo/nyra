@@ -38,17 +38,14 @@ describe('AskUserQuestionCard', () => {
     expect(useUiStore.getState().pendingInputPrefill).toBe('Radix')
   })
 
-  it('accepts a written answer when none of the options fit', async () => {
-    const user = userEvent.setup()
-    useUiStore.setState({ pendingInputPrefill: null })
-
+  it('has no "Something else" row — free text is the composer\'s job now', () => {
     render(<AskUserQuestionCard message={ask()} />)
-    // Nothing ticked — the questionnaire refuses to submit an unanswered item,
-    // so typing has to count as answering or the text is silently swallowed.
-    await user.type(screen.getByPlaceholderText(/something else/i), 'Neither, use Ark')
-    await user.click(screen.getByRole('button', { name: /submit/i }))
 
-    expect(useUiStore.getState().pendingInputPrefill).toBe('Neither, use Ark')
+    // This card only appears when the dock is not already holding the question.
+    // The sentinel choice existed solely to make a sibling text field count as
+    // an answer, and both are gone.
+    expect(screen.queryByText('Something else')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/something else/i)).not.toBeInTheDocument()
   })
 
   it('records the answer on the message so a reload does not re-ask', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractAskBlocks, parseAskBlock } from '../../renderer/src/lib/askBlocks'
+import { extractAskBlocks, parseAskBlock, composeAnswer } from '../../renderer/src/lib/askBlocks'
 
 const block = (body: string): string => '```nyra-ask\n' + body + '\n```'
 
@@ -83,5 +83,32 @@ describe('extractAskBlocks', () => {
   it('does not touch a fence that merely mentions the name', () => {
     const reply = '```\nnyra-ask is the convention\n```'
     expect(extractAskBlocks(reply).questions).toEqual([])
+  })
+})
+
+describe('composeAnswer', () => {
+  const one = [{ question: 'Which store?', options: [{ label: 'Postgres' }] }]
+  const two = [
+    { question: 'Which store?', options: [{ label: 'Postgres' }] },
+    { question: 'Which host?', options: [{ label: 'Fly' }] }
+  ]
+
+  it('sends a single question back as the bare choice', () => {
+    expect(composeAnswer(one, { 0: ['Postgres'] })).toBe('Postgres')
+  })
+
+  it('puts the question in front once there is more than one', () => {
+    // "Postgres\nFly" on its own is not something the reader can make sense of.
+    expect(composeAnswer(two, { 0: ['Postgres'], 1: ['Fly'] })).toBe(
+      'Which store? Postgres\nWhich host? Fly'
+    )
+  })
+
+  it('leaves out a question nothing was ticked on rather than sending it blank', () => {
+    expect(composeAnswer(two, { 1: ['Fly'] })).toBe('Which host? Fly')
+  })
+
+  it('is empty when nothing was answered at all, so the caller can do nothing', () => {
+    expect(composeAnswer(two, {})).toBe('')
   })
 })

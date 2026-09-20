@@ -10,7 +10,9 @@ const render = (ui: React.ReactElement): ReturnType<typeof rtlRender> =>
 import userEvent from '@testing-library/user-event'
 import PlanCard, { splitPlan } from '../../renderer/src/components/PlanCard'
 import { usePlanApprovalStore } from '../../renderer/src/store/planApprovals'
-import type { ToolCallMessage } from '../../renderer/src/store/sessions'
+import { useSessionsStore, type ToolCallMessage } from '../../renderer/src/store/sessions'
+import { useUiStore } from '../../renderer/src/store/ui'
+import { useWorkspaceStore, workspaceFor } from '../../renderer/src/store/workspace'
 
 const plan: ToolCallMessage = {
   id: 'm1',
@@ -45,7 +47,7 @@ describe('splitPlan', () => {
 })
 
 describe('usePlanApprovalStore', () => {
-  beforeEach(() => usePlanApprovalStore.setState({ pending: {} }))
+  beforeEach(() => usePlanApprovalStore.setState({ pending: {}, drafting: {} }))
 
   it('tracks which session a plan is parked on', () => {
     const { add } = usePlanApprovalStore.getState()
@@ -71,8 +73,79 @@ describe('usePlanApprovalStore', () => {
   })
 })
 
+describe('a plan still being drafted', () => {
+  beforeEach(() => usePlanApprovalStore.setState({ pending: {}, drafting: {} }))
+
+  it('owes no answer until the turn that wrote it ends', () => {
+    const { draft, promote } = usePlanApprovalStore.getState()
+    draft('t1', 's1')
+    // The whole point: a half-written plan must not claim to be waiting on you.
+    expect('t1' in usePlanApprovalStore.getState().pending).toBe(false)
+    promote('s1')
+    expect(usePlanApprovalStore.getState().pending.t1).toBe('s1')
+    expect(usePlanApprovalStore.getState().drafting).toEqual({})
+  })
+
+  it('promote wakes one conversation, not every conversation', () => {
+    const { draft, promote } = usePlanApprovalStore.getState()
+    draft('t1', 's1')
+    draft('t2', 's2')
+    promote('s1')
+    expect(Object.keys(usePlanApprovalStore.getState().pending)).toEqual(['t1'])
+    expect(Object.keys(usePlanApprovalStore.getState().drafting)).toEqual(['t2'])
+  })
+
+  it('resolve and clearSession reach into drafting as well as pending', () => {
+    const { draft, resolve, clearSession } = usePlanApprovalStore.getState()
+    draft('t1', 's1')
+    draft('t2', 's2')
+    resolve('t1')
+    expect(usePlanApprovalStore.getState().drafting).toEqual({ t2: 's2' })
+    clearSession('s2')
+    expect(usePlanApprovalStore.getState().drafting).toEqual({})
+  })
+
+  it('says so, and offers nothing to press', () => {
+    usePlanApprovalStore.setState({ pending: {}, drafting: { t1: 's1' } })
+    render(<PlanCard message={plan} />)
+    expect(screen.getByText('Drafting…')).toBeInTheDocument()
+    expect(screen.queryByText('Approve')).not.toBeInTheDocument()
+    // Never this one. "Kept planning" is a verdict, and nothing but a click gives it.
+    expect(screen.queryByText('Kept planning')).not.toBeInTheDocument()
+  })
+})
+
+describe('opening a plan', () => {
+  beforeEach(() => {
+    usePlanApprovalStore.setState({ pending: {}, drafting: {} })
+    useWorkspaceStore.setState({ bySession: {} })
+    useUiStore.setState({ rightPanelOpen: false })
+    useSessionsStore.setState({
+      activeSessionId: 's1',
+      sessions: [{ id: 's1', cwd: '/repo' }] as never,
+      projects: []
+    } as never)
+  })
+
+  it('sends the plan to the side panel instead of expanding in place', async () => {
+    render(<PlanCard message={plan} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /Open plan/ }))
+
+    expect(useUiStore.getState().rightPanelOpen).toBe(true)
+    expect(workspaceFor(useWorkspaceStore.getState(), 's1').tabs).toEqual([
+      { kind: 'plan', id: expect.any(String), toolId: 't1' }
+    ])
+  })
+
+  it('shows no body in the transcript — the panel is where a plan is read', () => {
+    render(<PlanCard message={plan} />)
+    expect(screen.queryByText('First this, then that.')).not.toBeInTheDocument()
+  })
+})
+
 describe('PlanCard actions', () => {
-  beforeEach(() => usePlanApprovalStore.setState({ pending: { t1: 's1' } }))
+  beforeEach(() => usePlanApprovalStore.setState({ pending: { t1: 's1' }, drafting: {} }))
 
   it('stays out of the transcript while it is pinned above the composer', () => {
     // Otherwise the same plan asks the same question in two places at once.
@@ -93,28 +166,13 @@ describe('PlanCard actions', () => {
     expect(screen.getByText(/First this, then that/)).toBeInTheDocument()
   })
 
-  it('carries the reason along when the plan is turned down', async () => {
-    const user = userEvent.setup()
-    const onAnswer = vi.fn()
-    render(<PlanCard message={plan} onAnswer={onAnswer} pinned />)
+  it('offers no "Keep planning" button — the composer below is that answer', () => {
+    render(<PlanCard message={plan} onAnswer={vi.fn()} pinned />)
 
-    await user.click(screen.getByRole('button', { name: /keep planning/i }))
-    await user.type(screen.getByPlaceholderText(/what should change/i), 'Phase 2 is wrong')
-    await user.click(screen.getByRole('button', { name: /send/i }))
-
-    expect(onAnswer).toHaveBeenCalledWith('t1', 'reject', '/p.md', 'Phase 2 is wrong')
-  })
-
-  it('sends no note when none was written', async () => {
-    const user = userEvent.setup()
-    const onAnswer = vi.fn()
-    render(<PlanCard message={plan} onAnswer={onAnswer} pinned />)
-
-    await user.click(screen.getByRole('button', { name: /keep planning/i }))
-    // The button stays honest about what it will do while the box is empty.
-    await user.click(screen.getByRole('button', { name: /^keep planning$/i }))
-
-    expect(onAnswer).toHaveBeenCalledWith('t1', 'reject', '/p.md', undefined)
+    // It existed only to reveal a text field two inches under the one already in
+    // front of you. The placeholder carries it now.
+    expect(screen.queryByRole('button', { name: /keep planning/i })).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/what should change/i)).not.toBeInTheDocument()
   })
 
   it('offers both ways of saying yes, and tells them apart', async () => {
