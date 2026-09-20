@@ -8,7 +8,10 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Click a subagent to watch it work, in a tab of its own',
+      "Steer a queued message into the turn that's already running"
+    ]
   },
   {
     version: '0.0.9',
