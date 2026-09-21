@@ -48,6 +48,15 @@ pub enum WorkflowNodeData {
     Script {
         #[serde(default)]
         command: String,
+        /// How long to let it run, in milliseconds. Absent means the default.
+        ///
+        /// Exists because the default is deliberately short — a script node is
+        /// usually a guard or a summary, and one that hangs should not hold a
+        /// run open. But some steps legitimately take much longer than that:
+        /// waiting on a build is the case this was added for, where the only
+        /// honest answer is to sit there until it finishes.
+        #[serde(default, rename = "timeoutMs")]
+        timeout_ms: Option<u64>,
     },
     /// Pure fan-out — the outgoing edges define the branches.
     Parallel {},

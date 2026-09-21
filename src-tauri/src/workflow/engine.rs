@@ -24,7 +24,13 @@ use crate::settings::NyraSettings;
 use crate::util;
 
 const MAX_SUBWORKFLOW_DEPTH: usize = 3;
+/// What a script node gets unless it asks for more. Short on purpose: most are
+/// guards or summaries, and one that hangs should not hold a run open.
 const SCRIPT_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// The ceiling on what one can ask for. A flow that waits on a build needs far
+/// more than the default; nothing needs a day.
+const SCRIPT_TIMEOUT_MAX: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Default)]
 struct ExecState {
@@ -163,14 +169,19 @@ fn mark_node_failed(exec: &ExecRef, node_id: &str, error: &str) {
         "nodeId": node_id,
         "error": clip(error, 2000),
     }));
-    exec.state.lock().node_states.insert(
+    let mut state = exec.state.lock();
+    // Keep whatever `mark_node_start` recorded. Dropping it left every failed
+    // node with no duration, which is the first thing you want when a node that
+    // should take fifteen minutes gives up in one.
+    let started_at = state.node_states.get(node_id).and_then(|s| s.started_at);
+    state.node_states.insert(
         node_id.to_string(),
         WorkflowNodeRunState {
             node_id: node_id.to_string(),
             status: WorkflowNodeStatus::Failed,
             output: None,
             error: Some(error.to_string()),
-            started_at: None,
+            started_at,
             finished_at: Some(util::now_ms()),
             iteration: None,
             tokens: None,
@@ -313,9 +324,17 @@ async fn execute_script_node(
     prev_output: &str,
     exec: &ExecRef,
 ) -> Result<String, String> {
-    let WorkflowNodeData::Script { command } = &node.data else {
+    let WorkflowNodeData::Script {
+        command,
+        timeout_ms,
+    } = &node.data
+    else {
         return Err("Not a script node".into());
     };
+    let limit = timeout_ms
+        .map(Duration::from_millis)
+        .unwrap_or(SCRIPT_TIMEOUT)
+        .min(SCRIPT_TIMEOUT_MAX);
     let (vars, input_values) = {
         let state = exec.state.lock();
         (state.vars.clone(), exec.input_values.clone())
@@ -323,15 +342,21 @@ async fn execute_script_node(
     let cmd = interpolate(command, prev_output, &input_values, &vars);
 
     let output = tokio::time::timeout(
-        SCRIPT_TIMEOUT,
+        limit,
         tokio::process::Command::new("sh")
             .arg("-c")
             .arg(&cmd)
             .current_dir(&exec.cwd)
+            // The same environment every other spawn site gets. Without it this
+            // was the one place in the codebase inheriting launchd's bare PATH,
+            // so a flow started from Finder could see `git`, `sed` and `curl`
+            // but not `npm`, `node` or `gh` — and the failure reads as a missing
+            // command rather than as a missing PATH.
+            .envs(util::clean_child_env())
             .output(),
     )
     .await
-    .map_err(|_| format!("Script timed out after {}s", SCRIPT_TIMEOUT.as_secs()))?
+    .map_err(|_| format!("Script timed out after {}s", limit.as_secs()))?
     .map_err(|e| e.to_string())?;
 
     if output.status.success() {
@@ -502,7 +527,20 @@ async fn run_from_node(
 
     let result = run_node_body(&node, &prev_output, &exec, &visited, &collectors).await;
     if let Err(err) = &result {
-        mark_node_failed(&exec, &node.id, err);
+        // Only if this node is what failed. `run_node_body` runs the successors
+        // too, so a failure anywhere downstream comes back through here — and
+        // stamping it on the way out marked every ancestor failed with an error
+        // it did not cause. A release run that got all the way to its last node
+        // reported six failed nodes and one message, which says nothing about
+        // where to look. `mark_node_done` lands before any successor starts, so
+        // a node already done is a node that did its job.
+        let finished = matches!(
+            exec.state.lock().node_states.get(&node.id).map(|s| &s.status),
+            Some(WorkflowNodeStatus::Done)
+        );
+        if !finished {
+            mark_node_failed(&exec, &node.id, err);
+        }
     }
     result
 }
@@ -1266,7 +1304,10 @@ mod tests {
                     id: (*id).into(),
                     label: (*id).into(),
                     position: Position::default(),
-                    data: WorkflowNodeData::Script { command: "true".into() },
+                    data: WorkflowNodeData::Script {
+                        command: "true".into(),
+                        timeout_ms: None,
+                    },
                 })
                 .collect(),
             edges: edges
@@ -1287,6 +1328,85 @@ mod tests {
             marketplace_id: None,
             marketplace_version: None,
         }
+    }
+
+    /// A run that fails at its last node used to report every node failed, all
+    /// carrying the last one's message — six failures and one error for a flow
+    /// where five nodes did their job. `run_node_body` runs the successors, so
+    /// the failure came back up through every ancestor and was stamped on each.
+    #[tokio::test]
+    async fn a_failure_marks_the_node_that_failed_and_not_its_ancestors() {
+        let mut wf = wf_with_edges(vec![("a", "b", None)], &["a", "b"]);
+        for node in &mut wf.nodes {
+            let fails = node.id == "b";
+            node.data = WorkflowNodeData::Script {
+                command: if fails { "exit 3".into() } else { "true".into() },
+                timeout_ms: None,
+            };
+        }
+        let exec = Arc::new(Exec {
+            id: "exec-ancestors".into(),
+            wf,
+            cwd: "/tmp".into(),
+            settings: Default::default(),
+            input_values: HashMap::new(),
+            depth: 0,
+            triggered_by: TriggerSource::Manual,
+            state: Mutex::new(ExecState::default()),
+            active_sessions: Arc::new(Mutex::new(HashSet::new())),
+        });
+
+        let result = run_from_node(
+            "a".into(),
+            String::new(),
+            exec.clone(),
+            Arc::new(Mutex::new(HashSet::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+        )
+        .await;
+        assert!(result.is_err(), "the run should fail");
+
+        let state = exec.state.lock();
+        assert!(
+            matches!(
+                state.node_states.get("a").map(|s| &s.status),
+                Some(WorkflowNodeStatus::Done)
+            ),
+            "a succeeded and must stay done, not inherit b's error: {:?}",
+            state.node_states.get("a")
+        );
+        assert!(matches!(
+            state.node_states.get("b").map(|s| &s.status),
+            Some(WorkflowNodeStatus::Failed)
+        ));
+        assert!(state.node_states.get("a").unwrap().error.is_none());
+    }
+
+    /// A node that gives up in one minute when it should take fifteen is the
+    /// thing you most want a duration for.
+    #[tokio::test]
+    async fn a_failed_node_keeps_the_time_it_started() {
+        let wf = wf_with_edges(vec![], &["a"]);
+        let exec = Arc::new(Exec {
+            id: "exec-started".into(),
+            wf,
+            cwd: "/tmp".into(),
+            settings: Default::default(),
+            input_values: HashMap::new(),
+            depth: 0,
+            triggered_by: TriggerSource::Manual,
+            state: Mutex::new(ExecState::default()),
+            active_sessions: Arc::new(Mutex::new(HashSet::new())),
+        });
+        mark_node_start(&exec, "a", None);
+        let started = exec.state.lock().node_states.get("a").unwrap().started_at;
+        assert!(started.is_some());
+
+        mark_node_failed(&exec, "a", "boom");
+        assert_eq!(
+            exec.state.lock().node_states.get("a").unwrap().started_at,
+            started
+        );
     }
 
     #[test]
@@ -1384,7 +1504,7 @@ mod tests {
         assert!(needs_graph(&WorkflowNodeData::Join { separator: None }));
 
         for data in [
-            WorkflowNodeData::Script { command: "true".into() },
+            WorkflowNodeData::Script { command: "true".into(), timeout_ms: None },
             WorkflowNodeData::Condition { expression: "true".into() },
             WorkflowNodeData::HumanReview { message: None },
             WorkflowNodeData::Loop { condition: "false".into(), max_iterations: 1 },

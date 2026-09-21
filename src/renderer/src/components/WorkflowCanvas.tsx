@@ -622,7 +622,15 @@ function fromFlowNodes(nodes: Node[]): WorkflowNode[] {
     } else if (t === 'condition') {
       data = { type: 'condition', expression: (n.data.expression as string) || '' }
     } else if (t === 'script') {
-      data = { type: 'script', command: (n.data.command as string) || '' }
+      data = {
+        type: 'script',
+        command: (n.data.command as string) || '',
+        // Carried through explicitly. This rebuilds node data field by field, so
+        // anything not named here is dropped on the next save — a flow that
+        // waits on a build would quietly go back to the default timeout the
+        // first time someone opened it on the canvas.
+        timeoutMs: (n.data.timeoutMs as number) || undefined
+      }
     } else if (t === 'parallel') {
       data = { type: 'parallel' }
     } else if (t === 'join') {

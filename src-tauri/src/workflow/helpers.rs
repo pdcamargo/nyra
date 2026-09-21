@@ -453,7 +453,7 @@ mod tests {
                 id: "n1".into(),
                 label: "First".into(),
                 position: Position::default(),
-                data: WorkflowNodeData::Script { command: "true".into() },
+                data: WorkflowNodeData::Script { command: "true".into(), timeout_ms: None },
             }],
             edges: vec![],
             created_at: 0,

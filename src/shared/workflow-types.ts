@@ -36,6 +36,13 @@ export type ConditionNodeData = {
 export type ScriptNodeData = {
   type: 'script'
   command: string
+  /** How long to let it run, in milliseconds. Omitted means the default.
+   *
+   *  The default is deliberately short — a script node is usually a guard or a
+   *  summary, and one that hangs should not hold a run open. Waiting on a build
+   *  is the case this exists for, where sitting there until it finishes is the
+   *  only honest thing to do. */
+  timeoutMs?: number
 }
 
 export type ParallelNodeData = {
