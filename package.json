@@ -1,6 +1,6 @@
 {
   "name": "nyra",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "A Tauri desktop client for Claude Code",
   "license": "MIT",
   "type": "module",

@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.0.11',
+    date: '2026-09-21',
     notes: [
       'A new device mode: pick a preset, type a size, rotate, or zoom to fit',
       "Claude can change the browser panel's device size, marked as its doing",
