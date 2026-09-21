@@ -170,3 +170,115 @@ export function openSubagentsInPanel(focus: string | null): void {
 
   useWorkspaceStore.getState().openSubagentsTab(sessionId, focus)
 }
+
+/**
+ * Wide enough to see a design.
+ *
+ * The canvas fits its content, so a narrow panel does not clip — it just zooms
+ * to something you cannot read. 560 is about where a 1024-wide artboard stops
+ * being a thumbnail.
+ */
+export const DESIGN_MIN_WIDTH = 560
+
+/** The extension a design document carries. */
+export const DESIGN_EXTENSION = '.nyui.json'
+
+/**
+ * A reference to a design, optionally to one artboard inside it.
+ *
+ * `…/vpn-settings.nyui.json#settings-general` — a path with a fragment, which
+ * needs no new convention because it is what a fragment already means. It is
+ * how Claude points at *the panel it changed* rather than at the document and
+ * leaving you to find it.
+ */
+export function splitDesignRef(ref: string): { path: string; artboard: string | null } {
+  const hash = ref.indexOf('#')
+  if (hash < 0) return { path: ref, artboard: null }
+  const artboard = ref.slice(hash + 1)
+  return { path: ref.slice(0, hash), artboard: artboard.length > 0 ? artboard : null }
+}
+
+export const isDesignPath = (ref: string): boolean =>
+  splitDesignRef(ref).path.toLowerCase().endsWith(DESIGN_EXTENSION)
+
+/**
+ * "Open this design" — on the canvas, not as JSON.
+ *
+ * A design's source is a real file and clicking its path used to open it in the
+ * file viewer, which showed you the document you did not write and hid the
+ * picture you did. The path is a handle to the *design*, so it resolves through
+ * the index by path, adopting the file if nothing owns it yet.
+ *
+ * Adoption matters for a design that arrived with a repo rather than being
+ * created here: without it, a perfectly good `.nyui.json` would be unopenable
+ * simply because this machine had not seen it before.
+ */
+export async function openDesignInPanel(ref: string): Promise<void> {
+  const sessions = useSessionsStore.getState()
+  const sessionId = sessions.activeSessionId
+  if (!sessionId) return
+
+  const { path: filePath, artboard } = splitDesignRef(ref)
+  const cwd = cwdForSession(sessions, sessionId)
+  const absolute = resolvePath(filePath, cwd)
+
+  const known = await window.api.design.list()
+  let entry = known.find((d) => d.path === absolute)
+  if (!entry) {
+    const name = designNameFromPath(absolute)
+    const adopted = await window.api.design.adopt(name, absolute, cwd ?? '')
+    if (!adopted.ok || !adopted.design) {
+      // Nothing to open, and no useful design view to show instead — the file
+      // viewer at least shows what is there.
+      openFileInPanel(absolute)
+      return
+    }
+    entry = adopted.design
+  }
+
+  useUiStore.getState().setRightPanelOpen(true)
+  // Widen, never narrow — the same rule the changes and plan tabs follow, so
+  // opening a design cannot shrink a panel someone deliberately made wide.
+  const sizes = usePanelSizesStore.getState()
+  if (sizes.rightPanelWidth < DESIGN_MIN_WIDTH) {
+    sizes.setSize('rightPanelWidth', DESIGN_MIN_WIDTH)
+  }
+  useWorkspaceStore.getState().openDesignTab(sessionId, entry.id, artboard)
+}
+
+/**
+ * The artboard's own name, for a chip that points at one.
+ *
+ * Read straight from the document rather than compiled: a name is a name
+ * whether or not the rest of the design validates, and a chip that goes blank
+ * because of an unrelated error somewhere else would be worse than useless.
+ */
+export async function designArtboardName(
+  absolutePath: string,
+  artboardId: string
+): Promise<string | null> {
+  try {
+    const read = await window.api.fs.readTextFile(absolutePath)
+    if (read.kind !== 'text') return null
+    const doc = JSON.parse(read.content) as { artboards?: { id?: string; name?: string }[] }
+    return doc.artboards?.find((a) => a.id === artboardId)?.name ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A readable name from a filename.
+ *
+ * `vpn-settings-d_ac7eca37b7.nyui.json` came from the index and carries the id
+ * it was given; dropping that back off is what makes a design read as "Vpn
+ * settings" rather than as a filename. Used for the chip's label before the
+ * index has answered, and as the name when adopting a file nothing owns yet.
+ */
+export function designNameFromPath(absolute: string): string {
+  const base = absolute.split('/').pop() ?? absolute
+  const stem = base.slice(0, -DESIGN_EXTENSION.length)
+  const withoutId = stem.replace(/-d_[0-9a-f]+$/i, '')
+  const words = withoutId.replace(/[-_]+/g, ' ').trim()
+  return words.length === 0 ? 'Design' : words.charAt(0).toUpperCase() + words.slice(1)
+}

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { openFileInPanel } from '@renderer/lib/openFile'
+import { isDesignPath, openFileInPanel, splitDesignRef } from '@renderer/lib/openFile'
 import { useSessionsStore } from '@renderer/store/sessions'
 import { useUiStore } from '@renderer/store/ui'
 import {
@@ -186,5 +186,42 @@ describe('openPlanInPanel', () => {
 
     expect(useUiStore.getState().rightPanelOpen).toBe(false)
     expect(paths()).toEqual([])
+  })
+})
+
+describe('a design opens as a design', () => {
+  /**
+   * The bug: Claude prints where it wrote the document, the path renders as a
+   * file chip, and clicking it opens the JSON — the source nobody wrote by
+   * hand, instead of the picture they asked for.
+   */
+  it('recognises a design document by extension', () => {
+    expect(isDesignPath('/a/b/vpn-settings-d_ac7eca37b7.nyui.json')).toBe(true)
+    expect(isDesignPath('/a/b/BILLING.NYUI.JSON')).toBe(true)
+    expect(isDesignPath('/a/b/package.json')).toBe(false)
+    expect(isDesignPath('/a/b/notes.nyui.md')).toBe(false)
+  })
+})
+
+describe('a design reference can point at one artboard', () => {
+  /**
+   * `…/vpn-settings.nyui.json#settings-protocol` — a path with a fragment,
+   * which needs no new convention because it is what a fragment already means.
+   */
+  it('splits a ref into its path and artboard', () => {
+    expect(splitDesignRef('/a/b.nyui.json#settings-protocol')).toEqual({
+      path: '/a/b.nyui.json',
+      artboard: 'settings-protocol'
+    })
+    expect(splitDesignRef('/a/b.nyui.json')).toEqual({ path: '/a/b.nyui.json', artboard: null })
+    // A trailing hash points at the document, not at an artboard called "".
+    expect(splitDesignRef('/a/b.nyui.json#')).toEqual({ path: '/a/b.nyui.json', artboard: null })
+  })
+
+  it('still recognises a design when a fragment is attached', () => {
+    // The plain file-path matcher rejects a fragment, so this had to be its own
+    // check or a pointed-at artboard would render as inert code.
+    expect(isDesignPath('/a/b.nyui.json#panel')).toBe(true)
+    expect(isDesignPath('/a/b.json#panel')).toBe(false)
   })
 })

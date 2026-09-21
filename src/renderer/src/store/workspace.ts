@@ -42,12 +42,24 @@ export type PlanWorkspaceTab = { kind: 'plan'; id: string; toolId: string }
  *  back arrow just sets it to null. Like `changes` and `plan`, never reachable
  *  from "+" — it is about this conversation, not a blank workspace. */
 export type SubagentsWorkspaceTab = { kind: 'subagents'; id: string; focus: string | null }
+/** A design on the canvas. `designId` is the index's id, not a path, so the tab
+ *  survives the design being moved — which is the whole reason the index exists.
+ *  Null means "show whichever is newest", which is what a freshly opened tab
+ *  should do rather than nothing. */
+export type DesignWorkspaceTab = {
+  kind: 'design'
+  id: string
+  designId: string | null
+  /** The artboard the canvas is framed on, when something asked for one. */
+  artboardId: string | null
+}
 export type WorkspaceTab =
   | BrowserWorkspaceTab
   | FileWorkspaceTab
   | ChangesWorkspaceTab
   | PlanWorkspaceTab
   | SubagentsWorkspaceTab
+  | DesignWorkspaceTab
 
 export type ChatWorkspace = {
   /** The strip, in the order it is drawn. Ours, not the sidecar's. */
@@ -194,7 +206,11 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
     (t): WorkspaceTab[] => {
       if (!t || typeof t !== 'object') return []
       const tab = t as Partial<
-        FileWorkspaceTab | ChangesWorkspaceTab | PlanWorkspaceTab | SubagentsWorkspaceTab
+        | FileWorkspaceTab
+        | ChangesWorkspaceTab
+        | PlanWorkspaceTab
+        | SubagentsWorkspaceTab
+        | DesignWorkspaceTab
       >
       if (typeof tab.id !== 'string' || seen.has(tab.id)) return []
       if (tab.kind === 'changes') {
@@ -212,6 +228,16 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
         if (focus !== null && focus !== undefined && typeof focus !== 'string') return []
         seen.add(tab.id)
         return [{ kind: 'subagents', id: tab.id, focus: focus ?? null }]
+      }
+      if (tab.kind === 'design') {
+        const designId = (tab as Partial<DesignWorkspaceTab>).designId
+        if (designId !== null && designId !== undefined && typeof designId !== 'string') return []
+        const artboardId = (tab as Partial<DesignWorkspaceTab>).artboardId
+        if (artboardId !== null && artboardId !== undefined && typeof artboardId !== 'string') return []
+        seen.add(tab.id)
+        return [
+          { kind: 'design', id: tab.id, designId: designId ?? null, artboardId: artboardId ?? null }
+        ]
       }
       if (tab.kind !== 'file') return []
       const path = (tab as Partial<FileWorkspaceTab>).path
@@ -285,6 +311,16 @@ type WorkspaceStore = {
   /** The chat's changes row, reusing the one already in the strip. One per chat:
    *  two of them would be two views of the same repo fighting over a scope. */
   openChangesTab: (sessionId: string) => string
+  /** The design canvas. One per chat, like changes: opening a second design is
+   *  still looking at designs, and the picker in the tab switches between them.
+   *  Reachable from "+" — unlike changes, a design canvas is a workspace rather
+   *  than something about this conversation. */
+  openDesignTab: (sessionId: string, designId?: string | null, artboardId?: string | null) => string
+  /** Which design the canvas is showing. Stored on the tab so a reload comes
+   *  back to the same one. */
+  setDesignTabDesign: (sessionId: string, tabId: string, designId: string | null) => void
+  /** Frame the canvas on one artboard, or clear it to show everything. */
+  setDesignTabArtboard: (sessionId: string, tabId: string, artboardId: string | null) => void
   /** The plan under review, reusing the row already in the strip and pointing it
    *  at `toolId`. One per chat: opening a second plan is still reviewing a plan,
    *  and two rows would just be two places to close. */
@@ -366,6 +402,65 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }))
         )
         return tabKey(tab)
+      },
+
+      openDesignTab: (sessionId, designId = null, artboardId = null) => {
+        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
+          (t): t is DesignWorkspaceTab => t.kind === 'design'
+        )
+        if (existing) {
+          const key = tabKey(existing)
+          set((s) =>
+            patch(s, sessionId, (ws) => ({
+              ...ws,
+              // An explicit id wins; opening the tab with none leaves it where
+              // it was rather than resetting what someone was looking at.
+              tabs: ws.tabs.map((t) =>
+                t.kind === 'design' && designId !== null ? { ...t, designId, artboardId } : t
+              ),
+              activeKey: key
+            }))
+          )
+          return key
+        }
+        const tab: DesignWorkspaceTab = {
+          kind: 'design',
+          id: nextFileTabId(),
+          designId,
+          artboardId
+        }
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: [...ws.tabs, tab],
+            activeKey: tabKey(tab)
+          }))
+        )
+        return tabKey(tab)
+      },
+
+      setDesignTabDesign: (sessionId, tabId, designId) => {
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: ws.tabs.map((t) =>
+              // Switching design clears the frame: an artboard id from one
+              // document means nothing in another.
+              t.kind === 'design' && t.id === tabId ? { ...t, designId, artboardId: null } : t
+            )
+          }))
+        )
+      },
+
+      setDesignTabArtboard: (sessionId, tabId, artboardId) => {
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: ws.tabs.map((t) =>
+              t.kind === 'design' && t.id === tabId ? { ...t, artboardId } : t
+            )
+          }))
+        )
       },
 
       openPlanTab: (sessionId, toolId) => {

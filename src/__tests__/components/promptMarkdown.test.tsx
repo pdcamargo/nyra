@@ -4,7 +4,11 @@ import MarkdownRenderer from '../../renderer/src/components/MarkdownRenderer'
 
 const openFileInPanel = vi.fn()
 vi.mock('../../renderer/src/lib/openFile', () => ({
-  openFileInPanel: (path: string) => openFileInPanel(path)
+  openFileInPanel: (path: string) => openFileInPanel(path),
+  // A design path routes elsewhere; these tests are about ordinary files, so
+  // the predicate answers no and the chip behaves the way it always did.
+  isDesignPath: () => false,
+  openDesignInPanel: () => Promise.resolve()
 }))
 
 /**

@@ -68,6 +68,20 @@ const RENDERER_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Put a question to the renderer and wait for its answer.
 pub async fn ask_renderer(op: &str, args: Value) -> Result<Value, String> {
+    ask_renderer_within(RENDERER_TIMEOUT, op, args).await
+}
+
+/// Ask with a deadline of your own.
+///
+/// Three seconds is right for the ops that move the UI — they are a store
+/// update and a re-render. It is fatally wrong for rendering a design: the
+/// first one in a session pays for launching a headless Chromium, so the
+/// default would time out every cold render and nothing else would explain why.
+pub async fn ask_renderer_within(
+    timeout: Duration,
+    op: &str,
+    args: Value,
+) -> Result<Value, String> {
     let request_id = util::rand_hex(8);
     let (tx, rx) = oneshot::channel();
     PENDING.lock().insert(request_id.clone(), tx);
@@ -77,7 +91,7 @@ pub async fn ask_renderer(op: &str, args: Value) -> Result<Value, String> {
         json!({ "requestId": request_id, "op": op, "args": args }),
     );
 
-    match tokio::time::timeout(RENDERER_TIMEOUT, rx).await {
+    match tokio::time::timeout(timeout, rx).await {
         Ok(Ok(value)) => Ok(value),
         // The sender was dropped — the window went away mid-question.
         Ok(Err(_)) => {
@@ -88,7 +102,7 @@ pub async fn ask_renderer(op: &str, args: Value) -> Result<Value, String> {
             PENDING.lock().remove(&request_id);
             Err(format!(
                 "the Nyra window did not answer '{op}' within {}s",
-                RENDERER_TIMEOUT.as_secs()
+                timeout.as_secs()
             ))
         }
     }
@@ -240,15 +254,41 @@ fn tool_schemas() -> Value {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["state", "commands", "run", "open_file"],
-                        "description": "state: panels, theme, version, active flow. commands: the runnable list. run: execute one. open_file: show a file in the side panel."
+                        "enum": ["state", "commands", "run", "open_file", "layout", "resize"],
+                        "description": "state: panels, theme, version, active flow. commands: the runnable list. run: execute one. open_file: show a file in the side panel. layout: rail sizes. resize: set one."
                     },
+                    "panel": {
+                        "type": "string",
+                        "enum": ["sidebarWidth", "rightPanelWidth", "bottomPanelHeight"],
+                        "description": "Which rail, for action:\"resize\"."
+                    },
+                    "px": { "type": "number", "description": "New size in px, for action:\"resize\". Clamped the way a drag is." },
+                    "reset": { "type": "boolean", "description": "For action:\"resize\": put the panel back to its default instead." },
                     "command": { "type": "string", "description": "Command id, for action:\"run\"." },
                     "on": {
                         "type": "boolean",
                         "description": "For action:\"run\": true to open/enable, false to close/disable. Omit to flip. Prefer setting it — a bare run on a toggle closes what you meant to open."
                     },
                     "path": { "type": "string", "description": "Absolute path, for action:\"open_file\"." }
+                },
+                "required": ["action"]
+            }
+        },
+        {
+            "name": "nyra_design",
+            "description": "Draft and render UI as a design document Nyra turns into a picture. action:\"list\" for this project's designs, \"create\" to get a path to write a new one to, \"render\" to produce PNGs. Designs are named, not filed — you never pick or remember a location. Load the nyra-design skill for the document vocabulary.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "create", "render"],
+                        "description": "list: designs in this project. create: registers a name and returns the path to write. render: PNG per artboard."
+                    },
+                    "name": { "type": "string", "description": "For action:\"create\". A short human name — \"Billing\", not a filename." },
+                    "design": { "type": "string", "description": "For action:\"render\": the name or id from list/create." },
+                    "artboard": { "type": "string", "description": "Render only this artboard id. Omit for all of them." },
+                    "project": { "type": "string", "description": "Absolute project path. Defaults to the session's directory." }
                 },
                 "required": ["action"]
             }
@@ -347,6 +387,7 @@ fn reply(id: Value, result: Value) -> Value {
 async fn call_tool(name: &str, args: Value) -> Result<String, String> {
     match name {
         "nyra_ui" => ui_tool(args).await,
+        "nyra_design" => design_tool(args).await,
         "nyra_flow" => flow_tool(args).await,
         "nyra_update" => update_tool().await,
         other => Err(format!(
@@ -389,6 +430,21 @@ async fn ui_tool(args: Value) -> Result<String, String> {
                 pretty(&list)
             ))
         }
+        "layout" => Ok(pretty(&ask_renderer("layout", json!({})).await?)),
+
+        "resize" => {
+            let outcome = ask_renderer(
+                "resize",
+                json!({
+                    "panel": args.get("panel").cloned(),
+                    "px": args.get("px").cloned(),
+                    "reset": args.get("reset").cloned(),
+                }),
+            )
+            .await?;
+            Ok(pretty(&outcome))
+        }
+
         "run" => {
             let command = arg_str(&args, "command")
                 .ok_or("nyra_ui action:\"run\" needs a command id. Use action:\"commands\" for the list.")?;
@@ -434,6 +490,137 @@ async fn ui_tool(args: Value) -> Result<String, String> {
 /// that opens the flow; see `MarkdownRenderer.tsx`.
 fn flow_link(id: &str, name: &str) -> String {
     format!("[{name}](nyra://flow/{id})")
+}
+
+/// Rendering takes seconds on a cold start, and a tool that gives up before
+/// Chromium finishes launching is worse than a slow one.
+const DESIGN_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Which project this is, asked of the app rather than of the model.
+///
+/// Resolved lazily, and only in the arms that need it: eagerly awaiting the
+/// renderer here parks a request in the process-wide `PENDING` map, which is
+/// precisely the race `the_bridge_delivers_an_answer_and_gives_up_without_one`
+/// exists to warn about.
+async fn design_project(args: &Value) -> Option<std::path::PathBuf> {
+    if let Some(p) = arg_str(args, "project") {
+        return Some(std::path::PathBuf::from(p));
+    }
+    ask_renderer("design.project", json!({}))
+        .await
+        .ok()
+        .and_then(|v| {
+            v.get("project")
+                .and_then(Value::as_str)
+                .map(std::path::PathBuf::from)
+        })
+}
+
+async fn design_tool(args: Value) -> Result<String, String> {
+    let action = arg_str(&args, "action").ok_or("nyra_design needs an action.")?;
+
+    match action.as_str() {
+        "list" => {
+            let project = design_project(&args).await;
+            let designs = crate::designs::list(project.as_deref());
+            if designs.is_empty() {
+                return Ok("No designs yet. action:\"create\" with a name registers one and tells you where to write it.".into());
+            }
+            Ok(pretty(&json!(designs)))
+        }
+        "create" => {
+            let name = arg_str(&args, "name")
+                .ok_or("nyra_design action:\"create\" needs a name — a short human one, like \"Billing\".")?;
+            let project = design_project(&args).await.ok_or(
+                "nyra_design action:\"create\" could not tell which project this is. Pass `project` with the absolute path.",
+            )?;
+            let entry = crate::designs::create(&name, &project)?;
+            Ok(format!(
+                "Registered \"{}\" as {}.\n\nWrite the document to:\n{}\n\nThen render it with action:\"render\", design:\"{}\".",
+                entry.name,
+                entry.id,
+                entry.path.display(),
+                entry.name
+            ))
+        }
+        "render" => {
+            let needle = arg_str(&args, "design")
+                .ok_or("nyra_design action:\"render\" needs a design name or id. Use action:\"list\".")?;
+            let project = design_project(&args).await;
+            let entry = crate::designs::resolve(&needle, project.as_deref()).ok_or_else(|| {
+                format!("No design matches \"{needle}\". Use action:\"list\" to see what there is.")
+            })?;
+
+            let answer = ask_renderer_within(
+                DESIGN_TIMEOUT,
+                "design.render",
+                json!({
+                    "path": entry.path,
+                    "artboard": args.get("artboard").cloned(),
+                }),
+            )
+            .await?;
+
+            if answer.get("ok").and_then(Value::as_bool) == Some(false) {
+                return Err(answer
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("the render failed")
+                    .to_string());
+            }
+            crate::designs::touch(&entry.id).ok();
+            Ok(render_summary(&entry.name, &answer))
+        }
+        other => Err(format!(
+            "nyra_design has no action \"{other}\". It has: list, create, render."
+        )),
+    }
+}
+
+/// What the model reads back. The PNG paths are the point — it displays them
+/// with the image convention it is already taught — so they lead, and the
+/// validator's warnings follow rather than burying them.
+fn render_summary(name: &str, answer: &Value) -> String {
+    let mut out = String::new();
+    let artboards = answer
+        .get("artboards")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    out.push_str(&format!("Rendered \"{name}\":\n"));
+    for a in &artboards {
+        let id = a.get("id").and_then(Value::as_str).unwrap_or("?");
+        let label = a.get("name").and_then(Value::as_str).unwrap_or(id);
+        let w = a.get("width").and_then(Value::as_i64).unwrap_or(0);
+        let h = a.get("height").and_then(Value::as_i64).unwrap_or(0);
+        let png = a.get("png").and_then(Value::as_str).unwrap_or("");
+        out.push_str(&format!("  {label} ({id}) — {w}x{h}\n  {png}\n"));
+    }
+
+    let issues = answer
+        .get("issues")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if !issues.is_empty() {
+        out.push_str("\nThe validator noted:\n");
+        for i in &issues {
+            let severity = i.get("severity").and_then(Value::as_str).unwrap_or("note");
+            let code = i.get("code").and_then(Value::as_str).unwrap_or("");
+            let message = i.get("message").and_then(Value::as_str).unwrap_or("");
+            out.push_str(&format!("  {severity}: {code}: {message}\n"));
+        }
+    }
+
+    // What the model reads immediately before deciding how to hand this over.
+    // The skill says the same thing; this is the reminder at the point of use.
+    out.push_str(
+        "\nLook at each PNG yourself before describing it. Hand the design to the user as a chip \
+         — the document path in backticks — not as an image. Post a PNG only if they asked to see \
+         it in the conversation.",
+    );
+    out
 }
 
 async fn flow_tool(args: Value) -> Result<String, String> {
@@ -742,16 +929,61 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tools_list_carries_exactly_the_three() {
+    async fn tools_list_carries_exactly_the_four() {
         let listed = handle(json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await;
         let tools = listed["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["nyra_ui", "nyra_flow", "nyra_update"]);
+        assert_eq!(names, ["nyra_ui", "nyra_design", "nyra_flow", "nyra_update"]);
         // Every one of these rides in every turn, so the schemas stay small on
         // purpose. If this trips, move a catalogue into a result.
         let weight = serde_json::to_string(&tool_schemas()).unwrap().len();
         println!("  tool schemas    {weight:>5} chars  ~{:>4} tokens", weight / 4);
-        assert!(weight < 3000, "tool schemas grew to {weight} bytes");
+        assert!(weight < 4000, "tool schemas grew to {weight} bytes");
+    }
+
+    #[tokio::test]
+    async fn design_actions_say_what_they_need_rather_than_failing_vaguely() {
+        // Each of these is a message the model reads and acts on, so the text
+        // has to name the missing argument.
+        let no_action = design_tool(json!({})).await.unwrap_err();
+        assert!(no_action.contains("action"), "{no_action}");
+
+        let no_name = design_tool(json!({ "action": "create", "project": "/p" }))
+            .await
+            .unwrap_err();
+        assert!(no_name.contains("name"), "{no_name}");
+
+        // `render` with no design errors before it asks the app anything, which
+        // is what keeps this test out of the shared PENDING map.
+        let no_design = design_tool(json!({ "action": "render" })).await.unwrap_err();
+        assert!(no_design.contains("list"), "{no_design}");
+
+        let bogus = design_tool(json!({ "action": "teleport" })).await.unwrap_err();
+        assert!(bogus.contains("list, create, render"), "{bogus}");
+    }
+
+    #[test]
+    fn a_render_summary_leads_with_the_paths_and_keeps_the_warnings() {
+        let answer = json!({
+            "ok": true,
+            "artboards": [
+                { "id": "main", "name": "Billing — desktop", "width": 1280, "height": 840,
+                  "png": "/tmp/nyra-designs-1/main@2x.png" }
+            ],
+            "issues": [
+                { "severity": "warning", "code": "raw-literal", "message": "\"gap\" is 12" }
+            ]
+        });
+        let text = render_summary("Billing", &answer);
+        assert!(text.contains("/tmp/nyra-designs-1/main@2x.png"), "{text}");
+        assert!(text.contains("1280x840"), "{text}");
+        // The warnings are the other half of the answer and must not be dropped.
+        assert!(text.contains("raw-literal"), "{text}");
+        // And it is told to look before describing.
+        assert!(text.contains("Look at each PNG"), "{text}");
+        // The chip is the handoff; a PNG in chat is on request only.
+        assert!(text.contains("as a chip"), "{text}");
+        assert!(text.contains("not as an image"), "{text}");
     }
 
     #[tokio::test]

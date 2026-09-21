@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Bot, FileDiff, FileText, Globe, ListChecks, Loader2, X } from 'lucide-react'
+import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, Loader2, X } from 'lucide-react'
 import NewTabMenu from './NewTabMenu'
 import type { NewTabKind } from './tabs'
 import { tabKey, type WorkspaceTab } from '../../store/workspace'
@@ -62,7 +62,9 @@ export default function WorkspaceTabStrip({
                 ? 'Plan'
                 : tab.kind === 'subagents'
                   ? 'Subagents'
-                  : (basename(tab.path) ?? 'Open file')
+                  : tab.kind === 'design'
+                    ? 'Design'
+                    : (basename(tab.path) ?? 'Open file')
         const hint =
           tab.kind === 'browser'
             ? live?.url
@@ -72,7 +74,9 @@ export default function WorkspaceTabStrip({
                 ? 'The plan under review'
                 : tab.kind === 'subagents'
                   ? "This chat's subagents"
-                  : (tab.path ?? 'No file open')
+                  : tab.kind === 'design'
+                    ? 'The design canvas'
+                    : (tab.path ?? 'No file open')
 
         return (
           <div
@@ -128,6 +132,8 @@ export default function WorkspaceTabStrip({
               <ListChecks className="size-3 shrink-0 text-muted-foreground/70" />
             ) : tab.kind === 'subagents' ? (
               <Bot className="size-3 shrink-0 text-muted-foreground/70" />
+            ) : tab.kind === 'design' ? (
+              <Frame className="size-3 shrink-0 text-muted-foreground/70" />
             ) : (
               <FileText className="size-3 shrink-0 text-muted-foreground/70" />
             )}

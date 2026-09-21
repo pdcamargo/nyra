@@ -6,6 +6,7 @@ mod app_mcp;
 mod browser;
 mod claude;
 mod commands;
+mod designs;
 mod devtools;
 mod file_extractor;
 mod file_tree;
@@ -237,6 +238,13 @@ pub fn run() {
             commands::terminal_resize,
             commands::terminal_kill,
             commands::browser_status,
+            commands::design_raster,
+            commands::design_list,
+            commands::design_create,
+            commands::design_adopt,
+            commands::design_relocate,
+            commands::design_rename,
+            commands::design_forget,
             commands::browser_configure,
             commands::browser_install,
             commands::browser_open_chat,

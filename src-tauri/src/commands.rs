@@ -812,6 +812,63 @@ pub async fn browser_status() -> Value {
     browser::status().await
 }
 
+// ---- designs ----
+
+#[tauri::command]
+pub async fn design_raster(request: Value) -> Value {
+    browser::design_raster(request).await
+}
+
+#[tauri::command]
+pub fn design_list(project: Option<String>) -> Value {
+    let project = project.map(std::path::PathBuf::from);
+    serde_json::json!(crate::designs::list(project.as_deref()))
+}
+
+#[tauri::command]
+pub fn design_create(name: String, project: String) -> Value {
+    match crate::designs::create(&name, std::path::Path::new(&project)) {
+        Ok(entry) => serde_json::json!({ "ok": true, "design": entry }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command]
+pub fn design_adopt(name: String, path: String, project: String) -> Value {
+    match crate::designs::adopt(
+        &name,
+        std::path::Path::new(&path),
+        std::path::Path::new(&project),
+    ) {
+        Ok(entry) => serde_json::json!({ "ok": true, "design": entry }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command]
+pub fn design_relocate(id: String, to: String) -> Value {
+    match crate::designs::relocate(&id, std::path::Path::new(&to)) {
+        Ok(entry) => serde_json::json!({ "ok": true, "design": entry }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command]
+pub fn design_rename(id: String, name: String) -> Value {
+    match crate::designs::rename(&id, &name) {
+        Ok(entry) => serde_json::json!({ "ok": true, "design": entry }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command]
+pub fn design_forget(id: String, delete_file: Option<bool>) -> Value {
+    match crate::designs::forget(&id, delete_file.unwrap_or(false)) {
+        Ok(()) => serde_json::json!({ "ok": true }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    }
+}
+
 #[tauri::command]
 pub async fn browser_configure(patch: Value) -> Value {
     browser::configure(patch).await

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { NEW_TAB_CHOICES } from '@renderer/components/workspace/tabs'
+import { COMMANDS_BY_ID } from '@renderer/commands/registry'
 import { render, screen } from '@testing-library/react'
 import { Button } from '../../renderer/src/components/ui/button'
 import { Badge } from '../../renderer/src/components/ui/badge'
@@ -25,5 +27,30 @@ describe('shadcn primitives', () => {
   it('applies theme tokens rather than raw palette classes', () => {
     render(<Button>Send</Button>)
     expect(screen.getByRole('button').className).toContain('bg-primary')
+  })
+})
+
+describe('what the panel offers to create', () => {
+  /**
+   * A design is never on this list, and must never be.
+   *
+   * A blank design tab has no answer to "which design?" — a chat can be working
+   * with ten — so offering one from a menu asks the user to go and find a file,
+   * which is the opposite of the point. Designs are opened by something that
+   * already knows which one: a chip in the transcript, "Open in Design" on a
+   * file, or Claude itself.
+   *
+   * This guards both places at once: the "+" menu and the empty panel's landing
+   * are built from this one list.
+   */
+  it('never offers a design', () => {
+    expect(NEW_TAB_CHOICES.map((c) => c.kind)).toEqual(['browser', 'file'])
+    expect(NEW_TAB_CHOICES.some((c) => c.label.toLowerCase().includes('design'))).toBe(false)
+  })
+
+  it('offers nothing the command palette cannot also run', () => {
+    for (const choice of NEW_TAB_CHOICES) {
+      expect(COMMANDS_BY_ID.has(choice.command)).toBe(true)
+    }
   })
 })

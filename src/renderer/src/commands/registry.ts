@@ -1,12 +1,17 @@
 import type React from 'react'
 import {
   Bot,
+  Braces,
+  ChartNoAxesColumn,
   ClipboardCopy,
   Eraser,
   FileDiff,
   FileText,
   FolderPlus,
   Globe,
+  History,
+  Info,
+  LayoutGrid,
   LogIn,
   Maximize2,
   Minimize2,
@@ -15,29 +20,25 @@ import {
   PanelLeft,
   PanelRight,
   PanelRightOpen,
+  Play,
   Plus,
   Receipt,
   RotateCw,
-  Smartphone,
   Search,
   Settings,
   ShieldCheck,
-  SquareTerminal,
-  Braces,
-  ChartNoAxesColumn,
-  History,
-  LayoutGrid,
-  Play,
-  Info,
   SlidersHorizontal,
-  Zap,
+  Smartphone,
   Square,
+  SquareTerminal,
   Sun,
   Target,
   TextQuote,
-  Workflow
+  Workflow,
+  Zap
 } from 'lucide-react'
 import type { Chord } from '../lib/keys'
+import type { NewTabKind } from '../components/workspace/tabs'
 import { useUiStore } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
@@ -183,7 +184,7 @@ const ui = (): ReturnType<typeof useUiStore.getState> => useUiStore.getState()
  * Deliberately `setRightPanelOpen` rather than the toggle: this is always "show
  * me this", and a toggle would close the panel half the time.
  */
-async function openWorkspaceTab(kind: 'browser' | 'file'): Promise<void> {
+async function openWorkspaceTab(kind: NewTabKind): Promise<void> {
   const sessionId = useSessionsStore.getState().activeSessionId
   if (!sessionId) return
   ui().setRightPanelOpen(true)

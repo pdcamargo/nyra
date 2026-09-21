@@ -6,6 +6,13 @@
 // the browser, owns one BrowserContext per chat, and keeps the tab registry.
 
 import { chromium } from 'playwright-core'
+import {
+  cleanupRasters,
+  closeDesign,
+  designStats,
+  listRasters,
+  rasterize
+} from './design.mjs'
 import { ChatMcp } from './mcp.mjs'
 import { DEVICES, DEVICE_TOOL, resolveDevice } from './devices.mjs'
 import { spawn } from 'node:child_process'
@@ -34,6 +41,9 @@ let leaving = false
 function leave(code = 0) {
   if (leaving) return
   leaving = true
+  // Per-pid, so nothing else can be using it — but leaving hundreds of PNGs in
+  // $TMPDIR after every run is rude even when it is safe.
+  cleanupRasters()
   try {
     process.exit(code)
   } catch {
@@ -717,7 +727,8 @@ const methods = {
       cdpUrl,
       viewport: { ...config.viewport },
       devices: DEVICES,
-      chats: [...chats.keys()]
+      chats: [...chats.keys()],
+      design: designStats()
     }
   },
 
@@ -740,6 +751,25 @@ const methods = {
     return { touched: Boolean(entry) }
   },
   'chat.close': ({ chatId }) => closeChat(chatId),
+
+  /**
+   * Rasterise one artboard.
+   *
+   * The caller hands over finished HTML and a content hash; this never parses a
+   * design, which is why the sidecar carries no copy of the vocabulary. The
+   * render context is not a chat, so nothing here ever reaches the tab strip.
+   */
+  async 'design.raster'({ html, key, width, height, scale }) {
+    await ensureBrowser()
+    return rasterize(browser, { html, key, width, height, scale }, log)
+  },
+
+  'design.stats': () => ({ ...designStats(), files: listRasters() }),
+
+  async 'design.close'() {
+    await closeDesign()
+    return { closed: true }
+  },
 
   async 'tab.create'({ chatId, url }) {
     await openChat(chatId)

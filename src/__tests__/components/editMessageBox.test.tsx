@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import EditMessageBox from '../../renderer/src/components/EditMessageBox'
 
-vi.mock('../../renderer/src/lib/openFile', () => ({ openFileInPanel: vi.fn() }))
+// Partial, so the real design helpers stay real — three separate renderers
+// consult them and stubbing one out silently changed what this exercises.
+vi.mock('../../renderer/src/lib/openFile', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../renderer/src/lib/openFile')>()),
+  openFileInPanel: vi.fn(),
+  openDesignInPanel: vi.fn()
+}))
 
 /**
  * Editing a sent message.

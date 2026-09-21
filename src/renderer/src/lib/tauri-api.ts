@@ -22,6 +22,7 @@ import type {
   BrowserEvent,
   BrowserReply,
   BrowserStatus,
+  DesignEntry,
   BrowserTab,
   DevicePreset,
   TabDevice,
@@ -60,7 +61,8 @@ const EVENT_NAMES = [
   'terminal:exit',
   'browser:event',
   'nyra:app-request',
-  'nyra:update-available'
+  'nyra:update-available',
+  'nyra:designs-changed'
 ] as const
 
 type EventName = (typeof EVENT_NAMES)[number]
@@ -424,6 +426,35 @@ export const api = {
     onData: (callback: (event: { data: string }) => void) => on('login:data', callback),
     onExit: (callback: (event: { exitCode: number; success: boolean }) => void) =>
       on('login:exit', callback)
+  },
+
+  /**
+   * Designs: the index Rust owns, and the raster the sidecar produces.
+   *
+   * Rendering itself is not here — it happens in the renderer, which has React
+   * and the design package. This is only the two things the renderer cannot do
+   * itself: durable storage and a headless browser.
+   */
+  design: {
+    raster: (request: Record<string, unknown>) =>
+      call<{ ok: boolean; path?: string; width?: number; height?: number; cached?: boolean; error?: string }>(
+        'design_raster',
+        { request }
+      ),
+    list: (project?: string) => call<DesignEntry[]>('design_list', { project: project ?? null }),
+    create: (name: string, project: string) =>
+      call<{ ok: boolean; design?: DesignEntry; error?: string }>('design_create', { name, project }),
+    adopt: (name: string, path: string, project: string) =>
+      call<{ ok: boolean; design?: DesignEntry; error?: string }>('design_adopt', { name, path, project }),
+    relocate: (id: string, to: string) =>
+      call<{ ok: boolean; design?: DesignEntry; error?: string }>('design_relocate', { id, to }),
+    rename: (id: string, name: string) =>
+      call<{ ok: boolean; design?: DesignEntry; error?: string }>('design_rename', { id, name }),
+    forget: (id: string, deleteFile = false) =>
+      call<{ ok: boolean; error?: string }>('design_forget', { id, deleteFile }),
+    /** Fires when the index changes, so a list never has to be refreshed by
+     *  hand after Claude registers a design mid-conversation. */
+    onChanged: (callback: () => void) => on<unknown>('nyra:designs-changed', () => callback())
   },
 
   browser: {

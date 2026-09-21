@@ -173,6 +173,9 @@
   --danger-foreground: var(--destructive-foreground);
   --info: oklch(0.5200 0.1500 255);
   --info-foreground: oklch(1.0000 0 0);
+  /* A design document. Far enough from --info that a design chip and a file
+   * chip do not read as the same kind of thing at a glance. */
+  --design: oklch(0.5600 0.1900 350);
 }
 
 .dark {
@@ -182,6 +185,7 @@
   --warning-foreground: oklch(0.1448 0 0);
   --info: oklch(0.7000 0.1400 255);
   --info-foreground: oklch(0.1448 0 0);
+  --design: oklch(0.7400 0.1600 350);
 }
 
 /*
@@ -627,6 +631,41 @@ mark.nyra-search-highlight-active {
   background-color: currentColor;
   /* A document glyph, drawn as a mask so it takes the chip's colour. */
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3C/svg%3E");
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+/* A design document. Its own colour because clicking it does something else:
+ * a file chip opens source, this opens the canvas. Pink is far enough from the
+ * file chip's info blue that the difference registers before the click. */
+.nyra-design-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  /* A name is short; wrapping one would push the icon onto its own line, which
+   * is what a full path did before the chip showed a name at all. */
+  white-space: nowrap;
+  padding: 0.05em 0.45em;
+  border-radius: 4px;
+  background-color: color-mix(in oklab, var(--design) 18%, transparent);
+  color: var(--design);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+.nyra-design-chip:hover {
+  background-color: color-mix(in oklab, var(--design) 30%, transparent);
+}
+.nyra-design-chip-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 0.9em;
+  height: 0.9em;
+  background-color: currentColor;
+  /* A frame, matching the Design tab's icon in the strip. */
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' x2='2' y1='6' y2='6'/%3E%3Cline x1='22' x2='2' y1='18' y2='18'/%3E%3Cline x1='6' x2='6' y1='2' y2='22'/%3E%3Cline x1='18' x2='18' y1='2' y2='22'/%3E%3C/svg%3E");
   mask-size: contain;
   mask-repeat: no-repeat;
   mask-position: center;

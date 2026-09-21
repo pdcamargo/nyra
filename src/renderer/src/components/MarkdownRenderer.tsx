@@ -3,7 +3,14 @@ import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
 import type { HighlighterGeneric } from 'shiki'
-import { openFileInPanel } from '../lib/openFile'
+import {
+  designArtboardName,
+  designNameFromPath,
+  isDesignPath,
+  openDesignInPanel,
+  openFileInPanel,
+  splitDesignRef
+} from '../lib/openFile'
 import { useWorkflowStore } from '../store/workflow'
 import { useSettingsStore } from '../store/settings'
 import { Check, Copy, WrapText } from 'lucide-react'
@@ -340,7 +347,80 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }): React.JSX.
  * labels arrive as children — `promptMarkdown` has already shortened a path to
  * the part that fits.
  */
+/**
+ * A design document, wherever its path appears.
+ *
+ * Its own component because a design path reaches the renderer by two different
+ * routes — the `nyra-file-chip` tag that `remarkPromptDecorations` invents for
+ * messages *you* wrote, and the plain inline-code branch that Claude's replies
+ * go through. Fixing one and not the other is exactly the bug this was written
+ * for: the chip stayed blue in a reply while working in a prompt.
+ */
+function DesignChip({ path: ref }: { path: string; children?: React.ReactNode }): React.JSX.Element {
+  const { path, artboard } = splitDesignRef(ref)
+  /**
+   * The design's name, not its path.
+   *
+   * Where a design's file lives is the index's business and nobody else's —
+   * printing `/Users/…/designs/files/vpn-settings-d_ac7eca37b7.nyui.json` shows
+   * a location you never chose and an id you never asked for, and wraps onto
+   * two lines doing it.
+   *
+   * The filename gives a good-enough name synchronously, so the chip never
+   * renders empty or flashes; the index then supplies the real one, which is
+   * what the design was actually called.
+   */
+  const [name, setName] = useState(() => designNameFromPath(splitDesignRef(ref).path))
+
+  useEffect(() => {
+    let cancelled = false
+    const resolve = async (): Promise<void> => {
+      const designs = await window.api.design.list()
+      const hit = designs.find((d) => d.path === path)
+      const design = hit?.name ?? designNameFromPath(path)
+      // `VPN Settings — Settings — Protocol`: the document, then the panel.
+      // Claude points at what it changed rather than at the whole document.
+      const board = artboard === null ? null : await designArtboardName(path, artboard)
+      if (cancelled) return
+      setName(board === null ? design : `${design} — ${board}`)
+    }
+    void resolve()
+    // Renaming a design cannot break a chip — it resolves by path, and the name
+    // is looked up — but a chip that fetched once would go on showing the old
+    // name until something else re-rendered it.
+    const stop = window.api.design.onChanged(() => void resolve())
+    return () => {
+      cancelled = true
+      stop()
+    }
+  }, [path, artboard])
+
+  const open = (): void => void openDesignInPanel(ref)
+  return (
+    <span
+      className="nyra-design-chip"
+      role="button"
+      tabIndex={0}
+      title={`Open "${name}" on the design canvas`}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          open()
+        }
+      }}
+    >
+      <span className="nyra-design-chip-icon" aria-hidden="true" />
+      {name}
+    </span>
+  )
+}
+
 function FileChip({ path, children }: { path?: string; children?: React.ReactNode }): React.JSX.Element {
+  // A design opens as a design, not as the JSON nobody wrote by hand.
+  if (path !== undefined && isDesignPath(path)) {
+    return <DesignChip path={path}>{children}</DesignChip>
+  }
   const open = (): void => {
     if (path) openFileInPanel(path)
   }
@@ -428,6 +508,10 @@ function MarkdownRendererInner({
 
       if (!isBlock) {
         const text = String(children)
+        // Checked before `isFilePath`, which a design path also satisfies.
+        if (isDesignPath(text)) {
+          return <DesignChip path={text}>{children}</DesignChip>
+        }
         if (isFilePath(text)) {
           return (
             <code

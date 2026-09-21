@@ -8,7 +8,14 @@ import {
   WidgetType
 } from '@codemirror/view'
 import { BUILT_IN_COMMANDS } from '../data/commands'
-import { openFileInPanel } from './openFile'
+import {
+  designArtboardName,
+  designNameFromPath,
+  isDesignPath,
+  openDesignInPanel,
+  openFileInPanel,
+  splitDesignRef
+} from './openFile'
 
 /**
  * Nyra's own composer decorations, on top of plain markdown.
@@ -176,6 +183,67 @@ class AttachmentChipWidget extends WidgetType {
   }
 }
 
+/**
+ * A design mention, in the composer.
+ *
+ * The third place a design reference is drawn — the composer decorates live
+ * text, `promptMarkdown` decorates a sent message, and `MarkdownRenderer`
+ * decorates Claude's reply. They are genuinely separate renderers, and this one
+ * was missed: a referenced design chipped blue, with a filename and a dangling
+ * `#general`, next to the pink chip Claude posts for the same design.
+ *
+ * The label is resolved after mount because a widget's `toDOM` is synchronous
+ * and the design's real name lives in the index. Until it answers, the filename
+ * gives a readable stand-in, so the chip never flashes empty.
+ */
+class DesignChipWidget extends WidgetType {
+  constructor(private readonly ref: string) {
+    super()
+  }
+  eq(other: DesignChipWidget): boolean {
+    return other.ref === this.ref
+  }
+  toDOM(): HTMLElement {
+    const { path, artboard } = splitDesignRef(this.ref)
+    const el = document.createElement('span')
+    el.className = 'nyra-design-chip'
+    const icon = document.createElement('span')
+    icon.className = 'nyra-design-chip-icon'
+    icon.setAttribute('aria-hidden', 'true')
+    el.appendChild(icon)
+
+    const label = document.createTextNode(designNameFromPath(path))
+    el.appendChild(label)
+    el.title = this.ref
+    el.setAttribute('role', 'button')
+    el.tabIndex = 0
+
+    void (async () => {
+      const designs = await window.api.design.list()
+      const design = designs.find((d) => d.path === path)?.name ?? designNameFromPath(path)
+      const board = artboard === null ? null : await designArtboardName(path, artboard)
+      label.textContent = board === null ? design : `${design} — ${board}`
+    })()
+
+    const open = (): void => void openDesignInPanel(this.ref)
+    el.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      open()
+    })
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        open()
+      }
+    })
+    return el
+  }
+  ignoreEvent(): boolean {
+    return false
+  }
+}
+
 class FileChipWidget extends WidgetType {
   constructor(private readonly path: string) {
     super()
@@ -267,12 +335,10 @@ function buildDecorations(view: EditorView): DecorationSet {
     // Collapsed to a chip, unless the caret is actually in it — then it is the
     // path you are typing, so it stays text you can edit.
     if (spanTouched(mention, ranges)) continue
-    decorations.push(
-      Decoration.replace({ widget: new FileChipWidget(mention.path) }).range(
-        mention.from,
-        mention.to
-      )
-    )
+    const widget = isDesignPath(mention.path)
+      ? new DesignChipWidget(mention.path)
+      : new FileChipWidget(mention.path)
+    decorations.push(Decoration.replace({ widget }).range(mention.from, mention.to))
   }
 
   return RangeSet.of(decorations, true)

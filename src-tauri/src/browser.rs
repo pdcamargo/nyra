@@ -263,6 +263,19 @@ async fn call(method: &str, params: Value) -> Result<Value, String> {
     call_with(CALL_TIMEOUT, method, params).await
 }
 
+/// Rasterising an artboard is the one call that can legitimately take seconds:
+/// the first one in a session pays for launching Chromium. The normal call
+/// timeout is sized for driving a page that is already open.
+const RASTER_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// HTML in, PNG path out. The sidecar owns the headless Chromium; the design
+/// vocabulary lives entirely on the other side of this call, which is why the
+/// parameter is a finished document rather than anything to parse.
+pub async fn design_raster(params: Value) -> Value {
+    settle(call_with(RASTER_TIMEOUT, "design.raster", params).await)
+}
+
+
 /// Every command answers `{ ok }` or `{ ok: false, error }` rather than
 /// rejecting: the panel renders a failure as a state, and a rejected promise
 /// would only become an unhandled one somewhere in the renderer.

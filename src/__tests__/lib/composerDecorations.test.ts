@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { isDesignPath } from '@renderer/lib/openFile'
 import {
   findCommand,
   findFileMentions,
@@ -195,5 +196,32 @@ describe('removeAttachmentRef', () => {
   it('removes only the one asked for', () => {
     const text = '[Image: /tmp/a.png] and [Image: /tmp/b.png]'
     expect(removeAttachmentRef(text, 'Image', '/tmp/a.png')).toBe('and [Image: /tmp/b.png]')
+  })
+})
+
+describe('a design mention is a design chip', () => {
+  /**
+   * The third renderer, and the one that got missed twice.
+   *
+   * A design reference is drawn in three genuinely separate places — the
+   * composer decorates live text, `promptMarkdown` decorates a sent message,
+   * and `MarkdownRenderer` decorates Claude's reply. Referencing a design from
+   * the canvas chipped it blue here, with a filename and a dangling `#general`,
+   * right next to the pink chip Claude posts for the same design.
+   */
+  it('recognises one among ordinary mentions', () => {
+    const text = 'compare @/a/src/App.tsx with @/a/b.nyui.json#general please'
+    const mentions = findFileMentions(text)
+    expect(mentions.map((m) => m.path)).toEqual(['/a/src/App.tsx', '/a/b.nyui.json#general'])
+    expect(isDesignPath(mentions[0].path)).toBe(false)
+    expect(isDesignPath(mentions[1].path)).toBe(true)
+  })
+
+  it('keeps the fragment inside the mention rather than ending at the extension', () => {
+    // If the span stopped at `.json`, the `#general` would be left as loose
+    // text beside the chip — which is what it looked like before.
+    const [mention] = findFileMentions('@/a/b.nyui.json#settings-protocol')
+    expect(mention.path).toBe('/a/b.nyui.json#settings-protocol')
+    expect(mention.to - mention.from).toBe('@/a/b.nyui.json#settings-protocol'.length)
   })
 })

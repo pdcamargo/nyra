@@ -298,3 +298,18 @@ export type FontFamily = {
    *  code-font picker's filter. */
   monospaced: boolean
 }
+
+/**
+ * One design in the index.
+ *
+ * `id` is identity and `path` is a field, which is what makes "save to repo" a
+ * one-field update rather than a migration — and what lets the model name a
+ * design instead of remembering where it wrote one.
+ */
+export type DesignEntry = {
+  id: string
+  name: string
+  path: string
+  project: string
+  updatedAt: string
+}

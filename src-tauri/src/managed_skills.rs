@@ -47,6 +47,15 @@ pub const BUNDLED: &[Bundled] = &[
         name: "nyra-app",
         content: include_str!("../../.claude/skills/nyra-app/SKILL.md"),
     },
+    // The design vocabulary. Generated from the property registry rather than
+    // written, so shipping a property without teaching it is not possible —
+    // `packages/design/scripts/generate-skill.mts`, with a test that
+    // regenerates and diffs. Long, and that is fine: a skill loads on its
+    // description, and only the frontmatter is carried in every turn.
+    Bundled {
+        name: "nyra-design",
+        content: include_str!("../../.claude/skills/nyra-design/SKILL.md"),
+    },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

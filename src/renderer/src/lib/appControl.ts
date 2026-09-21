@@ -18,12 +18,19 @@
 
 import { agentCommands, runCommand } from '../commands/registry'
 import { useUiStore } from '../store/ui'
+import {
+  PANEL_DEFAULTS,
+  PANEL_MINS,
+  usePanelSizesStore,
+  type PanelKey
+} from '../store/panelSizes'
 import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
 import { useSessionsStore } from '../store/sessions'
 import { useWorkspaceStore, workspaceFor } from '../store/workspace'
 import { openFileInPanel } from './openFile'
 import { resolveTheme } from './theme'
+import { renderDesign } from './designRender'
 
 type Op = (args: Record<string, unknown>) => unknown | Promise<unknown>
 
@@ -97,6 +104,89 @@ const OPS: Record<string, Op> = {
     useWorkflowStore.getState().openCanvas()
     useWorkflowStore.getState().setCurrentWorkflow(definition)
     return { ok: true, id }
+  },
+
+  /**
+   * The rails, as sizes rather than as booleans.
+   *
+   * `state` answers which panels are open; this answers how big. Kept apart
+   * because `state` is the cheap call the model is told to make before acting,
+   * and sizes are only interesting when it is about to change one.
+   */
+  layout() {
+    const sizes = usePanelSizesStore.getState()
+    const ui = useUiStore.getState()
+    return {
+      ok: true,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      panels: {
+        sidebarWidth: { px: sizes.sidebarWidth, min: PANEL_MINS.sidebarWidth, open: ui.projectsPanelOpen },
+        rightPanelWidth: { px: sizes.rightPanelWidth, min: PANEL_MINS.rightPanelWidth, open: ui.rightPanelOpen },
+        bottomPanelHeight: { px: sizes.bottomPanelHeight, min: PANEL_MINS.bottomPanelHeight, open: ui.bottomPanelOpen }
+      },
+      defaults: PANEL_DEFAULTS
+    }
+  },
+
+  /**
+   * Resize a rail.
+   *
+   * Goes through the same store a drag does, and the same clamp — the model
+   * gets no privilege the pointer does not have, so it cannot leave the chat
+   * narrower than a person could drag it to. `reset` puts one back to default.
+   */
+  resize({ panel, px, reset }) {
+    const key = typeof panel === 'string' ? (panel as PanelKey) : null
+    if (key === null || !(key in PANEL_DEFAULTS)) {
+      throw new Error(
+        `resize needs a panel: ${Object.keys(PANEL_DEFAULTS).join(', ')}`
+      )
+    }
+    const sizes = usePanelSizesStore.getState()
+    if (reset === true) {
+      sizes.resetSize(key)
+      return { ok: true, panel: key, px: usePanelSizesStore.getState()[key] }
+    }
+    if (typeof px !== 'number' || !Number.isFinite(px)) {
+      throw new Error('resize needs px, or reset: true')
+    }
+    // The floor a drag enforces. Above it the layout's own clamp decides what
+    // actually fits, exactly as it does for a pointer.
+    sizes.setSize(key, Math.max(PANEL_MINS[key], Math.round(px)))
+    return { ok: true, panel: key, px: usePanelSizesStore.getState()[key] }
+  },
+
+  /**
+   * Which project the active session is in.
+   *
+   * Exists so `nyra_design` can default its `project` argument instead of
+   * asking the model for something the app already knows. A tool that makes
+   * you supply a fact it could have looked up costs a round trip on every
+   * call, which is exactly what a cold session showed.
+   */
+  'design.project'() {
+    const sessions = useSessionsStore.getState()
+    const active = sessions.sessions.find((s) => s.id === sessions.activeSessionId)
+    return { ok: true, project: active?.cwd ?? null }
+  },
+
+  /**
+   * Render a design to PNGs.
+   *
+   * The only op that does real work rather than moving the UI, and the reason
+   * `ask_renderer` grew a per-op timeout: the first render in a session pays
+   * for launching a headless Chromium.
+   */
+  async 'design.render'({ path, artboard, scale }) {
+    if (typeof path !== 'string' || path.length === 0) {
+      throw new Error("design.render needs a 'path'")
+    }
+    const result = await renderDesign(
+      path,
+      typeof artboard === 'string' ? artboard : undefined,
+      typeof scale === 'number' ? scale : 2
+    )
+    return { ok: true, ...result }
   }
 }
 
