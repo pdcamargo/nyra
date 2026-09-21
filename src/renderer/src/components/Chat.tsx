@@ -1509,7 +1509,7 @@ export default function Chat(): React.JSX.Element {
       {/* Drop zone overlay */}
       {isDragging && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-info/50 bg-info/10 px-12 py-10">
+          <div className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed border-info/50 bg-info/10 px-12 py-10">
             <FileText className="size-10 text-info" />
             <p className="text-sm font-medium text-info">Drop files here</p>
             <p className="text-[11px] text-info/50">Images, PDFs, documents, code files, and more</p>
@@ -1787,7 +1787,7 @@ export default function Chat(): React.JSX.Element {
                       {activeSessionId && thinkingSince[activeSessionId] !== undefined ? (
                         <ThinkingIndicator startTime={thinkingSince[activeSessionId]} />
                       ) : (
-                        <div className={`rounded-2xl border border-border-strong bg-accent/50 px-4 py-3`}>
+                        <div className={`rounded-lg border border-border-strong bg-accent/50 px-4 py-3`}>
                           <div className="flex gap-1">
                             {BOUNCE_DOTS.map((i) => (
                               <span key={i} className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
@@ -2034,7 +2034,7 @@ function ThinkingIndicator({ startTime }: { startTime: number }): React.JSX.Elem
   const secs = (elapsed / 1000).toFixed(1)
 
   return (
-    <div className={`rounded-2xl border border-info/15 bg-info/5 px-4 py-3`}>
+    <div className={`rounded-lg border border-info/15 bg-info/5 px-4 py-3`}>
       <div className="flex items-center gap-2">
         <div className="flex items-end gap-[3px]">
           {[10, 14, 8, 12].map((h, i) => (
@@ -2071,7 +2071,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
     const textMsg = message as TextMessage
     return (
       <div className="flex flex-col items-end group/msg">
-        <div className="relative max-w-[85%] rounded-2xl bg-secondary px-4 py-2.5 text-secondary-foreground">
+        <div className="relative max-w-[85%] rounded-lg bg-secondary px-4 py-2.5 text-secondary-foreground">
           {onEdit && (
             <Tooltip>
               <TooltipTrigger asChild>

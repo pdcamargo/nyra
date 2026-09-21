@@ -952,7 +952,14 @@ export default function ChatInput({
       {/* Codex-shaped: the field on its own line, then a footer carrying what you
           set per turn — approvals on the left, model and effort on the right,
           attachments and commands behind the `+`. */}
-      <div className="composer-box rounded-lg border border-muted bg-muted transition-colors focus-within:border-border-strong">
+      {/* Square across the top while the queue tray is docked above it: the tray
+          has no bottom border and sits in this box's first 8px, so a rounded top
+          edge here would curve away from the tray's straight one and read as two
+          misaligned boxes rather than one. `rounded-b-lg` rather than adding
+          `rounded-t-none`, so the corners are stated once either way. */}
+      <div
+        className={`composer-box ${queuedMessages.length > 0 ? 'rounded-b-lg' : 'rounded-lg'} border border-muted bg-muted transition-colors focus-within:border-border-strong`}
+      >
         {/* Inside the box, not docked above it: one border, and `focus-within`
             lights the question and the field together as the single control they
             are. A question outranks a plan — the two cannot both be live, but if

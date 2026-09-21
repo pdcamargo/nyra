@@ -315,8 +315,10 @@
    * for: at 0.84rem they put sm, md and lg within 4px of each other, which is one
    * tier wearing three names — a badge and the panel it sits in would round the
    * same. And the theme only defines sm/md/lg/xl, so `rounded-xs` and
-   * `rounded-2xl` (both in use) would silently fall back to Tailwind's stock
-   * 2px/16px and stop tracking --radius at all.
+   * `rounded-2xl` would silently fall back to Tailwind's stock 2px/16px and stop
+   * tracking --radius at all. Only xs is still used and xl is used nowhere, but
+   * all six stay defined: a tier left out is not a tier removed, it is a tier
+   * that quietly stops tracking the knob the next time someone reaches for it.
    */
   --radius-xs: calc(var(--radius) * 0.5);
   --radius-sm: calc(var(--radius) * 0.75);
