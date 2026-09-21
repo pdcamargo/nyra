@@ -8,7 +8,19 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Dark mode is darker, and cards and popovers lift off the page by shade instead of by a border',
+      'Corners are three times rounder',
+      'Ask Claude to open a panel or run a Cmd+K command, and it does it itself',
+      'Claude can write a flow and open it on the canvas, instead of handing you JSON to import',
+      'Nyra checks a flow Claude writes before saving it, and lists every problem at once',
+      'Claude can check for an update and offer you a link to install it',
+      'Asking Claude to open the terminal opens it, instead of closing it when it was already open',
+      'A flow that fails at the last node no longer marks every node before it as failed',
+      'A failed node shows how long it ran before it gave up',
+      'Script nodes find npm, node and gh when you start Nyra from Finder',
+      'Set a longer timeout on a script node, up to an hour, for a step like a build'
+    ]
   },
   {
     version: '0.0.11',
