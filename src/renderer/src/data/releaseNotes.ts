@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.1.0',
+    date: '2026-09-21',
     notes: [
       'Dark mode is darker, and cards and popovers lift off the page by shade instead of by a border',
       'Corners are three times rounder',
