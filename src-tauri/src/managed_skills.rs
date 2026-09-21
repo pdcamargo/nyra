@@ -34,10 +34,20 @@ pub struct Bundled {
     pub content: &'static str,
 }
 
-pub const BUNDLED: &[Bundled] = &[Bundled {
-    name: "write-a-flow",
-    content: include_str!("../../.claude/skills/write-a-flow/SKILL.md"),
-}];
+pub const BUNDLED: &[Bundled] = &[
+    Bundled {
+        name: "write-a-flow",
+        content: include_str!("../../.claude/skills/write-a-flow/SKILL.md"),
+    },
+    // The app's own geography. Split from `write-a-flow` because the questions
+    // are different — one is "compose a graph", the other is "what is this
+    // panel called and where does Nyra keep things" — and a skill loads on its
+    // description, so two narrow ones fire more accurately than one wide one.
+    Bundled {
+        name: "nyra-app",
+        content: include_str!("../../.claude/skills/nyra-app/SKILL.md"),
+    },
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

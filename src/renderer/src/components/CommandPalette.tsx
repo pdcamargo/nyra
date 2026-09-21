@@ -14,7 +14,7 @@ import {
 import { useUiStore } from '../store/ui'
 import { useSessionsStore } from '../store/sessions'
 import { collectPromptHistory, searchSessions } from '../lib/search'
-import { COMMANDS } from '../commands/registry'
+import { COMMANDS, runCommand } from '../commands/registry'
 import { CommandKbd } from './ui/kbd'
 
 /**
@@ -84,7 +84,7 @@ export default function CommandPalette(): React.JSX.Element {
               .map((action) => {
                 const Icon = action.icon!
                 return (
-                  <CommandItem key={action.id} value={action.id} onSelect={run(action.run!)}>
+                  <CommandItem key={action.id} value={action.id} onSelect={run(() => void runCommand(action.id))}>
                     <Icon className="size-4" />
                     {action.label}
                     <CommandShortcut>

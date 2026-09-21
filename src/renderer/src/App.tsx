@@ -25,6 +25,7 @@ import { dropBrowserHub, useBrowserStore } from './store/browser'
 import { syncBrowserGone, syncSidecarTabs, useWorkspaceStore } from './store/workspace'
 import { handleBinding, usePanelLayoutStore } from './store/panelLayout'
 import { usePanelSizesStore } from './store/panelSizes'
+import { startAppControl } from './lib/appControl'
 import { ViewErrorBoundary } from './components/ViewErrorBoundary'
 
 // Lazy-load heavy components — modals with Monaco, WorkflowCanvas with React Flow
@@ -64,6 +65,20 @@ export default function App(): React.JSX.Element {
         // Offline, or no release yet. A badge that cannot appear is the right
         // failure; the manual check in Settings says why.
       })
+  }, [])
+
+  // Claude asking this window to do something, or telling it a check it ran
+  // found a new version. Subscribed here rather than in a panel for the same
+  // reason the browser events are: the question can arrive whatever is mounted.
+  useEffect(() => {
+    const stopControl = startAppControl()
+    const stopUpdates = window.api.updates.onAvailable(({ version }) => {
+      useUiStore.getState().setUpdateAvailable(version)
+    })
+    return () => {
+      stopControl()
+      stopUpdates()
+    }
   }, [])
 
   useEffect(() => {

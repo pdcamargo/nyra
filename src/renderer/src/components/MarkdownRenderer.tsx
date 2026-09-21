@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
 import type { HighlighterGeneric } from 'shiki'
 import { openFileInPanel } from '../lib/openFile'
+import { useWorkflowStore } from '../store/workflow'
 import { useSettingsStore } from '../store/settings'
 import { Check, Copy, WrapText } from 'lucide-react'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
@@ -165,9 +166,89 @@ function isFilePath(text: string): boolean {
 // as well so an obvious non-image never becomes an IPC call at all.
 const RENDERABLE_IMAGE_RE = /\.(png|jpe?g)$/i
 
-// Anything carrying a scheme. In practice only http(s) reaches us: react-markdown's
-// default urlTransform blanks `data:` and `file:` before the component sees them.
+// Anything carrying a scheme. In practice only http(s) and `nyra:` reach us:
+// react-markdown's default urlTransform blanks `data:` and `file:` before the
+// component sees them, and `nyra:` only survives because `passNyraLinks` below
+// puts it back.
 const HAS_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i
+
+// ---------------------------------------------------------------------------
+// nyra:// links
+// ---------------------------------------------------------------------------
+//
+// How Claude points at something it just did: `[Nightly](nyra://flow/wf-9)`, or
+// `[update and restart](nyra://update)`. An ordinary markdown link rather than a
+// fourth fenced convention, because the link form costs nothing in the system
+// prompt — it arrives in the result of the tool that made the thing.
+//
+// Two things make this less obvious than it looks. react-markdown blanks any
+// scheme outside its allow-list before a component ever sees the href, so the
+// transform has to be replaced rather than the `a` slot alone. And the chip
+// plugin that renders the composer's file chips runs *only* on messages the
+// user wrote — Claude's replies are parsed with plain remark-gfm — so a chip
+// Claude emits cannot come from there.
+
+type NyraLink = { label: string; run: () => void }
+
+/** Returns what a `nyra://` href does, or null if it points at nothing we know. */
+function resolveNyraLink(href: string): NyraLink | null {
+  const rest = href.slice('nyra://'.length)
+  if (rest === 'update') {
+    return {
+      // Deliberately the only place in the app besides Settings that installs.
+      // Claude is told to offer this and never to call the installer itself:
+      // installing restarts Nyra, which would kill the reply mid-sentence.
+      label: 'Update and restart',
+      run: () => void window.api.updates.install()
+    }
+  }
+  const flow = /^flow\/([\w.-]+)$/.exec(rest)
+  if (flow) {
+    const id = flow[1]
+    return {
+      label: 'Open flow',
+      run: () => {
+        void window.api.workflow.load(id).then((definition) => {
+          if (!definition) return
+          useWorkflowStore.getState().openCanvas()
+          useWorkflowStore.getState().setCurrentWorkflow(definition)
+        })
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Keep `nyra:` through react-markdown's sanitiser, and leave everything else to
+ * the default — which is what still blanks `javascript:` and `data:`.
+ */
+function passNyraLinks(url: string, key: string): string {
+  if (key === 'href' && url.startsWith('nyra://')) return url
+  return defaultUrlTransform(url)
+}
+
+/** A `nyra://` link, drawn as a chip rather than as underlined blue text. */
+function NyraChip({ link, children }: { link: NyraLink; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <span
+      className="nyra-file-chip"
+      role="button"
+      tabIndex={0}
+      title={link.label}
+      onClick={link.run}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          link.run()
+        }
+      }}
+    >
+      <span className="nyra-file-chip-icon" aria-hidden="true" />
+      {children}
+    </span>
+  )
+}
 
 /**
  * An image Claude referenced with ordinary markdown, `![alt](/abs/path.png)`.
@@ -398,6 +479,14 @@ function MarkdownRendererInner({
       return <blockquote className={`border-l-2 border-border-strong pl-3 italic text-muted-foreground my-3`}>{children}</blockquote>
     },
     a({ href, children }: { href?: string; children: React.ReactNode }) {
+      if (href?.startsWith('nyra://')) {
+        const link = resolveNyraLink(href)
+        // An unknown target renders as its own label — inert, not broken. The
+        // scheme is one Claude types, so a typo must not produce a dead link
+        // that looks live.
+        if (!link) return <>{children}</>
+        return <NyraChip link={link}>{children}</NyraChip>
+      }
       return <a href={href} className="text-info/80 hover:text-info underline underline-offset-2 transition-colors" target="_blank" rel="noreferrer">{children}</a>
     },
     img({ src, alt }: { src?: string; alt?: string }) {
@@ -429,6 +518,7 @@ function MarkdownRendererInner({
   return (
     <ReactMarkdown
       remarkPlugins={prompt ? promptPlugins : remarkPlugins}
+      urlTransform={passNyraLinks}
       components={components as Components}
     >
       {children}

@@ -2,6 +2,7 @@
 
 mod updates;
 mod ai_title;
+mod app_mcp;
 mod browser;
 mod claude;
 mod commands;
@@ -250,6 +251,7 @@ pub fn run() {
             commands::update_check,
             commands::update_install,
             commands::app_version,
+            commands::app_control_response,
             commands::devtools_screenshot,
             commands::devtools_eval,
             commands::dev_log_push,

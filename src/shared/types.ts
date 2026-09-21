@@ -21,6 +21,8 @@ export type NyraSettings = {
   /** Whether Claude gets the browser tools. Every chat carries their
    *  definitions whether or not it ever browses, so this is a switch. */
   browserTools: boolean
+  /** Whether Claude gets the tools that drive Nyra itself. */
+  appTools: boolean
   /** The floating miniature. Codex had to add this switch after the fact; it
    *  costs nothing to have from the start. */
   browserPip: boolean
@@ -120,6 +122,7 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   worktreeLimit: 15,
   worktreeAutoDelete: true,
   browserTools: true,
+  appTools: true,
   browserPip: true,
   browserDevice: 'iphone-16-pro',
   zoom: 1,

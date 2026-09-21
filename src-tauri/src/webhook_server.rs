@@ -128,6 +128,41 @@ async fn browser_mcp(
     }
 }
 
+/// The app's own MCP server. Same transport as `/browser/mcp`, different owner:
+/// nothing here relays to the sidecar, because flows are files Rust reads and
+/// the panels belong to the renderer, which Rust can ask directly.
+async fn app_mcp(
+    method: axum::http::Method,
+    Path(_chat_id): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    if method != axum::http::Method::POST {
+        return (
+            StatusCode::METHOD_NOT_ALLOWED,
+            Json(json!({ "error": "This endpoint answers POST only" })),
+        )
+            .into_response();
+    }
+    let token = headers.get("x-nyra-token").and_then(|v| v.to_str().ok());
+    if token != Some(crate::app_mcp::mcp_token()) {
+        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Unauthorised" }))).into_response();
+    }
+    if body.len() > MAX_MCP_BYTES {
+        return (StatusCode::PAYLOAD_TOO_LARGE, Json(json!({ "error": "Body too large" })))
+            .into_response();
+    }
+    let Ok(message) = serde_json::from_slice::<Value>(&body) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Malformed JSON-RPC" })))
+            .into_response();
+    };
+
+    match crate::app_mcp::handle(message).await {
+        Value::Null => StatusCode::ACCEPTED.into_response(),
+        response => (StatusCode::OK, Json(response)).into_response(),
+    }
+}
+
 /// 8 KB. An expression, not a program — and unlike `/browser/mcp` there is no
 /// page of tool arguments to carry.
 const MAX_EVAL_BYTES: usize = 8 * 1024;
@@ -231,6 +266,7 @@ pub async fn start(preferred_port: u16) -> Option<u16> {
         .route("/health", get(health))
         .route("/webhook/{workflow_id}/{trigger_id}", any(webhook))
         .route("/browser/mcp/{chat_id}", any(browser_mcp))
+        .route("/app/mcp/{chat_id}", any(app_mcp))
         .route("/dev/eval", any(dev_eval))
         .route("/dev/screenshot", any(dev_screenshot))
         .fallback(not_found);

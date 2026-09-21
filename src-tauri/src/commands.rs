@@ -897,6 +897,16 @@ pub fn app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
+/// The renderer answering something `app_mcp::ask_renderer` asked it.
+///
+/// One command for every op rather than one each: the payload is already
+/// opaque JSON by the time it gets here, and the thing that has to stay
+/// narrow is who can ask, not what comes back.
+#[tauri::command(rename_all = "camelCase")]
+pub fn app_control_response(request_id: String, result: Value) {
+    crate::app_mcp::deliver_response(&request_id, result);
+}
+
 // ---------------------------------------------------------------------------
 // Devtools
 // ---------------------------------------------------------------------------

@@ -52,6 +52,11 @@ pub struct NyraSettings {
     /// carries their definitions whether or not it browses, so it is a switch
     /// rather than a given.
     pub browser_tools: bool,
+    /// Whether Claude gets the tools that drive Nyra itself — the panels, the
+    /// flows, the update check. Same bargain as `browser_tools`: on by default,
+    /// but a switch rather than a given, because the schemas ride along in every
+    /// turn of every chat.
+    pub app_tools: bool,
     /// The floating miniature over the conversation.
     pub browser_pip: bool,
     // Appearance — fonts, type size, zoom, chat width — is deliberately absent.
@@ -79,6 +84,7 @@ impl Default for NyraSettings {
             worktree_limit: default_worktree_limit(),
             worktree_auto_delete: default_true(),
             browser_tools: default_true(),
+            app_tools: default_true(),
             browser_pip: default_true(),
         }
     }

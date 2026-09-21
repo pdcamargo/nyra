@@ -58,7 +58,9 @@ const EVENT_NAMES = [
   'login:exit',
   'terminal:data',
   'terminal:exit',
-  'browser:event'
+  'browser:event',
+  'nyra:app-request',
+  'nyra:update-available'
 ] as const
 
 type EventName = (typeof EVENT_NAMES)[number]
@@ -98,7 +100,23 @@ export const api = {
         'update_check'
       ),
     install: () => call<void>('update_install'),
-    version: () => call<string>('app_version')
+    version: () => call<string>('app_version'),
+    /** Rust found one while answering `nyra_update`. */
+    onAvailable: (cb: (p: { version: string }) => void) => on('nyra:update-available', cb)
+  },
+
+  /**
+   * The half of the app-control bridge that lives on this side.
+   *
+   * Rust can drive flows and the updater on its own, but the panels, the theme
+   * and the command registry are here — so it asks, and this answers. One op
+   * name and a JSON payload; nothing evaluates code.
+   */
+  appControl: {
+    onRequest: (cb: (p: { requestId: string; op: string; args: unknown }) => void) =>
+      on('nyra:app-request', cb),
+    respond: (requestId: string, result: unknown) =>
+      call<void>('app_control_response', { requestId, result })
   },
 
   claude: {

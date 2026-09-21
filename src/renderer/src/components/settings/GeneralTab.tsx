@@ -13,6 +13,11 @@ export default function GeneralTab(): React.JSX.Element {
         <Toggle checked={settings.notifications} onChange={(v) => update({ notifications: v })} />
       </SettingRow>
 
+      <SectionLabel>Nyra</SectionLabel>
+      <SettingRow label="Let Claude drive Nyra">
+        <Toggle checked={settings.appTools} onChange={(v) => update({ appTools: v })} />
+      </SettingRow>
+
       <SectionLabel>Browser</SectionLabel>
       <SettingRow label="Browser tools for Claude">
         <Toggle checked={settings.browserTools} onChange={(v) => update({ browserTools: v })} />

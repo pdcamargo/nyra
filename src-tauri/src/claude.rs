@@ -875,6 +875,32 @@ const BROWSER_CONVENTION: &str = concat!(
     "costs real memory, and the user is looking at the list."
 );
 
+/// Taught only when the app tools are actually attached, on the same terms as
+/// the browser.
+///
+/// The tools describe themselves, so this does not list them — what a schema
+/// cannot say is that the thing on the other end is the window the user is
+/// looking at. That is what makes reading before writing worth a sentence (a
+/// toggle run blind closes as often as it opens), and what makes narrating the
+/// change non-optional: a panel that moves on its own, unremarked, reads as a
+/// glitch rather than as an answer.
+///
+/// `~/.nyra/` is here because it is the fact this whole thing was missing. A
+/// session that knew the schema by heart still told people to export JSON and
+/// import it by hand, because nothing ever said where the flows were.
+const APP_CONVENTION: &str = concat!(
+    "\n\nNyra is not just where this conversation is displayed — you can change it. ",
+    "`nyra_ui` reads its state and runs any of its commands; `nyra_flow` reads and ",
+    "writes the flows kept in `~/.nyra/workflows/`; `nyra_update` checks for a newer ",
+    "version. Look before you act: `nyra_ui` with `action: \"state\"` says what is ",
+    "already open, and running a toggle without knowing that closes as often as it ",
+    "opens — pass `on` when you mean open. Then say what you changed, in one line, ",
+    "naming it: \"I opened the terminal\", \"I turned on light mode\", \"I opened your ",
+    "browser at example.com\". The user is watching that window, and a change nobody ",
+    "mentions looks like a bug. Only change what was asked for — none of this is for ",
+    "tidying up after yourself."
+);
+
 /// Everything Nyra has to teach a session about itself, plus whatever the user
 /// added.
 ///
@@ -882,7 +908,12 @@ const BROWSER_CONVENTION: &str = concat!(
 /// of thing that rots quietly: a session told it has a browser when it has none
 /// will invent tool calls that fail, and a session with a browser and no mention
 /// of it will never think to look at its own work.
-fn compose_system_prompt(cwd: &str, user_prompt: &str, has_browser: bool) -> String {
+fn compose_system_prompt(
+    cwd: &str,
+    user_prompt: &str,
+    has_browser: bool,
+    has_app: bool,
+) -> String {
     let mut parts: Vec<&str> = vec![
         "You are running inside Nyra, a desktop GUI for Claude Code.",
         "Tool call results are NOT shown inline — they are hidden inside collapsible cards the user may not open.",
@@ -899,6 +930,9 @@ fn compose_system_prompt(cwd: &str, user_prompt: &str, has_browser: bool) -> Str
     parts.push(CHANGES_CONVENTION);
     if has_browser {
         parts.push(BROWSER_CONVENTION);
+    }
+    if has_app {
+        parts.push(APP_CONVENTION);
     }
 
     let nyra = parts.join(" ");
@@ -936,8 +970,18 @@ fn build_spawn_args(
         .filter(|_| util::settings().browser_tools)
         .and_then(crate::browser::mcp_endpoint);
 
-    let full_system_prompt =
-        compose_system_prompt(cwd, &settings.system_prompt, browser_mcp.is_some());
+    // The same bargain for the app's own tools. A workflow node has no chat id
+    // and no window to drive, so it gets neither these nor the browser.
+    let app_mcp = nyra_session_id
+        .filter(|_| util::settings().app_tools)
+        .and_then(crate::app_mcp::mcp_endpoint);
+
+    let full_system_prompt = compose_system_prompt(
+        cwd,
+        &settings.system_prompt,
+        browser_mcp.is_some(),
+        app_mcp.is_some(),
+    );
     args.push("--append-system-prompt".into());
     args.push(full_system_prompt);
 
@@ -977,20 +1021,22 @@ fn build_spawn_args(
     // reason: the URL names a conversation, not a process shape, so it must
     // never be what makes us respawn. Nyra serves it from a port that is up
     // before any of this, so it is live whether or not a browser ever is.
+    let mut servers = serde_json::Map::new();
     if let Some((url, token)) = browser_mcp {
-        args.push("--mcp-config".into());
-        args.push(
-            json!({
-                "mcpServers": {
-                    "nyra-browser": {
-                        "type": "http",
-                        "url": url,
-                        "headers": { "x-nyra-token": token }
-                    }
-                }
-            })
-            .to_string(),
+        servers.insert(
+            "nyra-browser".into(),
+            json!({ "type": "http", "url": url, "headers": { "x-nyra-token": token } }),
         );
+    }
+    if let Some((url, token)) = app_mcp {
+        servers.insert(
+            "nyra-app".into(),
+            json!({ "type": "http", "url": url, "headers": { "x-nyra-token": token } }),
+        );
+    }
+    if !servers.is_empty() {
+        args.push("--mcp-config".into());
+        args.push(json!({ "mcpServers": servers }).to_string());
     }
 
     let fingerprint = json!([
@@ -2191,8 +2237,8 @@ mod tests {
 
     #[test]
     fn the_browser_is_only_taught_to_a_session_that_has_one() {
-        let with = compose_system_prompt("/tmp/x", "", true);
-        let without = compose_system_prompt("/tmp/x", "", false);
+        let with = compose_system_prompt("/tmp/x", "", true, false);
+        let without = compose_system_prompt("/tmp/x", "", false, false);
 
         assert!(with.contains("This conversation has a real browser"));
         // The failure that matters: a session with no browser tools must not be
@@ -2224,12 +2270,76 @@ mod tests {
         }
     }
 
+    /// The same rule as the browser, and it earns its own test for the same
+    /// reason: a session told it can drive Nyra when it cannot will call three
+    /// tools that do not exist and report changes that never happened.
+    #[test]
+    fn the_app_tools_are_only_taught_to_a_session_that_has_them() {
+        let with = compose_system_prompt("/tmp/x", "", false, true);
+        let without = compose_system_prompt("/tmp/x", "", false, false);
+
+        for name in ["nyra_ui", "nyra_flow", "nyra_update"] {
+            assert!(with.contains(name), "{name} missing when attached");
+            assert!(!without.contains(name), "{name} leaked to a session without them");
+        }
+
+        // The fact the whole thing exists to carry. A session that knew the flow
+        // schema by heart still sent people to Flows → ⋯ → Import, because
+        // nothing ever told it where the files were.
+        assert!(with.contains("~/.nyra/workflows/"));
+        assert!(!without.contains(".nyra"));
+
+        // Look before you act, and say what you did: the two clauses that are
+        // about this being a window someone is watching rather than a headless
+        // scratchpad.
+        assert!(with.contains("Look before you act"));
+        assert!(with.contains("say what you changed"));
+    }
+
+    /// Measured, not estimated.
+    ///
+    /// Everything `compose_system_prompt` returns is carried by every request of
+    /// every turn, so a convention that doubles is a bill the user pays forever
+    /// without seeing it. The numbers print on `--nocapture`; the assertion is
+    /// there so growth has to be a decision rather than a drift.
+    #[test]
+    fn the_app_convention_stays_inside_its_budget() {
+        let base = compose_system_prompt("/tmp/x", "", false, false);
+        let with_app = compose_system_prompt("/tmp/x", "", false, true);
+        let with_both = compose_system_prompt("/tmp/x", "", true, true);
+
+        let added = with_app.len() - base.len();
+        // ~4 chars a token is close enough for a budget, and stable.
+        println!("  base            {:>5} chars  ~{:>4} tokens", base.len(), base.len() / 4);
+        println!("  + app tools     {:>5} chars  ~{:>4} tokens", added, added / 4);
+        println!("  + both          {:>5} chars  ~{:>4} tokens", with_both.len(), with_both.len() / 4);
+
+        assert!(
+            added < 1200,
+            "the app convention grew to {added} chars (~{} tokens)",
+            added / 4
+        );
+    }
+
+    /// The two halves are independent. Nothing reads well if turning the browser
+    /// off silently takes the app tools with it.
+    #[test]
+    fn the_browser_and_the_app_are_taught_independently() {
+        let app_only = compose_system_prompt("/tmp/x", "", false, true);
+        let browser_only = compose_system_prompt("/tmp/x", "", true, false);
+
+        assert!(app_only.contains("nyra_ui"));
+        assert!(!app_only.contains("browser_device"));
+        assert!(browser_only.contains("browser_device"));
+        assert!(!browser_only.contains("nyra_ui"));
+    }
+
     /// The gap a second agent caught while testing the card: `git diff --numstat`
     /// cannot see a file git has never been told about, so a turn that adds files
     /// would summarise none of them. The convention has to say so.
     #[test]
     fn the_changes_convention_covers_files_git_has_never_seen() {
-        let composed = compose_system_prompt("/tmp/x", "", false);
+        let composed = compose_system_prompt("/tmp/x", "", false, false);
         assert!(composed.contains("git diff --numstat"));
         assert!(composed.contains("git ls-files --others --exclude-standard"));
         assert!(composed.contains("base: <short sha>"));
@@ -2237,7 +2347,7 @@ mod tests {
 
     #[test]
     fn the_users_own_prompt_comes_last() {
-        let composed = compose_system_prompt("/tmp/x", "Always speak in haiku.", true);
+        let composed = compose_system_prompt("/tmp/x", "Always speak in haiku.", true, true);
         assert!(composed.ends_with("Always speak in haiku."));
         assert!(composed.contains("running inside Nyra"));
     }

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { COMMANDS, type Command } from '../commands/registry'
+import { COMMANDS, runCommand, type Command } from '../commands/registry'
 import { chordFor, useShortcutsStore } from '../store/shortcuts'
 import { currentPlatform, eventToChord, isEditableTarget, type Chord, type Platform } from '../lib/keys'
 
@@ -50,7 +50,10 @@ export function useKeyboardShortcuts(): void {
       const command = resolveCommandForEvent(e, overrides)
       if (!command?.run) return
       e.preventDefault()
-      command.run()
+      // Through the dispatcher rather than `command.run()`, so the availability
+      // rule lives in one place. No `agent` flag: a person pressing the key is
+      // never who the denylist is about.
+      runCommand(command.id)
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)

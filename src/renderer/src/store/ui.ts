@@ -67,7 +67,11 @@ type UiStore = {
    *  rather than the toggle, which would close the panel half the time. */
   setRightPanelOpen: (open: boolean) => void
   toggleSummary: () => void
+  /** Same bargain as `setRightPanelOpen`: an agent asked to *open* the summary
+   *  must not close it because it happened to be open already. */
+  setSummaryOpen: (open: boolean) => void
   toggleProjectsPanel: () => void
+  setProjectsPanelOpen: (open: boolean) => void
   setSettingsOpen: (open: boolean) => void
   /** Open Settings, optionally straight to a pane. Replaces the
    *  `nyra:open-permissions` window event and the modal it used to summon. */
@@ -158,7 +162,14 @@ export const useUiStore = create<UiStore>()(persist((set, get) => ({
       rememberPanels({ summary: summaryOpen })
       return { summaryOpen }
     }),
+  setSummaryOpen: (summaryOpen) =>
+    set((s) => {
+      if (s.summaryOpen === summaryOpen) return s
+      rememberPanels({ summary: summaryOpen })
+      return { summaryOpen }
+    }),
   toggleProjectsPanel: () => set((s) => ({ projectsPanelOpen: !s.projectsPanelOpen })),
+  setProjectsPanelOpen: (projectsPanelOpen) => set({ projectsPanelOpen }),
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
   openSettings: (tab) => set(tab ? { settingsOpen: true, settingsTab: tab } : { settingsOpen: true }),
   setSettingsTab: (settingsTab) => set({ settingsTab }),

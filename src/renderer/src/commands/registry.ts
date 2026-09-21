@@ -10,6 +10,8 @@ import {
   LogIn,
   Maximize2,
   Minimize2,
+  Monitor,
+  Moon,
   PanelLeft,
   PanelRight,
   PanelRightOpen,
@@ -30,6 +32,7 @@ import {
   SlidersHorizontal,
   Zap,
   Square,
+  Sun,
   Target,
   TextQuote,
   Workflow
@@ -96,6 +99,9 @@ export type CommandId =
   | 'flow.panel.triggers'
   | 'flow.stop'
   | 'chat.planMode'
+  | 'app.theme.light'
+  | 'app.theme.dark'
+  | 'app.theme.system'
   | 'view.zoomIn'
   | 'view.zoomOut'
   | 'view.zoomReset'
@@ -132,6 +138,40 @@ export type Command = {
    * lets conflict detection warn before a global binding shadows one.
    */
   readOnly?: true
+  /**
+   * Set the thing outright instead of flipping it.
+   *
+   * Every panel command is a toggle, which is right for a key — your hand knows
+   * what it just did — and wrong for anything acting on an *intent*. "Open the
+   * terminal" through `run` closes it half the time. Callers that mean open or
+   * closed pass through here; the palette and the keyboard never touch it, so
+   * this adds nothing to the UI.
+   */
+  setState?: (on: boolean) => void
+  /** Reads the current value, for callers that have to report it. Defined on
+   *  exactly the commands that define `setState`. */
+  isOn?: () => boolean
+  /**
+   * False when running it right now would do nothing.
+   *
+   * Every `flow.*` command dispatches a window event that only `WorkflowCanvas`
+   * hears, so with the Flows view closed they are silent no-ops that look like
+   * successes. A keystroke can afford that; a caller that has to report what it
+   * did cannot.
+   */
+  available?: () => boolean
+  /**
+   * `false` to keep this out of an agent's reach. Default is allow, so a new
+   * command is reachable without anyone remembering to opt in — the denial is
+   * the part that has to be deliberate.
+   *
+   * Two of these are self-destructive rather than merely rude: `session.abort`
+   * cancels the agent's own turn, and `chat.planMode` is in the spawn
+   * fingerprint, so flipping it kills and respawns the CLI child mid-reply.
+   */
+  agent?: false
+  /** Why it is off-limits. Shown to whoever asked, instead of a bare refusal. */
+  agentReason?: string
   run?: () => void
 }
 
@@ -151,6 +191,16 @@ async function openWorkspaceTab(kind: 'browser' | 'file'): Promise<void> {
   else await startBrowserTab(sessionId)
 }
 
+/** A `flow.*` command only lands if the canvas is mounted and holding a flow. */
+function flowIsOpen(): boolean {
+  const { isCanvasOpen, currentWorkflow } = useWorkflowStore.getState()
+  return isCanvasOpen && currentWorkflow !== null
+}
+
+function hasSession(): boolean {
+  return useSessionsStore.getState().activeSessionId !== null
+}
+
 function cycleSession(step: 1 | -1): void {
   const { sessions, activeSessionId, setActiveSession } = useSessionsStore.getState()
   if (sessions.length < 2 || !activeSessionId) return
@@ -163,6 +213,9 @@ export const COMMANDS: Command[] = [
   // ---- General -----------------------------------------------------------
   {
     id: 'palette.open',
+    agent: false,
+    agentReason:
+      'Opening a palette the user did not ask for steals their focus.',
     label: 'Command palette',
     group: 'General',
     defaultChord: 'mod+k',
@@ -170,6 +223,9 @@ export const COMMANDS: Command[] = [
   },
   {
     id: 'palette.history',
+    agent: false,
+    agentReason:
+      'Opening a palette the user did not ask for steals their focus.',
     label: 'Past prompts',
     group: 'General',
     defaultChord: 'mod+r',
@@ -178,6 +234,9 @@ export const COMMANDS: Command[] = [
   },
   {
     id: 'search.inSession',
+    agent: false,
+    agentReason:
+      'The find bar takes keyboard focus away from the composer.',
     label: 'Find in conversation',
     group: 'General',
     defaultChord: 'mod+f',
@@ -215,6 +274,9 @@ export const COMMANDS: Command[] = [
   },
   {
     id: 'app.login',
+    agent: false,
+    agentReason:
+      'Authentication is the user\'s to start.',
     label: 'Switch account',
     group: 'General',
     defaultChord: null,
@@ -226,6 +288,9 @@ export const COMMANDS: Command[] = [
   // ---- Session -----------------------------------------------------------
   {
     id: 'session.new',
+    agent: false,
+    agentReason:
+      'Switches the user away from the conversation they are reading.',
     label: 'New chat',
     group: 'Session',
     defaultChord: 'mod+n',
@@ -249,6 +314,9 @@ export const COMMANDS: Command[] = [
   },
   {
     id: 'session.clear',
+    agent: false,
+    agentReason:
+      'Destroys the transcript, including the request that asked for it.',
     label: 'Clear conversation',
     group: 'Session',
     defaultChord: null,
@@ -270,6 +338,9 @@ export const COMMANDS: Command[] = [
   },
   {
     id: 'session.abort',
+    agent: false,
+    agentReason:
+      'Cancels the running turn — the agent would be stopping itself.',
     label: 'Stop the current turn',
     group: 'Session',
     defaultChord: 'escape',
@@ -299,7 +370,9 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+shift+l',
     icon: PanelLeft,
     palette: true,
-    run: () => ui().toggleProjectsPanel()
+    run: () => ui().toggleProjectsPanel(),
+    setState: (on) => ui().setProjectsPanelOpen(on),
+    isOn: () => ui().projectsPanelOpen
   },
   {
     id: 'panel.right',
@@ -311,7 +384,9 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+shift+b',
     icon: PanelRight,
     palette: true,
-    run: () => ui().toggleRightPanel()
+    run: () => ui().toggleRightPanel(),
+    setState: (on) => ui().setRightPanelOpen(on),
+    isOn: () => ui().rightPanelOpen
   },
   {
     id: 'panel.right.browser',
@@ -377,6 +452,7 @@ export const COMMANDS: Command[] = [
     defaultChord: null,
     icon: RotateCw,
     palette: true,
+    available: hasSession,
     run: () => {
       const sessionId = useSessionsStore.getState().activeSessionId
       if (!sessionId) return
@@ -395,11 +471,22 @@ export const COMMANDS: Command[] = [
     defaultChord: null,
     icon: PanelRightOpen,
     palette: true,
+    available: hasSession,
     run: () => {
       const sessionId = useSessionsStore.getState().activeSessionId
       if (!sessionId) return
       const store = useWorkspaceStore.getState()
       store.setTreeOpen(sessionId, !workspaceFor(store, sessionId).treeOpen)
+    },
+    setState: (on) => {
+      const sessionId = useSessionsStore.getState().activeSessionId
+      if (!sessionId) return
+      useWorkspaceStore.getState().setTreeOpen(sessionId, on)
+    },
+    isOn: () => {
+      const store = useWorkspaceStore.getState()
+      const sessionId = useSessionsStore.getState().activeSessionId
+      return sessionId ? workspaceFor(store, sessionId).treeOpen : false
     }
   },
   {
@@ -409,7 +496,9 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+j',
     icon: SquareTerminal,
     palette: true,
-    run: () => ui().toggleBottomPanel()
+    run: () => ui().toggleBottomPanel(),
+    setState: (on) => ui().setBottomPanelOpen(on),
+    isOn: () => ui().bottomPanelOpen
   },
   {
     id: 'panel.summary',
@@ -418,7 +507,9 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+shift+s',
     icon: TextQuote,
     palette: true,
-    run: () => ui().toggleSummary()
+    run: () => ui().toggleSummary(),
+    setState: (on) => ui().setSummaryOpen(on),
+    isOn: () => ui().summaryOpen
   },
   {
     id: 'panel.canvas',
@@ -431,7 +522,13 @@ export const COMMANDS: Command[] = [
       const { isCanvasOpen, openCanvas, closeCanvas } = useWorkflowStore.getState()
       if (isCanvasOpen) closeCanvas()
       else openCanvas()
-    }
+    },
+    setState: (on) => {
+      const { openCanvas, closeCanvas } = useWorkflowStore.getState()
+      if (on) openCanvas()
+      else closeCanvas()
+    },
+    isOn: () => useWorkflowStore.getState().isCanvasOpen
   },
 
   {
@@ -441,6 +538,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+enter',
     icon: Play,
     palette: true,
+    available: flowIsOpen,
     run: () => window.dispatchEvent(new Event('nyra:flow-run'))
   },
   {
@@ -452,6 +550,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'shift+n',
     icon: Plus,
     palette: true,
+    available: flowIsOpen,
     run: () => window.dispatchEvent(new Event('nyra:flow-add-node'))
   },
   {
@@ -461,6 +560,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+1',
     icon: Info,
     palette: true,
+    available: flowIsOpen,
     run: () => window.dispatchEvent(new Event('nyra:flow-panel-details'))
   },
   {
@@ -473,6 +573,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+2',
     icon: SlidersHorizontal,
     palette: true,
+    available: flowIsOpen,
     run: () => window.dispatchEvent(new Event('nyra:flow-panel-inputs'))
   },
   {
@@ -484,6 +585,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+3',
     icon: Braces,
     palette: true,
+    available: flowIsOpen,
     run: () => window.dispatchEvent(new Event('nyra:flow-panel-vars'))
   },
   {
@@ -495,6 +597,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+4',
     icon: History,
     palette: true,
+    available: flowIsOpen,
     run: () => window.dispatchEvent(new Event('nyra:flow-panel-history'))
   },
   {
@@ -506,6 +609,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+5',
     icon: ChartNoAxesColumn,
     palette: true,
+    available: flowIsOpen,
     run: () => window.dispatchEvent(new Event('nyra:flow-panel-metrics'))
   },
   {
@@ -517,6 +621,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+6',
     icon: Zap,
     palette: true,
+    available: flowIsOpen,
     run: () => window.dispatchEvent(new Event('nyra:flow-panel-triggers'))
   },
   {
@@ -526,6 +631,7 @@ export const COMMANDS: Command[] = [
     defaultChord: null,
     icon: LayoutGrid,
     palette: true,
+    available: flowIsOpen,
     run: () => window.dispatchEvent(new Event('nyra:flow-arrange'))
   },
   {
@@ -537,12 +643,16 @@ export const COMMANDS: Command[] = [
     defaultChord: null,
     icon: Square,
     palette: true,
+    available: flowIsOpen,
     run: () => window.dispatchEvent(new Event('nyra:flow-stop'))
   },
 
   // ---- View --------------------------------------------------------------
   {
     id: 'chat.planMode',
+    agent: false,
+    agentReason:
+      'Plan mode is part of the spawn fingerprint, so changing it kills and respawns the running CLI child mid-reply.',
     label: 'Toggle plan mode',
     group: 'View',
     defaultChord: 'mod+shift+p',
@@ -561,6 +671,36 @@ export const COMMANDS: Command[] = [
         planMode: !(session?.planMode ?? defaults.planMode)
       })
     }
+  },
+  // Theme had no command at all — it was reachable only through Settings →
+  // Appearance. Three entries rather than one toggle because the preference is
+  // tri-state, and "system" is the one people forget they can go back to.
+  {
+    id: 'app.theme.light',
+    label: 'Light theme',
+    group: 'View',
+    defaultChord: null,
+    icon: Sun,
+    palette: true,
+    run: () => useSettingsStore.getState().updateSettings({ theme: 'light' })
+  },
+  {
+    id: 'app.theme.dark',
+    label: 'Dark theme',
+    group: 'View',
+    defaultChord: null,
+    icon: Moon,
+    palette: true,
+    run: () => useSettingsStore.getState().updateSettings({ theme: 'dark' })
+  },
+  {
+    id: 'app.theme.system',
+    label: 'Match system theme',
+    group: 'View',
+    defaultChord: null,
+    icon: Monitor,
+    palette: true,
+    run: () => useSettingsStore.getState().updateSettings({ theme: 'system' })
   },
   {
     id: 'view.zoomIn',
@@ -608,6 +748,120 @@ function zoomBy(direction: 1 | -1): void {
 }
 
 export const COMMANDS_BY_ID = new Map(COMMANDS.map((c) => [c.id, c]))
+
+// ---------------------------------------------------------------------------
+// Running one by name
+// ---------------------------------------------------------------------------
+//
+// Until now the registry was a lookup table with two hard-wired callers — the
+// keyboard and the palette — both reaching straight for `command.run()`. Naming
+// the dispatch is what lets anything else drive the app without a third copy of
+// the rules about what is runnable.
+
+export type CommandOutcome =
+  | { ok: true; id: CommandId; label: string; state?: boolean }
+  | { ok: false; id: string; error: string }
+
+/** Commands something other than a person may run, with their current state. */
+export type CommandInfo = {
+  id: CommandId
+  label: string
+  group: CommandGroup
+  /** Present only on the ones that can be set rather than flipped. */
+  state?: boolean
+  available: boolean
+}
+
+function isRunnable(c: Command): boolean {
+  return !c.readOnly && typeof c.run === 'function'
+}
+
+/**
+ * What an agent is allowed to see. Anything inert is left out rather than
+ * listed and refused — a catalogue you cannot act on is noise — but a command
+ * that is merely *unavailable right now* stays, with `available: false`, because
+ * the fix is usually one other command away.
+ */
+export function agentCommands(): CommandInfo[] {
+  return COMMANDS.filter((c) => isRunnable(c) && c.agent !== false).map((c) => ({
+    id: c.id,
+    label: c.label,
+    group: c.group,
+    ...(c.isOn ? { state: c.isOn() } : {}),
+    available: c.available?.() ?? true
+  }))
+}
+
+/**
+ * Near misses for an id nobody has.
+ *
+ * Scored over the label as well as the id, because the plausible wrong guess is
+ * plausible *because* it uses the word on screen: "panel.terminal" shares
+ * nothing with `panel.bottom` but everything with its label, "Toggle terminal".
+ */
+function suggest(id: string): string {
+  const words = id.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+  if (!words.length) return ''
+  const scored = COMMANDS.filter(isRunnable)
+    .map((c) => {
+      const haystack = `${c.id} ${c.label}`.toLowerCase()
+      return { id: c.id, score: words.filter((w) => haystack.includes(w)).length }
+    })
+    .filter((c) => c.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+  return scored.length ? ` Did you mean: ${scored.map((c) => c.id).join(', ')}?` : ''
+}
+
+/**
+ * Run a command by id.
+ *
+ * `on` is an intent rather than a flip: pass it and a command that knows how to
+ * be set outright is set, so "open the terminal" cannot close it. Pass nothing
+ * and it behaves exactly as the key does.
+ *
+ * `agent` gates the denylist. The keyboard and the palette pass `false` — a
+ * person pressing the key is always allowed, and the whole point of the denials
+ * is that they apply to callers that are not one.
+ */
+export function runCommand(
+  id: string,
+  opts: { on?: boolean; agent?: boolean } = {}
+): CommandOutcome {
+  const command = COMMANDS_BY_ID.get(id as CommandId)
+  if (!command) {
+    return { ok: false, id, error: `Unknown command '${id}'.${suggest(id)}` }
+  }
+  if (!isRunnable(command)) {
+    return {
+      ok: false,
+      id,
+      error: `'${id}' is registered for reference only — it is owned by the surface that implements it and cannot be run from here.`
+    }
+  }
+  if (opts.agent && command.agent === false) {
+    return { ok: false, id, error: command.agentReason ?? `'${id}' is not available to an agent.` }
+  }
+  if (command.available?.() === false) {
+    return {
+      ok: false,
+      id,
+      error: id.startsWith('flow.')
+        ? `'${id}' needs the Flows view open with a flow loaded. Run 'panel.canvas' and open a flow first.`
+        : `'${id}' is not available right now.`
+    }
+  }
+
+  if (opts.on !== undefined && command.setState) command.setState(opts.on)
+  else command.run!()
+
+  return {
+    ok: true,
+    id: command.id,
+    label: command.label,
+    ...(command.isOn ? { state: command.isOn() } : {})
+  }
+}
 
 /**
  * Chords the OS takes before the webview sees them. Binding one is allowed —

@@ -113,7 +113,9 @@ later node needs something from several steps back, or needs one value out of a
 paragraph. Save one with `setVars` on the node that produces it, and pick how to
 pull the value out:
 
-- `raw` — the whole output
+- `""` (empty string) — the whole output. Not the word `raw`: anything
+  unrecognised happens to fall through to the same behaviour today, but that is
+  an accident of the parser and not something to write down.
 - `json:path.to.field`
 - `regex:pattern` — first capture group
 - `lines:3-7`
@@ -147,10 +149,33 @@ Give every node a `position`. Nyra reads flows top to bottom: rows 116px apart,
 columns 230px, each row centred on `x: -100` for a 200px node. Getting this
 roughly right is enough — the user can run **Arrange nodes** from the ⋯ menu.
 
+## Where flows live, and how to save one
+
+Flows are files: `~/.nyra/workflows/<id>.json`, one per flow, the filename *is*
+the id. Run records sit beside them in `~/.nyra/workflow-executions/`.
+
+**Save it with the `nyra_flow` tool, not by hand.** `action: "write"` with the
+definition validates it first and tells you what is wrong in terms you can fix —
+a dangling edge, a branch handle that node type does not have, a `nodes` that is
+not an array. Writing the JSON file yourself skips that check *and* skips the
+trigger reload, so a flow with a schedule sits there not firing.
+
+```
+nyra_flow  action: "write"  definition: { … }
+```
+
+It answers with a link. Use it: `[Nightly digest](nyra://flow/wf-1789…)` renders
+as a chip the user can click to open the flow. Add `action: "open"` as well if
+they should be looking at it right now — that switches the window to the Flows
+view with the flow loaded, so say you did.
+
+Without the tool — an older Nyra, or app tools switched off in Settings — fall
+back to writing the file and pointing at **Flows → ⋯ → Import flow…**
+
 ## Finish by
 
-Writing the file, then saying in one line what the flow does, which nodes are
-real Claude turns, and that it is imported through Flows → ⋯ → Import flow…
+Saying in one line what the flow does and which nodes are real Claude turns,
+with the link to it.
 
 ---
 
