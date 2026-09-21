@@ -952,7 +952,7 @@ export default function ChatInput({
       {/* Codex-shaped: the field on its own line, then a footer carrying what you
           set per turn — approvals on the left, model and effort on the right,
           attachments and commands behind the `+`. */}
-      <div className="composer-box rounded-xl border border-muted bg-muted transition-colors focus-within:border-border-strong">
+      <div className="composer-box rounded-lg border border-muted bg-muted transition-colors focus-within:border-border-strong">
         {/* Inside the box, not docked above it: one border, and `focus-within`
             lights the question and the field together as the single control they
             are. A question outranks a plan — the two cannot both be live, but if

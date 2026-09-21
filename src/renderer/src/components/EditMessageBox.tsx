@@ -88,7 +88,7 @@ export default function EditMessageBox({
           the old solid blue fill: the fill fought every colour the markdown and
           the chips are drawn in, and the buttons below already say what this
           is. */}
-      <div className="composer-box rounded-xl border border-info/50 bg-muted">
+      <div className="composer-box rounded-lg border border-info/50 bg-muted">
         <MarkdownEditor
           ref={editorRef}
           value={value}
