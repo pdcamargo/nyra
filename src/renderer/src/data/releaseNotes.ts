@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.2.1',
+    date: '2026-09-21',
     notes: [
       'A chat shows the pull requests it opened, with live status from GitHub',
       'A chat lists the ports its dev servers are listening on; click one to open it',
