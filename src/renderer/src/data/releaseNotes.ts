@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.2.2',
+    date: '2026-09-21',
     notes: ['A chat recovers pull requests it opened that Nyra missed']
   },
   {
