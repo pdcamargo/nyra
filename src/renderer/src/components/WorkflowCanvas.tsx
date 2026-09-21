@@ -992,6 +992,17 @@ function ExpressionVars(): React.JSX.Element {
  * Neutral focus rather than the blue the old panel used: on this canvas colour
  * means run status, and a focused text box is not a status.
  */
+/**
+ * What a script node gets, and the most it can ask for.
+ *
+ * Mirrors `SCRIPT_TIMEOUT` and `SCRIPT_TIMEOUT_MAX` in `workflow/engine.rs`,
+ * which is the authority. Duplicated rather than plumbed through because these
+ * are copy in a hint, and a hint that drifts by a factor of two is still a
+ * better hint than none — a test pins them to the Rust constants.
+ */
+const SCRIPT_TIMEOUT_SECONDS = 120
+const SCRIPT_TIMEOUT_MAX_SECONDS = 3600
+
 const CTL =
   'w-full rounded-md border border-border bg-sidebar px-2.5 py-1.5 text-[0.92em] text-foreground transition-colors focus:border-border-strong focus:outline-hidden disabled:opacity-50'
 const CTL_MONO = `${CTL} font-mono resize-none leading-relaxed text-[0.85em]`
@@ -1144,20 +1155,51 @@ function NodeConfigPanel({ onDelete }: { onDelete?: () => void }): React.JSX.Ele
 
         {/* Script-specific fields */}
         {node.data.type === 'script' && (
-          <Field label="Command" hint="Runs through sh -c in the flow's working directory.">
-            <VariableField
-              mode="shell"
-              ariaLabel="Command"
-              value={node.data.command}
-              onChange={(command) => updateNodeData({ command })}
-              variables={templateVariables(currentWorkflow)}
-              disabled={isRunning}
-              placeholder="npm test"
-              minHeight={56}
-              maxHeight={200}
-              autoGrow
-            />
-          </Field>
+          <>
+            <Field label="Command" hint="Runs through sh -c in the flow's working directory.">
+              <VariableField
+                mode="shell"
+                ariaLabel="Command"
+                value={node.data.command}
+                onChange={(command) => updateNodeData({ command })}
+                variables={templateVariables(currentWorkflow)}
+                disabled={isRunning}
+                placeholder="npm test"
+                minHeight={56}
+                maxHeight={200}
+                autoGrow
+              />
+            </Field>
+            {/* The field existed in the data and nowhere in this panel, so the
+                only way to give a node longer was to hand-edit the JSON. A
+                release flow's build node therefore inherited the two-minute
+                default meant for a guard, and reported a failure fifteen
+                minutes before the build it had started actually finished. */}
+            <Field
+              label="Timeout"
+              hint={`Seconds before the script is stopped. Blank uses ${SCRIPT_TIMEOUT_SECONDS}s, which suits a guard or a summary — anything that waits on a build or a deploy needs more. Up to ${SCRIPT_TIMEOUT_MAX_SECONDS}s.`}
+            >
+              <input
+                type="number"
+                min={1}
+                max={SCRIPT_TIMEOUT_MAX_SECONDS}
+                value={
+                  node.data.timeoutMs === undefined ? '' : Math.round(node.data.timeoutMs / 1000)
+                }
+                onChange={(e) => {
+                  const seconds = parseInt(e.target.value, 10)
+                  updateNodeData({
+                    // Blank means "use the default", which is not the same as
+                    // zero and must not become it.
+                    timeoutMs: Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined
+                  })
+                }}
+                disabled={isRunning}
+                placeholder={String(SCRIPT_TIMEOUT_SECONDS)}
+                className={`${CTL} font-mono`}
+              />
+            </Field>
+          </>
         )}
 
         {/* Parallel: no config */}

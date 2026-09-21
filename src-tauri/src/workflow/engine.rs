@@ -32,6 +32,17 @@ const SCRIPT_TIMEOUT: Duration = Duration::from_secs(120);
 /// more than the default; nothing needs a day.
 const SCRIPT_TIMEOUT_MAX: Duration = Duration::from_secs(60 * 60);
 
+/// What a node ends up with, given what it asked for.
+///
+/// Its own function so the arithmetic deciding a build's fate is testable
+/// rather than buried in the middle of one that also spawns processes.
+fn script_limit(timeout_ms: Option<u64>) -> Duration {
+    timeout_ms
+        .map(Duration::from_millis)
+        .unwrap_or(SCRIPT_TIMEOUT)
+        .min(SCRIPT_TIMEOUT_MAX)
+}
+
 #[derive(Default)]
 struct ExecState {
     aborted: bool,
@@ -331,10 +342,7 @@ async fn execute_script_node(
     else {
         return Err("Not a script node".into());
     };
-    let limit = timeout_ms
-        .map(Duration::from_millis)
-        .unwrap_or(SCRIPT_TIMEOUT)
-        .min(SCRIPT_TIMEOUT_MAX);
+    let limit = script_limit(*timeout_ms);
     let (vars, input_values) = {
         let state = exec.state.lock();
         (state.vars.clone(), exec.input_values.clone())
@@ -353,10 +361,28 @@ async fn execute_script_node(
             // but not `npm`, `node` or `gh` — and the failure reads as a missing
             // command rather than as a missing PATH.
             .envs(util::clean_child_env())
+            // Without this a timeout abandons the child rather than stopping
+            // it. A release flow hit exactly that: the node went red at two
+            // minutes while `tauri build` carried on for another quarter of an
+            // hour, signed, pushed and published — so the run reported a
+            // failure for work that had succeeded, and a build nothing was
+            // watching kept writing to the target directory. A timeout that
+            // does not stop anything is not a timeout.
+            .kill_on_drop(true)
             .output(),
     )
     .await
-    .map_err(|_| format!("Script timed out after {}s", limit.as_secs()))?
+    .map_err(|_| {
+        // The remedy belongs in the message. The default suits a guard or a
+        // summary and is wrong for anything that waits on a build, and the
+        // only way to find that out was to read the engine.
+        format!(
+            "Script timed out after {}s and was stopped. If this step needs \
+             longer, set `timeoutMs` on the node — up to {}s.",
+            limit.as_secs(),
+            SCRIPT_TIMEOUT_MAX.as_secs()
+        )
+    })?
     .map_err(|e| e.to_string())?;
 
     if output.status.success() {
@@ -1237,6 +1263,60 @@ pub fn respond_to_review(execution_id: &str, node_id: &str, approved: bool) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A timed-out script is stopped, not abandoned.
+    ///
+    /// Tests the behaviour rather than the flag, because the bug was invisible
+    /// from the call site: `tokio::time::timeout` drops the future and, without
+    /// `kill_on_drop`, the child carries on. A release flow went red at two
+    /// minutes while the build it had started ran for another fifteen, signed
+    /// and published.
+    ///
+    /// The script writes a marker *after* the timeout has passed. If the child
+    /// survived being dropped, the marker appears.
+    #[tokio::test]
+    async fn a_timed_out_script_is_killed_rather_than_orphaned() {
+        let marker = std::env::temp_dir().join(format!("nyra-kill-test-{}", util::rand_hex(6)));
+        let script = format!("sleep 2; echo alive > {}", marker.display());
+
+        let outcome = tokio::time::timeout(
+            Duration::from_millis(200),
+            tokio::process::Command::new("sh")
+                .arg("-c")
+                .arg(&script)
+                .envs(util::clean_child_env())
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await;
+        assert!(outcome.is_err(), "the script was supposed to outlast the timeout");
+
+        // Well past when the abandoned child would have written it.
+        tokio::time::sleep(Duration::from_millis(2600)).await;
+        assert!(
+            !marker.exists(),
+            "the child survived the timeout and kept running — kill_on_drop is not doing its job"
+        );
+        std::fs::remove_file(&marker).ok();
+    }
+
+    /// What a node ends up with, given what it asked for.
+    ///
+    /// Extracted from `execute_script_node` so it can be tested at all — and
+    /// so the arithmetic that decides a build's fate is not buried in the
+    /// middle of a function that also spawns processes.
+    #[test]
+    fn a_script_node_can_ask_for_longer_than_the_default() {
+        assert_eq!(SCRIPT_TIMEOUT, Duration::from_secs(120));
+        assert_eq!(SCRIPT_TIMEOUT_MAX, Duration::from_secs(3600));
+
+        // Nothing asked: the default, which suits a guard and not a build.
+        assert_eq!(script_limit(None), SCRIPT_TIMEOUT);
+        // Half an hour, asked for and granted.
+        assert_eq!(script_limit(Some(1_800_000)), Duration::from_secs(1800));
+        // A day, asked for and clamped.
+        assert_eq!(script_limit(Some(86_400_000)), SCRIPT_TIMEOUT_MAX);
+    }
 
     /// Stop has to work without an execution id.
     ///
