@@ -1,0 +1,24 @@
+{
+  "name": "@nyra/design",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A declarative UI design document format, and the pipeline that renders it.",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme": "./src/theme/default.ts"
+  },
+  "scripts": {
+    "dev": "vite --config dev/vite.config.ts",
+    "skill": "vite-node scripts/generate-skill.mts"
+  },
+  "dependencies": {
+    "lucide": "^1.47.0",
+    "zod": "^4.6.5"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

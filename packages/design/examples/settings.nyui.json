@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "name": "Settings",
+  "theme": "default",
+  "components": {
+    "Button": {
+      "props": {
+        "label": { "type": "string" },
+        "variant": { "type": "enum", "of": ["primary", "ghost"], "default": "primary" }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "center",
+        "gap": "$space.2",
+        "padding": ["$space.2", "$space.4"],
+        "radius": "$radius.md",
+        "background": {
+          "match": { "prop": "variant" },
+          "cases": { "primary": "$color.accent", "ghost": "$color.transparent" }
+        },
+        "children": [
+          {
+            "id": "label",
+            "type": "text",
+            "value": { "prop": "label" },
+            "font": "$font.button",
+            "color": {
+              "match": { "prop": "variant" },
+              "cases": { "primary": "$color.onAccent", "ghost": "$color.text" }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "artboards": [
+    {
+      "id": "settings-general",
+      "name": "Settings — General",
+      "size": { "width": 960, "height": 640 },
+      "background": "$color.bg",
+      "root": {
+        "id": "page",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "gap": "$space.6",
+        "padding": "$space.8",
+        "children": [
+          { "id": "title", "type": "text", "value": "General", "font": "$font.h1" },
+          {
+            "id": "actions",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "gap": "$space.3",
+            "children": [
+              { "id": "save", "use": "Button", "props": { "label": "Save changes" } },
+              { "id": "cancel", "use": "Button", "props": { "label": "Cancel", "variant": "ghost" } }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

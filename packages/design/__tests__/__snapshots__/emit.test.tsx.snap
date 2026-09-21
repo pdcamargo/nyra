@@ -1,0 +1,137 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`snapshots > emitted html 1`] = `"<div data-artboard="settings-general" style="width:960px;height:640px;overflow:hidden;position:relative;background:#FAFAFB;font-family:ui-sans-serif, system-ui, sans-serif;font-size:14px;font-weight:400;line-height:1.55;color:#111216"><style>*{box-sizing:border-box;margin:0;padding:0;border:0;font:inherit;color:inherit;background:none;}img{display:block;max-width:100%;}svg{display:block;flex-shrink:0;}</style><div data-node="settings-general#page" style="width:100%;height:100%;display:flex;flex-direction:column;gap:24px;padding:32px"><div data-node="settings-general#title" style="white-space:pre-wrap;font-family:ui-sans-serif, system-ui, sans-serif;font-size:28px;font-weight:650;line-height:1.2;letter-spacing:-0.3px">General</div><div data-node="settings-general#actions" style="display:flex;flex-direction:row;gap:12px"><div data-node="settings-general#save/root" style="display:flex;flex-direction:row;gap:8px;align-items:center;padding:8px 16px;background-color:#6E56CF;border-radius:8px"><div data-node="settings-general#save/label" style="white-space:pre-wrap;color:#FFFFFF;font-family:ui-sans-serif, system-ui, sans-serif;font-size:13.5px;font-weight:550;line-height:1.2">Save changes</div></div><div data-node="settings-general#cancel/root" style="display:flex;flex-direction:row;gap:8px;align-items:center;padding:8px 16px;background-color:transparent;border-radius:8px"><div data-node="settings-general#cancel/label" style="white-space:pre-wrap;color:#1A1B21;font-family:ui-sans-serif, system-ui, sans-serif;font-size:13.5px;font-weight:550;line-height:1.2">Cancel</div></div></div></div></div>"`;
+
+exports[`snapshots > resolved document 1`] = `
+{
+  "artboards": [
+    {
+      "background": "#FAFAFB",
+      "id": "settings-general",
+      "name": "Settings — General",
+      "position": undefined,
+      "root": {
+        "children": [
+          {
+            "font": {
+              "family": "ui-sans-serif, system-ui, sans-serif",
+              "letterSpacing": -0.3,
+              "lineHeight": 1.2,
+              "size": 28,
+              "weight": 650,
+            },
+            "id": "settings-general#title",
+            "origin": {
+              "id": "title",
+              "scope": "settings-general",
+            },
+            "type": "text",
+            "value": "General",
+          },
+          {
+            "children": [
+              {
+                "align": "center",
+                "background": "#6E56CF",
+                "children": [
+                  {
+                    "color": "#FFFFFF",
+                    "font": {
+                      "family": "ui-sans-serif, system-ui, sans-serif",
+                      "lineHeight": 1.2,
+                      "size": 13.5,
+                      "weight": 550,
+                    },
+                    "id": "settings-general#save/label",
+                    "origin": {
+                      "id": "label",
+                      "scope": "Button",
+                    },
+                    "type": "text",
+                    "value": "Save changes",
+                  },
+                ],
+                "direction": "row",
+                "gap": 8,
+                "id": "settings-general#save/root",
+                "layout": "stack",
+                "origin": {
+                  "id": "save",
+                  "scope": "settings-general",
+                },
+                "padding": [
+                  8,
+                  16,
+                ],
+                "radius": 8,
+                "type": "box",
+              },
+              {
+                "align": "center",
+                "background": "transparent",
+                "children": [
+                  {
+                    "color": "#1A1B21",
+                    "font": {
+                      "family": "ui-sans-serif, system-ui, sans-serif",
+                      "lineHeight": 1.2,
+                      "size": 13.5,
+                      "weight": 550,
+                    },
+                    "id": "settings-general#cancel/label",
+                    "origin": {
+                      "id": "label",
+                      "scope": "Button",
+                    },
+                    "type": "text",
+                    "value": "Cancel",
+                  },
+                ],
+                "direction": "row",
+                "gap": 8,
+                "id": "settings-general#cancel/root",
+                "layout": "stack",
+                "origin": {
+                  "id": "cancel",
+                  "scope": "settings-general",
+                },
+                "padding": [
+                  8,
+                  16,
+                ],
+                "radius": 8,
+                "type": "box",
+              },
+            ],
+            "direction": "row",
+            "gap": 12,
+            "id": "settings-general#actions",
+            "layout": "stack",
+            "origin": {
+              "id": "actions",
+              "scope": "settings-general",
+            },
+            "type": "box",
+          },
+        ],
+        "direction": "column",
+        "gap": 24,
+        "id": "settings-general#page",
+        "layout": "stack",
+        "origin": {
+          "id": "page",
+          "scope": "settings-general",
+        },
+        "padding": 32,
+        "type": "box",
+      },
+      "size": {
+        "height": 640,
+        "width": 960,
+      },
+    },
+  ],
+  "name": "Settings",
+  "theme": "default",
+}
+`;

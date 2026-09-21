@@ -20,7 +20,7 @@ jobs:
           workspaces: src-tauri
       - run: npm ci
       - name: Typecheck
-        run: npx tsc --noEmit -p tsconfig.web.json
+        run: npx tsc --noEmit -p tsconfig.web.json && npx tsc --noEmit -p packages/design/tsconfig.json
       - name: Frontend tests
         run: npm test
       - name: Backend tests

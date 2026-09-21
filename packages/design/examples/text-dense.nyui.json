@@ -1,0 +1,494 @@
+{
+  "schema": 1,
+  "name": "Changelog",
+  "theme": "default",
+  "components": {
+    "Entry": {
+      "props": {
+        "tag": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "tone": {
+          "type": "enum",
+          "of": [
+            "added",
+            "fixed",
+            "changed"
+          ],
+          "default": "changed"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "start",
+        "gap": "$space.3",
+        "children": [
+          {
+            "id": "chip",
+            "type": "box",
+            "layout": "stack",
+            "align": "center",
+            "justify": "center",
+            "width": "fit",
+            "minWidth": 64,
+            "shrink": 0,
+            "padding": [
+              "$space.1",
+              "$space.2"
+            ],
+            "radius": "$radius.sm",
+            "background": {
+              "match": {
+                "prop": "tone"
+              },
+              "cases": {
+                "added": "$color.successSubtle",
+                "fixed": "$color.infoSubtle",
+                "changed": "$color.surfaceSunken"
+              }
+            },
+            "children": [
+              {
+                "id": "ct",
+                "type": "text",
+                "value": {
+                  "prop": "tag"
+                },
+                "font": "$font.caption",
+                "color": {
+                  "match": {
+                    "prop": "tone"
+                  },
+                  "cases": {
+                    "added": "$color.success",
+                    "fixed": "$color.info",
+                    "changed": "$color.textMuted"
+                  }
+                },
+                "textTransform": "uppercase",
+                "letterSpacing": 0.5
+              }
+            ]
+          },
+          {
+            "id": "t",
+            "type": "text",
+            "value": {
+              "prop": "text"
+            },
+            "font": "$font.body",
+            "color": "$color.textMuted",
+            "grow": 1
+          }
+        ]
+      }
+    },
+    "Release": {
+      "props": {
+        "version": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "gap": "$space.2",
+        "children": [
+          {
+            "id": "row",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "align": "baseline",
+            "gap": "$space.3",
+            "children": [
+              {
+                "id": "v",
+                "type": "text",
+                "value": {
+                  "prop": "version"
+                },
+                "font": "$font.h3",
+                "color": "$color.text"
+              },
+              {
+                "id": "d",
+                "type": "text",
+                "value": {
+                  "prop": "date"
+                },
+                "font": "$font.small",
+                "color": "$color.textSubtle"
+              }
+            ]
+          },
+          {
+            "id": "s",
+            "type": "text",
+            "value": {
+              "prop": "summary"
+            },
+            "font": "$font.body",
+            "color": "$color.textMuted"
+          }
+        ]
+      }
+    },
+    "Divider": {
+      "props": {
+        "axis": {
+          "type": "enum",
+          "of": [
+            "horizontal",
+            "vertical"
+          ],
+          "default": "horizontal"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "none",
+        "alignSelf": "stretch",
+        "shrink": 0,
+        "background": "$color.border",
+        "width": {
+          "match": {
+            "prop": "axis"
+          },
+          "cases": {
+            "horizontal": null,
+            "vertical": 1
+          }
+        },
+        "height": {
+          "match": {
+            "prop": "axis"
+          },
+          "cases": {
+            "horizontal": 1,
+            "vertical": null
+          }
+        }
+      }
+    }
+  },
+  "artboards": [
+    {
+      "id": "changelog",
+      "name": "Changelog",
+      "size": {
+        "width": 1040,
+        "height": "auto"
+      },
+      "background": "$color.bg",
+      "root": {
+        "id": "page",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "gap": "$space.10",
+        "padding": "$space.10",
+        "align": "start",
+        "children": [
+          {
+            "id": "toc",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.3",
+            "width": 180,
+            "shrink": 0,
+            "children": [
+              {
+                "id": "tt",
+                "type": "text",
+                "value": "On this page",
+                "font": "$font.caption",
+                "color": "$color.textSubtle",
+                "textTransform": "uppercase",
+                "letterSpacing": 0.8
+              },
+              {
+                "id": "l1",
+                "type": "text",
+                "value": "0.1.0 \u2014 Theme and app control",
+                "font": "$font.small",
+                "color": "$color.accent",
+                "maxLines": 2
+              },
+              {
+                "id": "l2",
+                "type": "text",
+                "value": "0.0.9 \u2014 Changes tab",
+                "font": "$font.small",
+                "color": "$color.textMuted",
+                "maxLines": 2
+              },
+              {
+                "id": "l3",
+                "type": "text",
+                "value": "0.0.8 \u2014 Workflow engine",
+                "font": "$font.small",
+                "color": "$color.textMuted",
+                "maxLines": 2
+              },
+              {
+                "id": "l4",
+                "type": "text",
+                "value": "0.0.4 \u2014 Side panel",
+                "font": "$font.small",
+                "color": "$color.textMuted",
+                "maxLines": 2
+              }
+            ]
+          },
+          {
+            "id": "body",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.8",
+            "grow": 1,
+            "maxWidth": 680,
+            "children": [
+              {
+                "id": "intro",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.3",
+                "children": [
+                  {
+                    "id": "h",
+                    "type": "text",
+                    "value": "Changelog",
+                    "font": "$font.display",
+                    "color": "$color.text"
+                  },
+                  {
+                    "id": "p",
+                    "type": "text",
+                    "value": [
+                      "Every release, what moved in it, and why. Versions follow the app, ",
+                      {
+                        "text": "not the schema",
+                        "weight": 650,
+                        "color": "$color.text"
+                      },
+                      " \u2014 a design document written against ",
+                      {
+                        "text": "schema 1",
+                        "font": "$font.mono",
+                        "color": "$color.accent"
+                      },
+                      " keeps opening regardless of which build wrote it."
+                    ],
+                    "font": "$font.lead",
+                    "color": "$color.textMuted"
+                  }
+                ]
+              },
+              {
+                "id": "rule1",
+                "use": "Divider"
+              },
+              {
+                "id": "v010",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.4",
+                "children": [
+                  {
+                    "id": "r1",
+                    "use": "Release",
+                    "props": {
+                      "version": "0.1.0",
+                      "date": "21 September 2026",
+                      "summary": "The new theme lands, and Claude gets three tools for driving the app it is running inside."
+                    }
+                  },
+                  {
+                    "id": "e1",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "column",
+                    "gap": "$space.3",
+                    "children": [
+                      {
+                        "id": "x1",
+                        "use": "Entry",
+                        "props": {
+                          "tag": "Added",
+                          "tone": "added",
+                          "text": "Three MCP tools over the Cmd+K registry, so Claude can open a panel, switch a theme or run a command by name. 675 tokens of schema; Claude never installs updates itself."
+                        }
+                      },
+                      {
+                        "id": "x2",
+                        "use": "Entry",
+                        "props": {
+                          "tag": "Changed",
+                          "text": "The whole colour ramp is new. Tokens that were pinned to the old ramp moved with it, so nothing in a saved session changed colour unexpectedly."
+                        }
+                      },
+                      {
+                        "id": "x3",
+                        "use": "Entry",
+                        "props": {
+                          "tag": "Fixed",
+                          "tone": "fixed",
+                          "text": "Three workflow engine bugs a release run exposed, including a flow that reported done while the build it was waiting on was still running."
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "rule2",
+                "use": "Divider"
+              },
+              {
+                "id": "v009",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.4",
+                "children": [
+                  {
+                    "id": "r2",
+                    "use": "Release",
+                    "props": {
+                      "version": "0.0.9",
+                      "date": "18 September 2026",
+                      "summary": "A Changes tab that reads a real diff, rather than asking the model what it thinks it edited."
+                    }
+                  },
+                  {
+                    "id": "e2",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "column",
+                    "gap": "$space.3",
+                    "children": [
+                      {
+                        "id": "y1",
+                        "use": "Entry",
+                        "props": {
+                          "tag": "Added",
+                          "tone": "added",
+                          "text": "Read-only diff view built on @git-diff-view/react, with the base SHA printed on the card so the diff is reproducible from the transcript alone."
+                        }
+                      },
+                      {
+                        "id": "y2",
+                        "use": "Entry",
+                        "props": {
+                          "tag": "Fixed",
+                          "tone": "fixed",
+                          "text": "The changes convention counted only tracked files, so a turn that added files summarised none of them. It now unions git diff with the untracked list."
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "rule3",
+                "use": "Divider"
+              },
+              {
+                "id": "v008",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.4",
+                "children": [
+                  {
+                    "id": "r3",
+                    "use": "Release",
+                    "props": {
+                      "version": "0.0.8",
+                      "date": "15 September 2026",
+                      "summary": "Flows become scriptable, and the trigger runtime stops firing twice when a dev build is open."
+                    }
+                  },
+                  {
+                    "id": "e3",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "column",
+                    "gap": "$space.3",
+                    "children": [
+                      {
+                        "id": "z1",
+                        "use": "Entry",
+                        "props": {
+                          "tag": "Added",
+                          "tone": "added",
+                          "text": "Script nodes, with a 120 second ceiling and a deliberately bare PATH."
+                        }
+                      },
+                      {
+                        "id": "z2",
+                        "use": "Entry",
+                        "props": {
+                          "tag": "Changed",
+                          "text": "npm run dev is passive by default. Anything two instances contend over is a bug waiting to happen, and a shared scratch directory had already broken attachments once."
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "footer",
+                "type": "box",
+                "layout": "stack",
+                "direction": "row",
+                "align": "center",
+                "gap": "$space.2",
+                "padding": [
+                  "$space.4",
+                  "$space.0"
+                ],
+                "children": [
+                  {
+                    "id": "fi",
+                    "type": "icon",
+                    "name": "rss",
+                    "size": 14,
+                    "color": "$color.textSubtle"
+                  },
+                  {
+                    "id": "ft",
+                    "type": "text",
+                    "value": "Subscribe to the release feed",
+                    "font": "$font.small",
+                    "color": "$color.textSubtle"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

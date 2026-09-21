@@ -1,0 +1,475 @@
+{
+  "schema": 1,
+  "name": "Mobile",
+  "theme": "default",
+  "components": {
+    "Tab": {
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "state": {
+          "type": "enum",
+          "of": [
+            "idle",
+            "active"
+          ],
+          "default": "idle"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "align": "center",
+        "gap": "$space.1",
+        "grow": 1,
+        "children": [
+          {
+            "id": "i",
+            "type": "icon",
+            "size": 20,
+            "name": {
+              "prop": "icon"
+            },
+            "color": {
+              "match": {
+                "prop": "state"
+              },
+              "cases": {
+                "idle": "$color.textSubtle",
+                "active": "$color.accent"
+              }
+            }
+          },
+          {
+            "id": "l",
+            "type": "text",
+            "value": {
+              "prop": "label"
+            },
+            "font": "$font.caption",
+            "color": {
+              "match": {
+                "prop": "state"
+              },
+              "cases": {
+                "idle": "$color.textSubtle",
+                "active": "$color.accent"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "SessionCard": {
+      "props": {
+        "title": {
+          "type": "string"
+        },
+        "meta": {
+          "type": "string"
+        },
+        "tone": {
+          "type": "enum",
+          "of": [
+            "running",
+            "idle"
+          ],
+          "default": "idle"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "center",
+        "gap": "$space.3",
+        "padding": "$space.4",
+        "radius": "$radius.lg",
+        "background": "$color.surface",
+        "border": "$border.hairline",
+        "children": [
+          {
+            "id": "dot",
+            "type": "box",
+            "layout": "stack",
+            "align": "center",
+            "justify": "center",
+            "width": 36,
+            "height": 36,
+            "radius": "$radius.full",
+            "shrink": 0,
+            "background": {
+              "match": {
+                "prop": "tone"
+              },
+              "cases": {
+                "running": "$color.successSubtle",
+                "idle": "$color.surfaceSunken"
+              }
+            },
+            "children": [
+              {
+                "id": "di",
+                "type": "icon",
+                "size": 16,
+                "name": {
+                  "match": {
+                    "prop": "tone"
+                  },
+                  "cases": {
+                    "running": "loader",
+                    "idle": "message-square"
+                  }
+                },
+                "color": {
+                  "match": {
+                    "prop": "tone"
+                  },
+                  "cases": {
+                    "running": "$color.success",
+                    "idle": "$color.textSubtle"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "copy",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.1",
+            "grow": 1,
+            "children": [
+              {
+                "id": "t",
+                "type": "text",
+                "value": {
+                  "prop": "title"
+                },
+                "font": "$font.bodyStrong",
+                "color": "$color.text",
+                "maxLines": 1
+              },
+              {
+                "id": "m",
+                "type": "text",
+                "value": [
+                  {
+                    "text": {
+                      "prop": "tone"
+                    },
+                    "weight": 650,
+                    "transform": "capitalize"
+                  },
+                  " \u00b7 ",
+                  {
+                    "text": {
+                      "prop": "meta"
+                    }
+                  }
+                ],
+                "font": "$font.small",
+                "color": "$color.textMuted",
+                "maxLines": 1
+              }
+            ]
+          },
+          {
+            "id": "chev",
+            "type": "icon",
+            "name": "chevron-right",
+            "size": 16,
+            "color": "$color.gray.300"
+          }
+        ]
+      }
+    }
+  },
+  "artboards": [
+    {
+      "id": "mobile-sessions",
+      "name": "iPhone \u2014 Sessions",
+      "size": {
+        "width": 390,
+        "height": 844
+      },
+      "background": "$color.bg",
+      "root": {
+        "id": "screen",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "height": "full",
+        "children": [
+          {
+            "id": "status",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "align": "center",
+            "justify": "between",
+            "padding": [
+              "$space.3",
+              "$space.5"
+            ],
+            "children": [
+              {
+                "id": "time",
+                "type": "text",
+                "value": "9:41",
+                "font": "$font.smallStrong",
+                "color": "$color.text"
+              },
+              {
+                "id": "icons",
+                "type": "box",
+                "layout": "stack",
+                "direction": "row",
+                "gap": "$space.1",
+                "align": "center",
+                "children": [
+                  {
+                    "id": "sig",
+                    "type": "icon",
+                    "name": "signal",
+                    "size": 14,
+                    "color": "$color.text"
+                  },
+                  {
+                    "id": "wifi",
+                    "type": "icon",
+                    "name": "wifi",
+                    "size": 14,
+                    "color": "$color.text"
+                  },
+                  {
+                    "id": "bat",
+                    "type": "icon",
+                    "name": "battery-full",
+                    "size": 16,
+                    "color": "$color.text"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "header",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.3",
+            "padding": [
+              "$space.2",
+              "$space.5"
+            ],
+            "children": [
+              {
+                "id": "titleRow",
+                "type": "box",
+                "layout": "stack",
+                "direction": "row",
+                "align": "center",
+                "children": [
+                  {
+                    "id": "h",
+                    "type": "text",
+                    "value": "Sessions",
+                    "font": "$font.h1",
+                    "color": "$color.text",
+                    "grow": 1
+                  },
+                  {
+                    "id": "add",
+                    "type": "box",
+                    "layout": "stack",
+                    "align": "center",
+                    "justify": "center",
+                    "width": 34,
+                    "height": 34,
+                    "radius": "$radius.full",
+                    "background": "$color.accent",
+                    "children": [
+                      {
+                        "id": "ai",
+                        "type": "icon",
+                        "name": "plus",
+                        "size": 18,
+                        "color": "$color.onAccent"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "search",
+                "type": "box",
+                "layout": "stack",
+                "direction": "row",
+                "align": "center",
+                "gap": "$space.2",
+                "padding": [
+                  "$space.2",
+                  "$space.3"
+                ],
+                "radius": "$radius.md",
+                "background": "$color.surfaceSunken",
+                "children": [
+                  {
+                    "id": "si",
+                    "type": "icon",
+                    "name": "search",
+                    "size": 15,
+                    "color": "$color.textSubtle"
+                  },
+                  {
+                    "id": "sp",
+                    "type": "text",
+                    "value": "Search sessions",
+                    "font": "$font.body",
+                    "color": "$color.textSubtle"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "list",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.3",
+            "padding": [
+              "$space.4",
+              "$space.5"
+            ],
+            "grow": 1,
+            "overflow": "hidden",
+            "children": [
+              {
+                "id": "s1",
+                "use": "SessionCard",
+                "props": {
+                  "title": "Registry-driven renderer",
+                  "meta": "2m ago",
+                  "tone": "running"
+                }
+              },
+              {
+                "id": "s2",
+                "use": "SessionCard",
+                "props": {
+                  "title": "Port the sidecar",
+                  "meta": "1h ago"
+                }
+              },
+              {
+                "id": "s3",
+                "use": "SessionCard",
+                "props": {
+                  "title": "Retire the Agents tab",
+                  "meta": "Yesterday"
+                }
+              },
+              {
+                "id": "s4",
+                "use": "SessionCard",
+                "props": {
+                  "title": "Release notes for 0.1.0",
+                  "meta": "2 days ago"
+                }
+              },
+              {
+                "id": "s5",
+                "use": "SessionCard",
+                "props": {
+                  "title": "Windows stdin interrupt",
+                  "meta": "Last week"
+                }
+              }
+            ],
+            "minHeight": 0
+          },
+          {
+            "id": "tabs",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "padding": [
+              "$space.3",
+              "$space.4"
+            ],
+            "gap": "$space.2",
+            "background": "$color.surface",
+            "border": "$border.hairline",
+            "children": [
+              {
+                "id": "t1",
+                "use": "Tab",
+                "props": {
+                  "label": "Sessions",
+                  "icon": "message-square",
+                  "state": "active"
+                }
+              },
+              {
+                "id": "t2",
+                "use": "Tab",
+                "props": {
+                  "label": "Flows",
+                  "icon": "workflow"
+                }
+              },
+              {
+                "id": "t3",
+                "use": "Tab",
+                "props": {
+                  "label": "Browser",
+                  "icon": "globe"
+                }
+              },
+              {
+                "id": "t4",
+                "use": "Tab",
+                "props": {
+                  "label": "Settings",
+                  "icon": "settings"
+                }
+              }
+            ]
+          },
+          {
+            "id": "home",
+            "type": "box",
+            "layout": "stack",
+            "align": "center",
+            "padding": [
+              "$space.2",
+              "$space.0"
+            ],
+            "background": "$color.surface",
+            "children": [
+              {
+                "id": "bar",
+                "type": "box",
+                "layout": "none",
+                "width": 134,
+                "height": 5,
+                "radius": "$radius.full",
+                "background": "$color.gray.900"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

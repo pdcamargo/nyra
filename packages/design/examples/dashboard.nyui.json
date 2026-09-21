@@ -1,0 +1,645 @@
+{
+  "schema": 1,
+  "name": "Dashboard",
+  "theme": "default",
+  "components": {
+    "Stat": {
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "delta": {
+          "type": "string"
+        },
+        "dir": {
+          "type": "enum",
+          "of": [
+            "up",
+            "down",
+            "flat"
+          ],
+          "default": "flat"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "gap": "$space.2",
+        "padding": "$space.5",
+        "radius": "$radius.lg",
+        "background": "$color.surface",
+        "border": "$border.hairline",
+        "children": [
+          {
+            "id": "l",
+            "type": "text",
+            "value": {
+              "prop": "label"
+            },
+            "font": "$font.label",
+            "color": "$color.textSubtle",
+            "textTransform": "uppercase",
+            "letterSpacing": 0.4
+          },
+          {
+            "id": "v",
+            "type": "text",
+            "value": {
+              "prop": "value"
+            },
+            "font": "$font.h1",
+            "color": "$color.text"
+          },
+          {
+            "id": "d",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "align": "center",
+            "gap": "$space.1",
+            "children": [
+              {
+                "id": "di",
+                "type": "icon",
+                "size": 13,
+                "name": {
+                  "match": {
+                    "prop": "dir"
+                  },
+                  "cases": {
+                    "up": "trending-up",
+                    "down": "trending-down",
+                    "flat": "minus"
+                  }
+                },
+                "color": {
+                  "match": {
+                    "prop": "dir"
+                  },
+                  "cases": {
+                    "up": "$color.success",
+                    "down": "$color.danger",
+                    "flat": "$color.textSubtle"
+                  }
+                }
+              },
+              {
+                "id": "dt",
+                "type": "text",
+                "value": {
+                  "prop": "delta"
+                },
+                "font": "$font.small",
+                "color": {
+                  "match": {
+                    "prop": "dir"
+                  },
+                  "cases": {
+                    "up": "$color.success",
+                    "down": "$color.danger",
+                    "flat": "$color.textSubtle"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "Bar": {
+      "props": {
+        "h": {
+          "type": "string"
+        },
+        "tone": {
+          "type": "enum",
+          "of": [
+            "base",
+            "peak"
+          ],
+          "default": "base"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "none",
+        "grow": 1,
+        "height": {
+          "prop": "h"
+        },
+        "radius": "$radius.sm",
+        "background": {
+          "match": {
+            "prop": "tone"
+          },
+          "cases": {
+            "base": "$color.violet.200",
+            "peak": "$color.accent"
+          }
+        }
+      }
+    },
+    "Event": {
+      "props": {
+        "icon": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "when": {
+          "type": "string"
+        },
+        "tone": {
+          "type": "enum",
+          "of": [
+            "ok",
+            "warn",
+            "bad"
+          ],
+          "default": "ok"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "start",
+        "gap": "$space.3",
+        "children": [
+          {
+            "id": "ring",
+            "type": "box",
+            "layout": "stack",
+            "align": "center",
+            "justify": "center",
+            "width": 26,
+            "height": 26,
+            "radius": "$radius.full",
+            "shrink": 0,
+            "background": {
+              "match": {
+                "prop": "tone"
+              },
+              "cases": {
+                "ok": "$color.successSubtle",
+                "warn": "$color.warningSubtle",
+                "bad": "$color.dangerSubtle"
+              }
+            },
+            "children": [
+              {
+                "id": "i",
+                "type": "icon",
+                "size": 13,
+                "name": {
+                  "prop": "icon"
+                },
+                "color": {
+                  "match": {
+                    "prop": "tone"
+                  },
+                  "cases": {
+                    "ok": "$color.success",
+                    "warn": "$color.warning",
+                    "bad": "$color.danger"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "c",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.1",
+            "grow": 1,
+            "children": [
+              {
+                "id": "t",
+                "type": "text",
+                "value": {
+                  "prop": "text"
+                },
+                "font": "$font.body",
+                "color": "$color.text",
+                "maxLines": 2
+              },
+              {
+                "id": "w",
+                "type": "text",
+                "value": {
+                  "prop": "when"
+                },
+                "font": "$font.caption",
+                "color": "$color.textSubtle"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "artboards": [
+    {
+      "id": "dash",
+      "name": "Dashboard \u2014 Overview",
+      "size": {
+        "width": 1280,
+        "height": 840
+      },
+      "background": "$color.bg",
+      "root": {
+        "id": "page",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "gap": "$space.6",
+        "padding": "$space.8",
+        "children": [
+          {
+            "id": "head",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "align": "center",
+            "gap": "$space.4",
+            "children": [
+              {
+                "id": "titles",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.1",
+                "grow": 1,
+                "children": [
+                  {
+                    "id": "h1",
+                    "type": "text",
+                    "value": "Overview",
+                    "font": "$font.h1",
+                    "color": "$color.text"
+                  },
+                  {
+                    "id": "h2",
+                    "type": "text",
+                    "value": "Last 30 days across every project",
+                    "font": "$font.body",
+                    "color": "$color.textMuted"
+                  }
+                ]
+              },
+              {
+                "id": "range",
+                "type": "box",
+                "layout": "stack",
+                "direction": "row",
+                "align": "center",
+                "gap": "$space.2",
+                "padding": [
+                  "$space.2",
+                  "$space.3"
+                ],
+                "radius": "$radius.md",
+                "background": "$color.surface",
+                "border": "$border.hairline",
+                "children": [
+                  {
+                    "id": "ci",
+                    "type": "icon",
+                    "name": "calendar",
+                    "size": 14,
+                    "color": "$color.textSubtle"
+                  },
+                  {
+                    "id": "cl",
+                    "type": "text",
+                    "value": "30 days",
+                    "font": "$font.button",
+                    "color": "$color.text"
+                  },
+                  {
+                    "id": "cd",
+                    "type": "icon",
+                    "name": "chevron-down",
+                    "size": 14,
+                    "color": "$color.textSubtle"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "stats",
+            "type": "box",
+            "layout": "grid",
+            "columns": 4,
+            "gap": "$space.4",
+            "children": [
+              {
+                "id": "s1",
+                "use": "Stat",
+                "props": {
+                  "label": "Turns",
+                  "value": "12,480",
+                  "delta": "+18% vs last month",
+                  "dir": "up"
+                }
+              },
+              {
+                "id": "s2",
+                "use": "Stat",
+                "props": {
+                  "label": "Tokens",
+                  "value": "41.2M",
+                  "delta": "+6% vs last month",
+                  "dir": "up"
+                }
+              },
+              {
+                "id": "s3",
+                "use": "Stat",
+                "props": {
+                  "label": "Median turn",
+                  "value": "8.4s",
+                  "delta": "-1.1s vs last month",
+                  "dir": "down"
+                }
+              },
+              {
+                "id": "s4",
+                "use": "Stat",
+                "props": {
+                  "label": "Failures",
+                  "value": "37",
+                  "delta": "no change",
+                  "dir": "flat"
+                }
+              }
+            ]
+          },
+          {
+            "id": "lower",
+            "type": "box",
+            "layout": "grid",
+            "columns": 3,
+            "gap": "$space.4",
+            "grow": 1,
+            "align": "stretch",
+            "children": [
+              {
+                "id": "chart",
+                "type": "box",
+                "span": 2,
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.5",
+                "padding": "$space.5",
+                "radius": "$radius.lg",
+                "background": "$color.surface",
+                "border": "$border.hairline",
+                "children": [
+                  {
+                    "id": "ch",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "row",
+                    "align": "center",
+                    "children": [
+                      {
+                        "id": "cht",
+                        "type": "text",
+                        "value": "Turns per day",
+                        "font": "$font.h4",
+                        "color": "$color.text",
+                        "grow": 1
+                      },
+                      {
+                        "id": "chl",
+                        "type": "text",
+                        "value": "Peak Thursday",
+                        "font": "$font.small",
+                        "color": "$color.textSubtle"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "bars",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "row",
+                    "align": "end",
+                    "gap": "$space.2",
+                    "children": [
+                      {
+                        "id": "b1",
+                        "use": "Bar",
+                        "props": {
+                          "h": "39%"
+                        }
+                      },
+                      {
+                        "id": "b2",
+                        "use": "Bar",
+                        "props": {
+                          "h": "53%"
+                        }
+                      },
+                      {
+                        "id": "b3",
+                        "use": "Bar",
+                        "props": {
+                          "h": "48%"
+                        }
+                      },
+                      {
+                        "id": "b4",
+                        "use": "Bar",
+                        "props": {
+                          "h": "70%"
+                        }
+                      },
+                      {
+                        "id": "b5",
+                        "use": "Bar",
+                        "props": {
+                          "h": "83%"
+                        }
+                      },
+                      {
+                        "id": "b6",
+                        "use": "Bar",
+                        "props": {
+                          "h": "100%",
+                          "tone": "peak"
+                        }
+                      },
+                      {
+                        "id": "b7",
+                        "use": "Bar",
+                        "props": {
+                          "h": "77%"
+                        }
+                      },
+                      {
+                        "id": "b8",
+                        "use": "Bar",
+                        "props": {
+                          "h": "57%"
+                        }
+                      },
+                      {
+                        "id": "b9",
+                        "use": "Bar",
+                        "props": {
+                          "h": "67%"
+                        }
+                      },
+                      {
+                        "id": "b10",
+                        "use": "Bar",
+                        "props": {
+                          "h": "49%"
+                        }
+                      },
+                      {
+                        "id": "b11",
+                        "use": "Bar",
+                        "props": {
+                          "h": "36%"
+                        }
+                      },
+                      {
+                        "id": "b12",
+                        "use": "Bar",
+                        "props": {
+                          "h": "42%"
+                        }
+                      }
+                    ],
+                    "grow": 1
+                  },
+                  {
+                    "id": "axis",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "row",
+                    "justify": "between",
+                    "children": [
+                      {
+                        "id": "a1",
+                        "type": "text",
+                        "value": "Aug 22",
+                        "font": "$font.caption",
+                        "color": "$color.textSubtle"
+                      },
+                      {
+                        "id": "a2",
+                        "type": "text",
+                        "value": "Sep 6",
+                        "font": "$font.caption",
+                        "color": "$color.textSubtle"
+                      },
+                      {
+                        "id": "a3",
+                        "type": "text",
+                        "value": "Sep 21",
+                        "font": "$font.caption",
+                        "color": "$color.textSubtle"
+                      }
+                    ]
+                  }
+                ],
+                "gradient": {
+                  "from": "$color.surface",
+                  "to": "$color.violet.50",
+                  "angle": 165
+                },
+                "minHeight": 320
+              },
+              {
+                "id": "feed",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.4",
+                "padding": "$space.5",
+                "radius": "$radius.lg",
+                "background": "$color.surface",
+                "border": "$border.hairline",
+                "overflow": "hidden",
+                "children": [
+                  {
+                    "id": "fh",
+                    "type": "text",
+                    "value": "Recent activity",
+                    "font": "$font.h4",
+                    "color": "$color.text"
+                  },
+                  {
+                    "id": "e1",
+                    "use": "Event",
+                    "props": {
+                      "icon": "circle-check",
+                      "text": "Release 0.1.0 published to the updater",
+                      "when": "12 minutes ago"
+                    }
+                  },
+                  {
+                    "id": "e2",
+                    "use": "Event",
+                    "props": {
+                      "icon": "circle-alert",
+                      "text": "Flow \"Release Nyra\" reported done before the build finished",
+                      "when": "2 hours ago",
+                      "tone": "warn"
+                    }
+                  },
+                  {
+                    "id": "e3",
+                    "use": "Event",
+                    "props": {
+                      "icon": "circle-x",
+                      "text": "Sidecar failed to adopt a page and appeared in the tab strip",
+                      "when": "Yesterday",
+                      "tone": "bad"
+                    }
+                  },
+                  {
+                    "id": "e4",
+                    "use": "Event",
+                    "props": {
+                      "icon": "git-branch",
+                      "text": "Branch design-spike opened by Patrick",
+                      "when": "Yesterday"
+                    }
+                  },
+                  {
+                    "id": "e5",
+                    "use": "Event",
+                    "props": {
+                      "icon": "circle-check",
+                      "text": "1,078 tests passed on main",
+                      "when": "2 days ago"
+                    }
+                  }
+                ],
+                "minHeight": 320,
+                "maxHeight": "100%"
+              }
+            ]
+          }
+        ],
+        "height": "full"
+      }
+    }
+  ]
+}

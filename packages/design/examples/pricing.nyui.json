@@ -1,0 +1,549 @@
+{
+  "schema": 1,
+  "name": "Pricing",
+  "theme": "default",
+  "components": {
+    "Feature": {
+      "props": {
+        "text": {
+          "type": "string"
+        },
+        "tone": {
+          "type": "enum",
+          "of": [
+            "on",
+            "off"
+          ],
+          "default": "on"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "start",
+        "gap": "$space.2",
+        "children": [
+          {
+            "id": "i",
+            "type": "icon",
+            "size": 16,
+            "name": {
+              "match": {
+                "prop": "tone"
+              },
+              "cases": {
+                "on": "check",
+                "off": "minus"
+              }
+            },
+            "color": {
+              "match": {
+                "prop": "tone"
+              },
+              "cases": {
+                "on": "$color.success",
+                "off": "$color.gray.300"
+              }
+            }
+          },
+          {
+            "id": "t",
+            "type": "text",
+            "value": {
+              "prop": "text"
+            },
+            "font": "$font.body",
+            "grow": 1,
+            "color": {
+              "match": {
+                "prop": "tone"
+              },
+              "cases": {
+                "on": "$color.textMuted",
+                "off": "$color.gray.400"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "Plan": {
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "price": {
+          "type": "string"
+        },
+        "blurb": {
+          "type": "string"
+        },
+        "cta": {
+          "type": "string"
+        },
+        "featured": {
+          "type": "enum",
+          "of": [
+            "yes",
+            "no"
+          ],
+          "default": "no"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "gap": "$space.5",
+        "padding": "$space.6",
+        "radius": "$radius.xl",
+        "position": "relative",
+        "background": {
+          "match": {
+            "prop": "featured"
+          },
+          "cases": {
+            "yes": "$color.gray.950",
+            "no": "$color.surface"
+          }
+        },
+        "border": {
+          "match": {
+            "prop": "featured"
+          },
+          "cases": {
+            "yes": "$border.accent",
+            "no": "$border.hairline"
+          }
+        },
+        "shadow": {
+          "match": {
+            "prop": "featured"
+          },
+          "cases": {
+            "yes": "$shadow.xl",
+            "no": "$shadow.sm"
+          }
+        },
+        "children": [
+          {
+            "id": "head",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.2",
+            "children": [
+              {
+                "id": "n",
+                "type": "text",
+                "value": {
+                  "prop": "name"
+                },
+                "font": "$font.h4",
+                "color": {
+                  "match": {
+                    "prop": "featured"
+                  },
+                  "cases": {
+                    "yes": "$color.violet.300",
+                    "no": "$color.accent"
+                  }
+                }
+              },
+              {
+                "id": "priceRow",
+                "type": "box",
+                "layout": "stack",
+                "direction": "row",
+                "align": "baseline",
+                "gap": "$space.1",
+                "children": [
+                  {
+                    "id": "p",
+                    "type": "text",
+                    "value": {
+                      "prop": "price"
+                    },
+                    "font": "$font.display",
+                    "color": {
+                      "match": {
+                        "prop": "featured"
+                      },
+                      "cases": {
+                        "yes": "$color.gray.50",
+                        "no": "$color.text"
+                      }
+                    }
+                  },
+                  {
+                    "id": "per",
+                    "type": "text",
+                    "value": "/mo",
+                    "font": "$font.body",
+                    "color": {
+                      "match": {
+                        "prop": "featured"
+                      },
+                      "cases": {
+                        "yes": "$color.gray.400",
+                        "no": "$color.textSubtle"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "type": "text",
+                "value": {
+                  "prop": "blurb"
+                },
+                "font": "$font.small",
+                "maxLines": 2,
+                "color": {
+                  "match": {
+                    "prop": "featured"
+                  },
+                  "cases": {
+                    "yes": "$color.gray.400",
+                    "no": "$color.textMuted"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "cta",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "align": "center",
+            "justify": "center",
+            "padding": [
+              "$space.3",
+              "$space.4"
+            ],
+            "radius": "$radius.md",
+            "background": {
+              "match": {
+                "prop": "featured"
+              },
+              "cases": {
+                "yes": "$color.accent",
+                "no": "$color.transparent"
+              }
+            },
+            "border": {
+              "match": {
+                "prop": "featured"
+              },
+              "cases": {
+                "yes": "$border.accent",
+                "no": "$border.strong"
+              }
+            },
+            "children": [
+              {
+                "id": "cl",
+                "type": "text",
+                "value": {
+                  "prop": "cta"
+                },
+                "font": "$font.button",
+                "color": {
+                  "match": {
+                    "prop": "featured"
+                  },
+                  "cases": {
+                    "yes": "$color.onAccent",
+                    "no": "$color.text"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "artboards": [
+    {
+      "id": "pricing",
+      "name": "Pricing",
+      "size": {
+        "width": 1180,
+        "height": "auto"
+      },
+      "background": "$color.bg",
+      "root": {
+        "id": "page",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "align": "center",
+        "gap": "$space.10",
+        "padding": "$space.12",
+        "children": [
+          {
+            "id": "head",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "align": "center",
+            "gap": "$space.3",
+            "maxWidth": 620,
+            "children": [
+              {
+                "id": "eyebrow",
+                "type": "text",
+                "value": "Pricing",
+                "font": "$font.caption",
+                "color": "$color.accent",
+                "textAlign": "center",
+                "textTransform": "uppercase",
+                "letterSpacing": 1.2
+              },
+              {
+                "id": "h1",
+                "type": "text",
+                "value": "Pay for what you ship",
+                "font": "$font.display",
+                "color": "$color.text",
+                "textAlign": "center"
+              },
+              {
+                "id": "sub",
+                "type": "text",
+                "value": "Every plan includes the full agent, the browser, and unlimited local projects. You are charged for what runs, not for seats.",
+                "font": "$font.lead",
+                "color": "$color.textMuted",
+                "textAlign": "center"
+              }
+            ]
+          },
+          {
+            "id": "plans",
+            "type": "box",
+            "layout": "grid",
+            "columns": 3,
+            "gap": "$space.6",
+            "width": "full",
+            "maxWidth": 1000,
+            "align": "start",
+            "children": [
+              {
+                "id": "free",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.5",
+                "children": [
+                  {
+                    "id": "fp",
+                    "use": "Plan",
+                    "props": {
+                      "name": "Solo",
+                      "price": "$0",
+                      "blurb": "For one person, one machine, and as many side projects as you can keep open.",
+                      "cta": "Start free"
+                    }
+                  },
+                  {
+                    "id": "ff",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "column",
+                    "gap": "$space.3",
+                    "padding": [
+                      "$space.0",
+                      "$space.2"
+                    ],
+                    "children": [
+                      {
+                        "id": "f1",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Unlimited local projects"
+                        }
+                      },
+                      {
+                        "id": "f2",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Browser panel and flows"
+                        }
+                      },
+                      {
+                        "id": "f3",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Shared team flows",
+                          "tone": "off"
+                        }
+                      },
+                      {
+                        "id": "f4",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Priority model access",
+                          "tone": "off"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "team",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.5",
+                "children": [
+                  {
+                    "id": "tp",
+                    "use": "Plan",
+                    "props": {
+                      "name": "Team",
+                      "price": "$24",
+                      "blurb": "Shared flows, shared skills, and a place for the team's conventions to live.",
+                      "cta": "Start a trial",
+                      "featured": "yes"
+                    }
+                  },
+                  {
+                    "id": "tf",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "column",
+                    "gap": "$space.3",
+                    "padding": [
+                      "$space.0",
+                      "$space.2"
+                    ],
+                    "children": [
+                      {
+                        "id": "t1",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Everything in Solo"
+                        }
+                      },
+                      {
+                        "id": "t2",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Shared team flows"
+                        }
+                      },
+                      {
+                        "id": "t3",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Priority model access"
+                        }
+                      },
+                      {
+                        "id": "t4",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Audit log",
+                          "tone": "off"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "alignSelf": "stretch"
+              },
+              {
+                "id": "ent",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.5",
+                "children": [
+                  {
+                    "id": "ep",
+                    "use": "Plan",
+                    "props": {
+                      "name": "Enterprise",
+                      "price": "Talk",
+                      "blurb": "Self-hosted models, SSO, and an audit log that your security team will read.",
+                      "cta": "Contact sales"
+                    }
+                  },
+                  {
+                    "id": "ef",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "column",
+                    "gap": "$space.3",
+                    "padding": [
+                      "$space.0",
+                      "$space.2"
+                    ],
+                    "children": [
+                      {
+                        "id": "e1",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Everything in Team"
+                        }
+                      },
+                      {
+                        "id": "e2",
+                        "use": "Feature",
+                        "props": {
+                          "text": "SSO and SCIM"
+                        }
+                      },
+                      {
+                        "id": "e3",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Audit log"
+                        }
+                      },
+                      {
+                        "id": "e4",
+                        "use": "Feature",
+                        "props": {
+                          "text": "Self-hosted models"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "note",
+            "type": "text",
+            "value": [
+              "Prices are per person, per month, ",
+              {
+                "text": "billed annually",
+                "weight": 650,
+                "color": "$color.text"
+              },
+              ". Usage above the included allowance is billed at cost."
+            ],
+            "font": "$font.small",
+            "color": "$color.textSubtle",
+            "textAlign": "center"
+          }
+        ],
+        "gradient": {
+          "from": "$color.violet.50",
+          "to": "$color.bg",
+          "angle": 180
+        }
+      }
+    }
+  ]
+}

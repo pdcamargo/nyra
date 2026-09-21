@@ -13,7 +13,7 @@
     "vite:build": "tsc --noEmit -p tsconfig.web.json && vite build",
     "vite:preview": "vite preview",
     "tauri": "tauri",
-    "check": "tsc --noEmit -p tsconfig.web.json && cargo check --manifest-path src-tauri/Cargo.toml",
+    "check": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p packages/design/tsconfig.json && cargo check --manifest-path src-tauri/Cargo.toml",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
@@ -25,7 +25,8 @@
     "version": "node scripts/sync-version.mjs && node scripts/add-release-note.js",
     "sidecar:install": "npm --prefix sidecar install --no-audit --no-fund",
     "postinstall": "npm run sidecar:install",
-    "release:manifest": "node scripts/release-manifest.mjs"
+    "release:manifest": "node scripts/release-manifest.mjs",
+    "design:dev": "npm run dev -w @nyra/design"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -76,9 +77,13 @@
     "tw-animate-css": "^1.4.0",
     "typescript": "^5.7.3",
     "vite": "^6.2.0",
+    "vite-node": "^6.0.0",
     "vitest": "^4.1.1"
   },
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/pdcamargo/nyra.git"

@@ -1,0 +1,448 @@
+{
+  "schema": 1,
+  "name": "Settings",
+  "theme": "default",
+  "components": {
+    "NavItem": {
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "state": {
+          "type": "enum",
+          "of": [
+            "idle",
+            "active"
+          ],
+          "default": "idle"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "center",
+        "gap": "$space.3",
+        "padding": [
+          "$space.2",
+          "$space.3"
+        ],
+        "radius": "$radius.md",
+        "background": {
+          "match": {
+            "prop": "state"
+          },
+          "cases": {
+            "idle": "$color.transparent",
+            "active": "$color.accentSubtle"
+          }
+        },
+        "children": [
+          {
+            "id": "ic",
+            "type": "icon",
+            "name": {
+              "prop": "icon"
+            },
+            "size": 16,
+            "color": {
+              "match": {
+                "prop": "state"
+              },
+              "cases": {
+                "idle": "$color.textSubtle",
+                "active": "$color.accent"
+              }
+            }
+          },
+          {
+            "id": "lb",
+            "type": "text",
+            "value": {
+              "prop": "label"
+            },
+            "font": "$font.bodyStrong",
+            "color": {
+              "match": {
+                "prop": "state"
+              },
+              "cases": {
+                "idle": "$color.textMuted",
+                "active": "$color.accent"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "Row": {
+      "props": {
+        "title": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "state": {
+          "type": "enum",
+          "of": [
+            "on",
+            "off"
+          ],
+          "default": "off"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "center",
+        "gap": "$space.6",
+        "padding": [
+          "$space.4",
+          "$space.5"
+        ],
+        "children": [
+          {
+            "id": "copy",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.1",
+            "grow": 1,
+            "children": [
+              {
+                "id": "t",
+                "type": "text",
+                "value": {
+                  "prop": "title"
+                },
+                "font": "$font.bodyStrong",
+                "color": "$color.text"
+              },
+              {
+                "id": "h",
+                "type": "text",
+                "value": {
+                  "prop": "help"
+                },
+                "font": "$font.small",
+                "color": "$color.textMuted",
+                "maxLines": 2
+              }
+            ]
+          },
+          {
+            "id": "toggle",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "align": "center",
+            "width": 40,
+            "height": 24,
+            "padding": "$space.xs",
+            "radius": "$radius.full",
+            "shrink": 0,
+            "justify": {
+              "match": {
+                "prop": "state"
+              },
+              "cases": {
+                "on": "end",
+                "off": "start"
+              }
+            },
+            "background": {
+              "match": {
+                "prop": "state"
+              },
+              "cases": {
+                "on": "$color.accent",
+                "off": "$color.gray.300"
+              }
+            },
+            "children": [
+              {
+                "id": "knob",
+                "type": "box",
+                "layout": "none",
+                "width": 18,
+                "height": 18,
+                "radius": "$radius.full",
+                "background": "$color.surface",
+                "shadow": "$shadow.sm"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "Divider": {
+      "props": {
+        "axis": {
+          "type": "enum",
+          "of": [
+            "horizontal",
+            "vertical"
+          ],
+          "default": "horizontal"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "none",
+        "alignSelf": "stretch",
+        "shrink": 0,
+        "background": "$color.border",
+        "width": {
+          "match": {
+            "prop": "axis"
+          },
+          "cases": {
+            "horizontal": null,
+            "vertical": 1
+          }
+        },
+        "height": {
+          "match": {
+            "prop": "axis"
+          },
+          "cases": {
+            "horizontal": 1,
+            "vertical": null
+          }
+        }
+      }
+    }
+  },
+  "artboards": [
+    {
+      "id": "settings",
+      "name": "Settings \u2014 Notifications",
+      "size": {
+        "width": 1120,
+        "height": 720
+      },
+      "background": "$color.bg",
+      "root": {
+        "id": "page",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "height": "full",
+        "children": [
+          {
+            "id": "sidebar",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.1",
+            "padding": "$space.4",
+            "width": 240,
+            "shrink": 0,
+            "background": "$color.surface",
+            "border": "$border.hairline",
+            "children": [
+              {
+                "id": "st",
+                "type": "text",
+                "value": "Settings",
+                "font": "$font.h4",
+                "color": "$color.text",
+                "padding": [
+                  "$space.2",
+                  "$space.3"
+                ]
+              },
+              {
+                "id": "n1",
+                "use": "NavItem",
+                "props": {
+                  "label": "General",
+                  "icon": "sliders-horizontal"
+                }
+              },
+              {
+                "id": "n2",
+                "use": "NavItem",
+                "props": {
+                  "label": "Notifications",
+                  "icon": "bell",
+                  "state": "active"
+                }
+              },
+              {
+                "id": "n3",
+                "use": "NavItem",
+                "props": {
+                  "label": "Appearance",
+                  "icon": "palette"
+                }
+              },
+              {
+                "id": "n4",
+                "use": "NavItem",
+                "props": {
+                  "label": "Keyboard",
+                  "icon": "keyboard"
+                }
+              },
+              {
+                "id": "n5",
+                "use": "NavItem",
+                "props": {
+                  "label": "Advanced",
+                  "icon": "wrench"
+                }
+              }
+            ]
+          },
+          {
+            "id": "main",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.6",
+            "padding": "$space.8",
+            "grow": 1,
+            "children": [
+              {
+                "id": "head",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.2",
+                "children": [
+                  {
+                    "id": "h1",
+                    "type": "text",
+                    "value": "Notifications",
+                    "font": "$font.h1",
+                    "color": "$color.text"
+                  },
+                  {
+                    "id": "h2",
+                    "type": "text",
+                    "value": "Choose what reaches you, and how loudly.",
+                    "font": "$font.lead",
+                    "color": "$color.textMuted"
+                  }
+                ]
+              },
+              {
+                "id": "group",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "background": "$color.surface",
+                "radius": "$radius.lg",
+                "border": "$border.hairline",
+                "overflow": "hidden",
+                "maxWidth": 720,
+                "children": [
+                  {
+                    "id": "r1",
+                    "use": "Row",
+                    "props": {
+                      "title": "Turn completed",
+                      "help": "When a long-running turn finishes while the window is in the background.",
+                      "state": "on"
+                    }
+                  },
+                  {
+                    "id": "d1",
+                    "use": "Divider"
+                  },
+                  {
+                    "id": "r2",
+                    "use": "Row",
+                    "props": {
+                      "title": "Permission requested",
+                      "help": "When a tool call needs approval before it can run.",
+                      "state": "on"
+                    }
+                  },
+                  {
+                    "id": "d2",
+                    "use": "Divider"
+                  },
+                  {
+                    "id": "r3",
+                    "use": "Row",
+                    "props": {
+                      "title": "Digest",
+                      "help": "A daily summary of everything that ran, sent each evening.",
+                      "state": "off"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "foot",
+                "type": "box",
+                "layout": "stack",
+                "direction": "row",
+                "gap": "$space.3",
+                "maxWidth": 720,
+                "children": [
+                  {
+                    "id": "save",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "row",
+                    "align": "center",
+                    "justify": "center",
+                    "padding": [
+                      "$space.3",
+                      "$space.5"
+                    ],
+                    "radius": "$radius.md",
+                    "background": "$color.accent",
+                    "children": [
+                      {
+                        "id": "sl",
+                        "type": "text",
+                        "value": "Save changes",
+                        "font": "$font.button",
+                        "color": "$color.onAccent"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "reset",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "row",
+                    "align": "center",
+                    "justify": "center",
+                    "padding": [
+                      "$space.3",
+                      "$space.5"
+                    ],
+                    "radius": "$radius.md",
+                    "border": "$border.hairline",
+                    "children": [
+                      {
+                        "id": "rl",
+                        "type": "text",
+                        "value": "Reset to defaults",
+                        "font": "$font.button",
+                        "color": "$color.textMuted"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

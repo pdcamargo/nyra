@@ -1,0 +1,319 @@
+{
+  "schema": 1,
+  "name": "Login",
+  "theme": "default",
+  "components": {
+    "Field": {
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "state": {
+          "type": "enum",
+          "of": [
+            "idle",
+            "error"
+          ],
+          "default": "idle"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "gap": "$space.2",
+        "children": [
+          {
+            "id": "label",
+            "type": "text",
+            "value": {
+              "prop": "label"
+            },
+            "font": "$font.label",
+            "color": "$color.textMuted"
+          },
+          {
+            "id": "input",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "align": "center",
+            "padding": [
+              "$space.3",
+              "$space.3"
+            ],
+            "radius": "$radius.md",
+            "background": "$color.surface",
+            "border": {
+              "match": {
+                "prop": "state"
+              },
+              "cases": {
+                "idle": "$border.hairline",
+                "error": "$border.danger"
+              }
+            },
+            "children": [
+              {
+                "id": "text",
+                "type": "text",
+                "value": {
+                  "prop": "placeholder"
+                },
+                "font": "$font.body",
+                "color": "$color.textSubtle",
+                "grow": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "PrimaryButton": {
+      "props": {
+        "label": {
+          "type": "string"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "center",
+        "justify": "center",
+        "padding": [
+          "$space.3",
+          "$space.5"
+        ],
+        "radius": "$radius.md",
+        "background": "$color.accent",
+        "shadow": "$shadow.sm",
+        "children": [
+          {
+            "id": "label",
+            "type": "text",
+            "value": {
+              "prop": "label"
+            },
+            "font": "$font.button",
+            "color": "$color.onAccent"
+          }
+        ]
+      }
+    },
+    "Divider": {
+      "props": {
+        "axis": {
+          "type": "enum",
+          "of": [
+            "horizontal",
+            "vertical"
+          ],
+          "default": "horizontal"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "none",
+        "alignSelf": "stretch",
+        "shrink": 0,
+        "background": "$color.border",
+        "width": {
+          "match": {
+            "prop": "axis"
+          },
+          "cases": {
+            "horizontal": null,
+            "vertical": 1
+          }
+        },
+        "height": {
+          "match": {
+            "prop": "axis"
+          },
+          "cases": {
+            "horizontal": 1,
+            "vertical": null
+          }
+        }
+      }
+    }
+  },
+  "artboards": [
+    {
+      "id": "login",
+      "name": "Log in",
+      "size": {
+        "width": 1024,
+        "height": 700
+      },
+      "background": "$color.bg",
+      "root": {
+        "id": "page",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "center",
+        "justify": "center",
+        "height": "full",
+        "children": [
+          {
+            "id": "card",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.6",
+            "padding": "$space.8",
+            "width": 400,
+            "background": "$color.surface",
+            "radius": "$radius.lg",
+            "border": "$border.hairline",
+            "shadow": "$shadow.lg",
+            "children": [
+              {
+                "id": "head",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.2",
+                "children": [
+                  {
+                    "id": "mark",
+                    "type": "icon",
+                    "name": "hexagon",
+                    "size": 28,
+                    "color": "$color.accent"
+                  },
+                  {
+                    "id": "title",
+                    "type": "text",
+                    "value": "Welcome back",
+                    "font": "$font.h2",
+                    "color": "$color.text"
+                  },
+                  {
+                    "id": "sub",
+                    "type": "text",
+                    "value": "Sign in to keep going.",
+                    "font": "$font.body",
+                    "color": "$color.textMuted"
+                  }
+                ]
+              },
+              {
+                "id": "form",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.4",
+                "children": [
+                  {
+                    "id": "email",
+                    "use": "Field",
+                    "props": {
+                      "label": "Email",
+                      "placeholder": "you@example.com"
+                    }
+                  },
+                  {
+                    "id": "pass",
+                    "use": "Field",
+                    "props": {
+                      "label": "Password",
+                      "placeholder": "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
+                      "state": "error"
+                    }
+                  },
+                  {
+                    "id": "err",
+                    "type": "text",
+                    "value": [
+                      {
+                        "text": "That password",
+                        "weight": 650
+                      },
+                      " does not match our records."
+                    ],
+                    "font": "$font.small",
+                    "color": "$color.danger"
+                  }
+                ]
+              },
+              {
+                "id": "actions",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.3",
+                "children": [
+                  {
+                    "id": "submit",
+                    "use": "PrimaryButton",
+                    "props": {
+                      "label": "Sign in"
+                    },
+                    "width": "full"
+                  },
+                  {
+                    "id": "forgot",
+                    "type": "text",
+                    "value": "Forgot your password?",
+                    "font": "$font.small",
+                    "color": "$color.accent",
+                    "alignSelf": "center"
+                  }
+                ]
+              },
+              {
+                "id": "divider",
+                "use": "Divider"
+              },
+              {
+                "id": "alt",
+                "type": "box",
+                "layout": "stack",
+                "direction": "row",
+                "align": "center",
+                "justify": "center",
+                "gap": "$space.2",
+                "padding": [
+                  "$space.3",
+                  "$space.4"
+                ],
+                "radius": "$radius.md",
+                "border": "$border.hairline",
+                "children": [
+                  {
+                    "id": "gh",
+                    "type": "icon",
+                    "name": "git-branch",
+                    "size": 16,
+                    "color": "$color.text"
+                  },
+                  {
+                    "id": "ghl",
+                    "type": "text",
+                    "value": "Continue with SSO",
+                    "font": "$font.button",
+                    "color": "$color.text"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "gradient": {
+          "from": "$color.violet.50",
+          "to": "$color.bg",
+          "angle": 200
+        }
+      }
+    }
+  ]
+}

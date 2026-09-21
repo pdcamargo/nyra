@@ -1,0 +1,240 @@
+{
+  "schema": 1,
+  "name": "Empty state",
+  "theme": "default",
+  "artboards": [
+    {
+      "id": "empty",
+      "name": "Flows \u2014 empty",
+      "size": {
+        "width": 960,
+        "height": 640
+      },
+      "background": "$color.bg",
+      "root": {
+        "id": "page",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "height": "full",
+        "children": [
+          {
+            "id": "bar",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "align": "center",
+            "gap": "$space.3",
+            "padding": [
+              "$space.4",
+              "$space.6"
+            ],
+            "background": "$color.surface",
+            "border": "$border.hairline",
+            "children": [
+              {
+                "id": "ti",
+                "type": "icon",
+                "name": "workflow",
+                "size": 18,
+                "color": "$color.textMuted"
+              },
+              {
+                "id": "tt",
+                "type": "text",
+                "value": "Flows",
+                "font": "$font.h4",
+                "color": "$color.text",
+                "grow": 1
+              }
+            ]
+          },
+          {
+            "id": "body",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "align": "center",
+            "justify": "center",
+            "gap": "$space.6",
+            "grow": 1,
+            "padding": "$space.8",
+            "children": [
+              {
+                "id": "art",
+                "type": "box",
+                "layout": "stack",
+                "align": "center",
+                "justify": "center",
+                "width": 88,
+                "height": 88,
+                "radius": "$radius.full",
+                "background": "$color.accentSubtle",
+                "position": "relative",
+                "children": [
+                  {
+                    "id": "big",
+                    "type": "icon",
+                    "name": "workflow",
+                    "size": 36,
+                    "color": "$color.accent"
+                  },
+                  {
+                    "id": "badge",
+                    "type": "box",
+                    "layout": "stack",
+                    "align": "center",
+                    "justify": "center",
+                    "width": 28,
+                    "height": 28,
+                    "radius": "$radius.full",
+                    "background": "$color.accent",
+                    "border": {
+                      "width": 3,
+                      "color": "$color.bg",
+                      "style": "solid"
+                    },
+                    "position": "absolute",
+                    "inset": {
+                      "bottom": 0,
+                      "right": 0
+                    },
+                    "children": [
+                      {
+                        "id": "plus",
+                        "type": "icon",
+                        "name": "plus",
+                        "size": 14,
+                        "color": "$color.onAccent"
+                      }
+                    ]
+                  }
+                ],
+                "gradient": {
+                  "from": "$color.violet.100",
+                  "to": "$color.accentSubtle",
+                  "angle": 160
+                }
+              },
+              {
+                "id": "copy",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "align": "center",
+                "gap": "$space.2",
+                "maxWidth": 440,
+                "children": [
+                  {
+                    "id": "h",
+                    "type": "text",
+                    "value": "No flows yet",
+                    "font": "$font.h2",
+                    "color": "$color.text",
+                    "textAlign": "center"
+                  },
+                  {
+                    "id": "p",
+                    "type": "text",
+                    "value": "A flow runs a sequence of prompts, scripts and conditions on its own. Build one from scratch, or start from a template and change what you need.",
+                    "font": "$font.body",
+                    "color": "$color.textMuted",
+                    "textAlign": "center"
+                  }
+                ]
+              },
+              {
+                "id": "actions",
+                "type": "box",
+                "layout": "stack",
+                "direction": "row",
+                "gap": "$space.3",
+                "children": [
+                  {
+                    "id": "primary",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "row",
+                    "align": "center",
+                    "gap": "$space.2",
+                    "padding": [
+                      "$space.3",
+                      "$space.5"
+                    ],
+                    "radius": "$radius.md",
+                    "background": "$color.accent",
+                    "shadow": "$shadow.sm",
+                    "children": [
+                      {
+                        "id": "pi",
+                        "type": "icon",
+                        "name": "plus",
+                        "size": 15,
+                        "color": "$color.onAccent"
+                      },
+                      {
+                        "id": "pl",
+                        "type": "text",
+                        "value": "New flow",
+                        "font": "$font.button",
+                        "color": "$color.onAccent"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "secondary",
+                    "type": "box",
+                    "layout": "stack",
+                    "direction": "row",
+                    "align": "center",
+                    "gap": "$space.2",
+                    "padding": [
+                      "$space.3",
+                      "$space.5"
+                    ],
+                    "radius": "$radius.md",
+                    "border": "$border.hairline",
+                    "background": "$color.surface",
+                    "children": [
+                      {
+                        "id": "si",
+                        "type": "icon",
+                        "name": "layout-grid",
+                        "size": 15,
+                        "color": "$color.textMuted"
+                      },
+                      {
+                        "id": "sl",
+                        "type": "text",
+                        "value": "Browse templates",
+                        "font": "$font.button",
+                        "color": "$color.text"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "hint",
+                "type": "text",
+                "value": [
+                  "Or ask Claude \u2014 ",
+                  {
+                    "text": "\"make me a flow that runs the tests and opens a PR\"",
+                    "font": "$font.mono",
+                    "color": "$color.textMuted"
+                  },
+                  "."
+                ],
+                "font": "$font.small",
+                "color": "$color.textSubtle",
+                "textAlign": "center"
+              }
+            ],
+            "minHeight": 360
+          }
+        ]
+      }
+    }
+  ]
+}

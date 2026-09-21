@@ -1,0 +1,283 @@
+{
+  "schema": 1,
+  "name": "Divider",
+  "theme": "default",
+  "components": {
+    "Divider": {
+      "props": {
+        "axis": {
+          "type": "enum",
+          "of": [
+            "horizontal",
+            "vertical"
+          ],
+          "default": "horizontal"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "none",
+        "alignSelf": "stretch",
+        "shrink": 0,
+        "background": "$color.border",
+        "width": {
+          "match": {
+            "prop": "axis"
+          },
+          "cases": {
+            "horizontal": null,
+            "vertical": 1
+          }
+        },
+        "height": {
+          "match": {
+            "prop": "axis"
+          },
+          "cases": {
+            "horizontal": 1,
+            "vertical": null
+          }
+        }
+      }
+    },
+    "Label": {
+      "props": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "root": {
+        "id": "root",
+        "type": "text",
+        "value": {
+          "prop": "text"
+        },
+        "font": "$font.body",
+        "color": "$color.text"
+      }
+    }
+  },
+  "artboards": [
+    {
+      "id": "dividers",
+      "name": "Divider \u2014 both axes, four parents",
+      "size": {
+        "width": 900,
+        "height": "auto"
+      },
+      "background": "$color.bg",
+      "root": {
+        "id": "page",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "gap": "$space.6",
+        "padding": "$space.8",
+        "children": [
+          {
+            "id": "t",
+            "type": "text",
+            "value": "Divider",
+            "font": "$font.h2",
+            "color": "$color.text"
+          },
+          {
+            "id": "c1",
+            "type": "text",
+            "value": "column stack, no align \u2014 horizontal",
+            "font": "$font.label",
+            "color": "$color.textSubtle",
+            "textTransform": "uppercase"
+          },
+          {
+            "id": "case1",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.3",
+            "padding": "$space.4",
+            "background": "$color.surface",
+            "radius": "$radius.md",
+            "border": "$border.hairline",
+            "children": [
+              {
+                "id": "a1",
+                "use": "Label",
+                "props": {
+                  "text": "Above"
+                }
+              },
+              {
+                "id": "d1",
+                "use": "Divider"
+              },
+              {
+                "id": "b1",
+                "use": "Label",
+                "props": {
+                  "text": "Below"
+                }
+              }
+            ]
+          },
+          {
+            "id": "c2",
+            "type": "text",
+            "value": "column stack, align: center \u2014 horizontal",
+            "font": "$font.label",
+            "color": "$color.textSubtle",
+            "textTransform": "uppercase"
+          },
+          {
+            "id": "case2",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "align": "center",
+            "gap": "$space.3",
+            "padding": "$space.4",
+            "background": "$color.surface",
+            "radius": "$radius.md",
+            "border": "$border.hairline",
+            "children": [
+              {
+                "id": "a2",
+                "use": "Label",
+                "props": {
+                  "text": "Above"
+                }
+              },
+              {
+                "id": "d2",
+                "use": "Divider"
+              },
+              {
+                "id": "b2",
+                "use": "Label",
+                "props": {
+                  "text": "Below"
+                }
+              }
+            ]
+          },
+          {
+            "id": "c3",
+            "type": "text",
+            "value": "row stack, no align \u2014 vertical",
+            "font": "$font.label",
+            "color": "$color.textSubtle",
+            "textTransform": "uppercase"
+          },
+          {
+            "id": "case3",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "gap": "$space.4",
+            "padding": "$space.4",
+            "background": "$color.surface",
+            "radius": "$radius.md",
+            "border": "$border.hairline",
+            "children": [
+              {
+                "id": "a3",
+                "use": "Label",
+                "props": {
+                  "text": "Left"
+                }
+              },
+              {
+                "id": "d3",
+                "use": "Divider",
+                "props": {
+                  "axis": "vertical"
+                }
+              },
+              {
+                "id": "b3",
+                "use": "Label",
+                "props": {
+                  "text": "Right"
+                }
+              }
+            ]
+          },
+          {
+            "id": "c4",
+            "type": "text",
+            "value": "row stack, align: center, uneven children \u2014 vertical",
+            "font": "$font.label",
+            "color": "$color.textSubtle",
+            "textTransform": "uppercase"
+          },
+          {
+            "id": "case4",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "align": "center",
+            "gap": "$space.4",
+            "padding": "$space.4",
+            "background": "$color.surface",
+            "radius": "$radius.md",
+            "border": "$border.hairline",
+            "children": [
+              {
+                "id": "a4",
+                "use": "Label",
+                "props": {
+                  "text": "Left"
+                }
+              },
+              {
+                "id": "d4",
+                "use": "Divider",
+                "props": {
+                  "axis": "vertical"
+                }
+              },
+              {
+                "id": "tall",
+                "type": "box",
+                "layout": "stack",
+                "direction": "column",
+                "gap": "$space.1",
+                "children": [
+                  {
+                    "id": "t1",
+                    "type": "text",
+                    "value": "A taller block",
+                    "font": "$font.bodyStrong",
+                    "color": "$color.text"
+                  },
+                  {
+                    "id": "t2",
+                    "type": "text",
+                    "value": "with two lines of its own",
+                    "font": "$font.small",
+                    "color": "$color.textMuted"
+                  }
+                ]
+              },
+              {
+                "id": "d5",
+                "use": "Divider",
+                "props": {
+                  "axis": "vertical"
+                }
+              },
+              {
+                "id": "b4",
+                "use": "Label",
+                "props": {
+                  "text": "Right"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
