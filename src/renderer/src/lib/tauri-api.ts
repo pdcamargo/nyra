@@ -268,7 +268,28 @@ export const api = {
   },
 
   system: {
-    homedir: () => call<string>('system_homedir')
+    homedir: () => call<string>('system_homedir'),
+    /** Hand a URL to the user's own browser. http(s) only; anything else is
+     *  refused in Rust rather than passed to the OS. */
+    openExternal: (url: string) => call<{ ok: boolean; error?: string }>('open_external', { url })
+  },
+
+  /**
+   * The PRs a chat opened.
+   *
+   * Only the state is asked for — the number came out of the transcript. Every
+   * failure mode (`gh` missing, not signed in, offline) answers `{ error }`,
+   * and the chip draws neutral rather than claiming a state it does not know.
+   */
+  pr: {
+    state: (url: string) =>
+      call<{
+        number?: number
+        title?: string
+        state?: string
+        isDraft?: boolean
+        error?: string
+      }>('pr_state', { url })
   },
 
   git: {

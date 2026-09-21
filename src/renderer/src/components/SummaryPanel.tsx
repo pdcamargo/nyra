@@ -10,6 +10,8 @@ import { useChordLabel } from './ui/kbd'
 import { useProcessesStore, type BgProcess } from '../store/processes'
 import { formatElapsed } from './ActivityStrip'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
+import { PrRows } from './PullRequestChips'
+import { PortBadges } from './PortChips'
 
 type Stat = { filesChanged: number; insertions: number; deletions: number }
 
@@ -232,12 +234,27 @@ export default function SummaryPanel(): React.JSX.Element | null {
               icon={<TerminalSquare className="size-3.5" />}
               label={proc.description ?? proc.command}
               trailing={
-                <span className="text-[10px] text-muted-foreground/40">
-                  {formatElapsed(now - proc.startedAt)}
+                // The port rather than a second section of its own: a port
+                // belongs to the shell serving it, and a Ports section would be
+                // this same list again with one column changed.
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <PortBadges sessionId={session.id} process={proc} />
+                  <span className="text-[10px] text-muted-foreground/40">
+                    {formatElapsed(now - proc.startedAt)}
+                  </span>
                 </span>
               }
             />
           ))}
+        </Section>
+      )}
+
+      {/* What this chat shipped. Above the subagents because it is the outcome
+          and they are the machinery, and persisted with the session — a chat
+          reopened next week still says what it opened. */}
+      {(session.pullRequests?.length ?? 0) > 0 && (
+        <Section label={session.pullRequests!.length === 1 ? 'Pull request' : 'Pull requests'}>
+          <PrRows prs={session.pullRequests!} />
         </Section>
       )}
 

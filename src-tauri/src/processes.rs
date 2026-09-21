@@ -44,6 +44,10 @@ pub struct BgProcess {
     pub exit_code: Option<i32>,
     pub last_output: Option<String>,
     pub last_output_at: Option<i64>,
+    /// TCP ports anything under this shell is listening on. Not persisted and
+    /// not inferred from the log — see the port scanner below for why.
+    #[serde(default)]
+    pub ports: Vec<u16>,
     /// Byte size at the last tail read; lets the poller skip unchanged files.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_output_size: Option<u64>,
@@ -140,6 +144,7 @@ pub fn note_tool_input(
                 last_output: None,
                 last_output_at: None,
                 last_output_size: None,
+                ports: Vec::new(),
             };
             {
                 let mut sessions = SESSIONS.lock();
@@ -428,9 +433,17 @@ fn ensure_poll_timer() {
     }
     tauri::async_runtime::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(2));
+        let mut tick: u64 = 0;
         loop {
             ticker.tick().await;
             poll_once().await;
+            // Every other tick. A port appears once, when the server finishes
+            // booting, so 4 s is well inside "it showed up immediately" — and
+            // this is two process-table scans, unlike the rest of the poll.
+            tick = tick.wrapping_add(1);
+            if tick % 2 == 0 {
+                scan_ports().await;
+            }
         }
     });
 }
@@ -703,6 +716,188 @@ pub fn truncate_output(s: &str) -> String {
     trimmed
 }
 
+// ---- listening ports ----
+//
+// What a backgrounded shell is *serving*, which is the one thing about it you
+// actually want in the composer. `npm run dev` is not a useful label; `:5173`
+// is, because you can click it.
+//
+// Read out of the kernel rather than out of the log. Scraping "Local:
+// http://localhost:5173/" from the output tail was the obvious approach and it
+// is wrong twice over: a server that prints nothing (or prints before we attach
+// the tail, or scrolls past the 4 KB window) has no port, and a server that has
+// exited still has its banner sitting in the file, so the port outlives the
+// process that owned it. `lsof` cannot be stale — if it lists the port, someone
+// is listening on it right now.
+//
+// Two whole-machine calls per scan, ~55 ms together on a 600-process machine,
+// regardless of how many shells are tracked. Attribution is by process tree:
+// the tracked pid is a shell, and the thing that binds the port is its
+// grandchild (`sh` → `npm` → `node`), so the ports of every descendant roll up
+// to the shell Claude started.
+
+/// `lsof -F` output → which ports each pid is listening on.
+///
+/// The `-F pn` format is one field per line, `p` opening a new process block and
+/// `n` naming a socket: `p1085`, `f14`, `n127.0.0.1:4201`. Parsed rather than
+/// column-split because the human format pads and truncates the command name.
+pub fn parse_lsof_ports(text: &str) -> HashMap<i32, Vec<u16>> {
+    let mut by_pid: HashMap<i32, Vec<u16>> = HashMap::new();
+    let mut current: Option<i32> = None;
+    for line in text.lines() {
+        let (tag, rest) = match line.split_at_checked(1) {
+            Some(pair) => pair,
+            None => continue,
+        };
+        match tag {
+            "p" => current = rest.trim().parse::<i32>().ok(),
+            "n" => {
+                let Some(pid) = current else { continue };
+                // `127.0.0.1:4201`, `*:7000`, `[::1]:3000` — the port is what
+                // follows the last colon in every form.
+                let Some(port) = rest.rsplit(':').next().and_then(|p| p.trim().parse::<u16>().ok())
+                else {
+                    continue;
+                };
+                let ports = by_pid.entry(pid).or_default();
+                if !ports.contains(&port) {
+                    ports.push(port);
+                }
+            }
+            _ => {}
+        }
+    }
+    for ports in by_pid.values_mut() {
+        ports.sort_unstable();
+    }
+    by_pid
+}
+
+/// `ps -axo pid=,ppid=` → child → parent, for every process on the machine.
+pub fn parse_parent_map(text: &str) -> HashMap<i32, i32> {
+    let mut parents = HashMap::new();
+    for line in text.lines() {
+        let mut fields = line.split_whitespace();
+        if let (Some(Ok(pid)), Some(Ok(ppid))) = (
+            fields.next().map(str::parse::<i32>),
+            fields.next().map(str::parse::<i32>),
+        ) {
+            parents.insert(pid, ppid);
+        }
+    }
+    parents
+}
+
+/// The ports listening anywhere under each root, keyed by that root.
+///
+/// Walks upward from each listening pid rather than downward from each root:
+/// there are a handful of listeners and hundreds of processes, and a `ppid` map
+/// only goes that way. The walk is depth-capped so a `ppid` cycle — which should
+/// not exist, but this runs every few seconds forever — cannot hang the poller.
+pub fn roll_up_ports(
+    roots: &[i32],
+    parents: &HashMap<i32, i32>,
+    listening: &HashMap<i32, Vec<u16>>,
+) -> HashMap<i32, Vec<u16>> {
+    const MAX_DEPTH: usize = 64;
+    let mut out: HashMap<i32, Vec<u16>> = HashMap::new();
+    for (pid, ports) in listening {
+        let mut at = *pid;
+        for _ in 0..MAX_DEPTH {
+            if roots.contains(&at) {
+                let bucket = out.entry(at).or_default();
+                for port in ports {
+                    if !bucket.contains(port) {
+                        bucket.push(*port);
+                    }
+                }
+                break;
+            }
+            match parents.get(&at) {
+                Some(&parent) if parent > 1 && parent != at => at = parent,
+                _ => break,
+            }
+        }
+    }
+    for ports in out.values_mut() {
+        ports.sort_unstable();
+    }
+    out
+}
+
+async fn run_capture(program: &str, args: &[&str]) -> Option<String> {
+    let out = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new(program).args(args).output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+/// One scan across every session. `lsof` is absent on some minimal Linux
+/// images and on Windows; there it finds nothing and no port is ever shown,
+/// which is the same as before this existed.
+async fn scan_ports() {
+    let roots: Vec<i32> = {
+        let sessions = SESSIONS.lock();
+        sessions
+            .values()
+            .flat_map(|s| s.by_shell_id.values())
+            .filter(|p| matches!(p.status, ProcStatus::Running | ProcStatus::Orphaned))
+            .filter_map(|p| p.pid)
+            .collect()
+    };
+    if roots.is_empty() {
+        return;
+    }
+
+    let Some(lsof) = run_capture("lsof", &["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pn"]).await
+    else {
+        return;
+    };
+    let listening = parse_lsof_ports(&lsof);
+    let parents = run_capture("ps", &["-axo", "pid=,ppid="])
+        .await
+        .map(|t| parse_parent_map(&t))
+        .unwrap_or_default();
+    let by_root = roll_up_ports(&roots, &parents, &listening);
+
+    let mut touched: Vec<String> = Vec::new();
+    {
+        let mut sessions = SESSIONS.lock();
+        for (sid, state) in sessions.iter_mut() {
+            let mut changed = false;
+            for proc in state.by_shell_id.values_mut() {
+                let next = proc
+                    .pid
+                    .and_then(|pid| by_root.get(&pid).cloned())
+                    .unwrap_or_default();
+                // A dead shell keeps whatever it last served rather than
+                // flickering to empty; the row is about to say "exited" anyway.
+                if next.is_empty() && !matches!(proc.status, ProcStatus::Running | ProcStatus::Orphaned)
+                {
+                    continue;
+                }
+                if proc.ports != next {
+                    proc.ports = next;
+                    changed = true;
+                }
+            }
+            if changed {
+                touched.push(sid.clone());
+            }
+        }
+    }
+    for sid in touched {
+        broadcast(&sid);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -745,6 +940,81 @@ mod tests {
         assert!(parse_lstart_ms("Thu May  1 19:14:32 2026").is_some());
         assert!(parse_lstart_ms("garbage").is_none());
         assert!(parse_lstart_ms("").is_none());
+    }
+
+    #[test]
+    fn parses_lsof_field_output() {
+        // Real shapes: loopback, wildcard, and IPv6 in brackets.
+        let out = "p1085\nf14\nn127.0.0.1:4201\np675\nf9\nn*:7000\nf11\nn[::1]:5000\n";
+        let by_pid = parse_lsof_ports(out);
+        assert_eq!(by_pid.get(&1085), Some(&vec![4201]));
+        assert_eq!(by_pid.get(&675), Some(&vec![5000, 7000]));
+    }
+
+    #[test]
+    fn dedupes_the_two_rows_one_server_produces() {
+        // A server bound on both IPv4 and IPv6 lists the same port twice.
+        let out = "p900\nf4\nn*:50065\nf5\nn*:50065\n";
+        assert_eq!(parse_lsof_ports(out).get(&900), Some(&vec![50065]));
+    }
+
+    #[test]
+    fn ignores_lsof_lines_it_cannot_read() {
+        let out = "\np-\nnnot-a-socket\np42\nn127.0.0.1:99999\nn127.0.0.1:8080\n";
+        let by_pid = parse_lsof_ports(out);
+        // 99999 does not fit a u16 and is dropped; the good row still lands.
+        assert_eq!(by_pid.get(&42), Some(&vec![8080]));
+    }
+
+    #[test]
+    fn parses_the_ps_parent_map() {
+        let parents = parse_parent_map("    1     0\n  325     1\n  400   325\n");
+        assert_eq!(parents.get(&400), Some(&325));
+        assert_eq!(parents.get(&1), Some(&0));
+    }
+
+    #[test]
+    fn rolls_a_grandchilds_port_up_to_the_tracked_shell() {
+        // sh(500) → npm(501) → node(502), and only node binds the port.
+        let parents = HashMap::from([(502, 501), (501, 500), (500, 1)]);
+        let listening = HashMap::from([(502, vec![5173])]);
+        let rolled = roll_up_ports(&[500], &parents, &listening);
+        assert_eq!(rolled.get(&500), Some(&vec![5173]));
+    }
+
+    #[test]
+    fn keeps_two_shells_ports_apart() {
+        let parents = HashMap::from([(601, 600), (701, 700)]);
+        let listening = HashMap::from([(601, vec![3000]), (701, vec![8787])]);
+        let rolled = roll_up_ports(&[600, 700], &parents, &listening);
+        assert_eq!(rolled.get(&600), Some(&vec![3000]));
+        assert_eq!(rolled.get(&700), Some(&vec![8787]));
+    }
+
+    #[test]
+    fn collects_several_ports_under_one_shell() {
+        // A dev server with an HMR socket, plus a sibling worker.
+        let parents = HashMap::from([(801, 800), (802, 801)]);
+        let listening = HashMap::from([(801, vec![5173]), (802, vec![24678])]);
+        assert_eq!(
+            roll_up_ports(&[800], &parents, &listening).get(&800),
+            Some(&vec![5173, 24678])
+        );
+    }
+
+    #[test]
+    fn ignores_a_listener_that_is_not_ours() {
+        let parents = HashMap::from([(901, 1)]);
+        let listening = HashMap::from([(901, vec![7000])]);
+        assert!(roll_up_ports(&[500], &parents, &listening).is_empty());
+    }
+
+    #[test]
+    fn survives_a_cycle_in_the_parent_map() {
+        // Should be impossible; the poller runs forever, so it must not hang.
+        let parents = HashMap::from([(10, 11), (11, 10)]);
+        let listening = HashMap::from([(10, vec![1234])]);
+        assert!(roll_up_ports(&[999], &parents, &listening).is_empty());
     }
 
     #[test]

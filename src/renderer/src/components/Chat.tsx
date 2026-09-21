@@ -20,6 +20,8 @@ import { withAttachments } from '../lib/promptAttachments'
 import { extractAskBlocks } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
 import { extractChangeBlocks } from '../lib/changeBlocks'
+import { findCreatedPr, isPrCreatingCall } from '../lib/pullRequests'
+import { syncPrState, syncStalePrs } from '../lib/prSync'
 import ChangesCard from './ChangesCard'
 import { isMemoryWrite, memoryWriteFrom, type MemoryWrite } from '../lib/memoryWrites'
 import MemoryChip from './MemoryChip'
@@ -135,6 +137,10 @@ export default function Chat(): React.JSX.Element {
    *  `result` does not repeat the last paragraph. */
   const streamedTextRef = useRef<Set<string>>(new Set())
   const pendingToolsRef = useRef<Map<string, string>>(new Map())
+  /** Tool calls that are opening a PR, waiting on the result that names it.
+   *  The call says "open a PR" and only the result says which one, so the
+   *  two halves have to be tied together across events. */
+  const prCallsRef = useRef<Set<string>>(new Set())
   const [isDragging, setIsDragging] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
   const [copyBlocksOpen, setCopyBlocksOpen] = useState(false)
@@ -525,6 +531,13 @@ export default function Chat(): React.JSX.Element {
     setActiveMatchIndex(0)
   }, [activeSessionId])
 
+  // A PR merges on github.com without telling us, so the chip's colour is
+  // re-asked when you open the chat it belongs to. Rate-limited inside, because
+  // switching chats is something you do dozens of times an hour.
+  useEffect(() => {
+    if (activeSessionId) syncStalePrs(activeSessionId)
+  }, [activeSessionId])
+
   const searchMatches = useMemo(() => searchOpen ? findMatches(messages, searchQuery) : [], [searchOpen, messages, searchQuery])
   const searchMatchCount = searchMatches.length
 
@@ -647,6 +660,12 @@ export default function Chat(): React.JSX.Element {
           originalContent: event.originalContent
         })
 
+        // A PR being opened. Noted on the way past because the result is the
+        // only event that carries the number.
+        if (isPrCreatingCall(tool_name, event.input)) {
+          prCallsRef.current.add(event.tool_id)
+        }
+
         // Intercept task tool events
         if (tool_name === 'TaskCreate') {
           const inp = event.input as Record<string, unknown>
@@ -707,6 +726,17 @@ export default function Chat(): React.JSX.Element {
 
       if (event.type === 'tool_result') {
         updateToolResult(sid, event.tool_id, event.content)
+
+        if (prCallsRef.current.delete(event.tool_id)) {
+          const ref = findCreatedPr(event.content ?? '')
+          if (ref) {
+            useSessionsStore.getState().addPullRequest(sid, { ...ref, createdAt: Date.now() })
+            // The state decides the chip's colour, and `gh` is the only thing
+            // that knows it. Fire and forget: a chip with no state yet is a
+            // neutral chip, not a broken one.
+            void syncPrState(sid, ref.url)
+          }
+        }
 
         // Extract real task ID from result like "Task #3 created successfully"
         const taskMatch = event.content?.match(/Task #(\d+)/)

@@ -76,6 +76,10 @@ export type BgProcessRow = {
   exitCode: number | null
   lastOutput: string | null
   lastOutputAt: number | null
+  /** TCP ports anything under this shell is listening on, newest scan wins.
+   *  Read from the kernel every few seconds, so it is never stale and never
+   *  guessed from the log. */
+  ports: number[]
 }
 
 export type McpEntry = {

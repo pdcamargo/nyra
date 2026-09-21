@@ -178,6 +178,12 @@
   /* A design document. Far enough from --info that a design chip and a file
    * chip do not read as the same kind of thing at a glance. */
   --design: oklch(0.5600 0.1900 350);
+  /* A merged pull request, and nothing else. GitHub's four PR colours are
+   * green/grey/purple/red, and three of them are already here as --success,
+   * --muted-foreground and --danger; purple is the one the ramp has no slot
+   * for. At hue 300 it sits between --info (255) and --design (350), so a
+   * merged PR, a link and a design chip stay three different things. */
+  --merged: oklch(0.5400 0.1700 300);
 }
 
 .dark {
@@ -188,6 +194,7 @@
   --info: oklch(0.7000 0.1400 255);
   --info-foreground: oklch(0.1448 0 0);
   --design: oklch(0.7400 0.1600 350);
+  --merged: oklch(0.7200 0.1500 300);
 }
 
 /*
@@ -295,6 +302,7 @@
   --color-danger-foreground: var(--danger-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  --color-merged: var(--merged);
 
   --color-border-strong: var(--border-strong);
   --color-separator: var(--separator);

@@ -12,6 +12,7 @@ mod file_extractor;
 mod file_tree;
 mod fonts;
 mod fs_ops;
+mod gh;
 mod git;
 mod hooks;
 pub mod logger;
@@ -225,6 +226,8 @@ pub fn run() {
             commands::marketplace_install,
             commands::marketplace_share,
             commands::marketplace_open,
+            commands::pr_state,
+            commands::open_external,
             commands::processes_list,
             commands::processes_kill,
             commands::processes_clear,

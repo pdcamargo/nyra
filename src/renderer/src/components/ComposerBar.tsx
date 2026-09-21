@@ -32,6 +32,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { useSettingsStore } from '../store/settings'
 import { useChatSettings } from '../hooks/useChatSettings'
 import { BUILT_IN_COMMANDS } from '../data/commands'
+import { ComposerPrPills } from './PullRequestChips'
+import { ComposerPortPills } from './PortChips'
 import { KNOWN_MODELS as MODELS, MODEL_BLURB } from '../lib/models'
 
 const EFFORTS = [
@@ -326,6 +328,16 @@ function ModelEffort(): React.JSX.Element {
   )
 }
 
+/**
+ * Below this, the bar has no room for a second pill.
+ *
+ * Measured rather than assumed: the chat column is as narrow as the right panel
+ * leaves it, and at 334 px a second PR pill pushed the send button off the end
+ * of the bar entirely. The fixed controls — add, approval, model, send — come to
+ * about 220 px, so this is roughly "one pill's worth of slack left over".
+ */
+const COMPACT_BELOW = 520
+
 export default function ComposerBar({
   isLoading,
   canSend,
@@ -341,11 +353,30 @@ export default function ComposerBar({
   onSend: () => void
   onStop?: () => void
 }): React.JSX.Element {
+  const barRef = React.useRef<HTMLDivElement>(null)
+  const [compact, setCompact] = React.useState(false)
+
+  React.useEffect(() => {
+    const el = barRef.current
+    if (!el) return
+    const observer = new ResizeObserver(([entry]) => {
+      setCompact(entry.contentRect.width < COMPACT_BELOW)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <div className="flex items-center gap-1 pt-1">
+    <div ref={barRef} className="flex items-center gap-1 pt-1">
       <AddMenu onPickFiles={onPickFiles} onInsert={onInsert} />
       <ApprovalMenu />
       <PlanModePill />
+      {/* What this conversation has out in the world: the PRs it opened, and
+          the ports it is serving. Left of the spacer with the rest of the
+          turn's state, rather than right, so they never crowd the send button
+          or shuffle the model pill around as they appear. */}
+      <ComposerPrPills compact={compact} />
+      <ComposerPortPills compact={compact} />
       <div className="flex-1" />
       <ModelEffort />
       {isLoading && onStop ? (

@@ -8,6 +8,7 @@ import { backfillProjects, nameForPath } from './projects-migration'
 import { homedir } from '../lib/homedir'
 import { useTerminalsStore } from './terminals'
 import type { ChangeBlock } from '../lib/changeBlocks'
+import type { PullRequest } from '../lib/pullRequests'
 
 type PersistedState = { sessions: Session[]; projects: Project[]; activeSessionId: string | null }
 
@@ -174,6 +175,10 @@ export type Session = {
   messages: Message[]
   tasks: Task[]
   agents: Agent[]
+  /** PRs this chat opened. Persisted, unlike the ports in the process registry:
+   *  a PR outlives the turn, the app and the branch it came from, so a chat
+   *  reopened next week still says what it shipped. */
+  pullRequests?: PullRequest[]
   branch?: string
   isGitRepo?: boolean
   worktree?: WorktreeInfo | null
@@ -278,6 +283,8 @@ type SessionsStore = {
   addUsage: (sessionId: string, delta: SessionUsage) => void
   addAgent: (sessionId: string, agent: Agent) => void
   updateAgent: (sessionId: string, toolId: string, updates: Partial<Agent>) => void
+  addPullRequest: (sessionId: string, pr: PullRequest) => void
+  updatePullRequest: (sessionId: string, url: string, updates: Partial<PullRequest>) => void
   setGitInfo: (sessionId: string, info: { isGitRepo: boolean; branch?: string }) => void
   setWorktree: (sessionId: string, worktree: WorktreeInfo | null) => void
   setPendingWorktree: (sessionId: string, pending: PendingWorktree | null) => void
@@ -726,6 +733,43 @@ export const useSessionsStore = create<SessionsStore>()(
                 cacheCreationTokens: u.cacheCreationTokens + delta.cacheCreationTokens,
                 cacheReadTokens: u.cacheReadTokens + delta.cacheReadTokens
               }
+            }
+          })
+        }))
+      },
+
+      /**
+       * Record a PR this chat opened.
+       *
+       * Deduped on URL rather than appended, because the same PR arrives twice
+       * routinely: `gh pr create` on a branch that already has one answers with
+       * that PR's URL, so a retried turn reports it again. The second sighting
+       * patches the first — `state` and `title` land later, from `gh pr view` —
+       * and `createdAt` stays at the first, which is when this chat made it.
+       */
+      addPullRequest: (sessionId: string, pr: PullRequest) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const existing = s.pullRequests ?? []
+            const at = existing.findIndex((p) => p.url === pr.url)
+            if (at === -1) return { ...s, pullRequests: [...existing, pr] }
+            const merged = existing.slice()
+            merged[at] = { ...merged[at], ...pr, createdAt: merged[at].createdAt }
+            return { ...s, pullRequests: merged }
+          })
+        }))
+      },
+
+      updatePullRequest: (sessionId: string, url: string, updates: Partial<PullRequest>) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            return {
+              ...s,
+              pullRequests: (s.pullRequests ?? []).map((p) =>
+                p.url === url ? { ...p, ...updates } : p
+              )
             }
           })
         }))

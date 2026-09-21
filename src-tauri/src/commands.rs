@@ -15,7 +15,7 @@ use crate::workflow::helpers::{build_marketplace_share_url, marketplace_repo_url
 use crate::workflow::types::{MarketplaceEntry, TriggerSource};
 use crate::workflow::{engine, marketplace, store, triggers};
 use crate::{
-    browser, claude, devtools, file_extractor, file_tree, fs_ops, git, hooks, login, mcp,
+    browser, claude, devtools, file_extractor, file_tree, fs_ops, gh, git, hooks, login, mcp,
     memory, open_with, processes, skills, subagents,
 };
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
@@ -721,6 +721,33 @@ pub fn marketplace_share(app: AppHandle, workflow: Value) -> Value {
 pub fn marketplace_open(app: AppHandle) -> Value {
     let _ = app.opener().open_url(marketplace_repo_url(), None::<&str>);
     json!({ "ok": true })
+}
+
+// ---- pull requests ----
+
+#[tauri::command]
+pub async fn pr_state(url: String) -> Value {
+    gh::pr_state(&url).await
+}
+
+/// Open a PR in the real browser, not Nyra's.
+///
+/// Nyra has a perfectly good browser panel, and it is the wrong one for this:
+/// the sidecar runs its own profile, which is not signed in to GitHub, so a PR
+/// opened there lands on a sign-in page. Your own browser already has the
+/// session, the extensions and the tab you were going to leave it in.
+///
+/// Only http(s). The URL was recovered by a regex over tool output, and the
+/// opener will happily hand a `file://` or a custom scheme to the OS.
+#[tauri::command]
+pub fn open_external(app: AppHandle, url: String) -> Value {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return json!({ "ok": false, "error": "only http(s) URLs can be opened" });
+    }
+    match app.opener().open_url(url, None::<&str>) {
+        Ok(()) => json!({ "ok": true }),
+        Err(e) => json!({ "ok": false, "error": e.to_string() }),
+    }
 }
 
 // ---- processes ----

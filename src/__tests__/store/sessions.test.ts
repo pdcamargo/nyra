@@ -137,6 +137,72 @@ describe('Sessions Store', () => {
     })
   })
 
+  describe('addPullRequest', () => {
+    const pr = {
+      url: 'https://github.com/o/r/pull/42',
+      owner: 'o',
+      repo: 'r',
+      number: 42,
+      createdAt: 1000
+    }
+
+    it('records a PR against the chat that opened it', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().addPullRequest(id, pr)
+      expect(session(id).pullRequests).toEqual([pr])
+    })
+
+    it('folds a second sighting onto the first rather than listing it twice', () => {
+      // `gh pr create` on a branch that already has a PR answers with that
+      // PR's URL, so a retried turn reports the same one again.
+      const id = createTestSession()
+      useSessionsStore.getState().addPullRequest(id, pr)
+      useSessionsStore.getState().addPullRequest(id, { ...pr, createdAt: 9999 })
+      expect(session(id).pullRequests).toHaveLength(1)
+      // The first sighting is when this chat made it; the retry is not.
+      expect(session(id).pullRequests![0].createdAt).toBe(1000)
+    })
+
+    it('keeps PRs from different repos apart', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().addPullRequest(id, pr)
+      useSessionsStore
+        .getState()
+        .addPullRequest(id, { ...pr, url: 'https://github.com/o/other/pull/42', repo: 'other' })
+      expect(session(id).pullRequests).toHaveLength(2)
+    })
+
+    it('leaves other chats alone', () => {
+      const a = createTestSession()
+      const b = createTestSession()
+      useSessionsStore.getState().addPullRequest(a, pr)
+      expect(session(b).pullRequests).toBeUndefined()
+    })
+
+    it('patches state and title in without disturbing the rest', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().addPullRequest(id, pr)
+      useSessionsStore
+        .getState()
+        .updatePullRequest(id, pr.url, { state: 'merged', title: 'Ship it', checkedAt: 5 })
+      expect(session(id).pullRequests![0]).toEqual({
+        ...pr,
+        state: 'merged',
+        title: 'Ship it',
+        checkedAt: 5
+      })
+    })
+
+    it('ignores an update for a URL this chat never saw', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().addPullRequest(id, pr)
+      useSessionsStore.getState().updatePullRequest(id, 'https://github.com/x/y/pull/1', {
+        state: 'closed'
+      })
+      expect(session(id).pullRequests![0].state).toBeUndefined()
+    })
+  })
+
   describe('restartSession', () => {
     it('clears claudeSessionId but keeps messages', () => {
       const id = createTestSession()

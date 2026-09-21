@@ -18,6 +18,7 @@ import {
   ContextMenuTrigger
 } from './ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
+import { ChatRowPrChip, PrCardLines } from './PullRequestChips'
 import { useChordLabel } from './ui/kbd'
 import {
   DropdownMenu,
@@ -326,6 +327,8 @@ function ChatCard({
           Browser open
         </span>
       )}
+      {/* The numbers the row's chip could only count. */}
+      <PrCardLines prs={session.pullRequests ?? []} />
       {session.forkOf && (
         <span className="flex items-center gap-1.5 text-[0.85em] text-muted-foreground">
           <GitFork className="size-3 shrink-0" />
@@ -702,12 +705,17 @@ function SessionsList(): React.JSX.Element {
                 {session.title}
               </p>
               {waiting && <WaitingChip label={waiting} />}
-              {!waiting && unread > 0 && (
-                <span
-                  title={`${unread} new message${unread === 1 ? '' : 's'}`}
-                  className="ml-auto size-1.5 shrink-0 rounded-full bg-info"
-                />
-              )}
+              {/* Pushed right by whichever of these comes first, so a row with
+                  both a PR and an unread dot keeps them together at the end. */}
+              <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                <ChatRowPrChip sessionId={session.id} />
+                {!waiting && unread > 0 && (
+                  <span
+                    title={`${unread} new message${unread === 1 ? '' : 's'}`}
+                    className="size-1.5 shrink-0 rounded-full bg-info"
+                  />
+                )}
+              </span>
             </div>
           )}
         </button>

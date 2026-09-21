@@ -8,6 +8,7 @@ import {
   FileDiff,
   FileText,
   FolderPlus,
+  GitPullRequest,
   Globe,
   History,
   Info,
@@ -38,6 +39,7 @@ import {
   Zap
 } from 'lucide-react'
 import type { Chord } from '../lib/keys'
+import { sortPrs, type PullRequest } from '../lib/pullRequests'
 import type { NewTabKind } from '../components/workspace/tabs'
 import { useUiStore } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
@@ -76,6 +78,7 @@ export type CommandId =
   | 'session.clear'
   | 'session.copy'
   | 'session.abort'
+  | 'session.pr.open'
   | 'project.add'
   | 'panel.left'
   | 'panel.right'
@@ -200,6 +203,13 @@ function flowIsOpen(): boolean {
 
 function hasSession(): boolean {
   return useSessionsStore.getState().activeSessionId !== null
+}
+
+/** The PR this chat opened most recently, if it opened one. */
+function newestPr(): PullRequest | null {
+  const { sessions, activeSessionId } = useSessionsStore.getState()
+  const prs = sessions.find((s) => s.id === activeSessionId)?.pullRequests ?? []
+  return prs.length === 0 ? null : sortPrs(prs)[0]
 }
 
 function cycleSession(step: 1 | -1): void {
@@ -349,6 +359,28 @@ export const COMMANDS: Command[] = [
     // when you decide to stop it.
     allowInInput: true,
     run: () => void window.api.claude.abort(useSessionsStore.getState().activeSessionId ?? undefined)
+  },
+  {
+    // Unbound by default. Most chats have no PR at all, so a chord would sit
+    // dead most of the time — but the chip is in the composer and the summary,
+    // both of which can be closed, and this is a thing you reach for often
+    // enough to want a name for.
+    //
+    // Newest first: a chat with several PRs is working through them, and the
+    // last one it opened is the one it is on.
+    id: 'session.pr.open',
+    agent: false,
+    agentReason: 'Opens a window in the user’s own browser, over whatever they were reading.',
+    label: 'Open pull request',
+    group: 'Session',
+    defaultChord: null,
+    icon: GitPullRequest,
+    palette: true,
+    available: () => newestPr() !== null,
+    run: () => {
+      const pr = newestPr()
+      if (pr) void window.api.system.openExternal(pr.url)
+    }
   },
   {
     id: 'project.add',
