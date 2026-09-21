@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.2.0',
+    date: '2026-09-21',
     notes: [
       'Ask Claude to design a screen and it shows you a picture before building it',
       'Designs open in a canvas tab of their own, and stay live as Claude revises them',
