@@ -1279,9 +1279,16 @@ function FlowsList(): React.JSX.Element {
     const confirming = confirmId === wf.id
     return (
       <ContextMenu key={wf.id}>
-      <ContextMenuTrigger asChild>
+      {/* Both triggers land `asChild` on the same button, and the nesting is
+          load-bearing. A ContextMenuTrigger wrapping <Tooltip> hands its props to
+          Radix's Root, which renders no DOM and forwards nothing — onContextMenu
+          never reaches the button, and the row answers a right-click with
+          WebKit's native menu instead of this one. A Slot-based trigger inside
+          another Slot-based trigger merges all the way down; a Root in between
+          swallows it. */}
       <Tooltip>
       <TooltipTrigger asChild>
+      <ContextMenuTrigger asChild>
       <button
         type="button"
         onClick={() => open(wf.id)}
@@ -1311,6 +1318,7 @@ function FlowsList(): React.JSX.Element {
           <span className="truncate">{meta}</span>
         </span>
       </button>
+      </ContextMenuTrigger>
       </TooltipTrigger>
       <TooltipContent
         side="right"
@@ -1325,7 +1333,6 @@ function FlowsList(): React.JSX.Element {
         />
       </TooltipContent>
       </Tooltip>
-      </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
         <ContextMenuItem onSelect={() => open(wf.id)}>
           <Workflow />
