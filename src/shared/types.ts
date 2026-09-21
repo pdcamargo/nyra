@@ -24,6 +24,19 @@ export type NyraSettings = {
   /** The floating miniature. Codex had to add this switch after the fact; it
    *  costs nothing to have from the start. */
   browserPip: boolean
+  /**
+   * Where device mode goes when it is switched back on.
+   *
+   * The binding cannot be persisted — the tab it applied to does not survive a
+   * restart — but the preference can, and someone doing phone work this week
+   * wants it to come back to the phone. Never applied on its own: a tab that
+   * opens as a phone because of a setting nobody remembers is a bad hour.
+   *
+   * Deliberately absent from `settings.rs`. Nothing Rust-side reads it, and the
+   * appearance keys are the precedent for leaving a renderer-only key out of
+   * that struct rather than carrying it around for no one.
+   */
+  browserDevice: string
   /** Webview zoom factor. Scales everything, including the hardcoded px sizes a
    *  root font-size change cannot reach. */
   zoom: number
@@ -108,6 +121,7 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   worktreeAutoDelete: true,
   browserTools: true,
   browserPip: true,
+  browserDevice: 'iphone-16-pro',
   zoom: 1,
   uiFont: '',
   uiFontWeight: 400,

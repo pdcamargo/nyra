@@ -68,6 +68,69 @@ console.log(
     : `FAIL agent cursor -> ${JSON.stringify(cursor?.params)}`
 )
 
+// The glide: with nobody watching, a click must not pay for an animation.
+const quietBefore = events.filter((e) => e.event === 'cursor').length
+await client.callTool({ name: 'browser_click', arguments: { element: 'go button', target: ref } })
+await new Promise((r) => setTimeout(r, 400))
+const quietAfter = events.filter((e) => e.event === 'cursor')
+console.log(
+  quietAfter.length - quietBefore === 1
+    ? 'PASS no glide when no surface is on screen'
+    : `FAIL unwatched click emitted ${quietAfter.length - quietBefore} cursor events`
+)
+
+// Now say a panel is watching, and the same click should travel first.
+await rpc('chat.touch', { chatId: 'chat-http' })
+const before = events.filter((e) => e.event === 'cursor').length
+const started = Date.now()
+await client.callTool({ name: 'browser_click', arguments: { element: 'go button', target: ref } })
+await new Promise((r) => setTimeout(r, 400))
+const after = events.filter((e) => e.event === 'cursor').slice(before)
+const glide = after.find((e) => e.params.down === false)
+const press = after.find((e) => e.params.down === true)
+console.log(
+  glide && press && glide.params.x === 450 && glide.params.y === 270
+    ? `PASS ghost travels to 450,270 before the press (${Date.now() - started}ms)`
+    : `FAIL glide -> ${JSON.stringify(after.map((e) => e.params))}`
+)
+
+// Having the wheel is a state, not an event: every tool call says who is
+// driving, whether or not it moved a pointer, so the ghost can stay on screen
+// between the moves instead of flashing once per click.
+const driving = events.filter((e) => e.event === 'driving')
+console.log(
+  driving.length >= 3 && driving.at(-1).params.tabId
+    ? `PASS driving reported on every tool call (${driving.length} so far)`
+    : `FAIL driving events -> ${driving.length}`
+)
+const withDown = events.filter((e) => e.event === 'cursor' && e.params.down === true)
+console.log(
+  withDown.length > 0
+    ? 'PASS a press is distinguishable from a glide'
+    : 'FAIL no cursor event carried down:true'
+)
+
+// Nyra's own tool: served from the local table, never reaching upstream, and
+// landing on the same sidecar method the panel's menu uses.
+const advertised = tools.some((t) => t.name === 'browser_device')
+console.log(advertised ? 'PASS browser_device advertised in tools/list' : 'FAIL browser_device missing')
+
+const sized = await client.callTool({ name: 'browser_device', arguments: { device: 'iphone-16-pro' } })
+console.log('PASS browser_device ->', String(sized.content?.[0]?.text ?? '').slice(0, 72))
+
+const afterSize = await rpc('tab.list', { chatId: 'chat-http' })
+const dev = afterSize.result.tabs.at(-1)?.device
+console.log(
+  dev?.id === 'iphone-16-pro' && dev?.by === 'agent' && dev?.mobile === true
+    ? 'PASS the resize is in the broadcast, attributed to the agent'
+    : `FAIL device record -> ${JSON.stringify(dev)}`
+)
+
+const bad = await client.callTool({ name: 'browser_device', arguments: { device: 'nokia-3310' } })
+console.log(
+  bad.isError ? 'PASS an unknown device is a tool error, not a crash' : 'FAIL unknown device accepted'
+)
+
 try {
   await client.callTool({ name: 'browser_run_code_unsafe', arguments: { code: '1' } })
   console.log('FAIL a filtered tool was callable')

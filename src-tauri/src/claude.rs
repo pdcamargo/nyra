@@ -860,9 +860,19 @@ const BROWSER_CONVENTION: &str = concat!(
     "reads the page as structured text and is the one to reach for by default; ",
     "`browser_take_screenshot` is for when the question is genuinely visual, and ",
     "it comes back as an image you can look at.\n",
-    "The viewport is a fixed 1280x800 however narrow the panel is, so what you see ",
-    "is the desktop layout and not a phone one. Close a tab when you are done with ",
-    "it: each one costs real memory, and the user is looking at the list."
+    "The page renders at whatever size the panel gives it and reflows as the user ",
+    "drags that panel, so a narrow panel is genuinely a narrow page rather than a ",
+    "desktop layout scaled down \u{2014} which means the layout you are looking at is only ",
+    "one of them. When the question is how something behaves at a particular size, set ",
+    "that size rather than inferring it: `browser_device` takes a named device such as ",
+    "`iphone-16-pro` or `ipad-mini`, `custom` with a width and a height, or `responsive` ",
+    "to hand it back to the panel, and the tool itself lists the rest. A phone or tablet ",
+    "also sets the pixel ratio, the mobile flag and touch, so the page serves its real ",
+    "mobile layout rather than a narrow desktop one \u{2014} a bare width does not. Setting it ",
+    "is visible: the panel reframes while the user watches and the size is labelled in ",
+    "their address bar, so say why you are switching, and put it back to `responsive` ",
+    "when you have finished looking. Close a tab when you are done with it: each one ",
+    "costs real memory, and the user is looking at the list."
 );
 
 /// Everything Nyra has to teach a session about itself, plus whatever the user
@@ -2189,6 +2199,18 @@ mod tests {
         // told it has a browser, or it will invent calls that cannot work.
         assert!(!without.contains("real browser"));
         assert!(!without.contains("browser_snapshot"));
+
+        // A tool name is the part that must never leak to a session that has no
+        // tools. This suite stayed green through the whole viewport rewrite
+        // without asserting anything about it, which is exactly the quiet rot
+        // the conditional clause was split out to avoid.
+        assert!(with.contains("browser_device"));
+        assert!(!without.contains("browser_device"));
+        // The viewport is no longer fixed, and saying so is the point: a model
+        // told it is looking at a desktop layout will not think to check a
+        // narrow one.
+        assert!(with.contains("reflows as the user"));
+        assert!(!with.contains("1280x800"));
 
         // Everything else is taught either way.
         for shared in [

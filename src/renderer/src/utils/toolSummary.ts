@@ -19,6 +19,11 @@ export function inlineLabel(name: string, input: Record<string, unknown>, done: 
 }
 
 function pastTense(name: string): string {
+  // Nyra's own browser tool changes something the user is looking at, so the
+  // strip should say what happened rather than `nyra-browser:browser_device`.
+  // Two lines is the whole surface it needs — the size itself already shows on
+  // the device bar, so a card here would only repeat it.
+  if (name.endsWith('__browser_device')) return 'Set device'
   switch (name) {
     case 'Read': return 'Read'
     case 'Write': return 'Wrote'
@@ -40,6 +45,7 @@ function pastTense(name: string): string {
 }
 
 function presentTense(name: string): string {
+  if (name.endsWith('__browser_device')) return 'Setting device'
   switch (name) {
     case 'Skill': return 'Using skill'
     case 'ToolSearch': return 'Looking up tools'

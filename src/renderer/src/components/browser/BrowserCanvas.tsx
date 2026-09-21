@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import { browserHub, useBrowserStore } from '../../store/browser'
 import type { CdpConnection } from '../../lib/browser/cdp'
+import { useElementDpr } from '../../lib/browser/dpr'
+import type { Subscription, Want } from '../../lib/browser/screencast'
 import { buttonName, keyEventOf, modifiersOf, pageFromCanvas } from '../../lib/browser/input'
 
 /**
@@ -8,16 +10,25 @@ import { buttonName, keyEventOf, modifiersOf, pageFromCanvas } from '../../lib/b
  * one tab's input.
  *
  * The canvas takes its intrinsic size from the frame and its display size from
- * the container, so the page renders at the pinned viewport and is scaled into
- * whatever room there is. That is why the page never reflows to a phone layout
- * when the panel is narrow, and it is also what makes canvas coordinates
- * convert to page coordinates with a single multiply.
+ * its container. Those are two different numbers on purpose: the container is
+ * sized by whoever owns the layout, and the frame arrives at whatever
+ * resolution is available, so a still sharpened to the full device-pixel raster
+ * and a live frame capped at the CSS viewport both land in the same box.
+ *
+ * The size it asks for is in device pixels, measured off the element rather
+ * than computed from `width`. Asking in CSS pixels and then drawing onto a
+ * Retina canvas is a straight upscale, which is what made the panel look soft.
+ *
+ * It does not choose what the page renders at — the sidecar does. See the
+ * ownership note in `screencast.ts`.
  */
 export default function BrowserCanvas({
   targetId,
   width,
-  everyNthFrame = 2,
+  everyNthFrame = 1,
   interactive = false,
+  preview = false,
+  onUserInput,
   className = ''
 }: {
   targetId: string | null
@@ -27,22 +38,51 @@ export default function BrowserCanvas({
   everyNthFrame?: number
   /** Previews are for looking at. Only the panel takes input. */
   interactive?: boolean
+  /** A miniature: cheaper frames, and never worth a sharpening screenshot. */
+  preview?: boolean
+  /** The person touched the page. Whoever is drawing an agent on the wheel
+   *  should stop — they have taken it back. */
+  onUserInput?: () => void
   className?: string
 }): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const liveRef = useRef<{ conn: CdpConnection; sessionId: string } | null>(null)
+  const subRef = useRef<Subscription | null>(null)
   const cdpUrl = useBrowserStore((s) => s.cdpUrl)
-  const viewport = useBrowserStore((s) => s.viewport)
+  // Primitives, not the object. A `tabs` broadcast lands on every navigation,
+  // title change and loading flip, and selecting the record itself would hand
+  // back a fresh identity each time — which, in the effect below, is a
+  // detach-and-reattach per navigation.
+  const vpWidth = useBrowserStore(
+    (s) => (targetId ? s.viewportByTarget[targetId]?.width : undefined) ?? s.viewport.width
+  )
+  const vpHeight = useBrowserStore(
+    (s) => (targetId ? s.viewportByTarget[targetId]?.height : undefined) ?? s.viewport.height
+  )
+  const viewport = useMemo(() => ({ width: vpWidth, height: vpHeight }), [vpWidth, vpHeight])
+  // Quantised to two decimals inside the hook, so this is stable across
+  // re-layouts and only moves when the display or the app's zoom does.
+  const pixelRatio = useElementDpr(canvasRef)
 
+  /** What this surface currently wants. Kept in a ref as well as in the effect
+   *  below, because the attach is async and a resize can land before it. */
+  const want: Want = useMemo(
+    () => ({ width, devicePixels: Math.ceil(width * pixelRatio), everyNthFrame, preview }),
+    [width, pixelRatio, everyNthFrame, preview]
+  )
+  const wantRef = useRef(want)
+
+  // Attach. Deliberately does not depend on size: resizing a surface is not the
+  // same event as detaching it, and tearing this down on a drag stops the
+  // stream and starts it again once per mousemove.
   useEffect(() => {
     if (!cdpUrl || !targetId) return
     let cancelled = false
-    let unsubscribe: (() => void) | null = null
 
-    void browserHub(cdpUrl, viewport)
+    void browserHub(cdpUrl)
       .then(async ({ conn, hub }) => {
         if (cancelled) return
-        unsubscribe = hub.subscribe(targetId, { width, everyNthFrame }, (bitmap) => {
+        subRef.current = hub.subscribe(targetId, wantRef.current, (bitmap) => {
           const canvas = canvasRef.current
           if (!canvas) return
           if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
@@ -63,9 +103,18 @@ export default function BrowserCanvas({
     return () => {
       cancelled = true
       liveRef.current = null
-      unsubscribe?.()
+      subRef.current?.stop()
+      subRef.current = null
     }
-  }, [cdpUrl, targetId, width, everyNthFrame, interactive, viewport])
+    // Not `viewport` either: a size change restarts the stream through the
+    // hub's `invalidate`, which does not need this session torn down.
+  }, [cdpUrl, targetId, interactive])
+
+  // Resize. A cheap imperative poke, and usually a no-op inside the hub.
+  useEffect(() => {
+    wantRef.current = want
+    subRef.current?.update(want)
+  }, [want])
 
   /** Fire and forget. CDP preserves order per session, so a press and its
    *  release cannot cross, and awaiting each round trip would put the socket's
@@ -163,6 +212,7 @@ export default function BrowserCanvas({
         interactive
           ? (e) => {
               canvasRef.current?.focus()
+              onUserInput?.()
               mouse('mousePressed', e)
             }
           : undefined
@@ -179,9 +229,21 @@ export default function BrowserCanvas({
           : undefined
       }
       onContextMenu={(e) => e.preventDefault()}
-      onKeyDown={interactive ? (e) => onKey(e, 'down') : undefined}
+      onKeyDown={
+        interactive
+          ? (e) => {
+              onUserInput?.()
+              onKey(e, 'down')
+            }
+          : undefined
+      }
       onKeyUp={interactive ? (e) => onKey(e, 'up') : undefined}
-      className={`block h-auto w-full bg-background ${
+      // `object-contain` is not decoration. A frame can briefly disagree with
+      // the box it lands in — a navigation reverts the page for a beat, a
+      // device change lands before the new stream does — and without this the
+      // canvas stretches it to fit, which reads as the page distorting. Letting
+      // it letterbox instead makes a stale frame look merely stale.
+      className={`block bg-background object-contain ${
         interactive ? 'cursor-default outline-none focus-visible:ring-1 focus-visible:ring-ring' : ''
       } ${className}`}
     />

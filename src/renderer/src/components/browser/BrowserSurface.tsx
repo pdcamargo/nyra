@@ -5,14 +5,22 @@
  * What stayed behind is routing; what came here is the page: the address bar,
  * the canvas, and the states a page can be in before it is one.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, Download, Globe, RotateCw } from 'lucide-react'
 import AgentCursor from './AgentCursor'
 import BrowserCanvas from './BrowserCanvas'
+import BrowserMenu, { isEmulating, type DeviceSpec } from './BrowserMenu'
+import DeviceBar from './DeviceBar'
 import { displayUrl, toUrl } from './url'
 import Empty from '../workspace/Empty'
 import { EMPTY_BROWSER, useBrowserStore, type BrowserPhase } from '../../store/browser'
-import { usePanelLayoutStore } from '../../store/panelLayout'
+import { fitScale } from '../../lib/browser/viewport'
+import {
+  forgetResponsiveViewport,
+  requestResponsiveViewport
+} from '../../lib/browser/viewportController'
+import { useRunningStore } from '../../store/running'
+import { useSettingsStore } from '../../store/settings'
 import type { BrowserTab } from '../../lib/api-types'
 
 export default function BrowserSurface({
@@ -24,9 +32,95 @@ export default function BrowserSurface({
   tab: BrowserTab | null
 }): React.JSX.Element {
   const chat = useBrowserStore((s) => s.bySession[sessionId] ?? EMPTY_BROWSER)
-  const panelWidth = usePanelLayoutStore((s) => s.rightPanelWidth)
-  const viewport = useBrowserStore((s) => s.viewport)
+  // This tab's own size, not the app-wide fallback — two tabs can be rendered
+  // at different ones. Primitives rather than the record, so a `tabs` broadcast
+  // on every navigation does not hand back a fresh object.
+  const targetId = tab?.targetId ?? null
+  const vpWidth = useBrowserStore(
+    (s) => (targetId ? s.viewportByTarget[targetId]?.width : undefined) ?? s.viewport.width
+  )
+  const vpHeight = useBrowserStore(
+    (s) => (targetId ? s.viewportByTarget[targetId]?.height : undefined) ?? s.viewport.height
+  )
+  const viewport = useMemo(() => ({ width: vpWidth, height: vpHeight }), [vpWidth, vpHeight])
   const [busy, setBusy] = useState(false)
+
+  // The box the page is drawn into, measured rather than derived. The old
+  // `panelWidth - 16` had to know about the wrapper's padding and still got the
+  // border, the scrollbar and the app's zoom wrong.
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [box, setBox] = useState({ width: 0, height: 0 })
+  const [zoom, setZoom] = useState<number | 'fit'>('fit')
+
+  const device = tab?.device ?? null
+  const tabId = tab?.tabId ?? null
+  const responsive = !device || device.id === 'responsive'
+
+  // Read through a ref: the device record arrives fresh on every `tabs`
+  // broadcast, so depending on it would re-run this per navigation.
+  const deviceRef = useRef(device)
+  deviceRef.current = device
+
+  useEffect(() => {
+    const node = boxRef.current
+    if (!node || !tabId) return
+    let frame = 0
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect
+      if (!rect) return
+      cancelAnimationFrame(frame)
+      // Through a frame rather than straight out of the callback: the observer
+      // fires during layout, and setting state from there is what produces
+      // "ResizeObserver loop completed with undelivered notifications".
+      frame = requestAnimationFrame(() => setBox({ width: rect.width, height: rect.height }))
+    })
+    observer.observe(node)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      forgetResponsiveViewport(sessionId, tabId)
+    }
+  }, [sessionId, tabId])
+
+  // Responsive mode's whole behaviour: the box is the viewport, so tell the
+  // sidecar whenever it moves. Throttled in the controller, and never from a
+  // preview — a miniature pushing its own 300px would re-emulate the tab the
+  // agent is working in.
+  useEffect(() => {
+    if (!tabId || !responsive) return
+    requestResponsiveViewport(sessionId, tabId, box.width, box.height, deviceRef.current)
+  }, [sessionId, tabId, responsive, box.width, box.height])
+
+  // Having the wheel is a state, and it ends when the turn does. Deriving it
+  // here rather than storing a third flag means a turn that dies without a
+  // tidy ending cannot leave a ghost hand on the page forever.
+  const turnRunning = useRunningStore((s) => Boolean(s.running[sessionId]))
+  const driving = turnRunning && tabId !== null && chat.driving === tabId
+
+  const devices = useBrowserStore((s) => s.devices)
+  const remembered = useSettingsStore((s) => s.browserDevice)
+
+  /**
+   * Both the menu and the bar land here, and here goes to the sidecar — the
+   * same method the agent's tool uses. That is what makes an agent-chosen size
+   * appear in this bar with no second code path to keep in step.
+   */
+  const applyDevice = useCallback(
+    (spec: DeviceSpec) => {
+      if (!tabId) return
+      // Remember a real preset, so switching device mode back on returns to the
+      // phone you were working against rather than to a hardcoded default.
+      if (spec.id !== 'responsive' && spec.id !== 'custom') {
+        useSettingsStore.getState().updateSettings({ browserDevice: spec.id })
+      }
+      void window.api.browser.tabSetViewport(sessionId, tabId, spec)
+    },
+    [sessionId, tabId]
+  )
+
+  const scale = responsive ? 1 : zoom === 'fit' ? fitScale(box, viewport) : zoom
+  const drawWidth = Math.max(1, Math.round(viewport.width * scale))
+  const drawHeight = Math.max(1, Math.round(viewport.height * scale))
 
   const run = useCallback(async (work: () => Promise<unknown>) => {
     setBusy(true)
@@ -51,17 +145,49 @@ export default function BrowserSurface({
         onHistory={(action) =>
           void run(() => window.api.browser.tabHistory(sessionId, tab.tabId, action))
         }
+        menu={
+          <BrowserMenu device={tab.device} remembered={remembered} onPick={applyDevice} />
+        }
       />
 
-      <div className="min-h-0 flex-1 overflow-auto p-2">
-        <div className="relative">
+      {isEmulating(tab.device) && (
+        <DeviceBar
+          device={tab.device!}
+          devices={devices}
+          zoom={zoom}
+          fitPercent={Math.round(fitScale(box, viewport) * 100)}
+          onZoom={setZoom}
+          onDevice={applyDevice}
+        />
+      )}
+
+      {/* `overflow-hidden` while responsive is the fix for a feedback loop, not
+          a style choice: following the box's height means a one-pixel overshoot
+          spawns a scrollbar, which narrows the box, which changes the viewport,
+          which changes the height. Device mode can overflow, so it scrolls. */}
+      <div
+        ref={boxRef}
+        className={`grid min-h-0 flex-1 place-items-center p-2 ${
+          responsive ? 'overflow-hidden' : 'overflow-auto'
+        }`}
+      >
+        {/* Sized explicitly, and the canvas fills it exactly. That invariant is
+            what keeps `pageFromCanvas` a single multiply under any scale, and
+            what lets AgentCursor go on positioning in percentages. */}
+        <div className="relative" style={{ width: drawWidth, height: drawHeight }}>
           <BrowserCanvas
             targetId={tab.targetId}
-            width={Math.max(320, panelWidth - 16)}
+            width={drawWidth}
             interactive
-            className="rounded-md border border-border/55"
+            onUserInput={() => useBrowserStore.getState().releaseDriving(sessionId)}
+            className="absolute inset-0 h-full w-full rounded-md border border-border/55"
           />
-          <AgentCursor cursor={chat.cursor} tabId={tab.tabId} viewport={viewport} />
+          <AgentCursor
+            cursor={chat.cursor}
+            tabId={tab.tabId}
+            viewport={viewport}
+            driving={driving}
+          />
         </div>
       </div>
     </div>
@@ -142,12 +268,15 @@ function UrlBar({
   tab,
   busy,
   onNavigate,
-  onHistory
+  onHistory,
+  menu
 }: {
   tab: { url: string; canGoBack: boolean; canGoForward: boolean }
   busy: boolean
   onNavigate: (url: string) => void
   onHistory: (action: 'back' | 'forward' | 'reload') => void
+  /** Sits after the address, where a browser's overflow menu lives. */
+  menu?: React.ReactNode
 }): React.JSX.Element {
   const [draft, setDraft] = useState(() => displayUrl(tab.url))
   const inputRef = useRef<HTMLInputElement>(null)
@@ -185,6 +314,7 @@ function UrlBar({
         aria-label="Address"
         className="min-w-0 flex-1 rounded-md bg-secondary/60 px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-secondary"
       />
+      {menu}
     </form>
   )
 }

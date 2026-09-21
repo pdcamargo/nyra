@@ -14,6 +14,7 @@ import type { BrowserTab } from '@renderer/lib/api-types'
 const SID = 'chat-1'
 
 const tab = (tabId: string): BrowserTab => ({
+  device: null,
   tabId,
   targetId: `target-${tabId}`,
   url: `https://example.test/${tabId}`,

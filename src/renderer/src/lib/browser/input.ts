@@ -37,11 +37,17 @@ export function modifiersOf(event: {
 /**
  * Canvas coordinates to page coordinates.
  *
- * One multiply per axis, because the viewport is pinned with
- * `Emulation.setDeviceMetricsOverride` and the canvas is drawn to fill its box.
- * DevTools' own ScreencastView needs four terms here — page scale, a screen
- * offset and the scroll position — because it screencasts a viewport it does not
- * control. Owning the viewport is what buys the simpler version.
+ * One multiply per axis, because the emulated viewport is known exactly and the
+ * canvas is drawn to fill its box. DevTools' own ScreencastView needs four
+ * terms here — page scale, a screen offset and the scroll position — because it
+ * screencasts a viewport it does not control. Owning the viewport is what buys
+ * the simpler version.
+ *
+ * It survives any uniform display scale, which is what device mode's zoom and
+ * "fit" rely on: `rect` is the canvas's own laid-out box and
+ * `getBoundingClientRect` accounts for transforms, so a letterboxed frame at
+ * 84% maps corner to corner. The invariant it does need is that the canvas's
+ * CSS box covers the drawn image exactly.
  */
 export function pageFromCanvas(
   client: Point,

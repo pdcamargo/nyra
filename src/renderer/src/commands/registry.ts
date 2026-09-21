@@ -16,6 +16,7 @@ import {
   Plus,
   Receipt,
   RotateCw,
+  Smartphone,
   Search,
   Settings,
   ShieldCheck,
@@ -44,7 +45,7 @@ import {
   useSessionsStore
 } from '../store/sessions'
 import { useWorkspaceStore, workspaceFor } from '../store/workspace'
-import { startBrowserTab } from '../components/browser/useBrowserSession'
+import { startBrowserTab, toggleDeviceMode } from '../components/browser/useBrowserSession'
 import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
 import { useChangesStore } from '../store/changes'
 
@@ -75,6 +76,7 @@ export type CommandId =
   | 'panel.left'
   | 'panel.right'
   | 'panel.right.browser'
+  | 'browser.deviceMode'
   | 'panel.right.file'
   | 'panel.right.changes'
   | 'panel.right.changes.refresh'
@@ -319,6 +321,18 @@ export const COMMANDS: Command[] = [
     icon: Globe,
     palette: true,
     run: () => void openWorkspaceTab('browser')
+  },
+  {
+    // Unbound by default. Worth registering anyway — it is reached often enough
+    // to want in the palette, and registering is what puts a live keycap in the
+    // menu instead of a glyph that goes stale the moment anyone rebinds.
+    id: 'browser.deviceMode',
+    label: 'Toggle device mode',
+    group: 'Panels',
+    defaultChord: null,
+    icon: Smartphone,
+    palette: true,
+    run: () => void toggleDeviceMode()
   },
   {
     id: 'panel.right.file',

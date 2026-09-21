@@ -823,8 +823,8 @@ pub async fn browser_install() -> Value {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn browser_open_chat(chat_id: String) -> Value {
-    browser::open_chat(&chat_id).await
+pub async fn browser_open_chat(chat_id: String, host_dpr: Option<f64>) -> Value {
+    browser::open_chat(&chat_id, host_dpr.unwrap_or(1.0)).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -850,6 +850,26 @@ pub async fn browser_tab_close(chat_id: String, tab_id: String) -> Value {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn browser_tab_navigate(chat_id: String, tab_id: String, url: String) -> Value {
     browser::tab_navigate(&chat_id, &tab_id, &url).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn browser_tab_set_viewport(
+    chat_id: String,
+    tab_id: String,
+    id: String,
+    width: Option<f64>,
+    height: Option<f64>,
+    by: Option<String>,
+) -> Value {
+    browser::tab_set_viewport(
+        &chat_id,
+        &tab_id,
+        &id,
+        width,
+        height,
+        by.as_deref().unwrap_or("user"),
+    )
+    .await
 }
 
 #[tauri::command(rename_all = "camelCase")]

@@ -19,6 +19,7 @@ const render = (ui: React.ReactElement): ReturnType<typeof rtlRender> =>
 const SID = 'chat-1'
 
 const browserTab = (tabId: string, over: Partial<BrowserTab> = {}): BrowserTab => ({
+  device: null,
   tabId,
   targetId: `target-${tabId}`,
   url: `https://example.test/${tabId}`,

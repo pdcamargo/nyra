@@ -7,6 +7,7 @@
 
 import { chromium } from 'playwright-core'
 import { ChatMcp } from './mcp.mjs'
+import { DEVICES, DEVICE_TOOL, resolveDevice } from './devices.mjs'
 import { spawn } from 'node:child_process'
 import net from 'node:net'
 import readline from 'node:readline'
@@ -74,6 +75,10 @@ let config = {
   channel: 'auto',
   executablePath: null,
   viewport: { width: 1280, height: 800 },
+  /** What a page should believe its `devicePixelRatio` is. Seeded from the
+   *  renderer's own screen at `chat.open`, because it is a context option in
+   *  Playwright and there is no per-page setter. */
+  deviceScaleFactor: 1,
   allowedOrigins: ['tauri://localhost']
 }
 
@@ -308,7 +313,10 @@ async function snapshot(tab) {
     title,
     loading: tab.loading,
     canGoBack,
-    canGoForward
+    canGoForward,
+    // The renderer scales the canvas by this and maps clicks through it, so it
+    // travels with the tab rather than being asked for separately.
+    device: tab.device ? { ...tab.device } : null
   }
 }
 
@@ -331,6 +339,57 @@ function broadcastTabs(chatId) {
       emit('tabs', { chatId, tabs })
     }, 60)
   )
+}
+
+/**
+ * Put a size on a tab, and make it stick.
+ *
+ * Order matters. Playwright caches the metrics override it last sent and
+ * re-sends it from its own session whenever a cross-process navigation builds a
+ * new FrameSession — `FrameSession._updateViewport` reads width and height from
+ * the page's emulated size but `deviceScaleFactor` and `isMobile` from the
+ * *context* options. Calling `setViewportSize` first is what keeps its cache
+ * agreeing with ours about the size; the pixel ratio and the mobile flag it
+ * will still stomp, which is what the re-assert on `framenavigated` is for.
+ *
+ * `mobile` is not cosmetic: it is what makes Chromium honour
+ * `<meta name="viewport">`. Without it a phone preset lays a desktop page out
+ * narrow instead of serving the mobile one, which is the opposite of the point.
+ */
+async function applyDevice(tab, device) {
+  await tab.page.setViewportSize({ width: device.width, height: device.height }).catch(() => {})
+  await tab.cdp
+    .send('Emulation.setDeviceMetricsOverride', {
+      width: device.width,
+      height: device.height,
+      deviceScaleFactor: device.deviceScaleFactor,
+      mobile: device.mobile,
+      screenWidth: device.width,
+      screenHeight: device.height
+    })
+    .catch(() => {})
+  await tab.cdp
+    .send('Emulation.setTouchEmulationEnabled', {
+      enabled: device.hasTouch,
+      // The protocol rejects 0 even when disabling.
+      maxTouchPoints: device.hasTouch ? 5 : 1
+    })
+    .catch(() => {})
+  // The first thing to drop if clicking in the panel starts misbehaving: this
+  // turns the user's mouse into taps, which hover-driven pages can read badly.
+  await tab.cdp
+    .send('Emulation.setEmitTouchEventsForMouse', {
+      enabled: device.hasTouch,
+      configuration: device.mobile ? 'mobile' : 'desktop'
+    })
+    .catch(() => {})
+  tab.device = device
+}
+
+/** Only the parts Playwright takes from context options can be stomped, so only
+ *  those are worth a round trip on every navigation. */
+function divergesFromContext(device, entry) {
+  return device.deviceScaleFactor !== entry.contextDpr || device.mobile || device.hasTouch
 }
 
 /** page -> the in-flight adoption for it. See adoptPage. */
@@ -358,15 +417,24 @@ async function doAdoptPage(chatId, entry, page) {
   const tabId = `t${++tabSeq}`
   const cdp = await entry.context.newCDPSession(page)
   const { targetInfo } = await cdp.send('Target.getTargetInfo')
-  const tab = { tabId, page, cdp, targetId: targetInfo.targetId, loading: false }
+  const tab = { tabId, page, cdp, targetId: targetInfo.targetId, loading: false, device: entry.device }
   entry.tabs.set(tabId, tab)
+  // Before the first broadcast, so the panel never sees a frame at the context
+  // size and then a second one at the real size.
+  await applyDevice(tab, entry.device)
 
   const mark = (loading) => {
     tab.loading = loading
     broadcastTabs(chatId)
   }
   page.on('framenavigated', (frame) => {
-    if (frame === page.mainFrame()) mark(true)
+    if (frame !== page.mainFrame()) return
+    mark(true)
+    // A cross-process navigation builds a new FrameSession, and Playwright
+    // re-applies the context's pixel ratio and mobile flag from it. Anything
+    // that differs from the context has to be put back or the page quietly
+    // reverts mid-session.
+    if (tab.device && divergesFromContext(tab.device, entry)) void applyDevice(tab, tab.device)
   })
   page.on('load', () => mark(false))
   page.on('domcontentloaded', () => broadcastTabs(chatId))
@@ -381,6 +449,40 @@ async function doAdoptPage(chatId, entry, page) {
   })
   broadcastTabs(chatId)
   return tab
+}
+
+/**
+ * The tools Nyra answers itself, bound to one chat.
+ *
+ * The shape every future one of these should copy: the model asks, the owner of
+ * the state changes it, and the UI learns through the broadcast it already
+ * listens to. Nothing here is reported back through the tool result except
+ * words for the model — the panel finds out the same way it finds out about a
+ * navigation.
+ */
+function localToolsFor(chatId) {
+  return {
+    [DEVICE_TOOL.name]: {
+      schema: DEVICE_TOOL,
+      async handle({ device: id, width, height }) {
+        const entry = chatEntry(chatId)
+        // Newest first, the order `readPointer` already resolves in: the agent
+        // means the tab it has been working in. A tabId argument would only
+        // invite a stale one, since the ids it sees come from a different list.
+        const tab = [...entry.tabs.values()].pop()
+        if (!tab) throw new Error('This chat has no open browser tab to size.')
+        const device = resolveDevice({ id, width, height, hostDpr: entry.hostDpr, by: 'agent' })
+        await applyDevice(tab, device)
+        broadcastTabs(chatId)
+        const touch = device.mobile ? ', mobile layout with touch' : ''
+        return (
+          `Rendering at ${device.label} \u2014 ${device.width}x${device.height} ` +
+          `at ${device.deviceScaleFactor}x${touch}. The user can see the panel reframe, ` +
+          `and the size is labelled in their address bar.`
+        )
+      }
+    }
+  }
 }
 
 /** Where the pointer last went on any of this chat's tabs, newest first. */
@@ -404,16 +506,106 @@ async function reportPointer(chatId, before) {
   if (!after) return
   // Only a move that happened during the tool call was the agent's.
   if (before && before.seq === after.seq && before.tabId === after.tabId) return
-  emit('cursor', { chatId, tabId: after.tabId, x: after.x, y: after.y })
+  emit('cursor', { chatId, tabId: after.tabId, x: after.x, y: after.y, down: Boolean(after.down) })
 }
 
-async function openChat(chatId) {
+/**
+ * Let the ghost reach the target before the click lands.
+ *
+ * Nyra used to learn where the agent clicked by reading the page afterwards,
+ * which meant the panel showed the click and *then* the travel — backwards, and
+ * it read as teleporting. Resolving the target first turns it the right way
+ * round: the cursor sets off, arrives, and only then does the input fire.
+ *
+ * The wait is a fixed budget rather than an acknowledgement from the panel.
+ * Codex does ack, capped at 1500 ms, but it has a renderer that already talks
+ * back on that channel; here it would mean a new renderer-to-sidecar round trip
+ * to time an animation whose duration we already know. The cost of guessing is
+ * one frame of overlap, and the cost of being wrong is cosmetic.
+ *
+ * Nothing is spent when nobody is watching, which is the case that would
+ * otherwise turn a headless agent run into one that pauses a third of a second
+ * per click for an animation on a closed panel.
+ */
+const GLIDE_MS = 320
+const WATCHED_MS = 90_000
+
+/** Upstream's own shape for "which element": a snapshot ref like `e7` or
+ *  `f2e7`, or anything else, which is a selector. Only refs are worth
+ *  resolving here — they are what a snapshot produces and what the model
+ *  actually sends, and a selector expression needs upstream's own parser. */
+const REF_PATTERN = /^(f\d+)?e\d+$/
+
+/** Every tool that moves the pointer names its target the same way, so keying
+ *  off that covers them all without a list of tool names to keep in step. */
+function targetOf(args) {
+  if (!args || typeof args !== 'object') return null
+  if (typeof args.target === 'string') return args.target
+  const first = Array.isArray(args.fields) ? args.fields[0] : null
+  return typeof first?.target === 'string' ? first.target : null
+}
+
+async function glideTo(chatId, params) {
+  const entry = chats.get(chatId)
+  if (!entry || Date.now() - (entry.watchedAt ?? 0) > WATCHED_MS) return
+  const target = targetOf(params?.arguments)
+  if (!target || !REF_PATTERN.test(target)) return
+  const tab = [...entry.tabs.values()].pop()
+  if (!tab) return
+  try {
+    // `aria-ref` is the selector engine those refs belong to, which is how
+    // upstream resolves them too — so this lands on exactly the element the
+    // tool is about to act on.
+    const box = await tab.page.locator(`aria-ref=${target}`).boundingBox({ timeout: 500 })
+    if (!box) return
+    emit('cursor', {
+      chatId,
+      tabId: tab.tabId,
+      x: Math.round(box.x + box.width / 2),
+      y: Math.round(box.y + box.height / 2),
+      down: false
+    })
+    await sleep(GLIDE_MS)
+  } catch {
+    // A stale ref, a detached element, a page mid-navigation. Upstream will
+    // report that properly; a missing flourish is not worth failing a call for.
+  }
+}
+
+/**
+ * Which tab the agent is working in, whether or not it moved the pointer.
+ *
+ * The ghost used to appear only when a click or a hover happened to move the
+ * pointer, which meant it flashed for four seconds a few times a turn and was
+ * missable to the point of never having been seen. Having the wheel is a state,
+ * not an event: this says who has it, and the panel keeps the cursor on screen
+ * for as long as that holds. A tool call that types, scrolls or navigates still
+ * counts as driving, and still has nowhere to put a pointer — so the panel
+ * parks one rather than showing nothing.
+ */
+function reportDriving(chatId) {
+  const entry = chats.get(chatId)
+  if (!entry) return
+  const tab = [...entry.tabs.values()].pop()
+  if (!tab) return
+  emit('driving', { chatId, tabId: tab.tabId })
+}
+
+async function openChat(chatId, { hostDpr } = {}) {
   await ensureBrowser()
   let entry = chats.get(chatId)
   if (!entry) {
+    // The pixel ratio has to be decided here and nowhere else: Playwright takes
+    // it from context options, so there is no way to set it per page, and a
+    // page on a Retina machine should see the ratio its owner's real browser
+    // would. Tabs that want a different one get a CDP override on top.
+    const dpr = Number.isFinite(hostDpr) && hostDpr > 0 ? hostDpr : config.deviceScaleFactor
     // A context per chat, not a process per chat: contexts isolate cookies and
     // storage for a fraction of the memory. Verified isolated in the spike.
-    const context = await browser.newContext({ viewport: { ...config.viewport } })
+    const context = await browser.newContext({
+      viewport: { ...config.viewport },
+      deviceScaleFactor: dpr
+    })
     // Codex shows a cursor while its agent drives, and it is the thing that
     // makes the browser feel co-driven rather than haunted. Nothing at the CDP
     // layer can tell the agent's synthetic click from the user's — they are the
@@ -421,17 +613,38 @@ async function openChat(chatId) {
     // MCP handler reads it either side of a tool call. What moved during the
     // call was the agent.
     await context.addInitScript(() => {
-      const record = (event) => {
+      const record = (event, down) => {
         window.__nyraPointer = {
           x: event.clientX,
           y: event.clientY,
+          // A press is worth drawing differently from a glide, and the page is
+          // the only place the difference is visible.
+          down,
           seq: (window.__nyraPointer?.seq ?? 0) + 1
         }
       }
-      addEventListener('pointerdown', record, true)
-      addEventListener('pointermove', record, true)
+      addEventListener('pointerdown', (e) => record(e, true), true)
+      addEventListener('pointermove', (e) => record(e, false), true)
     })
-    entry = { context, tabs: new Map(), touchedAt: Date.now() }
+    entry = {
+      context,
+      tabs: new Map(),
+      touchedAt: Date.now(),
+      /** What the context was built with, and therefore what Playwright will
+       *  put back on a cross-process navigation. */
+      contextDpr: dpr,
+      hostDpr: dpr,
+      /** When a surface last said it was on screen. See `chat.touch`. */
+      watchedAt: 0,
+      /** What a tab opened from now on starts at. Each tab then owns its own
+       *  copy and can diverge from it. */
+      device: resolveDevice({
+        id: 'responsive',
+        width: config.viewport.width,
+        height: config.viewport.height,
+        hostDpr: dpr
+      })
+    }
     chats.set(chatId, entry)
     startSweeper()
     context.on('page', (page) => {
@@ -439,7 +652,15 @@ async function openChat(chatId) {
     })
   }
   entry.touchedAt = Date.now()
-  return { cdpUrl, chatId, viewport: { ...config.viewport } }
+  return {
+    cdpUrl,
+    chatId,
+    viewport: { ...config.viewport },
+    device: { ...entry.device },
+    // The menu is built from the same array the agent's tool validates against,
+    // so the two cannot drift.
+    devices: DEVICES
+  }
 }
 
 function startSweeper() {
@@ -495,20 +716,27 @@ const methods = {
       running: Boolean(browser?.isConnected()),
       cdpUrl,
       viewport: { ...config.viewport },
+      devices: DEVICES,
       chats: [...chats.keys()]
     }
   },
 
   install: () => installChromium(),
 
-  'chat.open': ({ chatId }) => openChat(chatId),
+  'chat.open': ({ chatId, hostDpr }) => openChat(chatId, { hostDpr }),
 
   /** The renderer pings this while a surface for the chat is on screen, which
    *  is the only thing that can distinguish "idle" from "being watched" — the
    *  renderer's CDP traffic never reaches this process. */
   'chat.touch'({ chatId }) {
     const entry = chats.get(chatId)
-    if (entry) entry.touchedAt = Date.now()
+    if (entry) {
+      entry.touchedAt = Date.now()
+      // Separate from `touchedAt`, which a tool call also bumps. This one only
+      // moves when a surface says it is on screen, which is the only honest
+      // answer to "is anyone actually looking at this?".
+      entry.watchedAt = Date.now()
+    }
     return { touched: Boolean(entry) }
   },
   'chat.close': ({ chatId }) => closeChat(chatId),
@@ -524,6 +752,24 @@ const methods = {
       await page.goto(url, { waitUntil: 'commit' }).catch((e) => log('goto failed:', e.message))
     }
     return { tab: await snapshot(tab) }
+  },
+
+  /**
+   * Render a tab at a size.
+   *
+   * One method for both callers on purpose — the panel's menu and the agent's
+   * tool land here alike, which is what makes an agent-driven resize show up in
+   * the UI without a second code path to keep in step. `by` is the only thing
+   * that distinguishes them, and it exists so the panel can say who did it.
+   */
+  async 'tab.setViewport'({ chatId, tabId, id, width, height, by }) {
+    const entry = chatEntry(chatId)
+    const tab = entry.tabs.get(tabId)
+    if (!tab) throw new Error(`no tab ${tabId}`)
+    const device = resolveDevice({ id, width, height, hostDpr: entry.hostDpr, by: by ?? 'user' })
+    await applyDevice(tab, device)
+    broadcastTabs(chatId)
+    return { device }
   },
 
   async 'tab.close'({ chatId, tabId }) {
@@ -572,13 +818,17 @@ const methods = {
       mcp = await ChatMcp.open(async () => {
         await openChat(chatId)
         return chatEntry(chatId).context
-      })
+      }, localToolsFor(chatId))
       mcpByChat.set(chatId, mcp)
     }
     // Two different nulls: "this was not a tool call" and "the pointer had not
     // moved yet". Conflating them means the agent's very first click never
     // reports, which is the one you most want to see.
     const isToolCall = message.method === 'tools/call'
+    if (isToolCall) {
+      reportDriving(chatId)
+      await glideTo(chatId, message.params)
+    }
     const before = isToolCall ? await readPointer(chatId) : null
     const response = await mcp.handle(message)
     if (isToolCall) void reportPointer(chatId, before)

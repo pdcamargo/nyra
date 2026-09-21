@@ -89,7 +89,7 @@ Object.defineProperty(globalThis, 'api', {
       openChat: () => Promise.resolve({ ok: false, error: 'no browser in tests' }),
       closeChat: noop, touch: noop,
       tabCreate: () => Promise.resolve({ ok: false, error: 'no browser in tests' }),
-      tabClose: noop, tabNavigate: noop, tabHistory: noop,
+      tabClose: noop, tabNavigate: noop, tabHistory: noop, tabSetViewport: noop,
       tabList: () => Promise.resolve({ ok: true, tabs: [] }),
       onEvent: unsub
     },

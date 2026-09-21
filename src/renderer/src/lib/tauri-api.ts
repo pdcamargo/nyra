@@ -23,6 +23,8 @@ import type {
   BrowserReply,
   BrowserStatus,
   BrowserTab,
+  DevicePreset,
+  TabDevice,
   DirListing,
   EditorApp,
   FileEntry,
@@ -412,11 +414,17 @@ export const api = {
     status: () => call<BrowserReply<BrowserStatus>>('browser_status'),
     configure: (patch: Record<string, unknown>) => call<BrowserReply>('browser_configure', { patch }),
     install: () => call<BrowserReply>('browser_install'),
-    openChat: (chatId: string) =>
-      call<BrowserReply<{ cdpUrl: string; viewport: { width: number; height: number } }>>(
-        'browser_open_chat',
-        { chatId }
-      ),
+    /** `hostDpr` has to be decided here: Playwright takes the pixel ratio from
+     *  context options, so the context cannot be built without it. */
+    openChat: (chatId: string, hostDpr: number) =>
+      call<
+        BrowserReply<{
+          cdpUrl: string
+          viewport: { width: number; height: number }
+          device: TabDevice
+          devices: DevicePreset[]
+        }>
+      >('browser_open_chat', { chatId, hostDpr }),
     closeChat: (chatId: string) => call<BrowserReply<{ closed: boolean }>>('browser_close_chat', { chatId }),
     /** Ping while a surface for this chat is on screen, or the sidecar evicts
      *  its context to reclaim the ~300 MB it costs. */
@@ -427,6 +435,18 @@ export const api = {
       call<BrowserReply<{ closed: boolean }>>('browser_tab_close', { chatId, tabId }),
     tabNavigate: (chatId: string, tabId: string, url: string) =>
       call<BrowserReply<{ url: string }>>('browser_tab_navigate', { chatId, tabId, url }),
+    /** One method for the menu and for the agent alike — see the sidecar's
+     *  `tab.setViewport`. `id` is a preset, `responsive`, or `custom`. */
+    tabSetViewport: (
+      chatId: string,
+      tabId: string,
+      spec: { id: string; width?: number; height?: number; by?: 'user' | 'agent' }
+    ) =>
+      call<BrowserReply<{ device: TabDevice }>>('browser_tab_set_viewport', {
+        chatId,
+        tabId,
+        ...spec
+      }),
     tabHistory: (chatId: string, tabId: string, action: 'back' | 'forward' | 'reload') =>
       call<BrowserReply<{ url: string | null }>>('browser_tab_history', { chatId, tabId, action }),
     tabList: (chatId: string) => call<BrowserReply<{ tabs: BrowserTab[] }>>('browser_tab_list', { chatId }),

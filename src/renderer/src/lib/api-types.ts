@@ -206,6 +206,43 @@ export type DiffFiles = {
   files: ChangedFile[]
 }
 
+/**
+ * A size a page can be rendered at.
+ *
+ * `deviceScaleFactor: null` on a preset means "whatever this screen is" — a
+ * desktop preset should render the way the viewer's own browser would, while a
+ * phone carries a pixel ratio of its own because that is a fact about the
+ * device. The sidecar resolves the null before it ever reaches a tab.
+ */
+export type DevicePreset = {
+  id: string
+  label: string
+  width: number
+  height: number
+  deviceScaleFactor: number | null
+  mobile: boolean
+  hasTouch: boolean
+}
+
+/**
+ * The size one tab is actually being rendered at.
+ *
+ * `id` doubles as the mode: `responsive` means it follows the panel and will be
+ * re-sent on every resize, anything else means it is pinned. `by` is who pinned
+ * it, which is the only reason the panel can say a size was chosen by the agent
+ * rather than by the person looking at it.
+ */
+export type TabDevice = {
+  id: string
+  label: string
+  width: number
+  height: number
+  deviceScaleFactor: number
+  mobile: boolean
+  hasTouch: boolean
+  by: 'user' | 'agent'
+}
+
 /** One tab in one chat's browser, as the sidecar sees it. */
 export type BrowserTab = {
   tabId: string
@@ -217,6 +254,8 @@ export type BrowserTab = {
   loading: boolean
   canGoBack: boolean
   canGoForward: boolean
+  /** Null only for a tab adopted before the sidecar had a size for it. */
+  device: TabDevice | null
 }
 
 export type BrowserStatus = {
@@ -228,6 +267,9 @@ export type BrowserStatus = {
   running: boolean
   cdpUrl: string | null
   viewport: { width: number; height: number }
+  /** The menu is built from this rather than from a copy, so it cannot drift
+   *  from what the agent's tool will accept. */
+  devices: DevicePreset[]
   chats: string[]
 }
 
@@ -242,7 +284,10 @@ export type BrowserEvent =
   | { event: 'browser'; params: { state: 'launching' | 'ready' | 'gone'; cdpUrl?: string } }
   | { event: 'install'; params: { state: 'downloading' | 'done' | 'failed'; percent?: number; totalMb?: number } }
   | { event: 'tabs'; params: { chatId: string; tabs: BrowserTab[] } }
-  | { event: 'cursor'; params: { chatId: string; tabId: string; x: number; y: number } }
+  | { event: 'cursor'; params: { chatId: string; tabId: string; x: number; y: number; down: boolean } }
+  /** The agent acted on a tab, pointer or not. Having the wheel is a state, so
+   *  this is what keeps the ghost on screen between the moves. */
+  | { event: 'driving'; params: { chatId: string; tabId: string } }
   | { event: 'evicted'; params: { chatId: string } }
   | { event: 'exit'; params: { code: number } }
 

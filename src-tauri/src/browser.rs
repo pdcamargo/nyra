@@ -295,8 +295,11 @@ pub async fn install() -> Value {
     settle(call_with(INSTALL_TIMEOUT, "install", json!({})).await)
 }
 
-pub async fn open_chat(chat_id: &str) -> Value {
-    settle(call("chat.open", json!({ "chatId": chat_id })).await)
+/// `host_dpr` decides what pages in this chat see as `devicePixelRatio`. It has
+/// to travel with the open because Playwright takes it from context options and
+/// offers no per-page setter, so the context cannot be built without it.
+pub async fn open_chat(chat_id: &str, host_dpr: f64) -> Value {
+    settle(call("chat.open", json!({ "chatId": chat_id, "hostDpr": host_dpr })).await)
 }
 
 pub async fn close_chat(chat_id: &str) -> Value {
@@ -319,6 +322,33 @@ pub async fn tab_close(chat_id: &str, tab_id: &str) -> Value {
 
 pub async fn tab_navigate(chat_id: &str, tab_id: &str, url: &str) -> Value {
     settle(call("tab.navigate", json!({ "chatId": chat_id, "tabId": tab_id, "url": url })).await)
+}
+
+/// Render a tab at a size. The panel's own menu and the agent's tool both land
+/// here, which is what keeps an agent-driven resize visible without a second
+/// path to keep in step; `by` is only there so the panel can say who did it.
+pub async fn tab_set_viewport(
+    chat_id: &str,
+    tab_id: &str,
+    id: &str,
+    width: Option<f64>,
+    height: Option<f64>,
+    by: &str,
+) -> Value {
+    settle(
+        call(
+            "tab.setViewport",
+            json!({
+                "chatId": chat_id,
+                "tabId": tab_id,
+                "id": id,
+                "width": width,
+                "height": height,
+                "by": by,
+            }),
+        )
+        .await,
+    )
 }
 
 /// `back`, `forward` and `reload` differ only in the method name.

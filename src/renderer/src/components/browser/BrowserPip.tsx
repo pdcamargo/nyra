@@ -150,6 +150,10 @@ export default function BrowserPip(): React.JSX.Element | null {
               width={MINIATURE_WIDTH}
               // A preview does not need sixty frames a second to read as live.
               everyNthFrame={4}
+              preview
+              // The panel sizes its canvas explicitly; a miniature just takes
+              // the column and keeps the page's aspect.
+              className="h-auto w-full"
             />
             <span className="block truncate border-b border-border/40 px-2.5 py-1 text-[10px] text-muted-foreground">
               {tab.title || tab.url}

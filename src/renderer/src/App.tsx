@@ -155,6 +155,25 @@ export default function App(): React.JSX.Element {
   // whole point of it — so the tab list has to stay current with nothing
   // mounted to receive it.
   useEffect(() => {
+    /**
+     * What a page should believe its `devicePixelRatio` is.
+     *
+     * Pushed as config rather than passed per chat, because it is a property of
+     * this screen and not of any conversation. A context takes it at creation,
+     * and a context can be created by whoever gets there first — `tab.create`
+     * and an agent's very first tool call both build one, neither of them
+     * knowing anything about a display. It also has to survive the sidecar's
+     * idle eviction, which rebuilds contexts from whichever call comes next.
+     * Getting this wrong is silent: every page simply renders at 1x and the
+     * panel looks soft with no setting to explain it.
+     */
+    const pushPixelRatio = (): void => {
+      void window.api.browser.configure({
+        deviceScaleFactor: typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
+      })
+    }
+    pushPixelRatio()
+
     return window.api.browser.onEvent((event) => {
       const store = useBrowserStore.getState()
       switch (event.event) {
@@ -163,6 +182,9 @@ export default function App(): React.JSX.Element {
           break
         case 'browser':
           if (event.params.state === 'ready' && event.params.cdpUrl) {
+            // A relaunched sidecar starts from its own defaults, and Rust's
+            // handshake only restores the origins.
+            pushPixelRatio()
             store.setEndpoint(event.params.cdpUrl)
           } else if (event.params.state === 'gone') {
             dropBrowserHub()
@@ -176,9 +198,13 @@ export default function App(): React.JSX.Element {
               : null
           )
           break
+        case 'driving':
+          store.setDriving(event.params.chatId, event.params.tabId)
+          break
         case 'cursor':
           store.setCursor(event.params.chatId, {
             tabId: event.params.tabId,
+            down: event.params.down,
             x: event.params.x,
             y: event.params.y,
             at: Date.now()

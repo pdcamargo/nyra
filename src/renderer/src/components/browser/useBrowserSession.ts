@@ -9,7 +9,14 @@
  */
 import { useEffect } from 'react'
 import { useBrowserStore } from '../../store/browser'
-import { browserKey, syncSidecarTabs, useWorkspaceStore } from '../../store/workspace'
+import { useSettingsStore } from '../../store/settings'
+import {
+  activeBrowserTabId,
+  browserKey,
+  syncSidecarTabs,
+  useWorkspaceStore
+} from '../../store/workspace'
+import { useSessionsStore } from '../../store/sessions'
 
 /** Long enough to be cheap, short enough that the sidecar's ten-minute idle
  *  sweeper never evicts a context somebody is looking at. */
@@ -38,13 +45,19 @@ export async function ensureBrowser(sessionId: string): Promise<boolean> {
     return false
   }
 
-  const opened = await window.api.browser.openChat(sessionId)
+  // The context is built with this and cannot be rebuilt without throwing away
+  // cookies, so it is decided once, here, from the screen the panel is on.
+  const opened = await window.api.browser.openChat(
+    sessionId,
+    typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+  )
   if (!opened.ok) {
     store.setPhase(sessionId, 'error', opened.error)
     return false
   }
 
   store.setEndpoint(opened.cdpUrl, opened.viewport)
+  store.setDevices(opened.devices)
   store.setPhase(sessionId, 'ready')
   return true
 }
@@ -60,6 +73,33 @@ export async function startBrowserTab(sessionId: string, url = 'about:blank'): P
   if (!(await ensureBrowser(sessionId))) return
   const created = await window.api.browser.tabCreate(sessionId, url)
   if (created.ok) useWorkspaceStore.getState().selectTab(sessionId, browserKey(created.tab.tabId))
+}
+
+/**
+ * Flip the tab on screen between following the panel and a fixed device.
+ *
+ * Lives here rather than in the menu because the command palette needs it too,
+ * and both have to go through the sidecar — it owns the size, so an agent's
+ * resize and a person's land the same way and show up on the same broadcast.
+ *
+ * Going back to responsive deliberately sends no dimensions: the panel measures
+ * itself and pushes the real box a frame later, and guessing here would be a
+ * size the page held for that frame and nobody asked for.
+ */
+export async function toggleDeviceMode(): Promise<void> {
+  const sessionId = useSessionsStore.getState().activeSessionId
+  if (!sessionId) return
+  const workspace = useWorkspaceStore.getState().bySession[sessionId]
+  if (!workspace) return
+  const tabId = activeBrowserTabId(workspace)
+  if (!tabId) return
+
+  const tab = useBrowserStore
+    .getState()
+    .bySession[sessionId]?.tabs.find((t) => t.tabId === tabId)
+  const emulating = Boolean(tab?.device) && tab!.device!.id !== 'responsive'
+  const id = emulating ? 'responsive' : useSettingsStore.getState().browserDevice
+  await window.api.browser.tabSetViewport(sessionId, tabId, { id })
 }
 
 /**

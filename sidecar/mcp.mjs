@@ -24,9 +24,16 @@ const CAPABILITIES = ['core', 'core-navigation', 'core-tabs', 'core-input']
  *
  * Left out on purpose: `browser_run_code_unsafe`, because `browser_evaluate`
  * covers the legitimate case without the name inviting the other one;
- * `browser_resize`, because the viewport is pinned and a tool that fights that
- * would only produce confusing screenshots; file upload, drag and drop, and the
- * WebMCP pair, because they are rare enough not to earn the tokens.
+ * `browser_resize`, because it is `page.setViewportSize()` and nothing else —
+ * no pixel ratio, no mobile flag, so a phone would render a desktop layout
+ * squeezed narrow — and because Playwright writing the override on its own
+ * session behind our back is the thing `browser_device` exists to avoid; file
+ * upload, drag and drop, and the WebMCP pair, because they are rare enough not
+ * to earn the tokens.
+ *
+ * Tools Nyra serves itself are a separate table, passed in per chat — see
+ * `local` below. They are checked before this set, so a name of ours wins even
+ * if upstream later ships one like it.
  */
 const TOOLS = new Set([
   'browser_navigate',
@@ -49,7 +56,17 @@ const TOOLS = new Set([
 ])
 
 class PipeTransport {
-  constructor() {
+  /**
+   * @param local tools Nyra answers itself: `{ [name]: { schema, handle } }`.
+   *
+   * A table rather than a branch in `deliver`, because the table is the seam.
+   * Every future Nyra-native browser tool is one more entry, and the shape it
+   * has to follow is the rule this one follows: the model asks, the owner of
+   * the state changes it, and the UI finds out through the channel it already
+   * had — never through the tool result.
+   */
+  constructor(local = {}) {
+    this.local = local
     this.pending = new Map()
   }
 
@@ -62,7 +79,7 @@ class PipeTransport {
     const resolve = message.id != null ? this.pending.get(message.id) : undefined
     if (!resolve) return
     this.pending.delete(message.id)
-    resolve(trimToolList(message))
+    resolve(this.trimToolList(message))
   }
 
   async close() {
@@ -73,14 +90,21 @@ class PipeTransport {
 
   /** Client → server, and back with whatever it answers. */
   deliver(message) {
-    // Refuse a tool we did not advertise. Upstream can add tools in a patch
-    // release, and a model that saw a name somewhere else can ask for it.
-    if (message.method === 'tools/call' && !TOOLS.has(message.params?.name)) {
-      return Promise.resolve({
-        jsonrpc: '2.0',
-        id: message.id,
-        error: { code: -32601, message: `Unknown tool ${message.params?.name}` }
-      })
+    if (message.method === 'tools/call') {
+      const name = message.params?.name
+      // Ours first: a local tool never reaches upstream, and checking in this
+      // order is what makes a name collision resolve in our favour.
+      const mine = this.local[name]
+      if (mine) return this.callLocal(mine, message)
+      // Refuse a tool we did not advertise. Upstream can add tools in a patch
+      // release, and a model that saw a name somewhere else can ask for it.
+      if (!TOOLS.has(name)) {
+        return Promise.resolve({
+          jsonrpc: '2.0',
+          id: message.id,
+          error: { code: -32601, message: `Unknown tool ${name}` }
+        })
+      }
     }
     // A notification has no id and expects no reply.
     if (message.id == null) {
@@ -92,6 +116,36 @@ class PipeTransport {
       this.onmessage?.(message)
     })
   }
+
+  /** A tool we answer ourselves. A failure comes back as an MCP tool error
+   *  rather than a JSON-RPC one: the call happened, it just did not work, and
+   *  the model should read why and try something else. */
+  async callLocal(tool, message) {
+    try {
+      const text = await tool.handle(message.params?.arguments ?? {})
+      return { jsonrpc: '2.0', id: message.id, result: { content: [{ type: 'text', text }] } }
+    } catch (err) {
+      return {
+        jsonrpc: '2.0',
+        id: message.id,
+        result: {
+          content: [{ type: 'text', text: `### Error\n${err?.message ?? String(err)}` }],
+          isError: true
+        }
+      }
+    }
+  }
+
+  /** Drop the upstream tools we do not expose, then add our own. */
+  trimToolList(message) {
+    const tools = message?.result?.tools
+    if (!Array.isArray(tools)) return message
+    const kept = tools.filter((tool) => TOOLS.has(tool.name) && !this.local[tool.name])
+    return {
+      ...message,
+      result: { ...message.result, tools: [...kept, ...Object.values(this.local).map((t) => t.schema)] }
+    }
+  }
 }
 
 export class ChatMcp {
@@ -100,8 +154,8 @@ export class ChatMcp {
     this.transport = transport
   }
 
-  static async open(getContext) {
-    const transport = new PipeTransport()
+  static async open(getContext, local = {}) {
+    const transport = new PipeTransport(local)
     const server = await createConnection({ capabilities: CAPABILITIES }, getContext)
     await server.connect(transport)
     return new ChatMcp(server, transport)
@@ -113,15 +167,5 @@ export class ChatMcp {
 
   async close() {
     await this.server.close().catch(() => {})
-  }
-}
-
-/** Drop the tools we do not expose from a `tools/list` reply. */
-function trimToolList(message) {
-  const tools = message?.result?.tools
-  if (!Array.isArray(tools)) return message
-  return {
-    ...message,
-    result: { ...message.result, tools: tools.filter((tool) => TOOLS.has(tool.name)) }
   }
 }

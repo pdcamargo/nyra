@@ -244,6 +244,7 @@ pub fn run() {
             commands::browser_tab_create,
             commands::browser_tab_close,
             commands::browser_tab_navigate,
+            commands::browser_tab_set_viewport,
             commands::browser_tab_history,
             commands::browser_tab_list,
             commands::update_check,
