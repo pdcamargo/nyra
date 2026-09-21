@@ -5,14 +5,15 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Vendored, not fetched. The theme was published with a next/font/google
- * snippet, which does not apply here: this is a Tauri app with a
- * `font-src 'self' data:` CSP, so a Google Fonts URL is blocked outright and
- * there is no guaranteed network anyway. The faces live in public/fonts.
+ * Vendored, not fetched. Themes are published with a next/font/google snippet,
+ * which does not apply here: this is a Tauri app with a `font-src 'self' data:`
+ * CSP, so a Google Fonts URL is blocked outright and there is no guaranteed
+ * network anyway. The faces live in public/fonts, and only these two are there.
  *
- * Montserrat is deliberately absent. Graffiti set it in :root and Inter in
- * .dark, so the typeface changed when you toggled the theme; and it is a
- * geometric display face that reads loose at the 10-13px this UI runs at.
+ * So a theme naming any other face is naming one that cannot load. The current
+ * one asks for Geist Mono in all three slots; taking that literally would drop
+ * the entire chrome onto whatever generic `monospace` resolves to. Adopting a
+ * theme's typeface means vendoring the woff2 first.
  */
 @font-face {
   font-family: 'Inter Variable';
@@ -51,95 +52,102 @@
 }
 
 /*
- * Graffiti theme — docs/graffiti-theme.css, dropped in as published.
+ * The theme — docs/theme.css, dropped in as published.
  *
  * Note the polarity: light is the default and `.dark` overrides it. That is the
- * inverse of what this app did before, where `:root` held the dark palette and
- * `[data-theme="light"]` swapped it out.
+ * inverse of what this app did before the first shadcn theme, where `:root` held
+ * the dark palette and `[data-theme="light"]` swapped it out.
  *
- * The theme's font declarations are deliberately omitted. It shipped Montserrat
- * in :root and Inter in .dark, which would change the typeface when you toggle
- * the theme — a generator artifact, not a design. Fonts are set once, below.
+ * The theme's font declarations are deliberately omitted. It shipped
+ * `Geist Mono, monospace` for sans, serif *and* mono, which would put the whole
+ * chrome in a monospace face — and Geist Mono is not vendored, so it would land
+ * on whatever generic `monospace` resolves to. Fonts are set once, below.
+ *
+ * `--tracking-normal` and `--spacing` are omitted too: nothing reads the first,
+ * and the second only reaches Tailwind's scale from inside `@theme`, where it
+ * would restate the default it already has. The `--shadow-x/y/blur/spread/
+ * opacity/color` inputs are the generator's own authoring knobs — the composed
+ * `--shadow-*` values below are what actually get used.
  */
 :root {
-  --background: oklch(0.9551 0 0);
-  --foreground: oklch(0.3211 0 0);
-  --card: oklch(0.9702 0 0);
-  --card-foreground: oklch(0.3211 0 0);
-  --popover: oklch(0.9702 0 0);
-  --popover-foreground: oklch(0.3211 0 0);
-  --primary: oklch(0.4891 0 0);
-  --primary-foreground: oklch(1.0000 0 0);
-  --secondary: oklch(0.9067 0 0);
-  --secondary-foreground: oklch(0.3211 0 0);
-  --muted: oklch(0.8853 0 0);
-  --muted-foreground: oklch(0.5103 0 0);
-  --accent: oklch(0.8078 0 0);
-  --accent-foreground: oklch(0.3211 0 0);
-  --destructive: oklch(0.5594 0.1900 25.8625);
-  --destructive-foreground: oklch(1.0000 0 0);
-  --border: oklch(0.8576 0 0);
-  --input: oklch(0.9067 0 0);
-  --ring: oklch(0.4891 0 0);
-  --chart-1: oklch(0.4891 0 0);
-  --chart-2: oklch(0.4863 0.0361 196.0278);
-  --chart-3: oklch(0.6534 0 0);
-  --chart-4: oklch(0.7316 0 0);
-  --chart-5: oklch(0.8078 0 0);
-  --sidebar: oklch(0.9370 0 0);
-  --sidebar-foreground: oklch(0.3211 0 0);
-  --sidebar-primary: oklch(0.4891 0 0);
-  --sidebar-primary-foreground: oklch(1.0000 0 0);
-  --sidebar-accent: oklch(0.8078 0 0);
-  --sidebar-accent-foreground: oklch(0.3211 0 0);
-  --sidebar-border: oklch(0.8576 0 0);
-  --sidebar-ring: oklch(0.4891 0 0);
-  --radius: 0.35rem;
-  --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 20% / 0.07);
-  --shadow-xs: 0px 2px 0px 0px hsl(0 0% 20% / 0.07);
-  --shadow-sm: 0px 2px 0px 0px hsl(0 0% 20% / 0.15), 0px 1px 2px -1px hsl(0 0% 20% / 0.15);
-  --shadow: 0px 2px 0px 0px hsl(0 0% 20% / 0.15), 0px 1px 2px -1px hsl(0 0% 20% / 0.15);
-  --shadow-md: 0px 2px 0px 0px hsl(0 0% 20% / 0.15), 0px 2px 4px -1px hsl(0 0% 20% / 0.15);
-  --shadow-lg: 0px 2px 0px 0px hsl(0 0% 20% / 0.15), 0px 4px 6px -1px hsl(0 0% 20% / 0.15);
-  --shadow-xl: 0px 2px 0px 0px hsl(0 0% 20% / 0.15), 0px 8px 10px -1px hsl(0 0% 20% / 0.15);
-  --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 20% / 0.38);
+  --background: oklch(1.0000 0 0);
+  --foreground: oklch(0.1448 0 0);
+  --card: oklch(1.0000 0 0);
+  --card-foreground: oklch(0.1448 0 0);
+  --popover: oklch(1.0000 0 0);
+  --popover-foreground: oklch(0.1448 0 0);
+  --primary: oklch(0.5555 0 0);
+  --primary-foreground: oklch(0.9851 0 0);
+  --secondary: oklch(0.9702 0 0);
+  --secondary-foreground: oklch(0.2046 0 0);
+  --muted: oklch(0.9702 0 0);
+  --muted-foreground: oklch(0.5486 0 0);
+  --accent: oklch(0.9702 0 0);
+  --accent-foreground: oklch(0.2046 0 0);
+  --destructive: oklch(0.5830 0.2387 28.4765);
+  --destructive-foreground: oklch(0.9702 0 0);
+  --border: oklch(0.9219 0 0);
+  --input: oklch(0.9219 0 0);
+  --ring: oklch(0.7090 0 0);
+  --chart-1: oklch(0.5555 0 0);
+  --chart-2: oklch(0.5555 0 0);
+  --chart-3: oklch(0.5555 0 0);
+  --chart-4: oklch(0.5555 0 0);
+  --chart-5: oklch(0.5555 0 0);
+  --sidebar: oklch(0.9851 0 0);
+  --sidebar-foreground: oklch(0.1448 0 0);
+  --sidebar-primary: oklch(0.2046 0 0);
+  --sidebar-primary-foreground: oklch(0.9851 0 0);
+  --sidebar-accent: oklch(0.9702 0 0);
+  --sidebar-accent-foreground: oklch(0.2046 0 0);
+  --sidebar-border: oklch(0.9219 0 0);
+  --sidebar-ring: oklch(0.7090 0 0);
+  --radius: 1.05rem;
+  --shadow-2xs: 0px 1px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-xs: 0px 1px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-sm: 0px 1px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
+  --shadow: 0px 1px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
+  --shadow-md: 0px 1px 0px 0px hsl(0 0% 0% / 0.00), 0px 2px 4px -1px hsl(0 0% 0% / 0.00);
+  --shadow-lg: 0px 1px 0px 0px hsl(0 0% 0% / 0.00), 0px 4px 6px -1px hsl(0 0% 0% / 0.00);
+  --shadow-xl: 0px 1px 0px 0px hsl(0 0% 0% / 0.00), 0px 8px 10px -1px hsl(0 0% 0% / 0.00);
+  --shadow-2xl: 0px 1px 0px 0px hsl(0 0% 0% / 0.00);
 
   color-scheme: light;
 }
 
 .dark {
-  --background: oklch(0.2178 0 0);
-  --foreground: oklch(0.8853 0 0);
-  --card: oklch(0.2435 0 0);
-  --card-foreground: oklch(0.8853 0 0);
-  --popover: oklch(0.2435 0 0);
-  --popover-foreground: oklch(0.8853 0 0);
-  --primary: oklch(0.7058 0 0);
-  --primary-foreground: oklch(0.2178 0 0);
-  --secondary: oklch(0.3092 0 0);
-  --secondary-foreground: oklch(0.8853 0 0);
-  --muted: oklch(0.2850 0 0);
-  --muted-foreground: oklch(0.5999 0 0);
+  --background: oklch(0.1448 0 0);
+  --foreground: oklch(0.9851 0 0);
+  --card: oklch(0.2134 0 0);
+  --card-foreground: oklch(0.9851 0 0);
+  --popover: oklch(0.2686 0 0);
+  --popover-foreground: oklch(0.9851 0 0);
+  --primary: oklch(0.5555 0 0);
+  --primary-foreground: oklch(0.9851 0 0);
+  --secondary: oklch(0.2686 0 0);
+  --secondary-foreground: oklch(0.9851 0 0);
+  --muted: oklch(0.2686 0 0);
+  --muted-foreground: oklch(0.7090 0 0);
   --accent: oklch(0.3715 0 0);
-  --accent-foreground: oklch(0.8853 0 0);
-  --destructive: oklch(0.6591 0.1530 22.1703);
-  --destructive-foreground: oklch(1.0000 0 0);
-  --border: oklch(0.3290 0 0);
-  --input: oklch(0.3092 0 0);
-  --ring: oklch(0.7058 0 0);
-  --chart-1: oklch(0.7058 0 0);
-  --chart-2: oklch(0.6714 0.0339 206.3482);
-  --chart-3: oklch(0.5452 0 0);
-  --chart-4: oklch(0.4604 0 0);
-  --chart-5: oklch(0.3715 0 0);
-  --sidebar: oklch(0.2393 0 0);
-  --sidebar-foreground: oklch(0.8853 0 0);
-  --sidebar-primary: oklch(0.7058 0 0);
-  --sidebar-primary-foreground: oklch(0.2178 0 0);
-  --sidebar-accent: oklch(0.3715 0 0);
-  --sidebar-accent-foreground: oklch(0.8853 0 0);
-  --sidebar-border: oklch(0.3290 0 0);
-  --sidebar-ring: oklch(0.7058 0 0);
+  --accent-foreground: oklch(0.9851 0 0);
+  --destructive: oklch(0.7022 0.1892 22.2279);
+  --destructive-foreground: oklch(0.2686 0 0);
+  --border: oklch(0.3407 0 0);
+  --input: oklch(0.4386 0 0);
+  --ring: oklch(0.5555 0 0);
+  --chart-1: oklch(0.5555 0 0);
+  --chart-2: oklch(0.5555 0 0);
+  --chart-3: oklch(0.5555 0 0);
+  --chart-4: oklch(0.5555 0 0);
+  --chart-5: oklch(0.5555 0 0);
+  --sidebar: oklch(0.2046 0 0);
+  --sidebar-foreground: oklch(0.9851 0 0);
+  --sidebar-primary: oklch(0.9851 0 0);
+  --sidebar-primary-foreground: oklch(0.2046 0 0);
+  --sidebar-accent: oklch(0.2686 0 0);
+  --sidebar-accent-foreground: oklch(0.9851 0 0);
+  --sidebar-border: oklch(1.0000 0 0);
+  --sidebar-ring: oklch(0.4386 0 0);
 
   color-scheme: dark;
 }
@@ -147,10 +155,14 @@
 /*
  * Semantic accents.
  *
- * Graffiti is achromatic — every token is oklch(L 0 0) apart from --destructive.
+ * The theme is achromatic — every token is oklch(L 0 0) apart from --destructive.
  * The app used 552 raw Tailwind palette classes across 14 hues to say "running",
  * "error", "queued", "added", "removed". Those collapse onto these four, tuned
  * to sit at the theme's lightness so they read as part of it rather than on top.
+ *
+ * The `*-foreground` values are text drawn *on* an accent fill, so they track the
+ * page background rather than --foreground: white on a light-mode accent, the
+ * near-black page colour on a dark-mode one.
  */
 :root {
   --success: oklch(0.5200 0.1400 150);
@@ -165,21 +177,23 @@
 
 .dark {
   --success: oklch(0.7200 0.1500 150);
-  --success-foreground: oklch(0.2178 0 0);
+  --success-foreground: oklch(0.1448 0 0);
   --warning: oklch(0.7800 0.1400 75);
-  --warning-foreground: oklch(0.2178 0 0);
+  --warning-foreground: oklch(0.1448 0 0);
   --info: oklch(0.7000 0.1400 255);
-  --info-foreground: oklch(0.2178 0 0);
+  --info-foreground: oklch(0.1448 0 0);
 }
 
 /*
- * One token graffiti does not carry.
+ * One token the theme does not carry.
  *
- * The app distinguishes three border weights; graffiti has --border and
- * --input, and --input has *less* contrast than --border in both polarities,
- * so it cannot serve as the strong tier. This is a push toward the foreground
- * instead, and it is the only piece of the old elevation system that survived
- * the collapse onto graffiti's ramp.
+ * The app distinguishes three border weights; the theme ships --border and
+ * --input, and --input cannot serve as the strong tier — in light mode it is
+ * the *same value* as --border, and in either mode it means "the edge of a
+ * field", so borrowing it for dividers would make a focused input and a section
+ * rule the same thing. This is a push toward the foreground instead, and it is
+ * the only piece of the old elevation system that survived the collapse onto a
+ * single achromatic ramp.
  */
 :root,
 .dark {
@@ -189,8 +203,8 @@
 /*
  * Scrollbars come off --foreground, not --muted-foreground.
  *
- * A scrollbar is an affordance, not metadata. The muted ramp sits at 0.51
- * lightness on a 0.955 background in light mode, so at the old 35% alpha there
+ * A scrollbar is an affordance, not metadata. The muted ramp sits at 0.55
+ * lightness on a white background in light mode, so at the old 35% alpha there
  * was nothing to see — a table that scrolled sideways gave no sign it did.
  * Split per theme because light needs more of the ramp than dark does.
  */
@@ -280,6 +294,16 @@
   --color-separator: var(--separator);
   --color-separator-subtle: var(--separator-subtle);
 
+  /*
+   * Ratios, not the theme's `calc(var(--radius) ± Npx)`.
+   *
+   * Two reasons. The offsets only behave at the small --radius they were written
+   * for: at 1.05rem they put sm, md and lg within 4px of each other, which is one
+   * tier wearing three names — a badge and the panel it sits in would round the
+   * same. And the theme only defines sm/md/lg/xl, so `rounded-xs` and
+   * `rounded-2xl` (both in use) would silently fall back to Tailwind's stock
+   * 2px/16px and stop tracking --radius at all.
+   */
   --radius-xs: calc(var(--radius) * 0.5);
   --radius-sm: calc(var(--radius) * 0.75);
   --radius-md: calc(var(--radius) * 0.875);
@@ -336,6 +360,10 @@
   padding: calc(var(--content-font-size, 15px) * 0.62) calc(var(--content-font-size, 15px) * 0.8);
 }
 
+/* The theme's own base rule, written out rather than `@apply`-ed: the pseudo
+ * elements need the same default border colour as the elements, and the theme's
+ * `outline-ring/50` is the fallback outline colour for anything that asks for an
+ * outline without naming one. */
 @layer base {
   *,
   ::after,
@@ -343,6 +371,7 @@
   ::backdrop,
   ::file-selector-button {
     border-color: var(--color-border);
+    outline-color: color-mix(in oklab, var(--color-ring) 50%, transparent);
   }
 }
 
@@ -439,23 +468,28 @@
 
 /* The flow canvas is its own surface.
  *
- * Deliberately not --background: the nodes are cards sitting on it, and at the
- * light theme's 0.9551 a card and its backdrop were the same colour, which left
- * the graph looking like floating text. Darker behind, so the cards read as
- * cards and an edge between them has something to be seen against.
+ * Deliberately not --background: the nodes are cards sitting on it, and --card
+ * is the *same colour* as --background in light mode, which would leave the
+ * graph looking like floating text. Darker behind, so the cards read as cards
+ * and an edge between them has something to be seen against.
+ *
+ * These are absolute lightnesses rather than a mix, so they have to move when
+ * the palette does: the ordering that matters is canvas < background < card, and
+ * a value tuned against the old ramp (0.18, against a 0.2178 background) would
+ * now sit *above* a 0.1448 one and invert the whole effect.
  *
  * The dots were #00000014 and #ffffff08 — 8% and 3%. Present in the DOM and
  * invisible on a display that is not in a dark room. */
 :root {
-  --flow-canvas: oklch(0.9 0 0);
+  --flow-canvas: oklch(0.94 0 0);
   --flow-edge: oklch(0.52 0 0);
   --flow-dot: oklch(0.72 0 0);
 }
 
 .dark {
-  --flow-canvas: oklch(0.18 0 0);
+  --flow-canvas: oklch(0.105 0 0);
   --flow-edge: oklch(0.66 0 0);
-  --flow-dot: oklch(0.42 0 0);
+  --flow-dot: oklch(0.35 0 0);
 }
 
 .nyra-flow-canvas {

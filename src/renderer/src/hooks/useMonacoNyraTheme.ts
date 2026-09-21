@@ -8,20 +8,24 @@ const THEME_LIGHT = 'nyra-light'
 type ColorMap = Record<string, string>
 
 // Monaco takes hex strings and cannot read CSS variables, so these mirror the
-// graffiti tokens by hand: --card for the surface, --muted-foreground for gutter
-// numbers. They have to be updated if those tokens move.
+// theme tokens by hand: --card for the surface, --muted-foreground for gutter
+// numbers. They have to be updated if those tokens move — the theme's tokens are
+// achromatic `oklch(L 0 0)`, which converts to a plain grey at
+// round(255 * srgb(L ** 3)).
 const DARK_COLORS: ColorMap = {
-  'editor.background': '#202020',
-  'editorLineNumber.foreground': '#80808099',
-  'editorGutter.background': '#202020',
+  // --card oklch(0.2134 0 0), --muted-foreground oklch(0.7090 0 0)
+  'editor.background': '#191919',
+  'editorLineNumber.foreground': '#a1a1a199',
+  'editorGutter.background': '#191919',
   'scrollbar.shadow': '#00000000',
   'editorOverviewRuler.border': '#00000000'
 }
 
 const LIGHT_COLORS: ColorMap = {
-  'editor.background': '#f5f5f5',
-  'editorLineNumber.foreground': '#66666699',
-  'editorGutter.background': '#f5f5f5',
+  // --card oklch(1.0000 0 0), --muted-foreground oklch(0.5486 0 0)
+  'editor.background': '#ffffff',
+  'editorLineNumber.foreground': '#71717199',
+  'editorGutter.background': '#ffffff',
   'scrollbar.shadow': '#00000000',
   'editorOverviewRuler.border': '#00000000'
 }

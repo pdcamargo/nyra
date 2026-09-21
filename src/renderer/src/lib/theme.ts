@@ -15,8 +15,8 @@ export function resolveTheme(preference: ThemePreference): ResolvedTheme {
 
 /**
  * The single place the theme reaches the DOM. shadcn's convention is a `.dark`
- * class on <html>; the app used a `data-theme` attribute before the graffiti
- * theme, which is light-by-default with a `.dark` override.
+ * class on <html>; the app used a `data-theme` attribute before the move to a
+ * shadcn theme, which is light-by-default with a `.dark` override.
  */
 export function applyThemeClass(resolved: ResolvedTheme): void {
   document.documentElement.classList.toggle('dark', resolved === 'dark')

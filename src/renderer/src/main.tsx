@@ -15,7 +15,7 @@ import { bootAppearance } from './lib/appearance'
 import { applyZoom, persistedZoom } from './lib/zoom'
 import './index.css'
 
-// The graffiti theme is light-by-default, so the `.dark` class has to land on
+// The theme is light-by-default, so the `.dark` class has to land on
 // <html> before anything paints or a dark-mode user sees a white frame.
 bootTheme()
 
