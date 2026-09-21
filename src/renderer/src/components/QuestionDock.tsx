@@ -87,7 +87,7 @@ export default function QuestionDock({
                   onSubmit(composeAnswer(questions, { [page]: [opt.label] }))
                 }
               }}
-              className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-start text-c-sm transition-colors ${
+              className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-start text-c-sm transition-colors ${
                 on ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-input/40'
               }`}
             >

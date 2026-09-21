@@ -105,7 +105,7 @@ export default function BrowserPip(): React.JSX.Element | null {
   }
 
   return (
-    <div className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-secondary/80 shadow-xl backdrop-blur-xl backdrop-saturate-150">
+    <div className="pointer-events-auto overflow-hidden rounded-lg border border-border bg-secondary/80 shadow-xl backdrop-blur-xl backdrop-saturate-150">
       <div className="flex items-center gap-1.5 px-2.5 py-1.5">
         <Globe className="size-3 shrink-0 text-muted-foreground" />
         <span className="flex-1 truncate text-[10px] font-medium uppercase tracking-widest text-muted-foreground/70">

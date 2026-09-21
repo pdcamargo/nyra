@@ -317,7 +317,7 @@ function LoopContainer({ data, selected }: NodeProps): React.JSX.Element {
 
   return (
     <div
-      className={`flex h-full w-full flex-col rounded-xl border bg-background/40 transition-colors ${statusChrome(status, selected)}`}
+      className={`flex h-full w-full flex-col rounded-lg border bg-background/40 transition-colors ${statusChrome(status, selected)}`}
     >
       <Handle type="target" position={Position.Top} className={HANDLE} />
       <div className="flex h-9 items-center gap-1.5 px-3">
@@ -3876,7 +3876,7 @@ function RunDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <form
         onSubmit={handleSubmit}
-        className="bg-card border border-border-strong rounded-xl w-[440px] max-h-[80vh] flex flex-col shadow-2xl"
+        className="bg-card border border-border-strong rounded-lg w-[440px] max-h-[80vh] flex flex-col shadow-2xl"
       >
         <div className="px-5 py-4 border-b border-border/55">
           <h2 className="text-sm font-semibold text-foreground">Run Workflow</h2>
@@ -3931,7 +3931,7 @@ function ReviewDialog({ request }: { request: ReviewRequest }): React.JSX.Elemen
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-card border border-warning/30 rounded-xl w-[560px] max-h-[80vh] flex flex-col shadow-2xl">
+      <div className="bg-card border border-warning/30 rounded-lg w-[560px] max-h-[80vh] flex flex-col shadow-2xl">
         <div className="px-5 py-4 border-b border-border/55">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 bg-warning rounded-full animate-pulse" />

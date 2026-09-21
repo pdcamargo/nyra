@@ -891,7 +891,7 @@ export default function ChatInput({
       {queuedMessages.length > 0 && (
         // Docked to the top of the composer rather than floating above it as a
         // warning banner: these are the next things you will send, not problems.
-        <div className="-mb-2 rounded-t-xl border border-b-0 border-border bg-muted pb-4 pt-1 text-xs">
+        <div className="-mb-2 rounded-t-lg border border-b-0 border-border bg-muted pb-4 pt-1 text-xs">
           {queuedMessages.map((queued, i) => (
             <div key={i} className="group/q flex items-center gap-2 px-3 py-1.5">
               <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />

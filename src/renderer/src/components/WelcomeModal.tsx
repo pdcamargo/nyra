@@ -104,7 +104,7 @@ function StepCli({ onNext }: { onNext: () => void }): React.JSX.Element {
       )}
 
       {status === 'found' && (
-        <div className="rounded-xl border border-success/20 bg-success/6 p-4 space-y-2">
+        <div className="rounded-lg border border-success/20 bg-success/6 p-4 space-y-2">
           <div className="flex justify-center">
             <CircleCheckBig className="size-8 text-success" />
           </div>
@@ -116,7 +116,7 @@ function StepCli({ onNext }: { onNext: () => void }): React.JSX.Element {
 
       {status === 'not-found' && (
         <div className="space-y-4">
-          <div className="rounded-xl border border-warning/20 bg-warning/6 p-4 space-y-3">
+          <div className="rounded-lg border border-warning/20 bg-warning/6 p-4 space-y-3">
             <div className="flex justify-center">
               <TriangleAlert className="size-7 text-warning" />
             </div>
@@ -200,7 +200,7 @@ function StepTips(): React.JSX.Element {
 
       <div className="grid grid-cols-2 gap-2">
         {tips.map((tip) => (
-          <div key={tip.keys} className="rounded-xl border border-border/55 bg-muted/40 p-3 text-left">
+          <div key={tip.keys} className="rounded-lg border border-border/55 bg-muted/40 p-3 text-left">
             <kbd className="text-[12px] font-mono font-medium text-foreground/80 bg-accent/50 px-1.5 py-0.5 rounded-sm">
               {tip.keys}
             </kbd>

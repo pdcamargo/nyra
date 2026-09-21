@@ -291,7 +291,7 @@ function EventSection({
   const [collapsed, setCollapsed] = useState(false)
 
   return (
-    <div className="rounded-xl border border-border bg-muted/40">
+    <div className="rounded-lg border border-border bg-muted/40">
       <div className="flex items-center justify-between px-3 py-2">
         <button
           onClick={() => setCollapsed(!collapsed)}
