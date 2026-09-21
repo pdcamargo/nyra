@@ -8,7 +8,14 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Ask Claude to design a screen and it shows you a picture before building it',
+      'Designs open in a canvas tab of their own, and stay live as Claude revises them',
+      'Click a design mentioned in chat to open it; naming a screen jumps straight to it',
+      'Right-click a screen on the design canvas to copy it as a PNG or reference it in the composer',
+      'Rename or remove a design from the list without touching its file',
+      'Claude can resize a side panel, or reset it'
+    ]
   },
   {
     version: '0.1.0',
