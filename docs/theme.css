@@ -3,15 +3,17 @@
  *
  * This file is the source, not the build input — nothing imports it. It is kept
  * so the next theme swap has something to diff against. src/renderer/src/index.css
- * is what actually ships, and it deviates from this file deliberately in four
+ * is what actually ships, and it deviates from this file deliberately in five
  * places, each annotated at the site:
  *
  *   - fonts: this ships `Geist Mono, monospace` for sans/serif/mono, which would
  *     put the whole chrome in a monospace face, and Geist Mono is not vendored
  *     (CSP blocks Google Fonts). index.css keeps Inter + Fira Code, in a plain
  *     `@theme` rather than `@theme inline` so Appearance settings can override it.
+ *   - `--radius`: 0.84rem, 20% under the published 1.05rem, which read too round
+ *     at the sizes Nyra uses.
  *   - radius tiers: ratios rather than `calc(var(--radius) ± Npx)`, which
- *     collapses at a 1.05rem radius and omits the xs/2xl tiers the app uses.
+ *     collapses at that radius and omits the xs/2xl tiers the app uses.
  *   - `--tracking-normal` / `--spacing`: dead here; `--spacing` only reaches
  *     Tailwind's scale from inside `@theme`, where it restates the default.
  *   - `--shadow-x/y/blur/spread/opacity/color`: the generator's authoring knobs.
