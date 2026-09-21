@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   findCreatedPr,
   isPrCreatingCall,
+  scanForPrs,
+  type ScannableMessage,
   prLabel,
   prSlug,
   prStateFrom,
@@ -107,6 +109,84 @@ describe('findCreatedPr', () => {
     expect(findCreatedPr('Opened (https://github.com/o/r/pull/5).')?.url).toBe(
       'https://github.com/o/r/pull/5'
     )
+  })
+})
+
+
+describe('scanForPrs', () => {
+  const call = (over: Partial<ScannableMessage> = {}): ScannableMessage => ({
+    role: 'tool_call',
+    tool_name: 'Bash',
+    input: { command: 'gh pr create --fill' },
+    result: 'https://github.com/pdcamargo/nyra/pull/42\n',
+    timestamp: 1_700_000_000_000,
+    ...over
+  })
+
+  it('recovers a PR from a transcript the live path never watched', () => {
+    expect(scanForPrs([call()])).toEqual([
+      {
+        url: 'https://github.com/pdcamargo/nyra/pull/42',
+        owner: 'pdcamargo',
+        repo: 'nyra',
+        number: 42,
+        createdAt: 1_700_000_000_000
+      }
+    ])
+  })
+
+  it('dates the PR from the message, not from when the scan ran', () => {
+    const [pr] = scanForPrs([call({ timestamp: 1_600_000_000_000 })])
+    expect(pr.createdAt).toBe(1_600_000_000_000)
+  })
+
+  it('anchors on the creating call, so a PR merely read is not this chat’s', () => {
+    expect(
+      scanForPrs([
+        call({ input: { command: 'gh pr view 42' } }),
+        call({ input: { command: 'gh pr checkout 42' } }),
+        { role: 'assistant', result: 'see https://github.com/pdcamargo/nyra/pull/42' }
+      ])
+    ).toEqual([])
+  })
+
+  it('skips a call still awaiting its result', () => {
+    expect(scanForPrs([call({ result: undefined })])).toEqual([])
+  })
+
+  it('yields one entry when a retry opened the same PR twice, keeping the first date', () => {
+    const prs = scanForPrs([call(), call({ timestamp: 1_700_000_999_000 })])
+    expect(prs).toHaveLength(1)
+    expect(prs[0].createdAt).toBe(1_700_000_000_000)
+  })
+
+  it('keeps one entry per repo when a chat worked across two', () => {
+    const prs = scanForPrs([
+      call(),
+      call({ result: 'https://github.com/pdcamargo/helix/pull/7' })
+    ])
+    expect(prs.map((p) => `${p.repo}#${p.number}`)).toEqual(['nyra#42', 'helix#7'])
+  })
+
+  it('ignores the compose link a git push printed, same as the live path', () => {
+    expect(
+      scanForPrs([
+        call({
+          input: { command: 'git push -u origin HEAD' },
+          result: 'remote: https://github.com/pdcamargo/nyra/pull/new/feature-x'
+        })
+      ])
+    ).toEqual([])
+  })
+
+  it('walks a transcript of ordinary messages without tripping', () => {
+    expect(
+      scanForPrs([
+        { role: 'user' },
+        { role: 'tool_call', tool_name: 'Read', input: { file_path: '/x' }, result: 'ok' },
+        call()
+      ])
+    ).toHaveLength(1)
   })
 })
 

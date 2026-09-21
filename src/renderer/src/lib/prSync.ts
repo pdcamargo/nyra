@@ -12,7 +12,7 @@
  * that nobody is currently reading.
  */
 import { useSessionsStore } from '../store/sessions'
-import { prStateFrom, type PullRequest } from './pullRequests'
+import { prStateFrom, scanForPrs, type PullRequest } from './pullRequests'
 
 /** How long a state is trusted before opening the chat re-asks. */
 export const PR_STATE_STALE_MS = 60_000
@@ -44,6 +44,30 @@ export async function syncPrState(sessionId: string, url: string): Promise<void>
     // chip has a neutral form for exactly this.
     ...(state ? { state } : {})
   })
+}
+
+/**
+ * Recover from the transcript any PR the live path never saw.
+ *
+ * Runs on opening a chat, for every chat, not once behind a "already scanned"
+ * flag. Two reasons that is the cheaper shape: there is no marker to store or
+ * migrate, and it keeps working for a PR the live path missed *after* a chat had
+ * already been scanned — the restart-between-call-and-result case.
+ *
+ * A scan that finds nothing new writes nothing, so re-running costs a walk of
+ * the messages and no re-render. Only genuinely unknown URLs are handed to
+ * `addPullRequest`, which would otherwise rebuild the array on every open and
+ * re-render the chat for no change.
+ */
+export function backfillPrs(sessionId: string): void {
+  const { sessions, addPullRequest } = useSessionsStore.getState()
+  const session = sessions.find((s) => s.id === sessionId)
+  if (!session) return
+  const known = new Set((session.pullRequests ?? []).map((pr) => pr.url))
+  for (const pr of scanForPrs(session.messages)) {
+    if (known.has(pr.url)) continue
+    addPullRequest(sessionId, pr)
+  }
 }
 
 /**

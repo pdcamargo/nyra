@@ -100,6 +100,50 @@ export function findCreatedPr(result: string): PrRef | null {
   return last
 }
 
+/**
+ * What a scan needs from a stored message.
+ *
+ * Structural rather than the store's own `Message`, because `sessions.ts`
+ * imports `PullRequest` from this file — taking its type back would close the
+ * loop. It also keeps this function testable with plain object literals.
+ */
+export type ScannableMessage = {
+  role: string
+  tool_name?: string
+  input?: Record<string, unknown>
+  result?: string
+  timestamp?: number
+}
+
+/**
+ * The PRs a transcript already contains.
+ *
+ * Live detection watches the event stream, which means it only ever sees chats
+ * that ran after it shipped — and it holds the "this call is opening a PR" note
+ * in memory, so a restart between the call and its result drops even a live one.
+ * A stored `tool_call` keeps `tool_name`, `input` and `result` together, which
+ * is everything the two matchers need, so both gaps close by reading the
+ * transcript back.
+ *
+ * Safe to re-run: the same URL twice yields one entry, and the earliest wins, so
+ * a retried `gh pr create` keeps the timestamp of the attempt that first opened
+ * it. `createdAt` comes from the message rather than the clock, so a PR
+ * recovered today is not dated today.
+ */
+export function scanForPrs(messages: readonly ScannableMessage[]): PullRequest[] {
+  const found: PullRequest[] = []
+  const seen = new Set<string>()
+  for (const m of messages) {
+    if (m.role !== 'tool_call' || !m.result) continue
+    if (!isPrCreatingCall(m.tool_name ?? '', m.input ?? {})) continue
+    const ref = findCreatedPr(m.result)
+    if (!ref || seen.has(ref.url)) continue
+    seen.add(ref.url)
+    found.push({ ...ref, createdAt: m.timestamp ?? Date.now() })
+  }
+  return found
+}
+
 /** `owner/repo#123` — the unambiguous form, for a tooltip or a hover card. */
 export function prSlug(pr: PrRef): string {
   return `${pr.owner}/${pr.repo}#${pr.number}`

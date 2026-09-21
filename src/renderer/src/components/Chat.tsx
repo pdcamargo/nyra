@@ -21,7 +21,7 @@ import { extractAskBlocks } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
 import { extractChangeBlocks } from '../lib/changeBlocks'
 import { findCreatedPr, isPrCreatingCall } from '../lib/pullRequests'
-import { syncPrState, syncStalePrs } from '../lib/prSync'
+import { backfillPrs, syncPrState, syncStalePrs } from '../lib/prSync'
 import ChangesCard from './ChangesCard'
 import { isMemoryWrite, memoryWriteFrom, type MemoryWrite } from '../lib/memoryWrites'
 import MemoryChip from './MemoryChip'
@@ -531,11 +531,18 @@ export default function Chat(): React.JSX.Element {
     setActiveMatchIndex(0)
   }, [activeSessionId])
 
-  // A PR merges on github.com without telling us, so the chip's colour is
-  // re-asked when you open the chat it belongs to. Rate-limited inside, because
-  // switching chats is something you do dozens of times an hour.
+  // Two things happen on opening a chat. The transcript is read back for PRs the
+  // live path never saw — chats that predate it, and the restart-between-call-
+  // and-result case — and then whatever is on the session has its colour
+  // re-asked, because a PR merges on github.com without telling us. In that
+  // order: a PR recovered a moment ago should get its state in the same pass
+  // rather than waiting for the next time you open the chat. Both are cheap on
+  // a chat with nothing to find, which matters because switching chats is
+  // something you do dozens of times an hour.
   useEffect(() => {
-    if (activeSessionId) syncStalePrs(activeSessionId)
+    if (!activeSessionId) return
+    backfillPrs(activeSessionId)
+    syncStalePrs(activeSessionId)
   }, [activeSessionId])
 
   const searchMatches = useMemo(() => searchOpen ? findMatches(messages, searchQuery) : [], [searchOpen, messages, searchQuery])
