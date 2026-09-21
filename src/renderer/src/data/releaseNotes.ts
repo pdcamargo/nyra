@@ -8,7 +8,15 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'A new device mode: pick a preset, type a size, rotate, or zoom to fit',
+      "Claude can change the browser panel's device size, marked as its doing",
+      'The browser panel is no longer blurry on Retina displays',
+      'The page in the browser panel reflows live as you resize it',
+      'The browser panel streams at full frame rate instead of a throttled one',
+      "The agent's cursor now stays on screen the whole time Claude is driving the tab",
+      'Right-click a flow row to open its context menu (used to fall through to the OS)'
+    ]
   },
   {
     version: '0.0.10',
