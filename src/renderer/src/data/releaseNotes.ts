@@ -8,7 +8,14 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'A chat shows the pull requests it opened, with live status from GitHub',
+      'A chat lists the ports its dev servers are listening on; click one to open it',
+      'A script node that times out has its process killed, not left running',
+      "Set a script node's timeout in the inspector, instead of editing raw JSON",
+      'Corners are 20% tighter across the app',
+      'The queued-message tray no longer leaves a notch where it meets the composer'
+    ]
   },
   {
     version: '0.2.0',
