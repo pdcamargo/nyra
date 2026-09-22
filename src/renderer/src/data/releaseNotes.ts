@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.3.1',
+    date: '2026-09-22',
     notes: [
       'Return to a chat and see a recap of what happened while you were away',
       'Press Cmd P to fuzzy-find and jump straight to any project file',
