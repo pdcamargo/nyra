@@ -15,7 +15,7 @@ use crate::workflow::helpers::{build_marketplace_share_url, marketplace_repo_url
 use crate::workflow::types::{MarketplaceEntry, TriggerSource};
 use crate::workflow::{engine, marketplace, store, triggers};
 use crate::{
-    browser, claude, devtools, file_extractor, file_tree, fs_ops, gh, git, hooks, login, mcp,
+    browser, claude, devtools, dictation, file_extractor, file_tree, fs_ops, gh, git, hooks, login, mcp,
     memory, open_with, processes, skills, subagents,
 };
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
@@ -819,6 +819,53 @@ pub fn login_resize(cols: u16, rows: u16) {
 #[tauri::command]
 pub fn login_cancel() {
     login::cancel_login();
+}
+
+// ---- dictation ----
+
+#[tauri::command]
+pub fn dictation_start(options: dictation::StartOptions) -> Value {
+    match dictation::start(options) {
+        Ok(()) => json!({ "ok": true }),
+        Err(e) => json!({ "error": e }),
+    }
+}
+
+#[tauri::command]
+pub fn dictation_stop() {
+    dictation::stop();
+}
+
+#[tauri::command]
+pub fn dictation_cancel() {
+    dictation::cancel();
+}
+
+#[tauri::command]
+pub fn dictation_status(model: Option<String>) -> Value {
+    let model = model.unwrap_or_else(|| dictation::model::DEFAULT_MODEL.to_string());
+    let mut status = dictation::model::status(&model);
+    if let Value::Object(map) = &mut status {
+        map.insert("recording".into(), Value::Bool(dictation::is_recording()));
+        map.insert(
+            "devices".into(),
+            serde_json::to_value(dictation::capture::input_devices()).unwrap_or(Value::Null),
+        );
+    }
+    status
+}
+
+#[tauri::command]
+pub async fn dictation_model_download(model: String) -> Value {
+    match dictation::model::download(model).await {
+        Ok(()) => json!({ "ok": true }),
+        Err(e) => json!({ "error": e }),
+    }
+}
+
+#[tauri::command]
+pub fn dictation_model_cancel() {
+    dictation::model::cancel_download();
 }
 
 // ---- terminal ----

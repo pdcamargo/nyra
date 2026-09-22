@@ -757,6 +757,27 @@ html:not(.dark) .nyra-on-bubble {
  * label stays exactly one line of text, in the rhythm of the tool traces above
  * it.
  */
+/*
+ * Dictation's provisional transcript, drawn in the composer but not in it.
+ *
+ * The same token as the placeholder rather than an alpha of --foreground: the
+ * ramp is tuned to clear AA on both surfaces, and a fraction of --foreground is
+ * what the contrast test exists to stop.
+ *
+ * `:not(.nyra-shimmer)` rather than source order, because the shimmer sets
+ * `color: transparent` and clips a gradient to the text — declaring the colour
+ * unconditionally here would silently win and leave the shimmer invisible. This
+ * lives in CSS rather than the CodeMirror theme for the same reason: a theme
+ * rule carries an extra ancestor class and would outrank .nyra-shimmer.
+ */
+.cm-ghost-text {
+  pointer-events: none;
+}
+
+.cm-ghost-text:not(.nyra-shimmer) {
+  color: var(--muted-foreground);
+}
+
 .nyra-shimmer {
   background-image: linear-gradient(
     90deg,

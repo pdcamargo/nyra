@@ -22,7 +22,8 @@ describe('command registry', () => {
     // denial would not break anything else in the suite.
     it.each([
       ['session.abort', 'cancels the running turn'],
-      ['chat.planMode', 'is in the spawn fingerprint, so it respawns the child']
+      ['chat.planMode', 'is in the spawn fingerprint, so it respawns the child'],
+      ['composer.dictate', 'switches on the microphone']
     ])('%s is closed to agents because it %s', (id) => {
       const command = COMMANDS_BY_ID.get(id as CommandId)
       expect(command, `${id} has been renamed or removed`).toBeDefined()

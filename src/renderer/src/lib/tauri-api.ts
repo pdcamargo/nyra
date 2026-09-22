@@ -51,6 +51,52 @@ import type {
 } from '@shared/workflow-types'
 import type { SubagentWireEntry } from '../store/subagentTranscripts'
 
+
+/** Options for a dictation session. Mirrors `dictation::StartOptions` in Rust. */
+export type DictationStartOptions = {
+  model?: string
+  /** `undefined` or 'auto' detects; otherwise an ISO code such as 'pt'. */
+  language?: string
+  device?: string
+  /** Terms to bias the transcript towards, **least** valuable first: Whisper
+   *  keeps only the last 224 prompt tokens, so the tail is what survives. */
+  vocabulary?: string[]
+  liveTranscript?: boolean
+}
+
+export type DictationModel = {
+  id: string
+  file: string
+  label: string
+  bytes: number
+  note: string
+}
+
+export type DictationStatus = {
+  model: string
+  installed: boolean
+  downloading: boolean
+  bytes: number
+  label: string
+  catalogue: DictationModel[]
+  recording: boolean
+  devices: string[]
+}
+
+export type DictationEvent =
+  | { type: 'recording_started' }
+  | { type: 'level'; level: number }
+  | { type: 'interim'; text: string }
+  | { type: 'no_signal'; device: string }
+  | { type: 'transcribing' }
+  | { type: 'transcript'; text: string }
+  | { type: 'cancelled' }
+  | { type: 'error'; error: string }
+  | { type: 'model_progress'; model: string; received: number; total: number }
+  | { type: 'model_ready'; model: string }
+  | { type: 'model_cancelled'; model: string }
+  | { type: 'model_failed'; model: string; error: string }
+
 const EVENT_NAMES = [
   'claude:event',
   'claude:permission',
@@ -63,7 +109,8 @@ const EVENT_NAMES = [
   'browser:event',
   'nyra:app-request',
   'nyra:update-available',
-  'nyra:designs-changed'
+  'nyra:designs-changed',
+  'dictation:event'
 ] as const
 
 type EventName = (typeof EVENT_NAMES)[number]
@@ -542,6 +589,23 @@ export const api = {
     onData: (callback: (event: { id: string; data: string }) => void) => on('terminal:data', callback),
     onExit: (callback: (event: { id: string; exitCode: number }) => void) =>
       on('terminal:exit', callback)
+  },
+
+  /**
+   * Voice dictation. Audio is captured and transcribed in Rust, so nothing
+   * here moves samples across the bridge — the renderer says start and stop,
+   * and text comes back on `dictation:event`.
+   */
+  dictation: {
+    start: (options: DictationStartOptions) =>
+      call<{ ok?: true; error?: string }>('dictation_start', { options }),
+    stop: () => call<void>('dictation_stop'),
+    cancel: () => call<void>('dictation_cancel'),
+    status: (model?: string) => call<DictationStatus>('dictation_status', { model }),
+    modelDownload: (model: string) =>
+      call<{ ok?: true; error?: string }>('dictation_model_download', { model }),
+    modelCancel: () => call<void>('dictation_model_cancel'),
+    onEvent: (callback: (event: DictationEvent) => void) => on('dictation:event', callback)
   }
 }
 

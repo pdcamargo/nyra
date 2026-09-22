@@ -66,6 +66,17 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 pdf-extract = "0.12"
 quick-xml = "0.42"
 
+# Voice dictation. `cpal` captures from CoreAudio here and from WASAPI/ALSA
+# when the cross-platform port lands, so none of this needs revisiting then.
+# Capturing natively rather than via getUserMedia keeps the CSP untouched and
+# keeps audio off the IPC boundary entirely.
+cpal = "0.18"
+rubato = "5"
+# whisper.cpp. `metal` makes build.rs set GGML_METAL_EMBED_LIBRARY=ON, which
+# bakes the shader source into the binary and compiles it at runtime — no
+# .metallib to ship and no metal compiler needed at build time.
+whisper-rs = { version = "0.16", default-features = false, features = ["metal"] }
+
 base64 = "0.22"
 rand = "0.10"
 dirs = "7"

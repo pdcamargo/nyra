@@ -66,6 +66,23 @@ export type NyraSettings = {
    *  the library draws a patch that git already computed, so whitespace has to
    *  be dropped when the patch is made, not when it is shown. */
   diffIgnoreWhitespace: boolean
+  /** Which Whisper model voice dictation uses. Only multilingual models are
+   *  offered: the `.en` variants are better at English per megabyte but cannot
+   *  transcribe Portuguese at all. */
+  dictationModel: string
+  /** '' detects the language; otherwise an ISO code such as 'pt' or 'en'.
+   *  Detection on a two-second utterance is unreliable, so pinning it is worth
+   *  having even though auto is the default. */
+  dictationLanguage: string
+  /** '' is the system default input. */
+  dictationDevice: string
+  /** Show a running transcript above the composer while speaking. Whisper is
+   *  not a streaming model, so this re-runs over a growing buffer — accurate
+   *  enough to follow, and replaced by the real transcript on stop. */
+  dictationLiveTranscript: boolean
+  /** Bias the transcript towards identifiers from the working directory, so
+   *  'ComposerBar' does not come back as 'composer bar'. */
+  dictationVocabulary: boolean
 }
 
 /** Side-by-side, or one column. `auto` picks by the panel's width, which is what
@@ -137,5 +154,10 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   chatWidth: 'wide',
   diffView: 'auto',
   diffWrap: false,
-  diffIgnoreWhitespace: false
+  diffIgnoreWhitespace: false,
+  dictationModel: 'turbo',
+  dictationLanguage: '',
+  dictationDevice: '',
+  dictationLiveTranscript: true,
+  dictationVocabulary: true
 }

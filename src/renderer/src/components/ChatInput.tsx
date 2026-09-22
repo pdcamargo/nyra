@@ -19,6 +19,7 @@ import {
 } from '../lib/markdownEditing'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { CornerDownLeft, Navigation, Trash2 } from 'lucide-react'
+import { useDictationStore } from '../store/dictation'
 import { useLoopsStore } from '../store/loops'
 import { compressImage } from '../utils/imageCompression'
 import type { Agent, ToolCallMessage } from '../store/sessions'
@@ -139,6 +140,9 @@ export default function ChatInput({
 
   // Focus textarea on session switch
   const activeSessionId = useSessionsStore((s) => s.activeSessionId)
+  const dictationPhase = useDictationStore((s) => s.phase)
+  const dictationInterim = useDictationStore((s) => s.interim)
+  const dictationError = useDictationStore((s) => s.error)
   useEffect(() => {
     editorRef.current?.focus()
   }, [activeSessionId])
@@ -917,6 +921,21 @@ export default function ChatInput({
           </button>
         </div>
       )}
+      {/* A refused microphone or a broken download has to say so. Without
+          this the button simply goes back to idle and the feature looks like
+          it silently did nothing. */}
+      {dictationError && (
+        <div className="mb-2 flex items-center justify-between rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+          <span className="truncate">Dictation: {dictationError}</span>
+          <button
+            onClick={() => useDictationStore.getState().setError(null)}
+            aria-label="Dismiss"
+            className="ml-2 rounded px-1 text-danger transition-colors hover:bg-danger/10"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {queuedMessages.length > 0 && (
         // Docked to the top of the composer rather than floating above it as a
         // warning banner: these are the next things you will send, not problems.
@@ -1035,6 +1054,17 @@ export default function ChatInput({
                   ? 'Type to queue next message…'
                   : 'Message Claude…'
           }
+          // What dictation has heard so far, drawn after the caret at
+          // placeholder weight. It is a decoration, not document text: it
+          // cannot be edited or sent, and the finished transcript replaces it
+          // through the ordinary prefill path once the model has seen the
+          // whole recording.
+          ghost={
+            dictationPhase === 'recording' || dictationPhase === 'transcribing'
+              ? dictationInterim
+              : ''
+          }
+          ghostSettling={dictationPhase === 'transcribing'}
         />
         <ComposerBar
           isLoading={isLoading}

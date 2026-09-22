@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the Info.plist the Tauri bundler generates, rather than replacing
+  it — so only the keys the bundler has no opinion about belong here.
+
+  NSMicrophoneUsageDescription is the sentence the microphone prompt shows. It
+  is not optional decoration: without it macOS refuses the request outright,
+  and `tauri dev` does not run the bundler, so a dev build has no Info.plist at
+  all. Dictation therefore has to be tested in a bundled build
+  (`node scripts/build-app.mjs`), not with `npm run dev`.
+-->
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Nyra uses the microphone for dictation. Your speech is transcribed on this Mac and never leaves it.</string>
+</dict>
+</plist>

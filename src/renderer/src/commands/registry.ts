@@ -17,6 +17,7 @@ import {
   LogIn,
   Maximize2,
   MessageSquare,
+  Mic,
   Minimize2,
   Monitor,
   Moon,
@@ -122,6 +123,7 @@ export type CommandId =
   | 'composer.code'
   | 'composer.link'
   | 'composer.heading'
+  | 'composer.dictate'
   | 'composer.stash'
   | 'composer.send'
   | 'composer.newline'
@@ -804,6 +806,23 @@ export const COMMANDS: Command[] = [
   { id: 'composer.code', label: 'Inline code', group: 'Composer', defaultChord: 'mod+e', readOnly: true },
   { id: 'composer.link', label: 'Insert link', group: 'Composer', defaultChord: 'mod+u', readOnly: true },
   { id: 'composer.heading', label: 'Heading 1–6', group: 'Composer', defaultChord: 'alt+1', readOnly: true },
+  {
+    id: 'composer.dictate',
+    // The app MCP layer lets Claude run registry commands. Switching on the
+    // user's microphone is not something it gets to decide.
+    agent: false,
+    agentReason: 'Claude does not turn on the microphone.',
+    label: 'Dictate',
+    group: 'Composer',
+    // Unbound on purpose: discoverable in the palette and bindable in
+    // Settings, without spending a chord on it up front.
+    defaultChord: null,
+    icon: Mic,
+    palette: true,
+    // The composer has focus when you reach for this.
+    allowInInput: true,
+    run: () => window.dispatchEvent(new Event('nyra:dictate-toggle'))
+  },
   { id: 'composer.stash', label: 'Stash / restore draft', group: 'Composer', defaultChord: 'ctrl+s', readOnly: true }
 ]
 

@@ -10,5 +10,14 @@
     <true/>
     <key>com.apple.security.app-sandbox</key>
     <false/>
+    <!--
+      Voice dictation. Under the hardened runtime the usage description in
+      Info.plist supplies the sentence the prompt shows; this entitlement is
+      what allows the prompt to happen at all. The grant survives rebuilds
+      because scripts/build-app.mjs signs with a real certificate, so the
+      designated requirement names the certificate rather than a cdhash.
+    -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
 </dict>
 </plist>

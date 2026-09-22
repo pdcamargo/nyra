@@ -34,6 +34,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { useSettingsStore } from '../store/settings'
 import { useChatSettings } from '../hooks/useChatSettings'
 import { BUILT_IN_COMMANDS } from '../data/commands'
+import DictationButton from './DictationButton'
 import { ComposerPrPills } from './PullRequestChips'
 import { ComposerPortPills } from './PortChips'
 import { KNOWN_MODELS as MODELS, MODEL_BLURB } from '../lib/models'
@@ -474,6 +475,7 @@ export default function ComposerBar({
   return (
     <div ref={barRef} className="composer-strip flex items-center gap-1">
       <AddMenu onPickFiles={onPickFiles} onInsert={onInsert} />
+      <DictationButton tight={tight} />
       <ApprovalMenu tight={tight} />
       <PlanModePill tight={tight} />
       {/* What this conversation has out in the world: the PRs it opened, and

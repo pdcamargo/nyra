@@ -8,6 +8,7 @@ mod claude;
 mod commands;
 mod designs;
 mod devtools;
+mod dictation;
 mod file_extractor;
 mod file_tree;
 mod fonts;
@@ -52,6 +53,7 @@ fn passive_dev() -> bool {
 fn shutdown() {
     terminal::kill_all_terminals();
     browser::stop();
+    dictation::dispose();
     login::cancel_login();
     claude::dispose_all();
     workflow::triggers::stop_trigger_runtime();
@@ -247,6 +249,12 @@ pub fn run() {
             commands::login_input,
             commands::login_resize,
             commands::login_cancel,
+            commands::dictation_start,
+            commands::dictation_stop,
+            commands::dictation_cancel,
+            commands::dictation_status,
+            commands::dictation_model_download,
+            commands::dictation_model_cancel,
             commands::terminal_spawn,
             commands::terminal_write,
             commands::terminal_resize,

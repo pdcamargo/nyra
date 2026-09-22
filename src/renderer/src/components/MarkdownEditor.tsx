@@ -8,6 +8,7 @@ import { languages } from '@codemirror/language-data'
 import { tags as t } from '@lezer/highlight'
 import { livePreview } from '../lib/livePreview'
 import { composerDecorations } from '../lib/composerDecorations'
+import { ghostText, setGhostText } from '../lib/ghostText'
 
 /**
  * The surface ChatInput talks to.
@@ -122,6 +123,8 @@ export default function MarkdownEditor({
   onKeyDown,
   onPaste,
   placeholder,
+  ghost,
+  ghostSettling = false,
   maxHeight = 300
 }: {
   ref?: React.Ref<MarkdownEditorHandle>
@@ -130,6 +133,11 @@ export default function MarkdownEditor({
   onKeyDown?: (event: KeyboardEvent) => void
   onPaste?: (event: ClipboardEvent) => void
   placeholder?: string
+  /** Provisional text drawn after the caret, for dictation. Never enters the
+   *  document, so it cannot be edited, undone, or sent by accident. */
+  ghost?: string
+  /** Shimmer it: the words are final but the model is still deciding. */
+  ghostSettling?: boolean
   maxHeight?: number
 }): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -160,6 +168,7 @@ export default function MarkdownEditor({
       syntaxHighlighting(highlightStyle),
       livePreview,
       composerDecorations,
+      ghostText,
       EditorView.lineWrapping,
       // CodeMirror turns the platform's text checking off on its content
       // element — sensible for code, wrong for this: both places this editor
@@ -211,10 +220,20 @@ export default function MarkdownEditor({
   }, [])
 
   useEffect(() => {
+    // The ghost wins while it is showing: both render on an empty document,
+    // and "Message Claude…" printed underneath a live transcript reads as a
+    // bug rather than as two features.
+    const shown = ghost ? '' : placeholder
     viewRef.current?.dispatch({
-      effects: placeholderComp.reconfigure(placeholder ? cmPlaceholder(placeholder) : [])
+      effects: placeholderComp.reconfigure(shown ? cmPlaceholder(shown) : [])
     })
-  }, [placeholder, placeholderComp])
+  }, [placeholder, ghost, placeholderComp])
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: setGhostText.of({ text: ghost ?? '', settling: ghostSettling })
+    })
+  }, [ghost, ghostSettling])
 
   useEffect(() => {
     viewRef.current?.dispatch({
