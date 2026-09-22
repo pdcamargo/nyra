@@ -1,7 +1,9 @@
 import React, { useEffect, useCallback, useState } from 'react'
 import Modal from './Modal'
 import { useSessionsStore, type SessionUsage } from '../store/sessions'
-import { useSettingsStore } from '../store/settings'
+import { useChatSettings } from '../hooks/useChatSettings'
+import { chatModelLabel } from '../lib/models'
+import { useModelVersions } from '../store/modelVersions'
 import { useRateLimitStore, type RateLimitWindow } from '../store/rateLimit'
 
 function formatTokens(n: number): string {
@@ -67,8 +69,12 @@ export default function StatsModal({ onClose }: { onClose: () => void }): React.
     const active = s.sessions.find((sess) => sess.id === s.activeSessionId)
     return active ?? null
   })
-  const model = useSettingsStore((s) => s.model) || 'opus'
-  const effort = useSettingsStore((s) => s.effort)
+  // This chat's settings, not the global defaults it starts from — the row is
+  // headed Model and sat in a modal about one conversation while reporting
+  // whatever Settings happened to say. And empty is the CLI's own default,
+  // which is a different model from `opus` rather than another word for it.
+  const { model, effort } = useChatSettings()
+  const versions = useModelVersions()
   const rateLimitWindows = useRateLimitStore((s) => s.windows)
   const [now, setNow] = useState(Date.now())
 
@@ -112,7 +118,11 @@ export default function StatsModal({ onClose }: { onClose: () => void }): React.
         {/* Session info */}
         <div className="rounded-lg border border-border/55 bg-muted/40 p-3 mb-3">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Session</p>
-          <StatRow label="Model" value={model} color="text-foreground" />
+          <StatRow
+            label="Model"
+            value={chatModelLabel(model, session?.resolvedModel, versions)}
+            color="text-foreground"
+          />
           {effort && <StatRow label="Effort" value={effort} color="text-info" />}
           <StatRow label="Duration" value={formatDuration(duration)} />
           <StatRow label="Messages" value={String(messageCount)} />

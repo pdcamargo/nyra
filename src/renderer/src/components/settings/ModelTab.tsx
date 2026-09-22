@@ -1,5 +1,6 @@
 import React from 'react'
 import { modelOptions } from '../../lib/models'
+import { useModelVersions } from '../../store/modelVersions'
 import { useSettingsStore } from '../../store/settings'
 import { type NyraSettings } from '../../../../shared/types'
 import { Field, NumberField, SectionLabel, Select, SettingRow, Toggle } from './primitives'
@@ -7,20 +8,23 @@ import { Field, NumberField, SectionLabel, Select, SettingRow, Toggle } from './
 export default function ModelTab(): React.JSX.Element {
   const settings = useSettingsStore()
   const update = settings.updateSettings
+  const versions = useModelVersions()
 
   return (
     <>
       <SectionLabel>Model</SectionLabel>
 
-      {/* No version numbers: an alias means "the latest", so "Opus 4" was wrong
-          the day Opus 5 shipped. A model set from the composer that is not one
-          of these still shows here, rather than the row quietly reading
-          Default while the session runs on something else. */}
+      {/* The number on a row is the one the CLI reported resolving that alias
+          to, never one written down here: an alias means "the latest", so
+          "Opus 4" was wrong the day Opus 5 shipped. A model set from the
+          composer that is not one of these still shows here, rather than the
+          row quietly reading Default while the session runs on something
+          else. */}
       <SettingRow label="Model">
         <Select
           value={settings.model}
           onChange={(model) => update({ model })}
-          options={modelOptions(settings.model)}
+          options={modelOptions(settings.model, versions)}
         />
       </SettingRow>
 

@@ -17,6 +17,7 @@ import { appearanceOf, applyAppearance } from './lib/appearance'
 import { applyZoom } from './lib/zoom'
 import { useSettingsStore } from './store/settings'
 import { useSessionsStore } from './store/sessions'
+import { loadModelCatalog } from './store/modelVersions'
 import { attachWorktreeSessions } from './store/attachWorktrees'
 import { primeHomedir } from './lib/homedir'
 import { migrateSessionsDb } from './lib/legacy-storage'
@@ -64,6 +65,14 @@ export default function App(): React.JSX.Element {
         // Offline, or no release yet. A badge that cannot appear is the right
         // failure; the manual check in Settings says why.
       })
+  }, [])
+
+  // What this CLI build says the model aliases currently mean, so a model
+  // nobody has run yet still carries a version on its label. Read once at
+  // launch rather than on demand: it streams the binary on a cold cache, and
+  // the answer cannot change while the app is open.
+  useEffect(() => {
+    void loadModelCatalog()
   }, [])
 
   // Claude asking this window to do something, or telling it a check it ran

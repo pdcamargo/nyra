@@ -38,7 +38,8 @@ import DictationButton from './DictationButton'
 import { ComposerPrPills } from './PullRequestChips'
 import { ComposerPortPills } from './PortChips'
 import { ComposerMonitorPills } from './MonitorChips'
-import { KNOWN_MODELS as MODELS, MODEL_BLURB } from '../lib/models'
+import { KNOWN_MODELS as MODELS, MODEL_BLURB, chatModelLabel, modelLabel } from '../lib/models'
+import { useModelVersions } from '../store/modelVersions'
 import { runCommand } from '../commands/registry'
 import { CommandKbd } from './ui/kbd'
 import { useSessionsStore, activeSession as activeSessionSelector } from '../store/sessions'
@@ -277,11 +278,19 @@ function PlanModePill({ tight }: { tight: boolean }): React.JSX.Element | null {
  */
 function ModelEffort(): React.JSX.Element {
   const { model, effort, update } = useChatSettings()
+  const versions = useModelVersions()
+  const running = useSessionsStore((s) => activeSessionSelector(s)?.resolvedModel)
   const [page, setPage] = React.useState<'effort' | 'model'>('effort')
   const [custom, setCustom] = React.useState('')
 
-  // An empty stored value means "CLI default", which is opus at high.
-  const shownModel = model || 'opus'
+  // The number on the pill is the one the CLI reported, so it reads "Opus 5.5"
+  // today and whatever is true after the next release without an edit here.
+  //
+  // An empty stored value is still "CLI default", but it is no longer treated
+  // as a synonym for `opus`: they resolve to different models. This read
+  // `model || 'opus'` while the session it described was running on the older
+  // one, which is the whole reason any of this is on screen.
+  const shownModel = chatModelLabel(model, running, versions)
   const shownEffort = effort || 'high'
   const effortIndex = Math.max(0, EFFORTS.findIndex((e) => e.value === shownEffort))
   const isDefault = !model && !effort
@@ -377,17 +386,23 @@ function ModelEffort(): React.JSX.Element {
               <span className="text-xs text-muted-foreground">Select model</span>
             </div>
             {MODELS.map((m) => {
-              const active = shownModel === m
+              const active = model === m
               return (
                 <button
                   key={m}
                   onClick={() => {
-                    update({ model: m === 'opus' ? '' : m })
+                    // The alias, not ''. Picking opus used to store "no
+                    // --model", which hands the choice to the CLI's own default
+                    // — a pinned older Opus — so the one row that claimed to
+                    // select the latest was the only one that could not.
+                    update({ model: m })
                     setPage('effort')
                   }}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-foreground/[0.07]"
                 >
-                  <span className="font-mono text-foreground">{m}</span>
+                  {/* A name now rather than an identifier — "Opus 5.5", not
+                      `opus` — so it is set proportional like one. */}
+                  <span className="text-foreground">{modelLabel(m, versions)}</span>
                   <span className="text-muted-foreground">{MODEL_BLURB[m]}</span>
                   {active && <Check className="ml-auto size-3.5 text-foreground" />}
                 </button>

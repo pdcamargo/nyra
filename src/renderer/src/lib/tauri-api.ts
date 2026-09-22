@@ -223,7 +223,15 @@ export const api = {
     checkBinary: (customPath?: string) =>
       call<{ found: boolean; path: string; version?: string }>('claude_check_binary', {
         customPath: customPath ?? null
-      })
+      }),
+
+    /**
+     * Family → the id this CLI build resolves that alias to, from its catalog.
+     *
+     * Empty when the scan finds nothing, which every caller already treats as
+     * "not known yet".
+     */
+    modelAliasTargets: () => call<Record<string, string>>('model_alias_targets', {})
   },
 
   /**

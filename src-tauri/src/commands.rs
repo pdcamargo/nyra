@@ -16,7 +16,7 @@ use crate::workflow::types::{MarketplaceEntry, TriggerSource};
 use crate::workflow::{engine, marketplace, store, triggers};
 use crate::{
     browser, claude, devtools, dictation, file_extractor, file_tree, fs_ops, gh, git, hooks, login, mcp,
-    memory, open_with, processes, skills, subagents,
+    memory, model_catalog, open_with, processes, skills, subagents,
 };
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
 
@@ -75,6 +75,18 @@ pub fn claude_dispose(nyra_session_id: String) {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn claude_check_binary(custom_path: Option<String>) -> Value {
     claude::check_binary(custom_path).await
+}
+
+/// Family → the id this CLI build resolves that alias to, from its own catalog.
+///
+/// Off the async pool because it streams a couple of hundred megabytes on a
+/// cold cache; every later call is a map clone.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn model_alias_targets() -> std::collections::HashMap<String, String> {
+    let binary = util::settings().claude_binary_path;
+    tokio::task::spawn_blocking(move || model_catalog::alias_targets(&binary))
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command(rename_all = "camelCase")]

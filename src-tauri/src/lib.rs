@@ -20,6 +20,7 @@ pub mod logger;
 mod login;
 mod managed_skills;
 mod mcp;
+mod model_catalog;
 mod memory;
 mod notify_user;
 mod open_with;
@@ -164,6 +165,7 @@ pub fn run() {
             commands::claude_steer,
             commands::claude_dispose,
             commands::claude_check_binary,
+            commands::model_alias_targets,
             commands::claude_save_image,
             commands::claude_save_temp_file,
             commands::claude_process_file,

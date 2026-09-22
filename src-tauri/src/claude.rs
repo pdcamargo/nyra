@@ -709,6 +709,11 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                     // to complete from a list kept by hand here, which had
                     // drifted four commands behind the binary.
                     "slash_commands": raw.get("slash_commands").cloned().unwrap_or(json!([])),
+                    // Which model the alias actually resolved to. `--model opus`
+                    // asks for "the latest Opus", and only the CLI knows that is
+                    // claude-opus-5-5 today — this event is the one place a
+                    // version number can be put on a label without inventing it.
+                    "model": raw.get("model").cloned().unwrap_or(Value::Null),
                 }),
             ),
             Some("task_started") => processes::note_task_started(

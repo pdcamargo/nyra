@@ -54,6 +54,7 @@ import { useUiStore } from '../store/ui'
 import { useLoopsStore } from '../store/loops'
 import { BUILT_IN_COMMANDS } from '../data/commands'
 import { noteSlashCommands } from '../lib/slashCommands'
+import { noteModelId, noteModelVersion } from '../store/modelVersions'
 import { openFileInPanel } from '../lib/openFile'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
@@ -70,7 +71,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'error'; result: string }
   | { type: 'thinking'; thinking: string }
   | { type: 'stream_end' }
-  | { type: 'system'; subtype: string; mcp_servers?: { name: string; status: string }[]; tools?: string[]; slash_commands?: string[] }
+  | { type: 'system'; subtype: string; mcp_servers?: { name: string; status: string }[]; tools?: string[]; slash_commands?: string[]; model?: string }
   | {
       type: 'rate_limit'
       status: string
@@ -595,6 +596,17 @@ export default function Chat(): React.JSX.Element {
         }
         // What this CLI actually supports, rather than what we last wrote down.
         if (event.slash_commands) noteSlashCommands(event.slash_commands)
+        // And what the alias we sent turned out to mean. Read back off the same
+        // helper that produced the spawn, so the pair recorded is the request
+        // that was actually made and the answer it actually got. Filed twice
+        // over: against this chat, which is the only thing that can say what
+        // the process now running is on, and against the alias, which is how
+        // an unopened model gets a version number next to it in the picker.
+        if (event.model) {
+          const requested = spawnSettingsForSession(sid).model
+          noteModelVersion(requested, event.model)
+          useSessionsStore.getState().noteResolvedModel(sid, requested, event.model)
+        }
         return
       }
 
@@ -824,6 +836,9 @@ export default function Chat(): React.JSX.Element {
 
       if (event.type === 'subagent_model') {
         useSubagentTranscriptsStore.getState().noteModel(sid, event.tool_id, event.model)
+        // Also evidence about that family: a Task that ran on Haiku is the
+        // CLI naming the current Haiku, and numbers the row for everyone.
+        noteModelId(event.model)
         updateAgent(sid, event.tool_id, { model: event.model })
         return
       }

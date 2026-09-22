@@ -186,6 +186,13 @@ export type Session = {
   worktree?: WorktreeInfo | null
   usage: SessionUsage
   mcpServers?: McpServerInfo[]
+  /** What this chat's CLI process reported running on, against what was asked
+   *  for. A chat holds one long-lived process and resolves `--model` once, at
+   *  spawn — so two chats open side by side can be on different models, and
+   *  were on the day the account default moved from Opus 5 to Opus 5.5. The
+   *  request is kept with the answer so a model changed mid-chat stops this
+   *  describing the process still running under the old one. */
+  resolvedModel?: { requested: string; id: string }
   /** Messages typed while a turn was running, sent in order as it frees up. */
   queuedMessages?: QueuedMessage[]
   /** @deprecated Superseded by `queuedMessages`; still read so a persisted one drains. */
@@ -278,6 +285,8 @@ type SessionsStore = {
     partial: Partial<Pick<Session, 'planMode' | 'model' | 'effort'>>
   ) => void
   setSessionPanels: (sessionId: string, partial: NonNullable<Session['panels']>) => void
+  /** Record what `system/init` said this chat's process actually resolved to. */
+  noteResolvedModel: (sessionId: string, requested: string, id: string) => void
   setExecuting: (sessionId: string, executing: { title: string; startedAt: number } | null) => void
   setNeedsAnswer: (sessionId: string, value: boolean) => void
   /** One completed turn. Also what the recap counts the away window in. */
@@ -575,6 +584,20 @@ export const useSessionsStore = create<SessionsStore>()(
       setSessionSettings: (sessionId, partial) => {
         set((state) => ({
           sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, ...partial } : s))
+        }))
+      },
+
+      noteResolvedModel: (sessionId, requested, id) => {
+        // Checked before `set`, because rebuilding the array re-renders every
+        // chat row and this says the same thing every turn of a long chat.
+        const current = get().sessions.find((s) => s.id === sessionId)
+        if (!current) return
+        const at = current.resolvedModel
+        if (at && at.requested === requested && at.id === id) return
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId ? { ...s, resolvedModel: { requested, id } } : s
+          )
         }))
       },
 
