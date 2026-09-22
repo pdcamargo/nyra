@@ -191,6 +191,7 @@ pub fn run() {
             commands::commands_delete,
             commands::fs_list_dir,
             commands::fs_search_tree,
+            commands::fs_list_project_files,
             commands::fs_list_editors,
             commands::fs_open_with,
             commands::fs_reveal,

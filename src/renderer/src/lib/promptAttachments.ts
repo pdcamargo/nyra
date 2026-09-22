@@ -23,7 +23,11 @@ export function withAttachments(
   const fls = files ?? []
 
   const sep = (): string => (prompt ? '\n\n' : '')
-  const referenced = (path: string): boolean => prompt.includes(`[Image: ${path}]`)
+  // Both markers: the composer writes `[File: …]` for a non-image attachment and
+  // `[Image: …]` for an image, and either one means the path is already in the
+  // sentence it belongs to.
+  const referenced = (path: string): boolean =>
+    prompt.includes(`[Image: ${path}]`) || prompt.includes(`[File: ${path}]`)
 
   const orphanImages = imgs.filter((img) => !referenced(img.path))
   if (orphanImages.length > 0) {
@@ -41,6 +45,23 @@ export function withAttachments(
       .map((f) => `<attached_file name="${f.name}">\n${f.extractedText}\n</attached_file>`)
     if (fileParts.length > 0) {
       prompt = `${prompt}${sep()}${fileParts.join('\n\n')}`
+    }
+
+    // Anything with no text to inline — a video, a font, a database, a PDF of
+    // scans — travels as its path, because we have not looked at the bytes and
+    // will not. Claude's own `Read` opens it.
+    //
+    // Self-describing rather than a bare `[File: …]` marker. The composer writes
+    // its chip as `[File: <name>]` — the name is what belongs in the sentence —
+    // and a name alone is not something Claude can open. This says both, and says
+    // which is which, instead of leaving two similar-looking markers to be told
+    // apart by whether the string happens to have slashes in it.
+    const opaque = fls.filter((f) => f.category !== 'image' && !f.extractedText)
+    if (opaque.length > 0) {
+      const refs = opaque
+        .map((f) => `<attached_file name="${f.name}" path="${f.path}" />`)
+        .join('\n')
+      prompt = `${prompt}${sep()}${refs}`
     }
   }
 

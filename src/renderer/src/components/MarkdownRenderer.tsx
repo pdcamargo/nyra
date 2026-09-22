@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import ZoomableImage from './ZoomableImage'
 import type { Components } from 'react-markdown'
 import type { HighlighterGeneric } from 'shiki'
 import {
@@ -316,11 +317,13 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }): React.JSX.
 
   if (entry?.status === 'ready') {
     return (
-      <img
+      <ZoomableImage
         src={entry.dataUrl}
         alt={label}
+        name={label || resolved}
         title={resolved}
-        className="my-1 max-h-[32rem] max-w-full h-auto w-auto rounded-lg border border-border/55"
+        className="max-h-[32rem] max-w-full h-auto w-auto rounded-lg border border-border/55"
+        wrapperClassName="my-1 inline-block"
       />
     )
   }

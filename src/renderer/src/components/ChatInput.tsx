@@ -4,6 +4,7 @@ import { useSessionsStore, type ImageAttachment, type FileAttachment, type TextM
 import { useSettingsStore } from '../store/settings'
 import { useUiStore } from '../store/ui'
 import SlashAutocomplete, { useSlashItems, type AutocompleteItem } from './SlashAutocomplete'
+import ZoomableImage from './ZoomableImage'
 import AtMentionAutocomplete, { useAtMentionItems, type MentionItem } from './AtMentionAutocomplete'
 import ComposerBar from './ComposerBar'
 import NewChatEnvironment from './NewChatEnvironment'
@@ -35,7 +36,29 @@ const EMPTY_QUEUE: QueuedMessage[] = []
 /** Commands the composer runs itself rather than passing to Claude as text. */
 const KNOWN_COMMAND_NAMES = new Set(BUILT_IN_COMMANDS.map((c) => c.name.slice(1).split(' ')[0]))
 
+/**
+ * Images we can preview and compress here in the renderer.
+ *
+ * Not a gate on what may be attached — anything can be. This is only the test
+ * for "can we show a thumbnail and shrink it before sending", and everything
+ * else goes to the backend to be classified.
+ */
 const SUPPORTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+
+/**
+ * The most we will carry through the renderer to attach a dropped or pasted file.
+ *
+ * `dragDropEnabled` is off in tauri.conf.json so the webview's own HTML5 drop
+ * events work, which means a dropped file arrives as bytes with no filesystem
+ * path — and the only way to get it to Rust is to base64 it (+33%) and pass it
+ * over the IPC bridge as a string. For a film that exhausts renderer memory long
+ * before it reaches anything that could have refused it politely.
+ *
+ * The file picker hands over real paths and has no such limit, so the message
+ * points there. Lifting this properly means native drag-drop, which would take
+ * HTML5 drop away from the browser panel too — its own change, not this one.
+ */
+const MAX_INLINE_TRANSFER = 100 * 1024 * 1024 // 100 MB
 
 type ChatInputProps = {
   cwd: string
@@ -710,6 +733,13 @@ export default function ChatInput({
       }
       // A dropped File carries no filesystem path, so stage the bytes to a temp
       // file first and hand the backend that path to extract from.
+      if (file.size > MAX_INLINE_TRANSFER) {
+        setFileError(
+          `${file.name} is too large to drop (${Math.round(file.size / 1024 / 1024)} MB). Use + → Attach files.`
+        )
+        setTimeout(() => setFileError(null), 6000)
+        return
+      }
       const buffer = await file.arrayBuffer()
       const bytes = new Uint8Array(buffer)
       let binary = ''
@@ -1134,11 +1164,11 @@ function QueuedThumb({ image }: { image: QueuedImage }): React.JSX.Element | nul
 
   if (entry?.status !== 'ready') return null
   return (
-    <img
+    <ZoomableImage
       src={entry.dataUrl}
-      alt=""
       title={image.path}
-      className="size-5 shrink-0 rounded-sm object-cover ring-1 ring-border/60"
+      className="size-5 rounded-sm object-cover ring-1 ring-border/60"
+      wrapperClassName="shrink-0"
     />
   )
 }

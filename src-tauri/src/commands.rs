@@ -114,8 +114,13 @@ async fn pick(app: &AppHandle, kind: PickKind) -> Value {
             });
         }
         PickKind::Attachments => {
+            // "All Files" first, because it is the default the dialog opens on
+            // and there is no longer any such thing as an unsupported attachment
+            // — a file with no text extractor travels as a path. The narrower
+            // filters stay, as filters, for when you are hunting for a PDF.
             builder = builder
-                .add_filter("All Supported", &ATTACHMENT_EXTENSIONS)
+                .add_filter("All Files", &["*"])
+                .add_filter("Documents and code", &ATTACHMENT_EXTENSIONS)
                 .add_filter(
                     "Documents",
                     &["pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "csv", "txt"],
@@ -125,7 +130,7 @@ async fn pick(app: &AppHandle, kind: PickKind) -> Value {
                     &["py", "js", "ts", "jsx", "tsx", "rb", "go", "rs", "java", "c", "cpp", "css", "sql"],
                 )
                 .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"])
-                .add_filter("All Files", &["*"]);
+                .add_filter("Media", &["mp4", "mov", "m4v", "webm", "mp3", "m4a", "wav", "aac", "flac", "ogg"]);
             builder.pick_files(move |p| {
                 let _ = tx.send(p);
             });
@@ -321,6 +326,11 @@ pub async fn fs_list_files(cwd: String, query: String) -> Value {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn fs_list_dir(dir_path: String) -> file_tree::DirListing {
     file_tree::list_dir(&dir_path).await
+}
+
+#[tauri::command]
+pub async fn fs_list_project_files(cwd: String, limit: Option<usize>) -> file_tree::FileListResult {
+    file_tree::list_files(&cwd, limit.unwrap_or(20_000)).await
 }
 
 #[tauri::command]

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
 import { newlineInList } from '../lib/markdownEditing'
 import type { ImageAttachment } from '../store/sessions'
+import ZoomableImage from './ZoomableImage'
 
 /**
  * A sent message, opened for editing.
@@ -80,7 +81,12 @@ export default function EditMessageBox({
       {images && images.length > 0 && (
         <div className="mb-2 flex flex-wrap justify-end gap-2">
           {images.map((img, i) => (
-            <img key={i} src={img.dataUrl} alt="" className="h-20 max-w-[200px] rounded-lg object-cover" />
+            <ZoomableImage
+              key={i}
+              src={img.dataUrl}
+              name={`Image ${i + 1}`}
+              className="h-20 max-w-[200px] rounded-lg object-cover"
+            />
           ))}
         </div>
       )}

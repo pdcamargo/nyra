@@ -7,7 +7,7 @@ import {
   type ViewUpdate,
   WidgetType
 } from '@codemirror/view'
-import { BUILT_IN_COMMANDS } from '../data/commands'
+import { isKnownCommand } from './slashCommands'
 import {
   designArtboardName,
   designNameFromPath,
@@ -30,7 +30,6 @@ import {
  * here, React elements there, one set of classes in index.css.
  */
 
-const KNOWN_COMMANDS = new Set(BUILT_IN_COMMANDS.map((c) => c.name.slice(1).split(' ')[0]))
 
 /** A command only counts at the very start of the message, which is where the CLI reads it. */
 const COMMAND_AT_START = /^\/([a-z][\w-]*)/
@@ -48,7 +47,7 @@ export type Span = { from: number; to: number }
  */
 export function findCommand(text: string): Span | null {
   const m = COMMAND_AT_START.exec(text)
-  if (!m || !KNOWN_COMMANDS.has(m[1])) return null
+  if (!m || !isKnownCommand(m[1])) return null
   return { from: 0, to: m[0].length }
 }
 

@@ -36,6 +36,7 @@ import type {
   ProcessFileResult,
   ReadTextOutcome,
   TreeSearchResult,
+  FileListResult,
   ReadImageResult,
   Scope,
   ScopedList,
@@ -313,6 +314,9 @@ export const api = {
      *  which backs editors that write what they read back. */
     readTextFile: (filePath: string) => call<ReadTextOutcome>('fs_read_text_file', { filePath }),
     statFile: (filePath: string) => call<FileStamp>('fs_stat_file', { filePath }),
+    /** Every file in the repo at `cwd`, for the quick-open picker. */
+    listProjectFiles: (cwd: string, limit = 20000) =>
+      call<FileListResult>('fs_list_project_files', { cwd, limit }),
     searchTree: (cwd: string, query: string, limit = 200) =>
       call<TreeSearchResult>('fs_search_tree', { cwd, query, limit }),
     /** Editors installed on this machine. Empty off macOS, where the menu falls

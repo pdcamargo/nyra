@@ -2,16 +2,20 @@ import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import FinishedChecklist from '../../renderer/src/components/FinishedChecklist'
-import type { ToolCallMessage } from '../../renderer/src/store/sessions'
+import type { ToolCallMessage, TaskStatus } from '../../renderer/src/store/sessions'
 
-const checklist = (n: number): ToolCallMessage => ({
+/** `n` tasks, the first `done` of them completed. */
+const checklist = (n: number, done = n): ToolCallMessage => ({
   id: 'c1',
   role: 'tool_call',
   tool_id: 'checklist-1',
   tool_name: 'TaskChecklist',
   input: {
     tasks: Array.from({ length: n }, (_, i) => ({
-      taskId: `t${i}`, subject: `Step ${i + 1}`, description: '', status: 'completed'
+      taskId: `t${i}`,
+      subject: `Step ${i + 1}`,
+      description: '',
+      status: (i < done ? 'completed' : 'pending') as TaskStatus
     }))
   },
   result: 'done'
@@ -34,9 +38,22 @@ describe('FinishedChecklist', () => {
     expect(screen.getByText('1 task done')).toBeInTheDocument()
   })
 
-  it('survives a message with no tasks on it', () => {
+  // A turn can end with items still open — the work was abandoned, or Claude
+  // stopped restating the block. Saying "5 tasks done" there would be a lie.
+  it('reports a partial list as "N of M", not as done', () => {
+    render(<FinishedChecklist message={checklist(5, 3)} />)
+    expect(screen.getByText('3 of 5 done')).toBeInTheDocument()
+    expect(screen.queryByText('5 tasks done')).toBeNull()
+  })
+
+  it('still reads as done when every item is ticked', () => {
+    render(<FinishedChecklist message={checklist(4, 4)} />)
+    expect(screen.getByText('4 tasks done')).toBeInTheDocument()
+  })
+
+  it('renders nothing for a message with no tasks on it', () => {
     const empty = { ...checklist(0), input: {} }
-    render(<FinishedChecklist message={empty} />)
-    expect(screen.getByText('0 tasks done')).toBeInTheDocument()
+    const { container } = render(<FinishedChecklist message={empty} />)
+    expect(container).toBeEmptyDOMElement()
   })
 })

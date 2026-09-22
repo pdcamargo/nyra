@@ -245,6 +245,17 @@ pub struct TreeSearchResult {
     pub truncated: bool,
 }
 
+/// A plain listing, which has one thing to say that a search does not: whether
+/// `cwd` was a git repository at all. Empty-because-not-a-repo and
+/// empty-because-nothing-matched need different words in the UI.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileListResult {
+    pub paths: Vec<String>,
+    pub truncated: bool,
+    pub is_repo: bool,
+}
+
 /// How well a path answers a query. Lower is better; None means no match.
 ///
 /// A hit in the base name beats a hit in a directory, because typing "auth"
@@ -264,14 +275,14 @@ fn match_score(path: &str, needle_lower: &str) -> Option<u32> {
     Some(base + offset.min(999) as u32)
 }
 
-/// Every tracked-or-untracked path under `cwd` that matches, best first.
-pub async fn search_tree(cwd: &str, query: &str, limit: usize) -> TreeSearchResult {
-    let needle = query.trim().to_lowercase();
-    if needle.is_empty() {
-        return TreeSearchResult { paths: Vec::new(), truncated: false };
-    }
-
-    let listed = match tokio::time::timeout(
+/// What `git ls-files` reports under `cwd`, or None when `cwd` is not a repo.
+///
+/// Its own function because two callers want it and they want opposite things
+/// from the empty case: a search for nothing is nothing, but a *listing* of a
+/// repo with no files is still a repo. Collapsing those is what made quick-open
+/// tell you a chat in this very repository was not in a git repository.
+async fn git_listed_files(cwd: &str) -> Option<Vec<u8>> {
+    match tokio::time::timeout(
         GIT_TIMEOUT,
         tokio::process::Command::new("git")
             .args(["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
@@ -280,8 +291,42 @@ pub async fn search_tree(cwd: &str, query: &str, limit: usize) -> TreeSearchResu
     )
     .await
     {
-        Ok(Ok(out)) if out.status.success() => out.stdout,
-        _ => return TreeSearchResult { paths: Vec::new(), truncated: false },
+        Ok(Ok(out)) if out.status.success() => Some(out.stdout),
+        _ => None,
+    }
+}
+
+/// Every tracked-or-untracked path under `cwd`, alphabetically.
+///
+/// Quick-open opens on this rather than on an empty list: before you have typed
+/// anything, "the files in this project" is the most useful answer available,
+/// and it is also how you find out the picker is working at all.
+pub async fn list_files(cwd: &str, limit: usize) -> FileListResult {
+    let Some(listed) = git_listed_files(cwd).await else {
+        return FileListResult { paths: Vec::new(), truncated: false, is_repo: false };
+    };
+
+    let text = String::from_utf8_lossy(&listed);
+    let mut paths: Vec<&str> = text.split('\0').filter(|p| !p.is_empty()).collect();
+    paths.sort_unstable();
+
+    let truncated = paths.len() > limit;
+    FileListResult {
+        paths: paths.into_iter().take(limit).map(str::to_string).collect(),
+        truncated,
+        is_repo: true,
+    }
+}
+
+/// Every tracked-or-untracked path under `cwd` that matches, best first.
+pub async fn search_tree(cwd: &str, query: &str, limit: usize) -> TreeSearchResult {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return TreeSearchResult { paths: Vec::new(), truncated: false };
+    }
+
+    let Some(listed) = git_listed_files(cwd).await else {
+        return TreeSearchResult { paths: Vec::new(), truncated: false };
     };
 
     let text = String::from_utf8_lossy(&listed);
@@ -564,6 +609,70 @@ mod tests {
         assert_eq!(found.paths.first().map(String::as_str), Some("src/useAuth.ts"));
         assert!(found.paths.iter().any(|p| p == "src/auth/util.ts"));
         assert!(!found.paths.iter().any(|p| p.starts_with("dist/")));
+    }
+
+    // The bug: quick-open asked `search_tree` for everything with an empty
+    // query, got the empty-needle early return, and told the user a chat in
+    // this very repository was not in a git repository.
+    #[tokio::test]
+    async fn listing_returns_every_file_without_a_query() {
+        let repo = TempRepo::new("listall");
+        repo.write("src/useAuth.ts", "x");
+        repo.write("README.md", "x");
+        repo.write("dist/bundle.js", "x");
+        repo.write(".gitignore", "dist/\n");
+
+        let listed = list_files(repo.path().to_str().unwrap(), 100).await;
+
+        assert!(listed.is_repo);
+        assert!(listed.paths.iter().any(|p| p == "src/useAuth.ts"));
+        assert!(listed.paths.iter().any(|p| p == "README.md"));
+        // .gitignore is applied, the same as it is for search.
+        assert!(!listed.paths.iter().any(|p| p.starts_with("dist/")));
+        assert!(!listed.truncated);
+    }
+
+    #[tokio::test]
+    async fn listing_is_alphabetical_so_it_does_not_reshuffle() {
+        let repo = TempRepo::new("listorder");
+        repo.write("b.ts", "x");
+        repo.write("a.ts", "x");
+        repo.write("c.ts", "x");
+
+        let listed = list_files(repo.path().to_str().unwrap(), 100).await;
+
+        let ts: Vec<&String> = listed.paths.iter().filter(|p| p.ends_with(".ts")).collect();
+        assert_eq!(ts, vec!["a.ts", "b.ts", "c.ts"]);
+    }
+
+    #[tokio::test]
+    async fn listing_says_when_it_held_files_back() {
+        let repo = TempRepo::new("listlimit");
+        for i in 0..5 {
+            repo.write(&format!("f{i}.ts"), "x");
+        }
+
+        let listed = list_files(repo.path().to_str().unwrap(), 2).await;
+
+        assert_eq!(listed.paths.len(), 2);
+        assert!(listed.truncated);
+        assert!(listed.is_repo);
+    }
+
+    // Empty-because-not-a-repo has to be distinguishable from
+    // empty-because-nothing-is-there, or the UI has to guess — and it guessed
+    // wrong, every time, in a repo.
+    #[tokio::test]
+    async fn listing_outside_a_repo_says_so() {
+        let dir = std::env::temp_dir().join(format!("nyra-norepo-{}", crate::util::rand_suffix(6)));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let listed = list_files(dir.to_str().unwrap(), 100).await;
+
+        assert!(!listed.is_repo);
+        assert!(listed.paths.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]

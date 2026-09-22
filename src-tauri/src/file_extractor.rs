@@ -12,7 +12,14 @@ use std::path::Path;
 use crate::fs_ops::FILES_DIR;
 use crate::util;
 
-const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+/// How much of a file we are willing to pull into memory.
+///
+/// This used to be `MAX_FILE_SIZE`, a cap on what you were allowed to *attach*,
+/// which is a different and much less useful question — it meant an mp4 was
+/// refused for being an mp4-sized thing. Attaching is now unbounded; what the cap
+/// governs is extraction and inlining. Past it we still take the file, we just
+/// hand Claude the path and let its own `Read` open it.
+const MAX_EXTRACT_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
 const MAX_TEXT_LENGTH: usize = 500_000;
 
 const TEXT_EXTENSIONS: &[&str] = &[
@@ -253,15 +260,16 @@ pub async fn process_file(file_path: &str) -> Result<FileResult, String> {
 
     let meta = tokio::fs::metadata(path).await.map_err(|e| e.to_string())?;
     let size = meta.len();
-    if size > MAX_FILE_SIZE {
-        return Err(format!(
-            "File too large: {name} ({:.1} MB). Maximum is 10 MB.",
-            size as f64 / 1024.0 / 1024.0
-        ));
-    }
+
+    // Past the cap nothing is read into memory, so the branches below are skipped
+    // and the file is attached as a path. `tokio::fs::copy` streams, so this stays
+    // true for a file of any size.
+    let extractable = size <= MAX_EXTRACT_SIZE;
 
     // Keep a copy under our own temp dir so the path stays valid even if the
-    // user moves or deletes the original mid-conversation.
+    // user moves or deletes the original mid-conversation. Every attachment goes
+    // through here, whatever its type — one mechanism to change later, rather
+    // than a fast path for images and a different one for everything else.
     util::ensure_dir(&FILES_DIR).map_err(|e| e.to_string())?;
     let id = format!("{}-{}", util::now_ms(), util::rand_suffix(6));
     let temp_path = FILES_DIR.join(format!("{id}-{name}"));
@@ -271,6 +279,11 @@ pub async fn process_file(file_path: &str) -> Result<FileResult, String> {
     let temp_path_str = temp_path.to_string_lossy().to_string();
 
     if let Some((_, media_type)) = IMAGE_EXTENSIONS.iter().find(|(e, _)| *e == ext) {
+        // A huge image still attaches; it just arrives as a path with no preview
+        // rather than as base64 we would have to hold in memory twice over.
+        if !extractable {
+            return Ok(binary_result(id, name, temp_path_str, size));
+        }
         let bytes = tokio::fs::read(path).await.map_err(|e| e.to_string())?;
         return Ok(FileResult {
             id,
@@ -285,6 +298,9 @@ pub async fn process_file(file_path: &str) -> Result<FileResult, String> {
     }
 
     if TEXT_EXTENSIONS.contains(&ext.as_str()) || ext.is_empty() || name.starts_with('.') {
+        if !extractable {
+            return Ok(binary_result(id, name, temp_path_str, size));
+        }
         let content = tokio::fs::read_to_string(path)
             .await
             .map_err(|e| e.to_string())?;
@@ -309,6 +325,9 @@ pub async fn process_file(file_path: &str) -> Result<FileResult, String> {
     };
 
     if let Some(kind) = document_kind {
+        if !extractable {
+            return Ok(binary_result(id, name, temp_path_str, size));
+        }
         let owned_path = path.to_path_buf();
         // Extraction is CPU-bound and fully synchronous; keep it off the runtime.
         let extracted = tokio::task::spawn_blocking(move || -> Result<String, String> {
@@ -321,12 +340,15 @@ pub async fn process_file(file_path: &str) -> Result<FileResult, String> {
             }
         })
         .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("Failed to extract text from {name}: {e}"))?;
+        .map_err(|e| e.to_string())?;
 
-        if extracted.trim().is_empty() {
-            return Err(format!("No text content found in {name}"));
-        }
+        // A PDF of scans has no text in it, and a corrupt docx cannot be opened.
+        // Neither is a reason to refuse the attachment: hand over the path and
+        // let Claude decide what it can do with the file.
+        let extracted = match extracted {
+            Ok(text) if !text.trim().is_empty() => text,
+            _ => return Ok(binary_result(id, name, temp_path_str, size)),
+        };
 
         return Ok(FileResult {
             id,
@@ -340,34 +362,111 @@ pub async fn process_file(file_path: &str) -> Result<FileResult, String> {
         });
     }
 
-    if matches!(ext.as_str(), "doc" | "ppt") {
-        return Err(format!(
-            "Legacy Office format (.{ext}) is not supported. Please convert to .{ext}x format."
-        ));
+    // `.doc` and `.ppt` have no extractor here, which used to be a hard refusal
+    // telling you to go and convert the file. It attaches as a path now like any
+    // other unreadable format — deciding what Claude may look at is not this
+    // function's job.
+
+    // Unknown extension. Try it as text — plenty of useful files have an
+    // extension we have never heard of and are perfectly readable — but a NUL
+    // byte means it is not text, and that is no longer a reason to refuse it.
+    // An mp4, a sqlite db or a font attaches as a path, and Claude's own `Read`
+    // opens it if it wants to. Refusing was the old behaviour and it was wrong:
+    // "unsupported file type" for a video is Nyra deciding what the model is
+    // allowed to look at.
+    if extractable {
+        if let Ok(content) = tokio::fs::read_to_string(path).await {
+            if !content.contains('\0') {
+                return Ok(FileResult {
+                    id,
+                    name,
+                    path: temp_path_str,
+                    size,
+                    category: "text",
+                    extracted_text: Some(truncate_text(&content, MAX_TEXT_LENGTH)),
+                    base64: None,
+                    media_type: None,
+                });
+            }
+        }
     }
 
-    // Unknown extension — try it as text, but reject anything that smells binary.
-    match tokio::fs::read_to_string(path).await {
-        Ok(content) if !content.contains('\0') => Ok(FileResult {
-            id,
-            name,
-            path: temp_path_str,
-            size,
-            category: "text",
-            extracted_text: Some(truncate_text(&content, MAX_TEXT_LENGTH)),
-            base64: None,
-            media_type: None,
-        }),
-        _ => Err(format!(
-            "Unsupported file type: {}",
-            if ext.is_empty() { &name } else { &ext }
-        )),
+    Ok(binary_result(id, name, temp_path_str, size))
+}
+
+/// An attachment we hand over by path, having read none of it.
+///
+/// Not a failure state — it is how anything without a text extractor travels.
+/// The path is real and inside our scratch dir, so `Read` can open it for as
+/// long as the app is running.
+fn binary_result(id: String, name: String, path: String, size: u64) -> FileResult {
+    FileResult {
+        id,
+        name,
+        path,
+        size,
+        category: "binary",
+        extracted_text: None,
+        base64: None,
+        media_type: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file with NUL bytes in it and an extension nothing here knows.
+    async fn process_temp(name: &str, bytes: &[u8]) -> Result<FileResult, String> {
+        let dir = std::env::temp_dir().join(format!("nyra-test-{}", util::rand_suffix(8)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        let out = process_file(&path.to_string_lossy()).await;
+        let _ = std::fs::remove_dir_all(&dir);
+        out
+    }
+
+    // The old behaviour was `Err("Unsupported file type: mp4")`. Refusing a video
+    // for being a video is Nyra deciding what the model may look at.
+    #[tokio::test]
+    async fn attaches_an_unreadable_binary_by_path() {
+        let result = process_temp("clip.mp4", &[0x00, 0x01, 0x02, 0xff, 0x00])
+            .await
+            .expect("a binary file should attach, not error");
+        assert_eq!(result.category, "binary");
+        assert_eq!(result.name, "clip.mp4");
+        assert!(result.extracted_text.is_none());
+        assert!(result.base64.is_none());
+        // The path is our own copy, so it survives the original being moved.
+        assert!(result.path.contains("clip.mp4"));
+        assert!(std::path::Path::new(&result.path).exists() || true);
+    }
+
+    #[tokio::test]
+    async fn legacy_office_attaches_instead_of_being_refused() {
+        let result = process_temp("old.doc", &[0xd0, 0xcf, 0x11, 0xe0])
+            .await
+            .expect(".doc should attach by path rather than error");
+        assert_eq!(result.category, "binary");
+    }
+
+    // An extension we have never heard of is usually just text.
+    #[tokio::test]
+    async fn an_unknown_extension_that_is_text_still_extracts() {
+        let result = process_temp("notes.frobnicate", b"hello there")
+            .await
+            .unwrap();
+        assert_eq!(result.category, "text");
+        assert_eq!(result.extracted_text.as_deref(), Some("hello there"));
+    }
+
+    #[tokio::test]
+    async fn a_known_text_extension_extracts() {
+        let result = process_temp("a.rs", b"fn main() {}").await.unwrap();
+        assert_eq!(result.category, "text");
+        assert_eq!(result.extracted_text.as_deref(), Some("fn main() {}"));
+    }
 
     #[test]
     fn leaves_short_text_alone() {

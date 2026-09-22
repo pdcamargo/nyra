@@ -74,9 +74,14 @@ export type MemoryListResult = {
 
 export type ProcStatus = 'running' | 'exited' | 'killed' | 'orphaned' | 'untracked' | 'stopped'
 
+/** A shell is doing work; a monitor is watching for something. */
+export type ProcKind = 'shell' | 'monitor'
+
 export type BgProcessRow = {
   /** Claude's `tool_use_id` for the originating Bash call. */
   shellId: string
+  /** Absent on rows persisted before monitors were tracked; read as 'shell'. */
+  kind?: ProcKind
   /** Claude's task-registry id, e.g. "b407td0kk". */
   taskId: string | null
   description: string | null
@@ -155,6 +160,13 @@ export type DirListing = {
 /** A flat search result. The filter box is a mode switch rather than a tree
  *  filter: a lazily-expanded tree only holds what you already opened, so
  *  filtering it would match nothing in a fresh panel and look broken. */
+export type FileListResult = {
+  paths: string[]
+  truncated: boolean
+  /** False when `cwd` is not a git repository, which the UI must word differently. */
+  isRepo: boolean
+}
+
 export type TreeSearchResult = {
   paths: string[]
   truncated: boolean

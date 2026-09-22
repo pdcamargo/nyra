@@ -2,6 +2,7 @@ import React from 'react'
 import { FileText, X } from 'lucide-react'
 import type { FileAttachment, ImageAttachment } from '../store/sessions'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
+import ZoomableImage from './ZoomableImage'
 
 /** An attachment still being read, so the strip is never empty while you wait. */
 export type PendingAttachment = { id: string; name: string }
@@ -26,6 +27,8 @@ function badgeTone(ext: string): string {
   if (ext === 'PDF') return 'bg-danger/15 text-danger'
   if (['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'SVG'].includes(ext)) return 'bg-info/15 text-info'
   if (['CSV', 'XLSX', 'XLS'].includes(ext)) return 'bg-success/15 text-success'
+  if (['MP4', 'MOV', 'M4V', 'WEBM', 'MP3', 'M4A', 'WAV', 'AAC', 'FLAC', 'OGG'].includes(ext))
+    return 'bg-warning/15 text-warning'
   return 'bg-accent text-muted-foreground'
 }
 
@@ -90,14 +93,24 @@ export default function AttachmentStrip({
     <div className="flex max-h-[7.5rem] flex-wrap gap-2 overflow-y-auto pb-2">
       {images.map((img, i) => (
         <Tile key={`img-${i}`} onRemove={() => onRemoveImage(i)} removeLabel="Remove image">
-          <img src={img.dataUrl} alt="" className="size-full object-cover" />
+          <ZoomableImage
+            src={img.dataUrl}
+            name={`Image ${i + 1}`}
+            className="size-full object-cover"
+            wrapperClassName="size-full"
+          />
         </Tile>
       ))}
 
       {files.map((file) => (
         <Tile key={file.id} onRemove={() => onRemoveFile(file.id)} removeLabel={`Remove ${file.name}`}>
           {file.dataUrl ? (
-            <img src={file.dataUrl} alt="" className="size-full object-cover" />
+            <ZoomableImage
+              src={file.dataUrl}
+              name={file.name}
+              className="size-full object-cover"
+              wrapperClassName="size-full"
+            />
           ) : (
             <div className="flex size-full flex-col">
               <div className="flex flex-1 flex-col items-center justify-center gap-1">

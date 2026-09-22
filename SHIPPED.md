@@ -8,16 +8,19 @@ Versions in parentheses are where the work landed.
 
 ## Core Roadmap (shipped)
 
-- Chats with Claude Code — streaming turns, message queueing, rename, stash, and auto-compaction as the context fills (v0.0.1)
+- Chats with Claude Code — streaming turns, message queueing, forking, rename, stash, and auto-compaction as the context fills (v0.0.1)
 - Steer a running turn — push a queued message into the turn already in flight instead of waiting it out (v0.0.10)
 - Plan mode as a first-class surface — a plan card that waits until the plan is finished to ask, updates in place when edited, and opens in the side panel to read (v0.0.9)
-- Questions answered in the composer — Claude's questions arrive where you already type; pick an option or write your own, last one wins (v0.0.9)
+- Questions answered in the composer — Claude's questions arrive where you already type; pick an option or write your own, and answering them one at a time keeps the earlier answers (v0.0.9, v0.2.3)
 - AI-titled chats — a new chat takes the title Claude gives it, and stays renamed if you override it (v0.0.6)
 - Rich sent messages — lists, quotes, tables, code blocks and emphasis render the way the composer previewed them (v0.0.5)
 - @-mentions and attachments as chips — they survive sending, and clicking one opens the file in the side panel (v0.0.5)
 - Edit a sent message in the composer's own editor, with the same preview and chips (v0.0.5)
 - Pull request chips — a chat shows the PRs it opened with live GitHub status, and recovers ones the live detector missed (v0.2.1, v0.2.2)
 - Port chips — a chat lists the ports its dev servers are listening on; click one to open it (v0.2.1)
+- Voice dictation — speak into the composer, with a transcript you can edit before sending; transcribed entirely on this Mac (v0.3.0)
+- A running indicator that names what Claude is doing — a shimmering line with cat eyes and a verb (v0.2.3)
+- Continuous spell-check in the composer, underlining typos as you type (v0.2.3)
 
 ## Parity with the Claude Code CLI (shipped)
 
@@ -25,10 +28,12 @@ Versions in parentheses are where the work landed.
 - Slash commands — permissions, stats, context, copy, loop and login, with an in-app sign-in (v0.0.1)
 - Live MCP server status and rate-limit countdown (v0.0.1)
 - Per-chat model, effort and plan mode, instead of one global setting (v0.0.3)
-- A hook editor, a skill editor and an MCP settings panel — GUI surfaces the CLI has no equivalent for
+- A hook editor, a skill editor and an MCP settings panel — GUI surfaces the CLI has no equivalent for (v0.0.1)
 - Subagents you can watch — click one to follow its work in a tab of its own (v0.0.10)
-- In-session transcript search
+- In-session transcript search (v0.0.3)
 - Rebindable keyboard shortcuts, every one listed and searchable (v0.0.3)
+- Skills, Commands and Memory as full pages instead of cramped rail lists, with your own custom slash commands scanned from disk (v0.2.3)
+- Usage in the rail footer, with real quota numbers (v0.2.3)
 
 ## Side panel and files (shipped)
 
@@ -89,6 +94,9 @@ Versions in parentheses are where the work landed.
 - Dark mode lifts cards and popovers by shade instead of by a border (v0.1.0)
 - Panel layout and size remembered per chat (v0.0.3)
 - Real tooltips on icon buttons across the app, each showing its shortcut (v0.0.6)
+- A contrast pass across the app — washed-out timestamps, paths and "+N more" labels made legible again (v0.2.3)
+- Light mode with real panel shadows and surfaces, instead of flat white (v0.2.3)
+- The conversation column recenters as panels open and close (v0.2.3)
 
 ## Platform and reliability (shipped)
 
@@ -97,3 +105,4 @@ Versions in parentheses are where the work landed.
 - Screenshot a dev build, read its console, and run JS in it from outside (v0.0.8)
 - Script nodes find npm, node and gh when Nyra is started from Finder (v0.1.0)
 - Image compression before send (v0.0.1)
+- macOS permission grants survive an app update, instead of resetting with every rebuild (v0.2.3)

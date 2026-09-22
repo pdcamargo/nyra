@@ -536,6 +536,32 @@ pub async fn respond_permission(approved: bool, nyra_session_id: Option<String>)
 
 // ---- event fan-out to the renderer ----
 
+/// What the CLI sets `model` to when it answers a slash command itself.
+const SYNTHETIC_MODEL: &str = "<synthetic>";
+
+/// What `/goal` was pointed at, for a message that is the CLI acknowledging one.
+///
+/// Both halves of the test are load-bearing. The prefix alone would catch
+/// Claude's own prose — a turn that ends "Goal set: ..." in a summary is
+/// ordinary text — and `<synthetic>` alone covers every other slash command the
+/// CLI answers, including `/goal` with no argument, which reports that no goal
+/// is set and is an answer rather than a goal.
+///
+/// The goal lasts one turn. In `-p` the CLI does not carry it into the next one
+/// or loop until it is met: sending `/goal x` and then `/goal` reports "No goal
+/// set", and it does so even when the first turn failed to achieve x. So this is
+/// a record of what a turn was aimed at, not the start of a session-long mode.
+fn goal_condition(synthetic: bool, text: &str) -> Option<String> {
+    if !synthetic {
+        return None;
+    }
+    let condition = text.trim().strip_prefix("Goal set:")?.trim();
+    if condition.is_empty() {
+        return None;
+    }
+    Some(condition.to_string())
+}
+
 fn handle_event(raw: &Value, nyra_session_id: &str) {
     let event_type = raw.get("type").and_then(Value::as_str).unwrap_or_default();
 
@@ -581,6 +607,16 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
     // last, then say everything at once — the `result` event carries the whole
     // reply, and nothing before it carried any of it.
     if event_type == "assistant" {
+        // `/goal` is answered by the CLI itself, not the model, and those
+        // replies come back as an assistant message with the model set to
+        // `<synthetic>`. That field is only visible here — the renderer is sent
+        // text — so a goal has to be recognised on the way past.
+        let synthetic = raw
+            .get("message")
+            .and_then(|m| m.get("model"))
+            .and_then(Value::as_str)
+            == Some(SYNTHETIC_MODEL);
+
         if let Some(content) = raw
             .get("message")
             .and_then(|m| m.get("content"))
@@ -591,11 +627,18 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                     continue;
                 }
                 let text = block.get("text").and_then(Value::as_str).unwrap_or_default();
-                if !text.trim().is_empty() {
-                    emit_event(
+                if text.trim().is_empty() {
+                    continue;
+                }
+                match goal_condition(synthetic, text) {
+                    Some(condition) => emit_event(
+                        nyra_session_id,
+                        json!({ "type": "goal_set", "condition": condition }),
+                    ),
+                    None => emit_event(
                         nyra_session_id,
                         json!({ "type": "assistant_text", "text": text }),
-                    );
+                    ),
                 }
             }
         }
@@ -662,6 +705,10 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                     "subtype": "init",
                     "mcp_servers": raw.get("mcp_servers").cloned().unwrap_or(json!([])),
                     "tools": raw.get("tools").cloned().unwrap_or(json!([])),
+                    // What this CLI build actually supports. The composer used
+                    // to complete from a list kept by hand here, which had
+                    // drifted four commands behind the binary.
+                    "slash_commands": raw.get("slash_commands").cloned().unwrap_or(json!([])),
                 }),
             ),
             Some("task_started") => processes::note_task_started(
@@ -1878,6 +1925,33 @@ mod tests {
 
     fn approved(tools: &[&str]) -> Vec<String> {
         tools.iter().map(|t| t.to_string()).collect()
+    }
+
+    #[test]
+    fn a_synthetic_goal_acknowledgement_is_a_goal() {
+        assert_eq!(
+            goal_condition(true, "Goal set: every test in this repo passes"),
+            Some("every test in this repo passes".to_string())
+        );
+    }
+
+    #[test]
+    fn claudes_own_prose_is_never_a_goal() {
+        // The model writing about a goal is ordinary text, however it starts.
+        assert_eq!(goal_condition(false, "Goal set: every test passes"), None);
+        assert_eq!(goal_condition(false, "Goal met: a.txt now says hello"), None);
+    }
+
+    #[test]
+    fn the_other_synthetic_replies_stay_prose() {
+        // `/goal` with no argument reports the current goal. That is an answer,
+        // not a goal being set.
+        assert_eq!(
+            goal_condition(true, "No goal set. Usage: `/goal <condition>`"),
+            None
+        );
+        assert_eq!(goal_condition(true, "Goal set:"), None);
+        assert_eq!(goal_condition(true, "Goal set:    "), None);
     }
 
     #[test]

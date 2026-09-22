@@ -119,6 +119,7 @@ Object.defineProperty(globalThis, 'api', {
       readTextFile: () => Promise.resolve({ kind: 'missing' }),
       statFile: () => Promise.resolve({ exists: false, size: 0, mtimeMs: 0, ino: 0 }),
       searchTree: () => Promise.resolve({ paths: [], truncated: false }),
+      listProjectFiles: () => Promise.resolve({ paths: [], truncated: false, isRepo: true }),
       listEditors: () => Promise.resolve([]),
       openWith: () => Promise.resolve({ ok: true }),
       reveal: () => Promise.resolve({ ok: true })

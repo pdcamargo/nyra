@@ -15,6 +15,7 @@ import { useUiStore } from '../store/ui'
 import { useSessionsStore } from '../store/sessions'
 import { collectPromptHistory, searchSessions } from '../lib/search'
 import { COMMANDS, runCommand } from '../commands/registry'
+import { fuzzyFilter } from '../lib/fuzzy'
 import { CommandKbd } from './ui/kbd'
 
 /**
@@ -54,7 +55,15 @@ export default function CommandPalette(): React.JSX.Element {
   // The palette used to keep its own copy of this list, with its own hardcoded
   // ⌘-glyph strings beside four of the entries. Both are the registry's job now,
   // so a rebind shows up here without anyone remembering to update it.
-  const actions = COMMANDS.filter((c) => c.palette)
+  //
+  // Matched on `id` as well as `label`, and fuzzily: "gtf" should reach "Go to
+  // file", and typing the id you half-remember should work too. The old filter
+  // was `label.includes(query)` with no ranking at all, so registry order
+  // decided which of several matches you saw first.
+  const actions = useMemo(() => {
+    const all = COMMANDS.filter((c) => c.palette)
+    return fuzzyFilter(all, query, (c) => `${c.label} ${c.id}`).map((r) => r.item)
+  }, [query])
 
   return (
     <CommandDialog
@@ -80,7 +89,6 @@ export default function CommandPalette(): React.JSX.Element {
         {mode === 'all' && (
           <CommandGroup heading="Actions">
             {actions
-              .filter((a) => a.label.toLowerCase().includes(query.trim().toLowerCase()))
               .map((action) => {
                 const Icon = action.icon!
                 return (

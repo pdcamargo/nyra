@@ -9,7 +9,9 @@ export const BUILT_IN_COMMANDS = [
   { name: '/doctor', description: 'Check Claude Code health' },
   { name: '/fast', description: 'Toggle fast output mode' },
   { name: '/fork', description: 'Branch this conversation into a new session' },
+  { name: '/goal', description: 'Set the objective for this turn, e.g. /goal every test passes' },
   { name: '/init', description: 'Initialize project with CLAUDE.md' },
+  { name: '/insights', description: 'Show usage insights for this account' },
   { name: '/loop', description: 'Run a prompt on a schedule, e.g. /loop 5m check the deploy' },
   { name: '/loop stop', description: 'Stop the active loop in this session' },
   { name: '/login', description: 'Switch auth or account' },
@@ -18,6 +20,7 @@ export const BUILT_IN_COMMANDS = [
   { name: '/model', description: 'Switch Claude model' },
   { name: '/permissions', description: 'Manage tool permissions' },
   { name: '/pr-review', description: 'Review a pull request' },
+  { name: '/recap', description: 'Summarise what has happened in this conversation so far' },
   { name: '/release-notes', description: "What's new in Nyra" },
   { name: '/rename', description: 'Rename the current session' },
   { name: '/restart', description: 'Restart Claude session (reconnects MCP servers)' },
@@ -26,5 +29,6 @@ export const BUILT_IN_COMMANDS = [
   { name: '/status', description: 'Show session status' },
   { name: '/tasks', description: 'Show background processes spawned by Claude' },
   { name: '/terminal-setup', description: 'Install shell integration' },
+  { name: '/usage', description: 'Show plan usage and limits' },
   { name: '/vim', description: 'Toggle vim keybinding mode' }
 ]

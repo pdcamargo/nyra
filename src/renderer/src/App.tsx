@@ -7,6 +7,8 @@ import RightPanel from './components/RightPanel'
 import ResizeHandle from './components/ResizeHandle'
 import BottomDock from './components/BottomDock'
 import CommandPalette from './components/CommandPalette'
+import QuickOpen from './components/QuickOpen'
+import ImageLightbox from './components/ImageLightbox'
 import SettingsModal from './components/settings/SettingsModal'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useResolvedTheme } from './hooks/useResolvedTheme'
@@ -286,6 +288,8 @@ export default function App(): React.JSX.Element {
 
       {/* Chats, past prompts and actions, behind one input */}
       <CommandPalette />
+      <QuickOpen />
+      <ImageLightbox />
 
       {/* Lazy-loaded modals */}
       <Suspense fallback={null}>

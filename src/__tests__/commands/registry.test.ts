@@ -158,3 +158,30 @@ describe('command registry', () => {
     })
   })
 })
+
+describe('chords', () => {
+  const chordOf = (id: string): string | null =>
+    COMMANDS.find((c) => c.id === id)?.defaultChord ?? null
+
+  // ⌘P is the chord every editor spends on a quick-open. It used to append a
+  // blank file tab, which is the one thing a quick-open makes unnecessary.
+  it('gives mod+p to the file picker, not to a new blank tab', () => {
+    expect(chordOf('file.quickOpen')).toBe('mod+p')
+    expect(chordOf('panel.right.file')).toBe('mod+shift+o')
+  })
+
+  it('binds no chord to two commands at once', () => {
+    const taken = new Map<string, string[]>()
+    for (const command of COMMANDS) {
+      if (!command.defaultChord) continue
+      // Composer entries are reference-only — they describe what the editor
+      // already does, so they legitimately share chords with nothing here.
+      if (command.readOnly) continue
+      const holders = taken.get(command.defaultChord) ?? []
+      holders.push(command.id)
+      taken.set(command.defaultChord, holders)
+    }
+    const clashes = [...taken.entries()].filter(([, ids]) => ids.length > 1)
+    expect(clashes).toEqual([])
+  })
+})

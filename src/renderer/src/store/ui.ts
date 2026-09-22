@@ -61,6 +61,7 @@ type UiStore = {
   /** The command palette. `mode` seeds the query so ⌃R lands straight in history. */
   paletteOpen: boolean
   paletteMode: 'all' | 'history'
+  quickOpenOpen: boolean
   setMainView: (view: MainView) => void
   setUpdateAvailable: (version: string | null) => void
   openMemoryFile: (filePath: string) => void
@@ -87,6 +88,8 @@ type UiStore = {
   setSettingsTab: (tab: SettingsTab) => void
   openPalette: (mode?: 'all' | 'history') => void
   closePalette: () => void
+  openQuickOpen: () => void
+  closeQuickOpen: () => void
 }
 
 /**
@@ -134,6 +137,7 @@ export const useUiStore = create<UiStore>()(persist((set, get) => ({
   settingsTab: 'general',
   paletteOpen: false,
   paletteMode: 'all',
+  quickOpenOpen: false,
   setMainView: (mainView) => set({ mainView }),
   setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
   openMemoryFile: (filePath) =>
@@ -182,7 +186,11 @@ export const useUiStore = create<UiStore>()(persist((set, get) => ({
   openSettings: (tab) => set(tab ? { settingsOpen: true, settingsTab: tab } : { settingsOpen: true }),
   setSettingsTab: (settingsTab) => set({ settingsTab }),
   openPalette: (paletteMode = 'all') => set({ paletteOpen: true, paletteMode }),
-  closePalette: () => set({ paletteOpen: false })
+  closePalette: () => set({ paletteOpen: false }),
+  // Two pickers, one at a time: opening either from the other's input should
+  // not leave both mounted, both trapping focus.
+  openQuickOpen: () => set({ quickOpenOpen: true, paletteOpen: false }),
+  closeQuickOpen: () => set({ quickOpenOpen: false })
 }), {
   name: 'nyra-ui',
   // Only the panels. `paletteOpen`, `settingsOpen` and `pendingInputPrefill`

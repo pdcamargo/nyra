@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { BUILT_IN_COMMANDS } from '../data/commands'
+import { slashCommands } from '../lib/slashCommands'
 
 export type AutocompleteItem = {
   name: string
@@ -35,7 +35,7 @@ export function useSlashItems(query: string, cwd: string): AutocompleteItem[] {
     .filter((s) => s.name.toLowerCase().includes(q))
     .map((s) => ({ name: s.name, description: s.description, type: 'skill' as const }))
 
-  const commandItems: AutocompleteItem[] = BUILT_IN_COMMANDS
+  const commandItems: AutocompleteItem[] = slashCommands()
     .filter((c) => c.name.slice(1).toLowerCase().includes(q))
     .map((c) => ({ name: c.name.slice(1), description: c.description, type: 'command' as const }))
 

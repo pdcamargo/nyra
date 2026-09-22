@@ -19,6 +19,7 @@ import { outputFileFromReceipt } from '../lib/agentReport'
 import { withAttachments } from '../lib/promptAttachments'
 import { extractAskBlocks } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
+import { foldChecklistIntoTranscript, foldTasksAtTurnEnd } from '../lib/taskFold'
 import { extractChangeBlocks } from '../lib/changeBlocks'
 import { findCreatedPr, isPrCreatingCall } from '../lib/pullRequests'
 import { backfillPrs, syncPrState, syncStalePrs } from '../lib/prSync'
@@ -32,7 +33,9 @@ import PermissionDialog, { type PermissionRequest } from './PermissionDialog'
 import ChatInput from './ChatInput'
 import EditMessageBox from './EditMessageBox'
 import TaskStrip from './TaskStrip'
+import ZoomableImage from './ZoomableImage'
 import ActivityStrip from './ActivityStrip'
+import SessionRecap from './SessionRecap'
 import { useChordLabel } from './ui/kbd'
 import { COLUMN_OFFSET, OUTSIDE_SCROLLER, SUMMARY_OFFSET, SUMMARY_WIDTH, columnVars } from '../lib/chatColumn'
 import StatsModal from './StatsModal'
@@ -50,6 +53,7 @@ import { useRunningStore, isSessionRunning } from '../store/running'
 import { useUiStore } from '../store/ui'
 import { useLoopsStore } from '../store/loops'
 import { BUILT_IN_COMMANDS } from '../data/commands'
+import { noteSlashCommands } from '../lib/slashCommands'
 import { openFileInPanel } from '../lib/openFile'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
@@ -66,7 +70,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'error'; result: string }
   | { type: 'thinking'; thinking: string }
   | { type: 'stream_end' }
-  | { type: 'system'; subtype: string; mcp_servers?: { name: string; status: string }[]; tools?: string[] }
+  | { type: 'system'; subtype: string; mcp_servers?: { name: string; status: string }[]; tools?: string[]; slash_commands?: string[] }
   | {
       type: 'rate_limit'
       status: string
@@ -75,6 +79,7 @@ type ClaudeEvent = ClaudeEventBase & (
       windows?: Record<string, { resetsAt: number; utilization: number }> | null
     }
   | { type: 'assistant_text'; text: string }
+  | { type: 'goal_set'; condition: string }
   | { type: 'background_tasks'; tasks: { task_id: string; description: string; task_type?: string }[] }
   | { type: 'background_task_progress'; task_id: string; tool_use_id: string; activity: string; last_tool_name: string; subagent_type: string; duration_ms: number }
   | { type: 'subagent_stream'; tool_id: string; at: number; entries: SubagentWireEntry[] }
@@ -87,7 +92,8 @@ type ClaudeEvent = ClaudeEventBase & (
 )
 
 /** Tool calls that are a card to answer, not a line in a trace. */
-const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist'])
+const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet'])
+
 
 /** What "auto-accept edits" actually waives — file writes, nothing else. */
 const EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit']
@@ -587,6 +593,8 @@ export default function Chat(): React.JSX.Element {
         if (event.mcp_servers) {
           setMcpServers(sid, parseMcpFromInit(event.mcp_servers, event.tools ?? []))
         }
+        // What this CLI actually supports, rather than what we last wrote down.
+        if (event.slash_commands) noteSlashCommands(event.slash_commands)
         return
       }
 
@@ -840,6 +848,20 @@ export default function Chat(): React.JSX.Element {
         return
       }
 
+      // The CLI acknowledging `/goal`. Its own line in the transcript rather
+      // than prose, because it is the CLI speaking, not Claude.
+      if (event.type === 'goal_set') {
+        addMessage(sid, {
+          id: `goal-${Date.now()}`,
+          role: 'tool_call',
+          tool_id: `goal-${Date.now()}`,
+          tool_name: 'GoalSet',
+          input: { condition: event.condition },
+          result: ''
+        })
+        return
+      }
+
       if (event.type === 'assistant_text') {
         // The checklist comes out first: a task block is the whole list restated,
         // so it replaces what is there rather than adding to it.
@@ -980,6 +1002,10 @@ export default function Chat(): React.JSX.Element {
           }
         }
         useRunningStore.getState().endRun(sid)
+        // One turn, counted where the CLI actually ends one. The recap needs
+        // this because the transcript cannot supply it — see `Session.turns`.
+        useSessionsStore.getState().noteTurn(sid)
+        foldTasksAtTurnEnd(sid)
         refreshBranch(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
 
@@ -1002,6 +1028,7 @@ export default function Chat(): React.JSX.Element {
       if (event.type === 'error' && event.result) {
         addMessage(sid, { id: newMessageId(), role: 'error', text: event.result })
         useRunningStore.getState().endRun(sid)
+        foldTasksAtTurnEnd(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
         // Mark any still-running agents as failed
         const errSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)
@@ -1017,6 +1044,7 @@ export default function Chat(): React.JSX.Element {
         useBackgroundAgentsStore.getState().forget(sid)
         useSessionsStore.getState().setExecuting(sid, null)
         useRunningStore.getState().endRun(sid)
+        foldTasksAtTurnEnd(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
         // A plan drafted during this turn becomes an ask now the turn is over:
         // ending the turn in plan mode is what handing control back looks like.
@@ -1374,19 +1402,12 @@ export default function Chat(): React.JSX.Element {
     const wasFinished = before.length > 0 && before.every((t) => t.status === 'completed')
 
     if (finished && !wasFinished) {
-      store.addMessage(sid, {
-        id: `${Date.now()}-checklist`,
-        role: 'tool_call',
-        tool_id: `checklist-${Date.now()}`,
-        tool_name: 'TaskChecklist',
-        input: { tasks: next },
-        result: 'done'
-      })
-      store.setTasks(sid, [])
+      foldChecklistIntoTranscript(sid, next)
       return
     }
     store.setTasks(sid, next)
   }, [])
+
 
   /** Answer a question card: record it on the message, then say it. */
   const handleQuestionAnswer = useCallback((toolId: string, answer: string): void => {
@@ -1449,6 +1470,34 @@ export default function Chat(): React.JSX.Element {
     }
     setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== activeSessionId))
   }, [activeSessionId])
+
+  /**
+   * The recap's one paid button: the CLI's own `/recap`, which reads the
+   * conversation it is already holding and writes the prose summary. Nyra does
+   * not attempt its own — the transcript is right there, and a second summariser
+   * would only disagree with the first.
+   */
+  const handleRecapSummarise = useCallback(() => {
+    if (!activeSessionId) return
+    useSessionsStore.getState().dismissAway(activeSessionId)
+    void sendMessage('/recap', undefined, undefined, activeSessionId)
+  }, [activeSessionId, sendMessage])
+
+  /** Scroll back to the first message you missed. */
+  const handleRecapJump = useCallback(
+    (messageId: string) => {
+      const index = virtualItems.findIndex(
+        (item) =>
+          (item.kind === 'message' && item.msg.id === messageId) ||
+          (item.kind === 'tool_group' && item.firstId === messageId) ||
+          (item.kind === 'memory' && item.firstId === messageId)
+      )
+      if (index < 0) return
+      stuckToBottomRef.current = false
+      virtualizer.scrollToIndex(index, { align: 'start', behavior: 'smooth' })
+    },
+    [virtualItems, virtualizer]
+  )
 
   /**
    * Fold the worktree's branch back into the main one.
@@ -1552,7 +1601,7 @@ export default function Chat(): React.JSX.Element {
           <div className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed border-info/50 bg-info/10 px-12 py-10">
             <FileText className="size-10 text-info" />
             <p className="text-sm font-medium text-info">Drop files here</p>
-            <p className="text-[11px] text-info">Images, PDFs, documents, code files, and more</p>
+            <p className="text-[11px] text-info">Any file — images and documents are read here, the rest by path</p>
           </div>
         </div>
       )}
@@ -1839,6 +1888,11 @@ export default function Chat(): React.JSX.Element {
           } as React.CSSProperties
         }
       >
+        <SessionRecap
+          sessionId={activeSessionId}
+          onSummarise={handleRecapSummarise}
+          onJump={handleRecapJump}
+        />
         <ActivityStrip sessionId={activeSessionId} onStop={handleStopTurn} />
         <TaskStrip />
         {/* The plan and the question are no longer siblings of the composer —
@@ -1999,10 +2053,10 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
           {textMsg.images && textMsg.images.length > 0 && (
             <div className="flex gap-2 flex-wrap mb-2">
               {textMsg.images.map((img, i) => (
-                <img
+                <ZoomableImage
                   key={i}
                   src={img.dataUrl}
-                  alt=""
+                  name={`Image ${i + 1}`}
                   className="h-20 rounded-lg object-cover max-w-[200px]"
                 />
               ))}

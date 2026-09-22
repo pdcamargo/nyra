@@ -7,6 +7,7 @@ import { openFileInPanel } from '../lib/openFile'
 import AskUserQuestionCard from './AskUserQuestionCard'
 import PlanCard, { type PlanAnswer } from './PlanCard'
 import FinishedChecklist from './FinishedChecklist'
+import GoalChip from './GoalChip'
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write'])
 
@@ -86,6 +87,9 @@ export default function ToolCallGroup({
     }
     if (only.tool_name === 'TaskChecklist') {
       return <FinishedChecklist message={only} />
+    }
+    if (only.tool_name === 'GoalSet') {
+      return <GoalChip message={only} />
     }
     return (
       <div className="py-2">

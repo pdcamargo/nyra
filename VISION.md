@@ -23,7 +23,6 @@ Items move from `## Roadmap` here into `SHIPPED.md` via `/ship-feature`.
 
 - [ ] Checkpointing and rewind — snapshot files and conversation per turn, and restore to any point from the transcript, including back past a `/clear`, with "summarise up to here"
 - [ ] Plugins and marketplaces — browse, install and update plugins from marketplaces; a fourth settings tab beside MCP, Skills and Hooks
-- [ ] Fork a session — copy a chat's conversation into a sibling chat and keep working in both
 - [ ] Usage attribution — break plan-limit consumption down by skill, subagent, plugin and MCP server, on top of the rate-limit tracking already there
 - [ ] Scheduled chats — fire a prompt into a new chat on a cron, reusing the flow trigger runtime
 
@@ -42,7 +41,6 @@ Items move from `## Roadmap` here into `SHIPPED.md` via `/ship-feature`.
 
 - [ ] Pop-out panes — tear a panel into its own window and dock it back later
 - [ ] iOS Simulator pane — run and tap through an iOS app beside the conversation, the way the browser pane works
-- [ ] Voice dictation — speak into the composer, with a transcript you can edit before sending
 - [ ] Remote control and mobile — pick up a local chat from another device
 - [ ] Computer use — drive native apps, not just the browser
 - [ ] Shareable session output — publish what a chat produced as a live page that updates as the chat works

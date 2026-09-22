@@ -7,6 +7,7 @@ import {
   ClipboardCopy,
   Eraser,
   FileDiff,
+  FileSearch,
   FileText,
   FolderPlus,
   GitPullRequest,
@@ -90,6 +91,7 @@ export type CommandId =
   | 'panel.right.browser'
   | 'browser.deviceMode'
   | 'panel.right.file'
+  | 'file.quickOpen'
   | 'panel.right.changes'
   | 'panel.right.changes.refresh'
   | 'panel.right.subagents'
@@ -453,10 +455,25 @@ export const COMMANDS: Command[] = [
     run: () => void toggleDeviceMode()
   },
   {
+    // Go to a file, rather than make somewhere to put one. ⌘P is the chord every
+    // editor spends on this, and it was going to a blank tab with an "Open file"
+    // empty state — the picker answers the question that tab was asking.
+    id: 'file.quickOpen',
+    label: 'Go to file',
+    group: 'Panels',
+    defaultChord: 'mod+p',
+    icon: FileSearch,
+    palette: true,
+    available: hasSession,
+    run: () => ui().openQuickOpen()
+  },
+  {
+    // ⌘⇧O rather than the ⌘P it used to hold. A blank file tab is still worth
+    // reaching — it is where the tree lives — but it is the rarer of the two.
     id: 'panel.right.file',
     label: 'New file tab',
     group: 'Panels',
-    defaultChord: 'mod+p',
+    defaultChord: 'mod+shift+o',
     icon: FileText,
     palette: true,
     run: () => void openWorkspaceTab('file')

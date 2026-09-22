@@ -19,7 +19,9 @@ export type FileAttachment = {
   name: string
   path: string
   size: number
-  category: 'image' | 'document' | 'text'
+  /** `binary` is anything with no text extractor — a video, a font, a db.
+   *  It travels as a path and is never read into memory. */
+  category: 'image' | 'document' | 'text' | 'binary'
   extractedText?: string
   dataUrl?: string // only for images (preview)
 }
@@ -207,6 +209,18 @@ export type Session = {
   /** Messages that arrived while you were looking at a different chat. Cleared
    *  when you open this one — a chat you are reading has nothing unread in it. */
   unread?: number
+  /** Turns this conversation has completed, counted on the CLI's `result`.
+   *
+   *  Not derivable from the transcript: one turn emits an `assistant_text` event
+   *  per prose block, so counting assistant messages counts paragraphs. The
+   *  recap needs the real number, and only the stream knows it. */
+  turns?: number
+  /** The window you missed, snapshotted when you open a chat that ran without
+   *  you — `unread` is cleared on that same open, so the recap cannot be derived
+   *  from it afterwards. Null once the recap is dismissed. */
+  away?: { since: number; turnsAtLeave: number } | null
+  /** `turns` as of the last time you looked away from this chat. */
+  turnsSeen?: number
   /** A question Claude asked that nobody has answered yet, so the chat list can
    *  say so without walking every message of every session on each render. */
   needsAnswer?: boolean
@@ -266,6 +280,10 @@ type SessionsStore = {
   setSessionPanels: (sessionId: string, partial: NonNullable<Session['panels']>) => void
   setExecuting: (sessionId: string, executing: { title: string; startedAt: number } | null) => void
   setNeedsAnswer: (sessionId: string, value: boolean) => void
+  /** One completed turn. Also what the recap counts the away window in. */
+  noteTurn: (sessionId: string) => void
+  /** Put the recap away. It does not come back for the same window. */
+  dismissAway: (sessionId: string) => void
   updateClaudeSessionId: (sessionId: string, claudeSessionId: string | null) => void
   updateSessionCwd: (sessionId: string, cwd: string) => void
   clearMessages: (sessionId: string) => void
@@ -409,7 +427,41 @@ export const useSessionsStore = create<SessionsStore>()(
       setActiveSession: (id: string) => {
         set((state) => ({
           activeSessionId: id,
-          sessions: state.sessions.map((s) => (s.id === id && s.unread ? { ...s, unread: 0 } : s))
+          sessions: state.sessions.map((s) => {
+            // Leaving: remember how many turns you had actually seen, so the
+            // recap can say what ran after you stopped watching rather than
+            // counting the whole conversation.
+            if (s.id === state.activeSessionId && s.id !== id) {
+              return { ...s, turnsSeen: s.turns ?? 0 }
+            }
+            if (s.id !== id || !s.unread) return s
+            // Opening a chat that ran without you. `unread` is about to be
+            // cleared, so the window it describes has to be pinned down now or
+            // it is gone: the first message you have not seen is `unread` from
+            // the end.
+            const first = s.messages[s.messages.length - s.unread]
+            return {
+              ...s,
+              unread: 0,
+              away: { since: first?.timestamp ?? 0, turnsAtLeave: s.turnsSeen ?? 0 }
+            }
+          })
+        }))
+      },
+
+      noteTurn: (sessionId: string) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId ? { ...s, turns: (s.turns ?? 0) + 1 } : s
+          )
+        }))
+      },
+
+      dismissAway: (sessionId: string) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId ? { ...s, away: null, turnsSeen: s.turns ?? 0 } : s
+          )
         }))
       },
 
