@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.2.3',
+    date: '2026-09-22',
     notes: [
       'Fixed washed-out timestamps, paths, and "+N more" labels across the app',
       'Light mode has visible panel shadows and surfaces, instead of flat white',
