@@ -37,6 +37,7 @@ import { BUILT_IN_COMMANDS } from '../data/commands'
 import DictationButton from './DictationButton'
 import { ComposerPrPills } from './PullRequestChips'
 import { ComposerPortPills } from './PortChips'
+import { ComposerMonitorPills } from './MonitorChips'
 import { KNOWN_MODELS as MODELS, MODEL_BLURB } from '../lib/models'
 import { runCommand } from '../commands/registry'
 import { CommandKbd } from './ui/kbd'
@@ -484,6 +485,7 @@ export default function ComposerBar({
           or shuffle the model pill around as they appear. */}
       <ComposerPrPills compact={compact} />
       <ComposerPortPills compact={compact} />
+      <ComposerMonitorPills compact={compact} />
       <div className="flex-1" />
       <ContextWarning />
       <ModelEffort />

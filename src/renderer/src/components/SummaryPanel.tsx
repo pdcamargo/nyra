@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { FileDiff, GitBranch, Laptop, RotateCw, TerminalSquare } from 'lucide-react'
+import { Eye, FileDiff, GitBranch, Laptop, RotateCw, TerminalSquare } from 'lucide-react'
 import { useSessionsStore, findProject, type TextMessage } from '../store/sessions'
 import { useUiStore } from '../store/ui'
 import { EMPTY_BROWSER, useBrowserStore } from '../store/browser'
@@ -12,6 +12,7 @@ import { formatElapsed } from './ActivityStrip'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { PrRows } from './PullRequestChips'
 import { PortBadges } from './PortChips'
+import { isMonitor, monitorLabel } from './MonitorChips'
 
 type Stat = { filesChanged: number; insertions: number; deletions: number }
 
@@ -241,8 +242,16 @@ export default function SummaryPanel(): React.JSX.Element | null {
           {liveProcesses.map((proc) => (
             <Row
               key={proc.shellId}
-              icon={<TerminalSquare className="size-3.5" />}
-              label={proc.description ?? proc.command}
+              // A watch and a shell are both "running", but only one of them is
+              // going to interrupt you, so they do not get the same icon.
+              icon={
+                isMonitor(proc) ? (
+                  <Eye className="size-3.5 text-info" />
+                ) : (
+                  <TerminalSquare className="size-3.5" />
+                )
+              }
+              label={isMonitor(proc) ? monitorLabel(proc) : (proc.description ?? proc.command)}
               trailing={
                 // The port rather than a second section of its own: a port
                 // belongs to the shell serving it, and a Ports section would be

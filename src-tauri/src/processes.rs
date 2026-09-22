@@ -26,11 +26,32 @@ pub enum ProcStatus {
     Stopped,
 }
 
+/// What kind of background thing this is.
+///
+/// Both arrive as `task_type: "local_bash"` and both are long-running children
+/// of the turn that started them, so the registry holds them together — but they
+/// are not the same promise. A shell is doing work; a monitor is watching for
+/// something and will interrupt you when it happens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProcKind {
+    Shell,
+    Monitor,
+}
+
+impl Default for ProcKind {
+    fn default() -> Self {
+        Self::Shell
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BgProcess {
     /// Claude's `tool_use_id` for the originating Bash call.
     pub shell_id: String,
+    #[serde(default)]
+    pub kind: ProcKind,
     /// Claude's task-registry id (e.g. "b407td0kk"); this is what users see.
     pub task_id: Option<String>,
     pub description: Option<String>,
@@ -132,6 +153,7 @@ pub fn note_tool_input(
                 .to_string();
             let proc = BgProcess {
                 shell_id: tool_id.to_string(),
+                kind: ProcKind::Shell,
                 task_id: None,
                 description: None,
                 command: command.clone(),
@@ -161,6 +183,66 @@ pub fn note_tool_input(
                 resolve_pid(&sid, &tid, &command).await;
                 broadcast(&sid);
             });
+        }
+        // A Monitor is a background watch: it streams events from a long-running
+        // command and interrupts the conversation on each one. It reaches the
+        // registry the same way a backgrounded shell does — `task_started`,
+        // `task_updated` and `task_notification` all key on `tool_use_id`, which
+        // it has — but nothing here used to *create* the entry, so every one of
+        // those arrived, found no row, and was dropped. Monitors were invisible.
+        "Monitor" => {
+            // A `ws` monitor has no command; the URL is the thing being watched.
+            let command = input
+                .get("command")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    input
+                        .get("ws")
+                        .and_then(|w| w.get("url"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .unwrap_or_default();
+            let description = input
+                .get("description")
+                .and_then(Value::as_str)
+                .filter(|d| !d.is_empty())
+                .map(str::to_string);
+            let proc = BgProcess {
+                shell_id: tool_id.to_string(),
+                kind: ProcKind::Monitor,
+                task_id: None,
+                description,
+                command: command.clone(),
+                output_file: None,
+                started_at: util::now_ms(),
+                ended_at: None,
+                pid: None,
+                status: ProcStatus::Running,
+                exit_code: None,
+                last_output: None,
+                last_output_at: None,
+                last_output_size: None,
+                ports: Vec::new(),
+            };
+            {
+                let mut sessions = SESSIONS.lock();
+                if let Some(s) = sessions.get_mut(nyra_session_id) {
+                    s.by_shell_id.insert(tool_id.to_string(), proc);
+                }
+            }
+            broadcast(nyra_session_id);
+
+            // No pid hunt for a `ws` monitor — there is no child to find.
+            if !command.is_empty() && input.get("ws").is_none() {
+                let sid = nyra_session_id.to_string();
+                let tid = tool_id.to_string();
+                tauri::async_runtime::spawn(async move {
+                    resolve_pid(&sid, &tid, &command).await;
+                    broadcast(&sid);
+                });
+            }
         }
         "BashOutput" => {
             let shell_id = input
@@ -901,6 +983,99 @@ async fn scan_ports() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A session the registry is willing to record against.
+    fn with_session(id: &str) {
+        SESSIONS.lock().entry(id.to_string()).or_default();
+    }
+
+    fn rows(id: &str) -> Vec<BgProcess> {
+        list_processes(id)
+    }
+
+    // The bug: `task_started`, `task_updated` and `task_notification` all key on
+    // `tool_use_id` and only ever *enrich* a row. Nothing created one for a
+    // Monitor, so every event about a monitor arrived, found nothing, and was
+    // dropped — monitors did not exist as far as Nyra was concerned.
+    #[test]
+    fn a_ws_monitor_is_recorded() {
+        let sid = "s-monitor-ws";
+        with_session(sid);
+        note_tool_input(
+            sid,
+            "toolu_ws",
+            "Monitor",
+            &serde_json::json!({
+                "ws": { "url": "wss://events.example.com/stream" },
+                "description": "deploy events"
+            }),
+        );
+
+        let rows = rows(sid);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].kind, ProcKind::Monitor);
+        assert_eq!(rows[0].description.as_deref(), Some("deploy events"));
+        // The URL is the thing being watched, so it stands in for the command.
+        assert_eq!(rows[0].command, "wss://events.example.com/stream");
+        assert_eq!(rows[0].status, ProcStatus::Running);
+        drop_session(sid);
+    }
+
+    #[test]
+    fn a_monitor_takes_the_task_id_that_follows_it() {
+        let sid = "s-monitor-task";
+        with_session(sid);
+        note_tool_input(
+            sid,
+            "toolu_m",
+            "Monitor",
+            &serde_json::json!({ "ws": { "url": "wss://x/y" }, "description": "ticks" }),
+        );
+        note_task_started(sid, "toolu_m", "b0cbjibar", Some("tick watcher"));
+
+        let rows = rows(sid);
+        assert_eq!(rows[0].task_id.as_deref(), Some("b0cbjibar"));
+        assert_eq!(rows[0].description.as_deref(), Some("tick watcher"));
+        drop_session(sid);
+    }
+
+    #[test]
+    fn a_finished_monitor_stops_being_live() {
+        let sid = "s-monitor-done";
+        with_session(sid);
+        note_tool_input(
+            sid,
+            "toolu_d",
+            "Monitor",
+            &serde_json::json!({ "ws": { "url": "wss://x/y" } }),
+        );
+        note_task_updated(
+            sid,
+            "toolu_d",
+            &serde_json::json!({ "status": "completed", "end_time": 1790108586337i64 }),
+        );
+
+        let rows = rows(sid);
+        assert_eq!(rows[0].status, ProcStatus::Exited);
+        assert!(rows[0].ended_at.is_some());
+        drop_session(sid);
+    }
+
+    // A plain Bash call is still not a monitor, and a foreground one is still
+    // not tracked at all.
+    #[test]
+    fn an_ordinary_bash_call_is_untouched() {
+        let sid = "s-monitor-bash";
+        with_session(sid);
+        note_tool_input(
+            sid,
+            "toolu_fg",
+            "Bash",
+            &serde_json::json!({ "command": "ls" }),
+        );
+        assert!(rows(sid).is_empty());
+        drop_session(sid);
+    }
 
     #[test]
     fn maps_known_statuses() {
