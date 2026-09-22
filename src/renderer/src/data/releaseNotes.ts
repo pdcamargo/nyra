@@ -8,7 +8,10 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Fixed the model picker ignoring Opus and using the CLI\'s default instead',
+      'Model names now show a version, like "Opus 5.5", matching what your chat runs'
+    ]
   },
   {
     version: '0.3.1',
