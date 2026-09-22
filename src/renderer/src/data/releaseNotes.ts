@@ -8,7 +8,18 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Fixed washed-out timestamps, paths, and "+N more" labels across the app',
+      'Light mode has visible panel shadows and surfaces, instead of flat white',
+      'Skills, Commands, and Memory are full pages now, not cramped rail lists',
+      'Commands lists your own custom slash commands, scanned from disk',
+      'The conversation column recenters as panels open and close',
+      'A new running indicator: a shimmering line with cat eyes and a verb',
+      'Usage moved to the rail footer, with real quota numbers',
+      'Answering questions one at a time no longer erases earlier answers',
+      'Continuous spell-check underlines typos as you type',
+      'macOS permission prompts no longer reset after every app update'
+    ]
   },
   {
     version: '0.2.2',
