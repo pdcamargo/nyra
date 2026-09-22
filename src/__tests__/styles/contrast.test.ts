@@ -23,6 +23,19 @@ const MUTED_ALPHA = /\btext-(?:muted-foreground|info|danger|success|warning|merg
 /** --foreground is not dim to begin with, so it keeps a second tier with a floor. */
 const FOREGROUND_ALPHA = /\btext-foreground\/(?:[0-9]|[1-7][0-9])(?![0-9[])/g
 
+/**
+ * `data-selected:` matches the attribute's *presence*, and cmdk writes
+ * `data-selected="false"` on every row it is not on — so the variant fired on
+ * all of them at once. In the file picker that painted all fifty rows the
+ * selected colour, which happened to equal the surface underneath, so nothing
+ * looked selected, hover did nothing, and the arrow keys looked dead.
+ *
+ * The value form is the one that means "this row". Everything else in the same
+ * class string was already written that way (`data-[disabled=true]:`); this
+ * variant was the odd one out.
+ */
+const BARE_DATA_SELECTED = /\bdata-selected:/g
+
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const full = join(dir, name)
@@ -55,5 +68,11 @@ describe('text contrast', () => {
   // The lookahead leaves it alone.
   it('keeps --foreground text at 80% or above', () => {
     expect(offenders(FOREGROUND_ALPHA)).toEqual([])
+  })
+})
+
+describe('selected state', () => {
+  it('matches data-selected by value, not by the attribute being there', () => {
+    expect(offenders(BARE_DATA_SELECTED)).toEqual([])
   })
 })
