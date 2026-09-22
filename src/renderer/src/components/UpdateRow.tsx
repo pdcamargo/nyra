@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { LoaderCircle, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 
 type State =
   | { kind: 'idle' }
@@ -49,12 +49,14 @@ export default function UpdateRow(): React.JSX.Element {
     }
   }
 
+  const busy = state.kind === 'checking' || state.kind === 'installing'
+
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="text-xs text-foreground/80">
         Nyra <span className="font-mono text-muted-foreground">{version || '…'}</span>
         {state.kind === 'current' && (
-          <span className="text-muted-foreground/70"> — up to date</span>
+          <span className="text-muted-foreground"> — up to date</span>
         )}
         {state.kind === 'available' && (
           <span className="text-info"> — {state.version} is available</span>
@@ -74,15 +76,19 @@ export default function UpdateRow(): React.JSX.Element {
       ) : (
         <button
           onClick={check}
-          disabled={state.kind === 'checking' || state.kind === 'installing'}
+          disabled={busy}
           className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-accent disabled:opacity-50"
         >
-          {state.kind === 'checking' || state.kind === 'installing' ? (
-            <LoaderCircle className="size-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="size-3.5" />
-          )}
-          {state.kind === 'installing' ? 'Installing…' : 'Check for updates'}
+          <RefreshCw className="size-3.5" />
+          {/* The label carries the state, so checking says so — it used to keep
+              reading "Check for updates" with only a spinner to say otherwise. */}
+          <span className={busy ? 'nyra-shimmer' : undefined}>
+            {state.kind === 'installing'
+              ? 'Installing…'
+              : state.kind === 'checking'
+                ? 'Checking…'
+                : 'Check for updates'}
+          </span>
         </button>
       )}
     </div>

@@ -148,7 +148,7 @@ function statusText(status: WorkflowNodeStatus): string {
     case 'awaiting_review':
       return 'text-warning'
     default:
-      return 'text-muted-foreground/70'
+      return 'text-muted-foreground'
   }
 }
 
@@ -230,7 +230,7 @@ function RoutingPill({
       <span className="truncate text-[12px] font-semibold text-foreground">
         {data.label as string}
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-muted-foreground/70">{meta}</span>
+      <span className="shrink-0 font-mono text-[9.5px] text-muted-foreground">{meta}</span>
       {branches ? (
         branches.map((id, i) => (
           <Handle
@@ -279,14 +279,14 @@ function ReviewGate({ data, selected }: NodeProps): React.JSX.Element {
       <div className="flex gap-1.5 border-t border-border bg-muted px-3 py-2">
         <div
           className={`flex-1 rounded-[5px] py-1 text-center text-[10.5px] font-semibold ${
-            live ? 'bg-foreground text-background' : 'bg-secondary text-muted-foreground/60'
+            live ? 'bg-foreground text-background' : 'bg-secondary text-muted-foreground'
           }`}
         >
           Approve
         </div>
         <div
           className={`flex-1 rounded-[5px] border border-border py-1 text-center text-[10.5px] font-semibold ${
-            live ? 'text-foreground' : 'text-muted-foreground/60'
+            live ? 'text-foreground' : 'text-muted-foreground'
           }`}
         >
           Reject
@@ -327,7 +327,7 @@ function LoopContainer({ data, selected }: NodeProps): React.JSX.Element {
         </span>
         <span
           className={`ml-auto shrink-0 rounded-full px-2 py-[1px] font-mono text-[9.5px] ${
-            status === 'running' ? 'bg-info text-info-foreground' : 'bg-secondary text-foreground/70'
+            status === 'running' ? 'bg-info text-info-foreground' : 'bg-secondary text-foreground/80'
           }`}
         >
           {iteration ?? 0} / {max}
@@ -337,7 +337,7 @@ function LoopContainer({ data, selected }: NodeProps): React.JSX.Element {
       {/* Body nodes are React Flow children, so this is just the well they sit in. */}
       <div className="flex flex-1 items-center justify-center px-3">
         {hasBody ? null : (
-          <span className="rounded-md border border-dashed border-border px-3 py-2 text-[10.5px] text-muted-foreground/70">
+          <span className="rounded-md border border-dashed border-border px-3 py-2 text-[10.5px] text-muted-foreground">
             Wire a node to the body handle
           </span>
         )}
@@ -355,8 +355,8 @@ function LoopContainer({ data, selected }: NodeProps): React.JSX.Element {
           </>
         ) : (
           <>
-            <span className="shrink-0 text-[9.5px] text-muted-foreground/70">while</span>
-            <span className="truncate font-mono text-[9.5px] text-foreground/70">
+            <span className="shrink-0 text-[9.5px] text-muted-foreground">while</span>
+            <span className="truncate font-mono text-[9.5px] text-foreground/80">
               {(data.condition as string) || 'always'}
             </span>
           </>
@@ -816,7 +816,7 @@ function RunPanel(): React.JSX.Element | null {
                           produced. */}
                       {text ? (
                         <ChevronRight
-                          className={`size-3 shrink-0 text-muted-foreground/70 transition-transform ${
+                          className={`size-3 shrink-0 text-muted-foreground transition-transform ${
                             expanded ? 'rotate-90' : ''
                           }`}
                         />
@@ -826,14 +826,14 @@ function RunPanel(): React.JSX.Element | null {
                       <span className={`size-1.5 shrink-0 rounded-full ${statusDot(status)}`} />
                       <span
                         className={`min-w-0 flex-1 truncate text-[0.85em] ${
-                          status === 'idle' ? 'text-muted-foreground/60' : 'text-foreground'
+                          status === 'idle' ? 'text-muted-foreground' : 'text-foreground'
                         }`}
                       >
                         {n.label}
                       </span>
                     </button>
                     {tok > 0 ? (
-                      <span className="shrink-0 font-mono text-[0.7em] text-muted-foreground/70">
+                      <span className="shrink-0 font-mono text-[0.7em] text-muted-foreground">
                         {tokenCount(tok)}
                       </span>
                     ) : null}
@@ -881,11 +881,11 @@ function Field({
 }): React.JSX.Element {
   return (
     <div>
-      <label className="mb-1.5 block text-[0.7em] font-semibold uppercase tracking-wider text-muted-foreground/70">
+      <label className="mb-1.5 block text-[0.7em] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </label>
       {children}
-      {hint ? <p className="mt-1 text-[0.73em] text-muted-foreground/70">{hint}</p> : null}
+      {hint ? <p className="mt-1 text-[0.73em] text-muted-foreground">{hint}</p> : null}
     </div>
   )
 }
@@ -905,7 +905,7 @@ function Field({
 function Note({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
     <div className="flex gap-2 rounded-md border border-border/55 bg-muted/40 px-2.5 py-2">
-      <Info className="mt-[2px] size-3 shrink-0 text-muted-foreground/70" />
+      <Info className="mt-[2px] size-3 shrink-0 text-muted-foreground" />
       <div className="min-w-0 space-y-1.5 text-[0.77em] leading-relaxed text-muted-foreground">
         {children}
       </div>
@@ -979,9 +979,9 @@ function ChoiceSelect({
 function ExpressionVars(): React.JSX.Element {
   return (
     <span className="font-mono">
-      In scope: <code className="text-foreground/70">output</code>,{' '}
-      <code className="text-foreground/70">vars</code>,{' '}
-      <code className="text-foreground/70">iteration</code>
+      In scope: <code className="text-foreground/80">output</code>,{' '}
+      <code className="text-foreground/80">vars</code>,{' '}
+      <code className="text-foreground/80">iteration</code>
     </span>
   )
 }
@@ -1385,9 +1385,9 @@ function PromptNodeConfig({
         label="Prompt"
         hint={
           <span className="font-mono">
-            <code className="text-foreground/70">{'{{prev.output}}'}</code>,{' '}
-            <code className="text-foreground/70">{'{{input.key}}'}</code>,{' '}
-            <code className="text-foreground/70">{'{{vars.name}}'}</code>
+            <code className="text-foreground/80">{'{{prev.output}}'}</code>,{' '}
+            <code className="text-foreground/80">{'{{input.key}}'}</code>,{' '}
+            <code className="text-foreground/80">{'{{vars.name}}'}</code>
           </span>
         }
       >
@@ -1479,7 +1479,7 @@ function PromptNodeConfig({
           ) : setVars[0]?.name ? (
             <>
               Later nodes read it as{' '}
-              <code className="font-mono text-foreground/70">{`{{vars.${setVars[0].name}}}`}</code>
+              <code className="font-mono text-foreground/80">{`{{vars.${setVars[0].name}}}`}</code>
             </>
           ) : (
             'Give it a name to finish it.'
@@ -1658,8 +1658,8 @@ function SubworkflowNodeConfig({
           label="Input mapping"
           hint={
             <span className="font-mono">
-              <code className="text-foreground/70">{'{{input.x}}'}</code>,{' '}
-              <code className="text-foreground/70">{'{{vars.y}}'}</code>, or raw text
+              <code className="text-foreground/80">{'{{input.x}}'}</code>,{' '}
+              <code className="text-foreground/80">{'{{vars.y}}'}</code>, or raw text
             </span>
           }
         >
@@ -2301,7 +2301,7 @@ export default function WorkflowCanvas(): React.JSX.Element {
       {/* Toolbar — breadcrumb left, run right. The flow's own controls are
           icon-only, so the one thing you press most is the only filled button. */}
       <div className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border/55 bg-card px-3">
-        <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground/70" />
+        <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -2314,7 +2314,7 @@ export default function WorkflowCanvas(): React.JSX.Element {
           </TooltipTrigger>
           <TooltipContent>Back to flows</TooltipContent>
         </Tooltip>
-        <span className="shrink-0 text-[0.96em] text-muted-foreground/40">/</span>
+        <span className="shrink-0 text-[0.96em] text-muted-foreground">/</span>
         <input
           value={currentWorkflow.name}
           onChange={(e) => updateCurrentWorkflow({ name: e.target.value })}
@@ -2664,7 +2664,7 @@ function AddNodeMenu({
         {groups.map((g, gi) => (
           <React.Fragment key={g.group}>
             {gi > 0 ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuLabel className="text-[0.7em] uppercase tracking-wider text-muted-foreground/70">
+            <DropdownMenuLabel className="text-[0.7em] uppercase tracking-wider text-muted-foreground">
               {g.group}
             </DropdownMenuLabel>
             {g.nodes.map((n) => (
@@ -2929,7 +2929,7 @@ function RunButton({
         <DropdownMenuContent align="end" className="w-72">
           {currentCwd ? (
             <>
-              <DropdownMenuLabel className="text-[9px] uppercase tracking-wider text-muted-foreground/70">
+              <DropdownMenuLabel className="text-[9px] uppercase tracking-wider text-muted-foreground">
                 Current
               </DropdownMenuLabel>
               <DropdownMenuItem onSelect={() => onRun(currentCwd)}>
@@ -2941,7 +2941,7 @@ function RunButton({
           {recents.length > 0 ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[9px] uppercase tracking-wider text-muted-foreground/70">
+              <DropdownMenuLabel className="text-[9px] uppercase tracking-wider text-muted-foreground">
                 Ran here before
               </DropdownMenuLabel>
               {recents.map((dir) => (
@@ -3147,14 +3147,14 @@ function VarsPanel({
           <p>
             Made by the <span className="text-foreground/80">Save as variable</span> row on a
             prompt node. Read one anywhere with{' '}
-            <code className="font-mono text-foreground/70">{'{{vars.name}}'}</code>.
+            <code className="font-mono text-foreground/80">{'{{vars.name}}'}</code>.
           </p>
         </Note>
 
         {declared.length === 0 && orphans.length === 0 ? (
-          <p className="text-[0.8em] leading-relaxed text-muted-foreground/70">
+          <p className="text-[0.8em] leading-relaxed text-muted-foreground">
             This flow saves nothing yet. Select a prompt node and add a{' '}
-            <span className="text-foreground/70">Save as variable</span> row to pass its result to
+            <span className="text-foreground/80">Save as variable</span> row to pass its result to
             a later node.
           </p>
         ) : null}
@@ -3184,7 +3184,7 @@ function VarsPanel({
                   {value || '(empty)'}
                 </pre>
               ) : (
-                <p className="mt-1.5 text-[0.77em] text-muted-foreground/60">
+                <p className="mt-1.5 text-[0.77em] text-muted-foreground">
                   No value yet — run the flow to fill it.
                 </p>
               )}
@@ -3194,7 +3194,7 @@ function VarsPanel({
 
         {orphans.length > 0 && (
           <>
-            <p className="pt-1 text-[0.7em] font-semibold uppercase tracking-wider text-muted-foreground/60">
+            <p className="pt-1 text-[0.7em] font-semibold uppercase tracking-wider text-muted-foreground">
               From this run only
             </p>
             {orphans.map(([name, value]) => (
@@ -3489,7 +3489,7 @@ function TriggersPanel({
           />
         ))}
 
-        <p className="text-[0.7em] text-muted-foreground/70 leading-relaxed pt-2 border-t border-border/55">
+        <p className="text-[0.7em] text-muted-foreground leading-relaxed pt-2 border-t border-border/55">
           Triggers require this app to stay running. Changes are applied on Save.
         </p>
       </>
@@ -3565,8 +3565,8 @@ function TriggerCard({
               placeholder="*/15 * * * *"
               className="w-full bg-card border border-border rounded-sm px-2 py-1 text-[0.85em] text-foreground font-mono focus:border-muted-foreground/40 focus:outline-hidden"
             />
-            <p className="text-[0.7em] text-muted-foreground/70 mt-0.5 font-mono">
-              e.g. <span className="text-muted-foreground/70">0 9 * * 1-5</span> (9am weekdays)
+            <p className="text-[0.7em] text-muted-foreground mt-0.5 font-mono">
+              e.g. <span className="text-muted-foreground">0 9 * * 1-5</span> (9am weekdays)
             </p>
           </div>
           <CwdField cwd={trigger.cwd} onChange={(cwd) => onUpdate({ cwd })} />
@@ -3636,7 +3636,7 @@ function TriggerCard({
                 Copy
               </button>
             </div>
-            <p className="text-[0.7em] text-muted-foreground/70 mt-0.5">
+            <p className="text-[0.7em] text-muted-foreground mt-0.5">
               POST to fire. JSON body becomes input values. Token-gated.
             </p>
           </div>
@@ -3652,7 +3652,7 @@ function TriggerCard({
         </button>
         <button
           onClick={onRemove}
-          className="text-[0.77em] text-danger/60 hover:text-danger px-2 py-0.5"
+          className="text-[0.77em] text-danger transition-colors hover:bg-danger/10 rounded px-2 py-0.5"
         >
           Remove
         </button>
@@ -3724,7 +3724,7 @@ function HistoryPanel({
     <SidePanel title="Execution history" onClose={onClose}>
       <>
         {executions.length === 0 && (
-          <p className="text-[10px] text-muted-foreground/70 italic">No past executions.</p>
+          <p className="text-[10px] text-muted-foreground italic">No past executions.</p>
         )}
         {executions.map((rec) => (
           <div
@@ -3755,7 +3755,7 @@ function HistoryPanel({
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); del(rec.id) }}
-                className="text-[10px] text-danger/60 hover:text-danger"
+                className="rounded px-1 text-[10px] text-danger transition-colors hover:bg-danger/10"
               >
                 ×
               </button>
@@ -3768,7 +3768,7 @@ function HistoryPanel({
                 : ''}
             </div>
             {rec.error && (
-              <div className="text-[9px] text-danger/70 mt-1 truncate">{rec.error}</div>
+              <div className="text-[9px] text-danger mt-1 truncate">{rec.error}</div>
             )}
           </div>
         ))}
@@ -3818,7 +3818,7 @@ function HistoryPanel({
                         : ns.status === 'failed'
                           ? 'text-danger'
                           : ns.status === 'skipped'
-                            ? 'text-warning/60'
+                            ? 'text-warning'
                             : 'text-muted-foreground'
                     }
                   >
@@ -3936,7 +3936,7 @@ function ReviewDialog({ request }: { request: ReviewRequest }): React.JSX.Elemen
           <div className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 bg-warning rounded-full animate-pulse" />
             <h2 className="text-sm font-semibold text-foreground">Human Review Needed</h2>
-            <span className="text-[9px] font-mono text-warning/70">{request.label}</span>
+            <span className="text-[9px] font-mono text-warning">{request.label}</span>
           </div>
           {request.message && (
             <p className="text-[11px] text-foreground/80 mt-1 leading-relaxed">{request.message}</p>
@@ -4025,12 +4025,12 @@ function InputsEditor({
         <Note>
           <p>
             Filled in when the flow is run. Reference one with{' '}
-            <code className="font-mono text-foreground/70">{'{{input.key}}'}</code> in any prompt.
+            <code className="font-mono text-foreground/80">{'{{input.key}}'}</code> in any prompt.
           </p>
         </Note>
 
         {inputs.length === 0 ? (
-          <p className="text-[0.8em] leading-relaxed text-muted-foreground/70">
+          <p className="text-[0.8em] leading-relaxed text-muted-foreground">
             No inputs. Without any, the flow runs straight away rather than asking you anything
             first.
           </p>
@@ -4054,7 +4054,7 @@ function InputsEditor({
                     type="button"
                     onClick={() => removeInput(i)}
                     aria-label={`Remove ${inp.label || inp.key || 'this input'}`}
-                    className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-accent hover:text-danger"
+                    className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-danger"
                   >
                     <X className="size-3" />
                   </button>
@@ -4155,7 +4155,7 @@ function FlowCard({
           <span className="text-[0.85em] leading-relaxed text-muted-foreground">{description}</span>
         ) : null}
         {meta ? (
-          <span className="truncate font-mono text-[0.7em] text-muted-foreground/70">{meta}</span>
+          <span className="truncate font-mono text-[0.7em] text-muted-foreground">{meta}</span>
         ) : null}
         {footer}
       </div>
@@ -4246,7 +4246,7 @@ function FlowsEmptyState({
           </div>
         )}
 
-        <div className="flex flex-wrap items-center justify-center gap-2 text-[0.88em] text-muted-foreground/70">
+        <div className="flex flex-wrap items-center justify-center gap-2 text-[0.88em] text-muted-foreground">
           <span>or</span>
           <button
             type="button"
@@ -4515,7 +4515,7 @@ function MarketplaceTab({
               key={entry.id}
               // A marketplace entry is metadata; its graph only arrives on
               // install, so there is no silhouette to draw yet.
-              art={<Store className="mt-0.5 size-5 text-muted-foreground/50" />}
+              art={<Store className="mt-0.5 size-5 text-muted-foreground" />}
               title={entry.name}
               description={entry.description}
               meta={`by ${entry.author}${entry.tags.length ? ` · ${entry.tags.slice(0, 3).join(' · ')}` : ''}`}
@@ -4551,7 +4551,7 @@ function MarketplaceTab({
       </div>
 
       {state.index && (
-        <div className="text-[0.7em] text-muted-foreground/70 font-mono mt-6 text-right">
+        <div className="text-[0.7em] text-muted-foreground font-mono mt-6 text-right">
           Updated {state.index.updatedAt}
         </div>
       )}

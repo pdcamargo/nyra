@@ -73,7 +73,7 @@ export default function McpSettings(): React.JSX.Element {
 
   if (servers.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground/70">No MCP servers configured</p>
+      <p className="text-xs text-muted-foreground">No MCP servers configured</p>
     )
   }
 
@@ -87,8 +87,8 @@ export default function McpSettings(): React.JSX.Element {
                 onClick={handleReconnect}
                 className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 bg-info/10 hover:bg-info/20 transition-colors"
               >
-                <RefreshCw className="size-2.5 text-info/70" />
-                <span className="text-[9px] font-medium text-info/70">Reconnect</span>
+                <RefreshCw className="size-2.5 text-info" />
+                <span className="text-[9px] font-medium text-info">Reconnect</span>
               </button>
             </TooltipTrigger>
             <TooltipContent>Restart session to reconnect MCP servers</TooltipContent>
@@ -102,12 +102,12 @@ export default function McpSettings(): React.JSX.Element {
         ))}
       </div>
 
-      <p className="text-[10px] text-muted-foreground/70 text-center mt-3">
-        {connected > 0 && <span className="text-success/50">{connected} connected</span>}
+      <p className="text-[10px] text-muted-foreground text-center mt-3">
+        {connected > 0 && <span className="text-success">{connected} connected</span>}
         {connected > 0 && (failed > 0 || pending > 0) && <span> · </span>}
-        {failed > 0 && <span className="text-danger/50">{failed} failed</span>}
+        {failed > 0 && <span className="text-danger">{failed} failed</span>}
         {failed > 0 && pending > 0 && <span> · </span>}
-        {pending > 0 && <span className="text-warning/50">{pending} pending</span>}
+        {pending > 0 && <span className="text-warning">{pending} pending</span>}
       </p>
     </div>
   )
@@ -122,9 +122,9 @@ function McpServerCard({ server }: { server: McpServerInfo & { command?: string;
     : 'bg-warning animate-pulse'
 
   const statusBadge =
-    server.status === 'connected' ? 'bg-success/15 text-success/70'
-    : server.status === 'failed' ? 'bg-danger/15 text-danger/70'
-    : 'bg-warning/15 text-warning/70'
+    server.status === 'connected' ? 'bg-success/15 text-success'
+    : server.status === 'failed' ? 'bg-danger/15 text-danger'
+    : 'bg-warning/15 text-warning'
 
   const cmdText = server.url ?? [server.command, ...(server.args ?? [])].filter(Boolean).join(' ')
 
@@ -144,18 +144,18 @@ function McpServerCard({ server }: { server: McpServerInfo & { command?: string;
       {expanded && (
         <div className="mt-2 space-y-2">
           {cmdText && (
-            <p className="text-[10px] text-muted-foreground/70 font-mono truncate" title={cmdText}>{cmdText}</p>
+            <p className="text-[10px] text-muted-foreground font-mono truncate" title={cmdText}>{cmdText}</p>
           )}
           {server.tools.length > 0 && (
             <div>
               <div className="flex items-center gap-1 mb-1">
-                <Wrench className="size-2.5 text-muted-foreground/70" />
-                <span className="text-[10px] text-muted-foreground/70">{server.tools.length} tool{server.tools.length !== 1 ? 's' : ''}</span>
+                <Wrench className="size-2.5 text-muted-foreground" />
+                <span className="text-[10px] text-muted-foreground">{server.tools.length} tool{server.tools.length !== 1 ? 's' : ''}</span>
               </div>
               <div className="space-y-0.5">
                 {server.tools.map((tool) => (
                   <div key={tool} className="flex items-center gap-1.5 px-1">
-                    <span className="text-[10px] text-muted-foreground/70">•</span>
+                    <span className="text-[10px] text-muted-foreground">•</span>
                     <span className="text-[10px] text-muted-foreground font-mono truncate">{tool}</span>
                   </div>
                 ))}
@@ -163,7 +163,7 @@ function McpServerCard({ server }: { server: McpServerInfo & { command?: string;
             </div>
           )}
           {server.tools.length === 0 && server.status === 'failed' && (
-            <p className="text-[10px] text-danger/40 italic">Failed to connect — no tools available</p>
+            <p className="text-[10px] text-danger italic">Failed to connect — no tools available</p>
           )}
         </div>
       )}

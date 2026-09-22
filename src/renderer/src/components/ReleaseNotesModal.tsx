@@ -41,12 +41,12 @@ export default function ReleaseNotesModal({ onClose }: { onClose: () => void }):
                     latest
                   </span>
                 )}
-                <span className="text-[10px] text-muted-foreground/70 font-mono">{release.date}</span>
+                <span className="text-[10px] text-muted-foreground font-mono">{release.date}</span>
               </div>
               <ul className="space-y-1">
                 {release.notes.map((note, j) => (
                   <li key={j} className="flex items-start gap-2 text-[11px] text-foreground/80">
-                    <span className="text-muted-foreground/70 mt-0.5 shrink-0">-</span>
+                    <span className="text-muted-foreground mt-0.5 shrink-0">-</span>
                     <span>{note}</span>
                   </li>
                 ))}

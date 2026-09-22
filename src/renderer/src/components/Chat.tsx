@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Check, ChevronDown, Copy, FileText, GitBranch, GitFork, GitMerge, Info, Search, SquarePen, Trash2, TriangleAlert } from 'lucide-react'
+import { Check, ChevronDown, Copy, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
 import { useSessionsStore, activeCwd, activeProjectCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
@@ -34,16 +34,16 @@ import EditMessageBox from './EditMessageBox'
 import TaskStrip from './TaskStrip'
 import ActivityStrip from './ActivityStrip'
 import { useChordLabel } from './ui/kbd'
-import { COLUMN_OFFSET, columnVars } from '../lib/chatColumn'
+import { COLUMN_OFFSET, OUTSIDE_SCROLLER, SUMMARY_OFFSET, SUMMARY_WIDTH, columnVars } from '../lib/chatColumn'
 import StatsModal from './StatsModal'
 import CopyBlocksModal from './CopyBlocksModal'
 import ReleaseNotesModal from './ReleaseNotesModal'
 import InSessionSearchBar from './InSessionSearchBar'
-import TasksChip from './TasksChip'
 import SummaryPanel from './SummaryPanel'
 import BrowserPip, { usePipVisible } from './browser/BrowserPip'
 import { findMatches } from '../utils/inSessionSearch'
 import { useHighlightMatches } from '../hooks/useHighlightMatches'
+import { useWorkingWord } from '../hooks/useWorkingWord'
 import { parseMcpFromInit } from '../utils/mcpParsing'
 import { useRateLimitStore } from '../store/rateLimit'
 import { useRunningStore, isSessionRunning } from '../store/running'
@@ -54,7 +54,6 @@ import { openFileInPanel } from '../lib/openFile'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const EMPTY_MESSAGES: Message[] = []
-const BOUNCE_DOTS = [0, 1, 2]
 type ClaudeEventBase = { nyraSessionId?: string }
 
 type ClaudeEvent = ClaudeEventBase & (
@@ -68,7 +67,13 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'thinking'; thinking: string }
   | { type: 'stream_end' }
   | { type: 'system'; subtype: string; mcp_servers?: { name: string; status: string }[]; tools?: string[] }
-  | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string }
+  | {
+      type: 'rate_limit'
+      status: string
+      resetsAt: number
+      rateLimitType: string
+      windows?: Record<string, { resetsAt: number; utilization: number }> | null
+    }
   | { type: 'assistant_text'; text: string }
   | { type: 'background_tasks'; tasks: { task_id: string; description: string; task_type?: string }[] }
   | { type: 'background_task_progress'; task_id: string; tool_use_id: string; activity: string; last_tool_name: string; subagent_type: string; duration_ms: number }
@@ -118,14 +123,12 @@ function spawnSettingsForSession(sessionId: string): SpawnSettings {
 export default function Chat(): React.JSX.Element {
   const running = useRunningStore((s) => s.running)
   const summaryOpen = useUiStore((s) => s.summaryOpen)
-  const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
   const pipVisible = usePipVisible()
   const chatWidth = useSettingsStore((s) => s.chatWidth)
   const columnGeometry = useMemo(
     () => columnVars(summaryOpen || pipVisible, chatWidth),
     [summaryOpen, pipVisible, chatWidth]
   )
-  const onToggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const thinkingSince = useRunningStore((s) => s.thinkingSince)
   const [permissionQueue, setPermissionQueue] = useState<(PermissionRequest & { nyraSessionId?: string })[]>([])
   const messagesRef = useRef<HTMLDivElement>(null)
@@ -145,7 +148,6 @@ export default function Chat(): React.JSX.Element {
   const [statsOpen, setStatsOpen] = useState(false)
   const [copyBlocksOpen, setCopyBlocksOpen] = useState(false)
   const [releaseNotesOpen, setReleaseNotesOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -159,10 +161,6 @@ export default function Chat(): React.JSX.Element {
 
   const skipPermissions = useSettingsStore((s) => s.skipPermissions)
   const planMode = useSettingsStore((s) => s.planMode)
-  const searchKeys = useChordLabel('search.inSession')
-  const copyKeys = useChordLabel('session.copy')
-  const effort = useSettingsStore((s) => s.effort)
-  const model = useSettingsStore((s) => s.model)
   const updateSettings = useSettingsStore((s) => s.updateSettings)
   const [homedir, setHomedir] = useState('')
 
@@ -282,12 +280,9 @@ export default function Chat(): React.JSX.Element {
   )
   const messages = activeSession?.messages ?? EMPTY_MESSAGES
   const cwd = useSessionsStore(activeCwd) || homedir
-  const claudeSessionId = activeSession?.claudeSessionId ?? null
   const usage = activeSession?.usage ?? null
 
   const isLoading = activeSessionId ? running[activeSessionId] === true : false
-  const CONTEXT_LIMIT = 1_000_000
-  const usagePct = usage ? Math.min(((usage.inputTokens + usage.outputTokens) / CONTEXT_LIMIT) * 100, 100) : 0
 
   // Build virtual items: interleave date separators with messages, plus loading indicator
   type VirtualItem =
@@ -570,12 +565,6 @@ export default function Chat(): React.JSX.Element {
 
   useHighlightMatches(messagesRef, searchOpen ? searchQuery : '', activeMatchIndex)
 
-  const handlePickFolder = async (): Promise<void> => {
-    const folder = await window.api.dialog.pickFolder()
-    // Picking a folder adds it to the rail rather than opening a one-off chat in
-    // it — otherwise the chat would have nowhere to live but Recents.
-    if (folder) openFolderAsProject(folder)
-  }
 
   const subscribeToEvents = useCallback(() => {
     if (cleanupRef.current) cleanupRef.current()
@@ -637,6 +626,9 @@ export default function Chat(): React.JSX.Element {
           resetsAt: event.resetsAt,
           rateLimitType: event.rateLimitType
         })
+        // The utilisation for every window, when the CLI sends it — the
+        // top-level fields above only describe the one that is limiting.
+        if (event.windows) useRateLimitStore.getState().setUnified(event.windows)
         return
       }
 
@@ -1458,6 +1450,48 @@ export default function Chat(): React.JSX.Element {
     setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== activeSessionId))
   }, [activeSessionId])
 
+  /**
+   * Fold the worktree's branch back into the main one.
+   *
+   * Passes the session's own cwd and lets the backend resolve the main working
+   * tree from it — deriving that path here is what once made this merge the
+   * branch into itself and report success.
+   */
+  const handleWorktreeMerge = useCallback(async (): Promise<void> => {
+    const session = useSessionsStore.getState().sessions.find((x) => x.id === activeSessionId)
+    const wt = session?.worktree
+    if (!session || !wt) return
+    const result = await window.api.git.worktreeMerge(session.cwd, wt.branch)
+    const store = useSessionsStore.getState()
+    store.addMessage(session.id, {
+      id: newMessageId(),
+      role: result.success ? 'assistant' : 'error',
+      text: result.success
+        ? `Merged **${wt.branch}** into **${result.into ?? 'the main branch'}**.`
+        : `Merge failed: ${result.error}`
+    })
+  }, [activeSessionId])
+
+  /** Remove the worktree and, with it, the chat that is the only handle on it. */
+  const handleWorktreeRemove = useCallback(async (): Promise<void> => {
+    const session = useSessionsStore.getState().sessions.find((x) => x.id === activeSessionId)
+    const wt = session?.worktree
+    if (!session || !wt) return
+    const result = await window.api.git.worktreeRemove(session.cwd, wt.path)
+    const store = useSessionsStore.getState()
+    if (!result.success) {
+      // Keep the session: it is the only handle left on a worktree that is
+      // still on disk.
+      store.addMessage(session.id, {
+        id: newMessageId(),
+        role: 'error',
+        text: `Could not remove the worktree: ${result.error}`
+      })
+      return
+    }
+    store.deleteSession(session.id)
+  }, [activeSessionId])
+
   const copyConversation = useCallback(() => {
     const parts: string[] = []
     for (const msg of messages) {
@@ -1471,8 +1505,6 @@ export default function Chat(): React.JSX.Element {
       }
     }
     navigator.clipboard.writeText(parts.join('\n\n'))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
   }, [messages])
 
   // Reachable from the palette and from a binding, not only from the header
@@ -1508,6 +1540,7 @@ export default function Chat(): React.JSX.Element {
   return (
     <div
       className="flex h-full flex-col relative"
+      style={columnGeometry}
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -1519,167 +1552,10 @@ export default function Chat(): React.JSX.Element {
           <div className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed border-info/50 bg-info/10 px-12 py-10">
             <FileText className="size-10 text-info" />
             <p className="text-sm font-medium text-info">Drop files here</p>
-            <p className="text-[11px] text-info/50">Images, PDFs, documents, code files, and more</p>
+            <p className="text-[11px] text-info">Images, PDFs, documents, code files, and more</p>
           </div>
         </div>
       )}
-
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 border-b border-border/55 px-4 py-2">
-        {/* CWD pill */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={handlePickFolder}
-              className="flex items-center gap-2 rounded-md border border-border/55 bg-muted/40 hover:bg-accent/50 px-2.5 py-1 transition-colors min-w-0 max-w-[420px]"
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full shrink-0 ${isLoading ? 'bg-warning animate-pulse' : 'bg-success/70'}`}
-              />
-              <span className="text-[11px] text-foreground/80 font-mono truncate">
-                {homedir && cwd.startsWith(homedir) ? '~' + cwd.slice(homedir.length) : cwd}
-              </span>
-              {activeSession?.branch && (
-                <>
-                  <span className="h-3 w-px bg-border shrink-0" />
-                  <span className={`flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
-                    activeSession.worktree
-                      ? 'bg-success/15 text-success/70'
-                      : 'bg-info/10 text-info/70'
-                  }`}>
-                    <GitBranch className="size-2.5" />
-                    {activeSession.branch}
-                  </span>
-                </>
-              )}
-              {activeSession?.worktree && (
-                <span className="text-[9px] font-semibold text-info/60 bg-info/10 px-1.5 py-0.5 rounded-sm shrink-0">
-                  worktree
-                </span>
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Click to change project folder</TooltipContent>
-        </Tooltip>
-
-        {/* Right zone: status chips, model pill, mode group, divider, utility group */}
-        <div className="flex items-center gap-2 shrink-0">
-          {activeSession?.worktree && !isLoading && (
-            <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={async () => {
-                      const wt = activeSession.worktree!
-                      // Pass the session's own cwd — the backend resolves the main
-                      // working tree from it. Deriving that path here is what made
-                      // this button merge the branch into itself and report success.
-                      const result = await window.api.git.worktreeMerge(activeSession.cwd, wt.branch)
-                      const store = useSessionsStore.getState()
-                      if (result.success) {
-                        store.addMessage(activeSession.id, { id: newMessageId(), role: 'assistant', text: `Merged **${wt.branch}** into **${result.into ?? 'the main branch'}**.` })
-                      } else {
-                        store.addMessage(activeSession.id, { id: newMessageId(), role: 'error', text: `Merge failed: ${result.error}` })
-                      }
-                    }}
-                    className="flex items-center gap-1 rounded-md border border-success/20 px-2 py-0.5 text-[11px] text-success/70 hover:bg-success/10 transition-colors"
-                  >
-                    <GitMerge className="size-3" />
-                    Merge
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Merge worktree branch into main</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={async () => {
-                      const wt = activeSession.worktree!
-                      const result = await window.api.git.worktreeRemove(activeSession.cwd, wt.path)
-                      const store = useSessionsStore.getState()
-                      if (!result.success) {
-                        // Keep the session: it is the only handle left on a worktree
-                        // that is still on disk.
-                        store.addMessage(activeSession.id, { id: newMessageId(), role: 'error', text: `Could not remove the worktree: ${result.error}` })
-                        return
-                      }
-                      store.deleteSession(activeSession.id)
-                    }}
-                    className="rounded-md border border-danger/20 px-1.5 py-0.5 text-danger/50 hover:text-danger/80 hover:bg-danger/10 transition-colors"
-                    aria-label="Remove worktree and delete session"
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Remove worktree and delete session</TooltipContent>
-              </Tooltip>
-            </>
-          )}
-          {usagePct >= 70 && (() => {
-            const total = usage!.inputTokens + usage!.outputTokens
-            const fmt = (n: number): string => n >= 1000 ? Math.round(n / 1000) + 'k' : String(n)
-            const isRed = usagePct >= 90
-            return (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => { if (!rightPanelOpen) onToggleRightPanel() }}
-                    className={`rounded-md border px-2 py-0.5 text-[11px] font-mono transition-colors flex items-center gap-1 ${
-                      isRed
-                        ? 'border-danger/40 bg-danger/10 text-danger animate-pulse'
-                        : 'border-warning/40 bg-warning/10 text-warning'
-                    }`}
-                  >
-                    <TriangleAlert className="size-3" />
-                    {fmt(total)}/{fmt(CONTEXT_LIMIT)}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{`Context usage: ${Math.round(usagePct)}%`}</TooltipContent>
-              </Tooltip>
-            )
-          })()}
-
-          {/* Real tooltips, not the browser's `title=` — these two were the last
-              places in the header still using it, so they appeared a second late
-              and in the OS's own styling. Both carry their live binding. */}
-          <Tooltip>
-            <TooltipTrigger
-              onClick={() => setSearchOpen((o) => !o)}
-              disabled={messages.length === 0}
-              className={`rounded-md px-2 py-0.5 transition-colors ${
-                messages.length === 0
-                  ? 'text-muted-foreground/40 cursor-not-allowed'
-                  : searchOpen ? 'text-foreground/80' : 'text-muted-foreground/70 hover:text-foreground/80'
-              }`}
-            >
-              <Search className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipContent>
-              Find in conversation
-              {searchKeys && <span className="text-background/60"> {searchKeys}</span>}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              onClick={copyConversation}
-              disabled={messages.length === 0}
-              className={`rounded-md px-2 py-0.5 transition-colors ${
-                messages.length === 0
-                  ? 'text-muted-foreground/40 cursor-not-allowed'
-                  : copied ? 'text-success' : 'text-muted-foreground/70 hover:text-foreground/80'
-              }`}
-            >
-              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-            </TooltipTrigger>
-            <TooltipContent>
-              Copy conversation as markdown
-              {copyKeys && <span className="text-background/60"> {copyKeys}</span>}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-
-
 
       {/* In-session search bar */}
       {searchOpen && (
@@ -1701,7 +1577,10 @@ export default function Chat(): React.JSX.Element {
           place when it is not — no offset to compute, and nothing to keep in
           sync when the summary changes height. Both float over the messages, so
           glancing at either never reflows the conversation. */}
-      <div className="pointer-events-none absolute right-3 top-3 z-30 flex max-h-[calc(100%-40px)] w-[308px] flex-col gap-2">
+      <div
+        className="pointer-events-none absolute top-3 z-30 flex max-h-[calc(100%-40px)] flex-col gap-2"
+        style={{ ...OUTSIDE_SCROLLER, left: SUMMARY_OFFSET, width: SUMMARY_WIDTH }}
+      >
         <SummaryPanel />
         <BrowserPip />
       </div>
@@ -1713,7 +1592,7 @@ export default function Chat(): React.JSX.Element {
           gutter for the summary to float in. */}
       <div
         ref={messagesRef}
-        className="relative flex-1 overflow-y-auto pb-8 pt-4"
+        className="scroll-auto-hide relative flex-1 overflow-y-scroll pb-8 pt-4"
         // The conversation's own type, set once here rather than as a class of
         // hardcoded px. The composer reads the same three variables, so the two
         // cannot drift apart.
@@ -1723,16 +1602,10 @@ export default function Chat(): React.JSX.Element {
           fontWeight: 'var(--content-font-weight, 400)'
         }}
       >
-       {/* The column is centred on the *window*, not on this container — so it
-           holds still when a rail opens instead of jumping. Two constraints
-           bound it: it never slides under the floating summary, and it never
-           touches the left rail. Between those it just tracks the window
-           centre, which is what makes it drift left as the window narrows
-           rather than disappearing behind the panel.
-
-           --rail is what sits to the left of this scroller, the only part of
-           the window geometry CSS cannot work out for itself. App publishes it
-           as the rail is dragged; it is inherited here. */}
+       {/* The column centres in this container — the room the conversation
+           actually has, between whichever rails are open — and gives ground to
+           the right only where the floating summary would otherwise leave the
+           window. chatColumn.ts has the arithmetic and the reasoning. */}
        <div
          className="relative"
          style={{
@@ -1745,18 +1618,53 @@ export default function Chat(): React.JSX.Element {
           <RestoreWorktreeBanner sessionId={activeSession.id} />
         )}
 
+        {/* Merge and Remove used to live in the header bar, which is gone. They
+            belong here anyway: the banner is the only thing on screen that says
+            this chat has a worktree, so it should also be what offers to finish
+            with it. Hidden mid-turn — neither is safe while Claude is writing. */}
         {activeSession?.worktree && (
           <div className="mb-3 flex items-center gap-2 rounded-lg border border-info/15 bg-info/6 px-3 py-2">
-            <Info className="size-3.5 text-info/50 shrink-0" />
-            <p className="text-[11px] text-info/50">
-              Worktree session — changes are isolated in <span className="font-mono font-medium">{activeSession.worktree.branch}</span>
+            <Info className="size-3.5 shrink-0 text-info" />
+            <p className="min-w-0 flex-1 text-[11px] text-info">
+              Worktree session — changes are isolated in{' '}
+              <span className="font-mono font-medium">{activeSession.worktree.branch}</span>
             </p>
+            {!isLoading && (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleWorktreeMerge}
+                      className="flex shrink-0 items-center gap-1 rounded-md border border-success/20 px-2 py-0.5 text-[11px] text-success transition-colors hover:bg-success/10"
+                    >
+                      <GitMerge className="size-3" />
+                      Merge
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Merge worktree branch into main</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleWorktreeRemove}
+                      aria-label="Remove worktree and delete session"
+                      className="shrink-0 rounded-md border border-danger/20 px-1.5 py-0.5 text-danger transition-colors hover:bg-danger/10 hover:text-danger/80"
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Remove worktree and delete session</TooltipContent>
+                </Tooltip>
+              </>
+            )}
           </div>
         )}
         {messages.length === 0 && !isLoading && (
           <div className="flex h-full flex-col items-center justify-center gap-3">
             <p className="text-[32px] font-semibold tracking-tight text-foreground/[0.07]">Nyra</p>
-            <p className="text-xs text-muted-foreground/70">Start typing or pick a skill from the sidebar</p>
+            <p className="text-xs text-muted-foreground">Start typing or pick a skill from the sidebar</p>
           </div>
         )}
 
@@ -1775,7 +1683,7 @@ export default function Chat(): React.JSX.Element {
                   >
                     <div className={`flex items-center gap-3 py-2`}>
                       <div className="flex-1 h-px bg-accent/50" />
-                      <span className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">{item.label}</span>
+                      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{item.label}</span>
                       <div className="flex-1 h-px bg-accent/50" />
                     </div>
                   </div>
@@ -1790,18 +1698,14 @@ export default function Chat(): React.JSX.Element {
                     ref={virtualizer.measureElement}
                     style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
                   >
-                    <div className={`flex justify-start py-2`}>
-                      {activeSessionId && thinkingSince[activeSessionId] !== undefined ? (
-                        <ThinkingIndicator startTime={thinkingSince[activeSessionId]} />
-                      ) : (
-                        <div className={`rounded-lg border border-border-strong bg-accent/50 px-4 py-3`}>
-                          <div className="flex gap-1">
-                            {BOUNCE_DOTS.map((i) => (
-                              <span key={i} className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                    {/* Not the transcript's usual py-2. Top-weighted on
+                        purpose: the space belongs above the indicator, between
+                        what is finished and what is still going, rather than
+                        under it where the composer already provides some. */}
+                    <div className="flex justify-start pt-5 pb-2">
+                      <ThinkingIndicator
+                        startTime={activeSessionId ? thinkingSince[activeSessionId] : undefined}
+                      />
                     </div>
                   </div>
                 )
@@ -1839,7 +1743,12 @@ export default function Chat(): React.JSX.Element {
               }
 
               const msg = item.msg
-              const gap = 'py-2'
+              // A user message is the thing you scroll back to find, and at the
+              // turn's own py-2 two of them in a row sat sixteen pixels apart in
+              // a wall of assistant prose. Double the rhythm on both sides: it
+              // is also what puts air under a question card, which otherwise
+              // ended a hairline above the answer you gave it.
+              const gap = msg.role === 'user' ? 'py-4' : 'py-2'
 
               if (editingMessageId === msg.id && msg.role === 'user') {
                 const textMsg = msg as TextMessage
@@ -1890,14 +1799,26 @@ export default function Chat(): React.JSX.Element {
        </div>
       </div>
       {/* Anchored to the message area, not the whole column, so it floats clear
-          of the composer instead of on top of it. */}
+          of the composer instead of on top of it — but centred on the column
+          rather than on the panel. left-1/2 put it over the middle of the
+          window while the composer under it was centred on the conversation,
+          and a pill that does not line up with the box below it reads as a
+          layout bug rather than a control. Same expression the composer uses,
+          resolved against the same box. */}
       {showJumpBottom && (
         <button
           onClick={() => {
             stuckToBottomRef.current = true
             virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end', behavior: 'smooth' })
           }}
-          className="absolute left-1/2 -translate-x-1/2 bottom-4 z-10 rounded-full bg-accent border border-border-strong px-3 py-1.5 text-[11px] text-foreground/80 hover:text-foreground hover:bg-secondary transition-all shadow-lg flex items-center gap-1.5"
+          style={
+            {
+              ...columnGeometry,
+              ...OUTSIDE_SCROLLER,
+              left: `calc(${COLUMN_OFFSET} + var(--col-w) / 2)`
+            } as React.CSSProperties
+          }
+          className="absolute bottom-4 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-strong bg-accent px-3 py-1.5 text-[11px] text-foreground/80 shadow-lg transition-all hover:bg-secondary hover:text-foreground"
         >
           <ChevronDown className="size-3" />
           Jump to bottom
@@ -1908,7 +1829,16 @@ export default function Chat(): React.JSX.Element {
 
       {/* Input */}
       {/* The composer lines up with the conversation, same geometry. */}
-      <div style={{ ...columnGeometry, width: 'var(--col-w)', marginLeft: COLUMN_OFFSET } as React.CSSProperties}>
+      <div
+        style={
+          {
+            ...columnGeometry,
+            ...OUTSIDE_SCROLLER,
+            width: 'var(--col-w)',
+            marginLeft: COLUMN_OFFSET
+          } as React.CSSProperties
+        }
+      >
         <ActivityStrip sessionId={activeSessionId} onStop={handleStopTurn} />
         <TaskStrip />
         {/* The plan and the question are no longer siblings of the composer —
@@ -1925,22 +1855,6 @@ export default function Chat(): React.JSX.Element {
           liveQuestion={pendingQuestion}
           onQuestionAnswer={handleQuestionAnswer}
         />
-      </div>
-
-      {/* Status line */}
-      <div className="flex items-center justify-center gap-3 px-4 py-1 text-[10px] font-mono text-muted-foreground/70 border-t border-border/55">
-        <span className="text-muted-foreground">{model || 'opus'}</span>
-        {effort && <span className="text-info/50">{effort}</span>}
-        {usage && (() => {
-          const total = usage.inputTokens + usage.outputTokens
-          const fmt = (n: number): string => n >= 1_000_000 ? (n / 1_000_000).toFixed(2) + 'M' : n >= 1000 ? Math.round(n / 1000) + 'k' : String(n)
-          return <span>{fmt(total)} tokens · {Math.round(usagePct)}%</span>
-        })()}
-        <TasksChip />
-        <RateLimitPill />
-        {claudeSessionId && (
-          <span className="text-muted-foreground/70">{claudeSessionId.slice(0, 8)}</span>
-        )}
       </div>
 
       {currentPermission && (
@@ -1973,7 +1887,7 @@ function RestoreWorktreeBanner({ sessionId }: { sessionId: string }): React.JSX.
 
   return (
     <div className="mb-3 flex items-center gap-2 rounded-lg border border-warning/20 bg-warning/6 px-3 py-2">
-      <p className="flex-1 text-[11px] text-warning/70">
+      <p className="flex-1 text-[11px] text-warning">
         {error ?? 'This chat\u2019s worktree was cleaned up. Its work was saved.'}
       </p>
       <button
@@ -1993,69 +1907,43 @@ function RestoreWorktreeBanner({ sessionId }: { sessionId: string }): React.JSX.
   )
 }
 
-function RateLimitPill(): React.JSX.Element | null {
-  const fiveHour = useRateLimitStore((s) => s.windows['five_hour'])
-  const [now, setNow] = useState(Date.now())
 
-  useEffect(() => {
-    if (!fiveHour) return
-    const id = setInterval(() => setNow(Date.now()), 1_000)
-    return () => clearInterval(id)
-  }, [fiveHour])
-
-  if (!fiveHour) return null
-
-  const isThrottled = fiveHour.status !== 'allowed'
-  const resetsInMs = fiveHour.resetsAt * 1000 - now
-  const resetsInSec = Math.max(0, Math.ceil(resetsInMs / 1_000))
-  const hours = Math.floor(resetsInSec / 3600)
-  const mins = Math.floor((resetsInSec % 3600) / 60)
-  const secs = resetsInSec % 60
-  const resetStr = hours > 0 ? `${hours}h ${mins}m` : mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
-
-  if (isThrottled) {
-    return <span className="text-danger/80 animate-pulse">5h: LIMIT · resets {resetStr}</span>
-  }
-
-  // Show reset countdown when we have a valid resetsAt (always useful for 5h window)
-  if (resetsInMs > 0) {
-    // Color based on how close to reset (closer = more used)
-    const totalWindowMs = 5 * 60 * 60 * 1000
-    const elapsed = totalWindowMs - resetsInMs
-    const pct = Math.min((elapsed / totalWindowMs) * 100, 100)
-    const color = pct > 90 ? 'text-danger/80' : pct > 70 ? 'text-warning/70' : 'text-info/50'
-    return <span className={color}>5h: resets {resetStr}</span>
-  }
-
-  return null
-}
-
-function ThinkingIndicator({ startTime }: { startTime: number }): React.JSX.Element {
+/**
+ * The turn is running.
+ *
+ * Eyes, a verb, and the clock if we know when it started. The clock is the only
+ * one of the three carrying information — the other two exist because a line
+ * that only ticks a number reads as a stopwatch someone left on, and Nyra has
+ * nothing truer to report between tool calls than "still going".
+ *
+ * `startTime` is absent when the reply began before this session was being
+ * watched; the indicator then drops the counter rather than inventing a zero,
+ * and everything else about it is the same.
+ */
+function ThinkingIndicator({ startTime }: { startTime?: number }): React.JSX.Element {
   const [elapsed, setElapsed] = useState(0)
+  const word = useWorkingWord()
 
   useEffect(() => {
+    if (startTime === undefined) return
+    setElapsed(Date.now() - startTime)
     const id = setInterval(() => setElapsed(Date.now() - startTime), 100)
     return () => clearInterval(id)
   }, [startTime])
 
-  const secs = (elapsed / 1000).toFixed(1)
-
   return (
-    <div className={`rounded-lg border border-info/15 bg-info/5 px-4 py-3`}>
-      <div className="flex items-center gap-2">
-        <div className="flex items-end gap-[3px]">
-          {[10, 14, 8, 12].map((h, i) => (
-            <span
-              key={i}
-              className="w-[2px] rounded-xs bg-info animate-pulse"
-              style={{ height: `${h}px`, animationDelay: `${i * 200}ms`, animationDuration: `${800 + i * 150}ms` }}
-            />
-          ))}
-        </div>
-        <span className="text-c-md font-medium text-info font-mono">Thinking</span>
-        <span className="text-c-sm text-info/40 font-mono">{secs}s</span>
-      </div>
-    </div>
+    <span className="flex items-center gap-2 text-c-md">
+      <span className="nyra-eyes" aria-hidden="true">
+        <span className="nyra-eye" />
+        <span className="nyra-eye" />
+      </span>
+      <span className="nyra-shimmer font-medium">{word}…</span>
+      {startTime !== undefined && (
+        <span className="font-mono text-c-sm text-muted-foreground">
+          {(elapsed / 1000).toFixed(1)}s
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -2078,7 +1966,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
     const textMsg = message as TextMessage
     return (
       <div className="flex flex-col items-end group/msg">
-        <div className="relative max-w-[85%] rounded-lg bg-secondary px-4 py-2.5 text-secondary-foreground">
+        <div className="relative max-w-[85%] rounded-lg bg-bubble px-4 py-2.5 text-bubble-foreground">
           {onEdit && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -2107,6 +1995,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
               <TooltipContent>Fork from this message</TooltipContent>
             </Tooltip>
           )}
+          <div className="nyra-on-bubble">
           {textMsg.images && textMsg.images.length > 0 && (
             <div className="flex gap-2 flex-wrap mb-2">
               {textMsg.images.map((img, i) => (
@@ -2142,11 +2031,12 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
           <div className="wrap-break-word wrap-anywhere">
             <MarkdownRenderer prompt>{textMsg.text}</MarkdownRenderer>
           </div>
+          </div>
         </div>
         {/* Outside the bubble, or the bubble reserves a line for a timestamp
             nobody is looking at and sits taller than its own text. */}
         {message.timestamp && (
-          <div className="mt-1 text-c-xs text-muted-foreground/60 opacity-0 transition-opacity group-hover/msg:opacity-100">
+          <div className="mt-1 text-c-xs text-muted-foreground opacity-0 transition-opacity group-hover/msg:opacity-100">
             {formatMessageTime(message.timestamp)}
           </div>
         )}
@@ -2206,7 +2096,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
           <TooltipContent>Copy response</TooltipContent>
         </Tooltip>
         {message.timestamp && (
-          <span className="flex items-center px-1.5 text-c-md text-muted-foreground/60">
+          <span className="flex items-center px-1.5 text-c-md text-muted-foreground">
             {formatMessageTime(message.timestamp)}
           </span>
         )}

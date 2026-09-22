@@ -85,7 +85,7 @@ export default function SlashAutocomplete({ items, selectedIndex, onSelect, onHo
               className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
                 item.type === 'skill'
                   ? 'bg-info/20 text-info'
-                  : 'bg-accent/50 text-muted-foreground/70'
+                  : 'bg-accent/50 text-muted-foreground'
               }`}
             >
               {item.type === 'skill' ? 'skill' : 'cmd'}

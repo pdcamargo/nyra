@@ -36,7 +36,7 @@ export default function ChangesCard({ block }: { block: ChangeBlock }): React.JS
           onClick={() => openChangesInPanel({ scope })}
           className="flex w-full items-center gap-2 border-b border-border/55 px-2.5 py-2 text-left transition-colors hover:bg-accent/50"
         >
-          <FileDiff className="size-3.5 shrink-0 text-muted-foreground/70" />
+          <FileDiff className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate text-xs">
             {files.length} {files.length === 1 ? 'file' : 'files'} changed
           </span>
@@ -67,7 +67,7 @@ export default function ChangesCard({ block }: { block: ChangeBlock }): React.JS
                   the directory is what should be cut when space runs out. */}
               <span className="shrink-0 truncate font-mono text-xs text-foreground/80">{name}</span>
               {dir && (
-                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground/40">
+                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
                   {dir}
                 </span>
               )}
@@ -86,7 +86,7 @@ export default function ChangesCard({ block }: { block: ChangeBlock }): React.JS
             className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-accent/50"
           >
             <ChevronDown
-              className={`size-3 shrink-0 text-muted-foreground/70 transition-transform ${
+              className={`size-3 shrink-0 text-muted-foreground transition-transform ${
                 expanded ? 'rotate-180' : ''
               }`}
             />
@@ -100,7 +100,7 @@ export default function ChangesCard({ block }: { block: ChangeBlock }): React.JS
       {/* Outside the card rather than in its header: in the header it competes
           with the totals, and it is a footnote about the card, not part of it. */}
       {block.base && (
-        <p className="mt-1 flex items-center gap-1.5 px-0.5 text-[10px] text-muted-foreground/40">
+        <p className="mt-1 flex items-center gap-1.5 px-0.5 text-[10px] text-muted-foreground">
           <GitCommitHorizontal className="size-3 shrink-0" />
           <span className="font-mono">as of {block.base}</span>
         </p>

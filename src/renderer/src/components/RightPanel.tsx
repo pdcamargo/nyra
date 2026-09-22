@@ -22,7 +22,7 @@ export default function RightPanel(): React.JSX.Element {
   return (
     <aside
       style={{ width }}
-      className="flex h-full shrink-0 flex-col border-l border-border/55 bg-card"
+      className="flex h-full shrink-0 flex-col border-l border-border/55 bg-sidebar"
     >
       <WorkspacePanel />
     </aside>

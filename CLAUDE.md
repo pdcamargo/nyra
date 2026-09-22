@@ -61,6 +61,33 @@ Never hardcode a keycap string. Read it with `useChordLabel(id)` or `<CommandKbd
 id=… />` — hardcoded glyphs are wrong off macOS and wrong the moment anyone
 rebinds.
 
+## Contrast
+
+**Never put an alpha on a token that is already muted.** `text-muted-foreground/40`
+composites to about 1.7:1 on white — it reads as damage, not as hierarchy. The
+ramp is tuned to clear AA on both surfaces; if you need a second tier, reach for a
+different token, not for a fraction of this one.
+
+`src/__tests__/styles/contrast.test.ts` fails the build on
+`text-{muted-foreground,info,danger,success,warning,merged}/<80` and on
+`text-foreground/<80`. Fills are exempt and stay expressive — `bg-info/10` behind
+a chip is fine, a 6px status dot at `bg-success/40` is not, because that dot is
+the only thing reporting the result.
+
+The same mistake in a selected state is worse: the title bar marked its active
+toggle with `bg-accent` over `bg-sidebar`, four thousandths of a lightness step
+apart, so nothing said which panel was open. A selected control needs a fill *and*
+a foreground step.
+
+### Elevation
+
+The vendored `--shadow-*` ladder is entirely `hsl(0 0% 0% / 0.00)` — `shadow-md`
+and `shadow-xl` paint nothing at some thirty call sites, and what actually
+separated a floating surface was `ring-1 ring-foreground/10`. Use `shadow-panel`
+(`--panel-shadow`, per-theme) for things that genuinely float: the composer, the
+pinned summary, the browser miniature. Don't switch the ladder on to fix one
+surface — it restyles every popover in the app as a side effect.
+
 ## Conventions taught to the model
 
 The headless CLI has no `TodoWrite`, `AskUserQuestion` or `ExitPlanMode`, so Nyra
@@ -74,6 +101,26 @@ If you add one: teach it in `claude.rs`, parse it in `lib/`, strip it in
 must be checked against a real repo — `CHANGES_CONVENTION` originally said
 `git diff --numstat`, which cannot see a file git has never been told about, so a
 turn that added files summarised none of them.
+
+## macOS permissions
+
+**Never read another app's preference domain or container from a shell here.**
+Every command run inside Nyra inherits Nyra's TCC identity, so `defaults read
+<someone else's domain>`, `~/Library/Containers/*` and `~/Library/Application
+Support/<other app>` each raise a *"Nyra would like to access data from other
+apps"* dialog with Nyra's name on it. A single `for d in $(defaults domains)`
+sweep is one dialog per domain — hundreds of them, in a row, over the window
+someone is trying to work in. Our own domain, `~/.nyra`, `~/.claude` and the
+repo are fine; nothing else is.
+
+The reason those grants only have to be given once is `~/.nyra/signing-identity`
+and `scripts/build-app.mjs`. Ad-hoc signing — what `signingIdentity: "-"` used
+to do — leaves a designated requirement of `cdhash H"…"`, and macOS keys every
+privacy grant to that requirement. A rebuild is a new cdhash, so every grant
+dies with the build that asked for it and the next launch asks again. Signed
+with a certificate the requirement names the certificate instead, which survives
+rebuilds, updater installs and certificate renewal. `tauri dev` does not run the
+bundler, so a dev build is still ad-hoc and still re-asks.
 
 ## Verifying
 

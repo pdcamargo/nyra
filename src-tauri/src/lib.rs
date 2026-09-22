@@ -25,6 +25,7 @@ mod open_with;
 mod processes;
 mod settings;
 mod skills;
+mod spellcheck;
 mod subagents;
 mod terminal;
 mod util;
@@ -86,6 +87,10 @@ fn install_signal_handlers() {}
 pub fn run() {
     logger::init();
 
+    // Before the Builder, because WebKit reads this once — on the way to
+    // painting the first editable field, which the window creates.
+    spellcheck::register_default();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -100,11 +105,15 @@ pub fn run() {
             // so every stdio MCP server would ENOENT without this.
             util::prime_path();
 
-            // The window is configured hidden so the first paint is the app rather
-            // than a blank rectangle; the frontend calls show() once React mounts.
-            // This is the backstop: if the frontend never gets that far, showing a
-            // broken window beats showing nothing at all.
             if let Some(window) = app.get_webview_window("main") {
+                // The other half of the spell-checking switch, now that there is
+                // a WKWebView to ask.
+                let _ = window.with_webview(|webview| spellcheck::sync_view(webview.inner()));
+
+                // The window is configured hidden so the first paint is the app rather
+                // than a blank rectangle; the frontend calls show() once React mounts.
+                // This is the backstop: if the frontend never gets that far, showing a
+                // broken window beats showing nothing at all.
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                     if !window.is_visible().unwrap_or(true) {
@@ -176,6 +185,8 @@ pub fn run() {
             commands::fs_read_image,
             commands::fs_revert_file,
             commands::fs_list_files,
+            commands::commands_list,
+            commands::commands_delete,
             commands::fs_list_dir,
             commands::fs_search_tree,
             commands::fs_list_editors,

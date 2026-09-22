@@ -94,14 +94,12 @@ function StepCli({ onNext }: { onNext: () => void }): React.JSX.Element {
     <div className="text-center space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-foreground mb-1">Welcome to Nyra</h2>
-        <p className="text-[12px] text-muted-foreground">Checking for Claude Code CLI…</p>
+        {/* The sentence is the progress indicator. A spinner underneath was
+            saying the same thing twice, in a shape the app uses nowhere else. */}
+        <p className={`text-[12px] ${status === 'checking' ? 'nyra-shimmer' : 'text-muted-foreground'}`}>
+          Checking for Claude Code CLI…
+        </p>
       </div>
-
-      {status === 'checking' && (
-        <div className="flex justify-center py-4">
-          <div className="h-8 w-8 rounded-full border-2 border-info/30 border-t-blue-500 animate-spin" />
-        </div>
-      )}
 
       {status === 'found' && (
         <div className="rounded-lg border border-success/20 bg-success/6 p-4 space-y-2">
@@ -110,7 +108,7 @@ function StepCli({ onNext }: { onNext: () => void }): React.JSX.Element {
           </div>
           <p className="text-[13px] font-medium text-success/80">Claude Code CLI found</p>
           <p className="text-[11px] text-muted-foreground font-mono truncate">{cliPath}</p>
-          {cliVersion && <p className="text-[10px] text-muted-foreground/70">{cliVersion}</p>}
+          {cliVersion && <p className="text-[10px] text-muted-foreground">{cliVersion}</p>}
         </div>
       )}
 
@@ -136,13 +134,13 @@ function StepCli({ onNext }: { onNext: () => void }): React.JSX.Element {
 
           <button
             onClick={() => checkBinary()}
-            className="rounded-lg border border-border-strong px-4 py-2 text-[12px] font-medium text-foreground/80 hover:text-foreground/80 hover:bg-accent/50 transition-colors"
+            className="rounded-lg border border-border-strong px-4 py-2 text-[12px] font-medium text-foreground/80 hover:text-foreground hover:bg-accent/50 transition-colors"
           >
             Check Again
           </button>
 
           <div className="pt-2 space-y-2">
-            <p className="text-[10px] text-muted-foreground/70 uppercase tracking-wider font-medium">Or set custom path</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Or set custom path</p>
             <div className="flex gap-2">
               <input
                 type="text"

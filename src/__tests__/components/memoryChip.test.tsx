@@ -22,7 +22,7 @@ const write = (over: Partial<MemoryWrite> = {}): MemoryWrite => ({
 
 describe('MemoryChip', () => {
   beforeEach(() => {
-    useUiStore.setState({ sidebarTab: 'sessions', pendingMemoryFilePath: null })
+    useUiStore.setState({ mainView: 'chat', pendingMemoryFilePath: null })
   })
 
   it('names the act and the memory, and nothing else — the tab holds the rest', () => {
@@ -63,7 +63,7 @@ describe('MemoryChip', () => {
   it('opens the memory in the sidebar when its name is clicked', async () => {
     render(<MemoryChip writes={[write()]} />)
     await userEvent.click(screen.getByText('a-fact'))
-    expect(useUiStore.getState().sidebarTab).toBe('memory')
+    expect(useUiStore.getState().mainView).toBe('memory')
     expect(useUiStore.getState().pendingMemoryFilePath).toBe(MEM)
   })
 

@@ -2,6 +2,7 @@ import type React from 'react'
 import {
   Bot,
   Braces,
+  Brain,
   ChartNoAxesColumn,
   ClipboardCopy,
   Eraser,
@@ -15,6 +16,7 @@ import {
   LayoutGrid,
   LogIn,
   Maximize2,
+  MessageSquare,
   Minimize2,
   Monitor,
   Moon,
@@ -28,6 +30,8 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Slash,
+  Sparkles,
   SlidersHorizontal,
   Smartphone,
   Square,
@@ -41,7 +45,7 @@ import {
 import type { Chord } from '../lib/keys'
 import { sortPrs, type PullRequest } from '../lib/pullRequests'
 import type { NewTabKind } from '../components/workspace/tabs'
-import { useUiStore } from '../store/ui'
+import { useUiStore, type MainView } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
 import {
@@ -92,6 +96,10 @@ export type CommandId =
   | 'panel.bottom'
   | 'panel.summary'
   | 'panel.canvas'
+  | 'view.chat'
+  | 'view.skills'
+  | 'view.commands'
+  | 'view.memory'
   | 'flow.run'
   | 'flow.addNode'
   | 'flow.arrange'
@@ -544,6 +552,33 @@ export const COMMANDS: Command[] = [
     setState: (on) => ui().setSummaryOpen(on),
     isOn: () => ui().summaryOpen
   },
+  // The main area's pages. They were tabs over the rail's own body until the
+  // rail became a permanent chat list; each is a chord because picking one is
+  // the sort of thing you do between turns, not once a session.
+  ...(
+    [
+      // Not mod+digit: the flow inspector's six panels hold those, and a
+      // chord that means one thing on the canvas and another off it is worse
+      // than a longer chord.
+      ['view.chat', 'Chat', 'mod+shift+1', MessageSquare],
+      ['view.skills', 'Skills', 'mod+shift+2', Sparkles],
+      ['view.commands', 'Commands', 'mod+shift+3', Slash],
+      ['view.memory', 'Memory', 'mod+shift+4', Brain]
+    ] as const
+  ).map(([id, label, defaultChord, icon]) => ({
+    id,
+    label: `Open ${label}`,
+    group: 'Panels' as const,
+    defaultChord,
+    icon,
+    palette: true,
+    run: () => {
+      // Flows replaces the same area, so opening a page has to close it or the
+      // page is chosen and then not shown.
+      useWorkflowStore.getState().closeCanvas()
+      ui().setMainView(id.slice('view.'.length) as MainView)
+    }
+  })),
   {
     id: 'panel.canvas',
     label: 'Switch between Chats and Flows',

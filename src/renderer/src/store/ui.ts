@@ -6,7 +6,15 @@ import { useSessionsStore } from './sessions'
  *  because opening a memory file from elsewhere has to be able to bring that tab
  *  forward. Flows used to be one of these; it is a view mode now, because a rail
  *  full of chat tabs is no use while you are looking at a graph. */
-export type SidebarTab = 'sessions' | 'skills' | 'commands' | 'memory'
+/**
+ * What fills the main area.
+ *
+ * These used to be tabs over the rail's own body — picking Skills replaced the
+ * chat list with a 256px-wide column of them. They are pages now: the rail
+ * keeps the chats visible at all times and the choice changes what sits beside
+ * it, which is what a person means by picking Skills.
+ */
+export type MainView = 'chat' | 'skills' | 'commands' | 'memory'
 
 /** Settings' left nav. Exported so anything that deep-links into a pane names a
  *  tab rather than firing a window event and hoping. */
@@ -21,7 +29,7 @@ export type SettingsTab =
   | 'about'
 
 type UiStore = {
-  sidebarTab: SidebarTab
+  mainView: MainView
   /** Set by the one check at launch. Null until it answers, and when it says no. */
   updateAvailable: string | null
   pendingMemoryFilePath: string | null
@@ -53,7 +61,7 @@ type UiStore = {
   /** The command palette. `mode` seeds the query so ⌃R lands straight in history. */
   paletteOpen: boolean
   paletteMode: 'all' | 'history'
-  setSidebarTab: (tab: SidebarTab) => void
+  setMainView: (view: MainView) => void
   setUpdateAvailable: (version: string | null) => void
   openMemoryFile: (filePath: string) => void
   consumePendingMemoryFile: () => void
@@ -113,7 +121,7 @@ export function applySessionPanels(sessionId: string | null): void {
 }
 
 export const useUiStore = create<UiStore>()(persist((set, get) => ({
-  sidebarTab: 'sessions',
+  mainView: 'chat',
   updateAvailable: null,
   pendingMemoryFilePath: null,
   pendingInputPrefill: null,
@@ -126,10 +134,10 @@ export const useUiStore = create<UiStore>()(persist((set, get) => ({
   settingsTab: 'general',
   paletteOpen: false,
   paletteMode: 'all',
-  setSidebarTab: (sidebarTab) => set({ sidebarTab }),
+  setMainView: (mainView) => set({ mainView }),
   setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
   openMemoryFile: (filePath) =>
-    set({ sidebarTab: 'memory', pendingMemoryFilePath: filePath, projectsPanelOpen: true }),
+    set({ mainView: 'memory', pendingMemoryFilePath: filePath, projectsPanelOpen: true }),
   consumePendingMemoryFile: () => set({ pendingMemoryFilePath: null }),
   prefillInput: (text) => set({ pendingInputPrefill: text }),
   consumeInputPrefill: () => {

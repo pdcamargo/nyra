@@ -1,5 +1,5 @@
 import React from 'react'
-import { FileText, Loader2, X } from 'lucide-react'
+import { FileText, X } from 'lucide-react'
 import type { FileAttachment, ImageAttachment } from '../store/sessions'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
@@ -87,7 +87,7 @@ export default function AttachmentStrip({
   if (images.length === 0 && files.length === 0 && pending.length === 0) return null
 
   return (
-    <div className="flex flex-wrap gap-2 pb-2">
+    <div className="flex max-h-[7.5rem] flex-wrap gap-2 overflow-y-auto pb-2">
       {images.map((img, i) => (
         <Tile key={`img-${i}`} onRemove={() => onRemoveImage(i)} removeLabel="Remove image">
           <img src={img.dataUrl} alt="" className="size-full object-cover" />
@@ -121,9 +121,8 @@ export default function AttachmentStrip({
 
       {pending.map((p) => (
         <Tile key={p.id}>
-          <div className="flex size-full flex-col items-center justify-center gap-1.5 px-2">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            <span className="w-full truncate text-center text-[10px] text-muted-foreground" title={p.name}>
+          <div className="flex size-full flex-col items-center justify-center px-2">
+            <span className="nyra-shimmer w-full truncate text-center text-[10px]" title={p.name}>
               {p.name}
             </span>
           </div>

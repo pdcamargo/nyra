@@ -120,7 +120,7 @@ export default function ShortcutsTab(): React.JSX.Element {
       </SectionNote>
 
       <div className="relative mb-4">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <input
           type="search"
           value={query}
@@ -166,7 +166,7 @@ export default function ShortcutsTab(): React.JSX.Element {
 
       {GROUP_ORDER.filter((g) => (grouped.get(g) ?? []).length > 0).map((group) => (
         <div key={group} className="mb-5">
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             {group}
           </p>
           <div className="overflow-hidden rounded-lg border border-border/55">
@@ -196,7 +196,7 @@ export default function ShortcutsTab(): React.JSX.Element {
                         <TooltipTrigger asChild>
                           <button
                             onClick={() => resetBinding(command.id)}
-                            className="text-muted-foreground/70 transition-colors hover:text-foreground"
+                            className="text-muted-foreground transition-colors hover:text-foreground"
                             aria-label="Reset to default"
                           >
                             <RotateCcw className="size-3" />
@@ -227,7 +227,7 @@ export default function ShortcutsTab(): React.JSX.Element {
                         ) : chord ? (
                           <Kbd chord={chord} />
                         ) : (
-                          <span className="text-muted-foreground/60">Not set</span>
+                          <span className="text-muted-foreground">Not set</span>
                         )}
                       </button>
                     )}

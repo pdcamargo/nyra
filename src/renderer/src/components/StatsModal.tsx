@@ -44,7 +44,7 @@ function RateLimitRow({ window: w, now }: { window: RateLimitWindow; now: number
   const elapsed = totalWindowMs - resetsInMs
   const pct = isThrottled ? 100 : Math.min(Math.max((elapsed / totalWindowMs) * 100, 0), 100)
   const barColor = isThrottled || pct > 90 ? 'bg-danger/70' : pct > 70 ? 'bg-warning/60' : 'bg-info/60'
-  const valColor = isThrottled || pct > 90 ? 'text-danger/80' : pct > 70 ? 'text-warning/70' : 'text-info/60'
+  const valColor = isThrottled || pct > 90 ? 'text-danger/80' : pct > 70 ? 'text-warning' : 'text-info'
   const label = w.rateLimitType === 'five_hour' ? '5-hour window' : '7-day window'
 
   return (
@@ -111,9 +111,9 @@ export default function StatsModal({ onClose }: { onClose: () => void }): React.
 
         {/* Session info */}
         <div className="rounded-lg border border-border/55 bg-muted/40 p-3 mb-3">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-2">Session</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Session</p>
           <StatRow label="Model" value={model} color="text-foreground" />
-          {effort && <StatRow label="Effort" value={effort} color="text-info/70" />}
+          {effort && <StatRow label="Effort" value={effort} color="text-info" />}
           <StatRow label="Duration" value={formatDuration(duration)} />
           <StatRow label="Messages" value={String(messageCount)} />
           {session?.claudeSessionId && (
@@ -123,7 +123,7 @@ export default function StatsModal({ onClose }: { onClose: () => void }): React.
 
         {/* Token usage */}
         <div className="rounded-lg border border-border/55 bg-muted/40 p-3 mb-3">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-2">Token Usage</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Token Usage</p>
           <div className="flex justify-between items-center mb-2">
             <span className="text-[11px] text-muted-foreground">Context</span>
             <span className="text-[11px] font-mono text-foreground/80">{formatTokens(totalTokens)} / 1M</span>
@@ -149,7 +149,7 @@ export default function StatsModal({ onClose }: { onClose: () => void }): React.
               ? 'border-danger/20 bg-danger/4'
               : 'border-border/55 bg-muted/40'
           }`}>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-2">Rate Limit</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Rate Limit</p>
             {rateLimitEntries.map((w) => (
               <RateLimitRow key={w.rateLimitType} window={w} now={now} />
             ))}

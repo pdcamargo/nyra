@@ -215,9 +215,23 @@ pub async fn skills_list(cwd: String) -> Value {
     json!(skills::list_skills(&cwd).await)
 }
 
+/// The project's and the account's custom slash commands.
+#[tauri::command]
+pub async fn commands_list(cwd: String) -> Value {
+    json!(skills::list_commands(&cwd).await)
+}
+
 #[tauri::command]
 pub async fn skills_write(scope: String, name: String, content: String, cwd: String) -> Value {
     match skills::write_skill(&scope, &name, &content, &cwd).await {
+        Ok(()) => json!({ "success": true }),
+        Err(e) => json!({ "error": e }),
+    }
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn commands_delete(file_path: String) -> Value {
+    match skills::delete_command(&file_path).await {
         Ok(()) => json!({ "success": true }),
         Err(e) => json!({ "error": e }),
     }

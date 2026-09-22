@@ -147,7 +147,7 @@ export default function PermissionDialog({
             <p className="text-sm font-medium text-foreground">
               {permission.tool_name}
               {diff?.isNewFile && (
-                <span className="ml-2 text-[10px] font-normal px-1.5 py-0.5 rounded-sm bg-success/15 text-success/70">
+                <span className="ml-2 text-[10px] font-normal px-1.5 py-0.5 rounded-sm bg-success/15 text-success">
                   New file
                 </span>
               )}
@@ -177,7 +177,7 @@ export default function PermissionDialog({
         <div className="flex gap-2">
           <button
             onClick={onDeny}
-            className="flex-1 rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm text-foreground/80 hover:bg-accent hover:text-foreground/80 transition-colors"
+            className="flex-1 rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
           >
             {isFileOp ? 'Reject' : 'Deny'}
           </button>
@@ -186,7 +186,7 @@ export default function PermissionDialog({
               <TooltipTrigger asChild>
                 <button
                   onClick={onAlwaysAllow}
-                  className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground/80 hover:bg-accent hover:text-foreground/80 transition-colors whitespace-nowrap"
+                  className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground/80 hover:bg-accent hover:text-foreground transition-colors whitespace-nowrap"
                 >
                   Always allow
                 </button>
@@ -203,7 +203,7 @@ export default function PermissionDialog({
         </div>
 
         {/* Keyboard shortcut hints */}
-        <div className="mt-3 flex items-center justify-center gap-3 text-[10px] text-muted-foreground/70">
+        <div className="mt-3 flex items-center justify-center gap-3 text-[10px] text-muted-foreground">
           <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">{formatChord('enter')}</kbd> Allow</span>
           <span><kbd className="px-1 py-0.5 rounded-sm bg-accent/50 font-mono">Esc</kbd> Deny</span>
           {showAllowAllHint && (

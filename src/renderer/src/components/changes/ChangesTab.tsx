@@ -50,7 +50,7 @@ const SPLIT_MIN_WIDTH = 720
 const LazyPatchView = React.lazy(() => import('./PatchView'))
 
 function Stat({ file }: { file: ChangedFile }): React.JSX.Element {
-  if (file.binary) return <span className="text-[10px] text-muted-foreground/40">binary</span>
+  if (file.binary) return <span className="text-[10px] text-muted-foreground">binary</span>
   return (
     <>
       {file.insertions > 0 && (
@@ -60,7 +60,7 @@ function Stat({ file }: { file: ChangedFile }): React.JSX.Element {
         <span className="text-[10px] font-mono text-danger/80">−{file.deletions}</span>
       )}
       {file.insertions === 0 && file.deletions === 0 && (
-        <span className="text-[10px] text-muted-foreground/40">—</span>
+        <span className="text-[10px] text-muted-foreground">—</span>
       )}
     </>
   )
@@ -90,7 +90,7 @@ function ChangedTree({
     <div className="flex h-full min-h-0 flex-col overflow-y-auto py-1.5">
       {groups.map(([dir, entries]) => (
         <div key={dir || '.'}>
-          <p className="truncate px-2 py-1 text-[10px] text-muted-foreground/70" title={dir}>
+          <p className="truncate px-2 py-1 text-[10px] text-muted-foreground" title={dir}>
             {dir || 'repo root'}
           </p>
           {entries.map((f) => (
@@ -101,7 +101,7 @@ function ChangedTree({
               title={f.path}
               className="flex w-full items-center gap-1.5 overflow-hidden px-2 py-1 pl-4 text-left transition-colors hover:bg-accent/50"
             >
-              <File className="size-2.5 shrink-0 text-muted-foreground/40" />
+              <File className="size-2.5 shrink-0 text-muted-foreground" />
               <span className="truncate text-[10px] text-foreground/80">
                 {f.path.split('/').pop()}
               </span>
@@ -171,7 +171,7 @@ function ViewOptions(): React.JSX.Element {
         <TooltipTrigger asChild>
           <DropdownMenuTrigger
             aria-label="Diff view options"
-            className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:text-foreground/80 aria-expanded:text-foreground/80"
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground/80 aria-expanded:text-foreground/80"
           >
             <Settings2 className="size-3" />
           </DropdownMenuTrigger>
@@ -244,15 +244,15 @@ function FileRow({
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
         >
           {open ? (
-            <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
           ) : (
-            <ChevronRight className="size-3 shrink-0 text-muted-foreground/70" />
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
           )}
           <span className="shrink-0 truncate text-[11px] font-mono text-foreground/80">{name}</span>
           {/* Only where there is room: at panel width the basename is the part
               that identifies the file, and the directory is what gets cut. */}
           {wide && dir && (
-            <span className="min-w-0 flex-1 truncate text-[10px] font-mono text-muted-foreground/40">
+            <span className="min-w-0 flex-1 truncate text-[10px] font-mono text-muted-foreground">
               {dir}
             </span>
           )}
@@ -264,7 +264,7 @@ function FileRow({
           <TooltipTrigger
             onClick={onOpenFile}
             aria-label={`Open ${name}`}
-            className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-accent/50 hover:text-foreground/80"
+            className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground/80"
           >
             <File className="size-3" />
           </TooltipTrigger>
@@ -275,12 +275,12 @@ function FileRow({
       {open && (
         <div className="overflow-x-auto border-t border-border/55 bg-background/40">
           {state?.loading ? (
-            <p className="px-3 py-2 text-[10px] text-muted-foreground/60">Reading the diff…</p>
+            <p className="px-3 py-2 text-[10px] text-muted-foreground">Reading the diff…</p>
           ) : state?.error ? (
             <p className="px-3 py-2 text-[10px] text-danger/80">{state.error}</p>
           ) : state?.patch ? (
             <React.Suspense
-              fallback={<p className="px-3 py-2 text-[10px] text-muted-foreground/60">Loading…</p>}
+              fallback={<p className="px-3 py-2 text-[10px] text-muted-foreground">Loading…</p>}
             >
               <LazyPatchView
                 path={file.path}
@@ -290,7 +290,7 @@ function FileRow({
               />
             </React.Suspense>
           ) : (
-            <p className="px-3 py-2 text-[10px] text-muted-foreground/60">
+            <p className="px-3 py-2 text-[10px] text-muted-foreground">
               Nothing to show for this file.
             </p>
           )}
@@ -374,13 +374,13 @@ export default function ChangesTab({ sessionId }: { sessionId: string }): React.
   const sum = totals(changes.files)
 
   const body = !changes.baseResolved ? (
-    <p className="px-3 py-4 text-center text-[11px] text-muted-foreground/60">
+    <p className="px-3 py-4 text-center text-[11px] text-muted-foreground">
       {scopeLabel(changes.scope)} is no longer in this repo — it may have been rebased away.
     </p>
   ) : changes.loading && changes.files.length === 0 ? (
-    <p className="px-3 py-4 text-center text-[11px] text-muted-foreground/60">Reading changes…</p>
+    <p className="px-3 py-4 text-center text-[11px] text-muted-foreground">Reading changes…</p>
   ) : changes.files.length === 0 ? (
-    <p className="px-3 py-4 text-center text-[11px] text-muted-foreground/40">
+    <p className="px-3 py-4 text-center text-[11px] text-muted-foreground">
       Nothing has changed.
     </p>
   ) : (
@@ -413,7 +413,7 @@ export default function ChangesTab({ sessionId }: { sessionId: string }): React.
         <span className="ml-auto flex shrink-0 items-center gap-2">
           {changes.files.length > 0 && (
             <>
-              <span className="text-[10px] text-muted-foreground/40">
+              <span className="text-[10px] text-muted-foreground">
                 {changes.files.length} {changes.files.length === 1 ? 'file' : 'files'}
               </span>
               <span className="text-[10px] font-mono text-success/80">+{sum.insertions}</span>

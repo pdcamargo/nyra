@@ -51,7 +51,7 @@ export default function DeviceBar({
         byAgent ? 'ring-1 ring-inset ring-info/40' : ''
       }`}
     >
-      <Smartphone className="size-3 shrink-0 text-muted-foreground/70" />
+      <Smartphone className="size-3 shrink-0 text-muted-foreground" />
 
       <Select value={device.id} onValueChange={(id) => onDevice({ id })}>
         <SelectTrigger
@@ -74,7 +74,7 @@ export default function DeviceBar({
           {devices.map((preset) => (
             <SelectItem key={preset.id} value={preset.id}>
               {preset.label}
-              <span className="ml-auto pl-3 font-mono text-[10px] text-muted-foreground/70">
+              <span className="ml-auto pl-3 font-mono text-[10px] text-muted-foreground">
                 {preset.width}&times;{preset.height}
               </span>
             </SelectItem>
@@ -88,14 +88,14 @@ export default function DeviceBar({
         value={device.width}
         onCommit={(width) => onDevice({ id: CUSTOM, width, height: device.height })}
       />
-      <span className="shrink-0 text-muted-foreground/50">&times;</span>
+      <span className="shrink-0 text-muted-foreground">&times;</span>
       <SizeField
         label="Height"
         value={device.height}
         onCommit={(height) => onDevice({ id: CUSTOM, width: device.width, height })}
       />
 
-      <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">
+      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
         @{device.deviceScaleFactor}x
       </span>
 

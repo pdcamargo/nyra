@@ -81,7 +81,10 @@
   --secondary: oklch(0.9702 0 0);
   --secondary-foreground: oklch(0.2046 0 0);
   --muted: oklch(0.9702 0 0);
-  --muted-foreground: oklch(0.5486 0 0);
+  /* 0.5486 landed at 4.4:1 on white — a hair under AA, and this ramp carries
+   * most of the 10px metadata in the app. Cheaper to move the token once than
+   * to special-case every caption that reads from it. */
+  --muted-foreground: oklch(0.5250 0 0);
   --accent: oklch(0.9702 0 0);
   --accent-foreground: oklch(0.2046 0 0);
   --destructive: oklch(0.5830 0.2387 28.4765);
@@ -94,7 +97,12 @@
   --chart-3: oklch(0.5555 0 0);
   --chart-4: oklch(0.5555 0 0);
   --chart-5: oklch(0.5555 0 0);
-  --sidebar: oklch(0.9851 0 0);
+  /* The rails' own surface, and it has to be a visible step down from the
+   * conversation. The Sidebar and the workspace panel both used --card, which in
+   * light mode is oklch(1 0 0) — the same value as --background — so the projects
+   * list, the transcript and the panel were one flat white sheet with a hairline
+   * drawn on it. 0.9851 was too close to read as a step; this is. */
+  --sidebar: oklch(0.9740 0 0);
   --sidebar-foreground: oklch(0.1448 0 0);
   --sidebar-primary: oklch(0.2046 0 0);
   --sidebar-primary-foreground: oklch(0.9851 0 0);
@@ -242,6 +250,117 @@
 }
 
 /*
+ * Inside the light-mode bubble, it is dark.
+ *
+ * --bubble is an oklch(0.32) island in a white app, and everything rendered into
+ * it reads from the page's palette, which is tuned for white: a markdown link at
+ * --info 0.52 lands around 1.8:1 on that fill, and a file chip's --accent is a
+ * near-white blob. The subtree gets the dark theme's values, because that is what
+ * it visually is.
+ *
+ * Written out rather than folded into the `.dark` selector list: that block also
+ * sets --bubble itself and --background, and this must not change the fill it is
+ * sitting on. Dark mode needs none of it — there the bubble is --muted above a
+ * darker page and the palette is already pointing the right way.
+ */
+html:not(.dark) .nyra-on-bubble {
+  --foreground: oklch(0.9851 0 0);
+  --muted-foreground: oklch(0.7090 0 0);
+  --border: oklch(0.3407 0 0);
+  --accent: oklch(0.3715 0 0);
+  --accent-foreground: oklch(0.9851 0 0);
+  --secondary: oklch(0.2686 0 0);
+  --secondary-foreground: oklch(0.9851 0 0);
+  --success: oklch(0.7200 0.1500 150);
+  --warning: oklch(0.7800 0.1400 75);
+  --info: oklch(0.7000 0.1400 255);
+  --design: oklch(0.7400 0.1600 350);
+  --merged: oklch(0.7200 0.1500 300);
+  --destructive: oklch(0.7022 0.1892 22.2279);
+  --danger: var(--destructive);
+  color-scheme: dark;
+}
+
+/*
+ * Real elevation.
+ *
+ * The vendored ladder above is the generator's, and every rung of it is
+ * `hsl(0 0% 0% / 0.00)` — so `shadow-sm` through `shadow-2xl` paint nothing,
+ * app-wide, at some thirty call sites. What actually separated a floating
+ * surface was `ring-1 ring-foreground/10`, which is an edge, not a lift.
+ *
+ * One token rather than turning the ladder on: switching those thirty dormant
+ * usages at once would restyle every popover, dropdown and autocomplete in the
+ * app as a side effect of fixing the composer. This is for the surfaces that
+ * genuinely float — the composer, the pinned summary, the browser miniature.
+ * Exported as --shadow-panel below, so it reads as `shadow-panel` at the call
+ * site.
+ */
+:root {
+  --panel-shadow: 0 1px 2px hsl(0 0% 0% / 0.05), 0 6px 16px -4px hsl(0 0% 0% / 0.08);
+}
+
+.dark {
+  --panel-shadow: 0 1px 2px hsl(0 0% 0% / 0.32), 0 8px 24px -6px hsl(0 0% 0% / 0.40);
+}
+
+/*
+ * The selected row in a rail — the open chat, the open workflow, the open tab.
+ *
+ * --accent alone does not work here: on the light rail it is 0.9702 against a
+ * 0.9740 sidebar, four thousandths of a lightness step, and the list reads as
+ * having nothing selected. Both halves move in the direction their own page
+ * already goes — light steps down from the rail, dark steps up from it — and
+ * both get a ring, because a fill alone at this size is a smudge.
+ */
+:root {
+  --rail-selected: oklch(0.9219 0 0);
+  --rail-selected-ring: oklch(0.8600 0 0);
+}
+
+.dark {
+  --rail-selected: var(--accent);
+  --rail-selected-ring: oklch(0.4700 0 0);
+}
+
+/*
+ * The user's own message.
+ *
+ * Dark mode names the composer's fill directly: what you typed and what you are
+ * about to type are the same surface, which is the whole idea. Light mode
+ * inverts instead — a dark bubble with white text — because at --secondary it
+ * was a slightly greyer paragraph rather than a distinct object.
+ */
+:root {
+  --bubble: oklch(0.3200 0 0);
+  --bubble-foreground: oklch(0.9851 0 0);
+}
+
+.dark {
+  /* A nudge above --muted, which is the composer's fill (`dark:bg-muted` on
+   * the box in ChatInput). They were the same colour on purpose — what you
+   * typed and what you are about to type are one surface — but at 0.2686
+   * against a 0.1448 page the bubble did not separate from the conversation
+   * enough to find by scrolling.
+   *
+   * Written as a delta off that token rather than as a second literal: the two
+   * are meant to stay one step apart, and a hard-coded 0.3050 silently stops
+   * tracking the moment the composer's fill is retuned. 5% of white is the same
+   * colour the literal named, to three decimal places.
+   *
+   * `color-mix` and not `oklch(from var(--muted) calc(l + 0.036) c h)`, which is
+   * the more direct way to say it and does resolve — but only one substitution
+   * deep. Tailwind reads this through `--color-bubble`, so `bg-bubble` is
+   * `var(--color-bubble)` is `var(--bubble)`, and at that second hop WebKit
+   * drops the relative colour on the floor: `background-color` computes to
+   * `rgba(0, 0, 0, 0)` and every bubble in the app paints nothing. `color-mix`
+   * survives the same chain.
+   */
+  --bubble: color-mix(in oklab, var(--muted), white 5%);
+  --bubble-foreground: var(--foreground);
+}
+
+/*
  * Fonts live in a plain `@theme`, not `@theme inline`.
  *
  * With `inline`, Tailwind resolves the variable at build time and bakes the
@@ -308,6 +427,12 @@
   --color-separator: var(--separator);
   --color-separator-subtle: var(--separator-subtle);
 
+  --color-bubble: var(--bubble);
+  --color-bubble-foreground: var(--bubble-foreground);
+
+  --color-rail-selected: var(--rail-selected);
+  --color-rail-selected-ring: var(--rail-selected-ring);
+
   /*
    * Ratios, not the theme's `calc(var(--radius) ± Npx)`.
    *
@@ -335,6 +460,7 @@
   --shadow-lg: var(--shadow-lg);
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
+  --shadow-panel: var(--panel-shadow);
 }
 
 /*
@@ -371,9 +497,40 @@
 }
 
 /* The composer's own box. Padding in the same currency as its text, or the
- * placeholder sits against the border as soon as the text grows. */
+ * placeholder sits against the border as soon as the text grows.
+ *
+ * 0.62 vertical was too tight to hold a line box: the editor's line-height is
+ * 1.6, so an empty composer draws a 24px caret in a 9px well and the placeholder
+ * reads as clipped rather than centred — the single thing that made the box look
+ * broken. Square at 0.95 (~14px at the default 15px) is the measure the
+ * reference composers use. */
 @utility composer-box {
-  padding: calc(var(--content-font-size, 15px) * 0.62) calc(var(--content-font-size, 15px) * 0.8);
+  padding: calc(var(--content-font-size, 15px) * 0.95);
+}
+
+/* The row of controls along the bottom of a composer-box.
+ *
+ * The box's padding is tuned for text on all four sides, and a strip of icons
+ * does not want as much air under it as a line of type does — 19px below the
+ * send button against 10px between it and the text read as the box having a
+ * floor it could not reach.
+ *
+ * So the strip takes part of the box's bottom padding back with a negative
+ * margin and spends it above itself instead. The two cancel — the pull is
+ * exactly the push minus the 0.5em the strip started with — so the box is as
+ * tall as it was, the field and the placeholder do not move by a pixel, and the
+ * only thing that changes is where the icons sit between them.
+ *
+ * 0.8/-0.3 rather than 0.95/-0.45: the first split left 19px of air at the
+ * sides against 11px under the icons, which reads as a box that has been cut
+ * off at the bottom. 16 above the strip and 13 below it is still less air than
+ * the text gets and no longer an obvious mismatch with the sides.
+ *
+ * Not folded into composer-box, which EditMessageBox also uses — that one ends
+ * in text, and text against a 10px floor is the problem, not the fix. */
+@utility composer-strip {
+  padding-top: calc(var(--content-font-size, 15px) * 0.8);
+  margin-bottom: calc(var(--content-font-size, 15px) * -0.3);
 }
 
 /* The theme's own base rule, written out rather than `@apply`-ed: the pseudo
@@ -430,7 +587,15 @@
  * table, the wide code block — fell back to WebKit's default and looked nothing
  * like the vertical ones. The thumb is 4px inside a 10px track: the visible mark
  * stays slight, the thing you have to hit does not. */
-::-webkit-scrollbar { width: 10px; height: 10px; }
+/* Named, because the conversation's geometry has to subtract it: the composer
+ * sits beside the transcript's scroller rather than inside it, so its 100% is
+ * ten pixels wider than the text's and the two drift apart. chatColumn.ts reads
+ * this token. */
+:root {
+  --scrollbar-size: 10px;
+}
+
+::-webkit-scrollbar { width: var(--scrollbar-size); height: var(--scrollbar-size); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-corner { background: transparent; }
 ::-webkit-scrollbar-thumb {
@@ -445,6 +610,30 @@
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   background-clip: content-box;
+}
+
+/*
+ * A scrollbar that is only there while it is being used — hover, or the ~700ms
+ * after the last scroll event, which `useAutoHideScrollbar` marks with
+ * data-scrolling. A list you are reading, like the projects rail, should not
+ * carry a permanent stripe down its edge.
+ *
+ * `background-color`, never the `background` shorthand: the shorthand resets
+ * `background-clip` to border-box and the thumb loses the 3px transparent inset
+ * that gives it its shape.
+ */
+.scroll-auto-hide::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  transition: background-color 160ms ease;
+}
+
+.scroll-auto-hide:hover::-webkit-scrollbar-thumb,
+.scroll-auto-hide[data-scrolling='true']::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+.scroll-auto-hide::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /*
@@ -554,6 +743,323 @@
     animation: none;
     stroke-dasharray: none;
     stroke-width: 2;
+  }
+}
+
+/*
+ * "Something is happening", said quietly.
+ *
+ * Both of the transcript's running indicators used to be boxes — three bouncing
+ * dots in a bordered pill, and four opacity-pulsing bars in a tinted card — and
+ * a box in the transcript is a thing you are being asked to read. A turn in
+ * progress is not. This is the same background-clip trick as .nyra-ultrathink
+ * below, in the theme's own greys: a highlight travels through the word and the
+ * label stays exactly one line of text, in the rhythm of the tool traces above
+ * it.
+ */
+.nyra-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--muted-foreground) 0%,
+    var(--muted-foreground) 35%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 65%,
+    var(--muted-foreground) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: nyra-shimmer-pan 2.4s linear infinite;
+}
+
+@keyframes nyra-shimmer-pan {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+
+/*
+ * The same sweep, across a surface rather than through a word.
+ *
+ * A shimmering label is enough when the label is the whole row — the transcript
+ * indicator, a tab, a button. In a list of forty chats it is not: the eye is
+ * scanning shapes, not reading each line, and one line whose grey travels is
+ * indistinguishable from forty that do not. Washing the row as well gives the
+ * scan something to catch.
+ *
+ * Shares nyra-shimmer-pan, so the wash and any text inside it travel together
+ * rather than beating against each other.
+ */
+:root {
+  --shimmer-wash: oklch(0.1448 0 0 / 0.07);
+}
+
+.dark {
+  --shimmer-wash: oklch(0.9851 0 0 / 0.08);
+}
+
+.nyra-shimmer-bg {
+  background-image: linear-gradient(
+    90deg,
+    transparent 20%,
+    var(--shimmer-wash) 50%,
+    transparent 80%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  animation: nyra-shimmer-pan 2.4s linear infinite;
+}
+
+/* A marker that is working rather than done. Tailwind's `pulse` bottoms out at
+ * 0.5 opacity, which on a 14px icon is the same contrast problem this pass is
+ * here to fix; this only dims to 0.55 and does it on a slower curve. */
+.nyra-breathe {
+  animation: nyra-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes nyra-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/*
+ * A pair of cat eyes, for the front of the running label.
+ *
+ * The shimmer says the app is alive; it does not say anyone is *looking*. It is
+ * a texture travelling over a word, and a texture stops being read as motion by
+ * about the third turn. Two eyes that hold still, dart, dilate and blink give
+ * the indicator a subject rather than only a surface — the same thing the CLI's
+ * spinner glyph is doing next to its rotating verb.
+ *
+ * They are the icon's eyes: Nyra is a black cat, and these are its colours and
+ * its silhouette off the app icon. Slit and almond both — a round eye with a
+ * round pupil is a dot, and a round eye with a slit is a cat only because of
+ * the slit.
+ *
+ * Sized off the label's own em rather than in pixels, so it tracks whatever the
+ * reader set --content-font-size to instead of shrinking into the text at one
+ * end of that range and looming over it at the other.
+ *
+ * The container's height is pinned because the blink animates each eye's
+ * height. The transcript is virtualised and re-measures each row through a
+ * ResizeObserver: a container that breathed with the blink would re-measure the
+ * whole list on every frame of it. align-items:center for the same reason the
+ * height is fixed — the lid then closes toward the middle instead of the eye
+ * being erased upward from the bottom.
+ */
+/* The only chromatic pair in a theme that is otherwise oklch(L 0 0) throughout,
+ * and the only one with no .dark counterpart: a cat's eyes are the colour they
+ * are, and a yellow that shifted with the page would stop being the icon's.
+ * #bbbd41 and #000 read off src-tauri/icons — saturated enough to hold its own
+ * against white without the black slit having to carry the whole shape. */
+:root {
+  --eye-iris: oklch(0.7738 0.1437 110.23);
+  --eye-pupil: oklch(0 0 0);
+}
+
+.nyra-eyes {
+  /* An eye is 48 units across and 34 tall, the pair is 108 wide, and the unit
+   * is the em over 48 — so the proportions hold at every step of the reader's
+   * text scale. 1.55em because the eye is now wider than it is tall: the
+   * height is what has to stay legible, and 34 units of 1.35em is 10px. */
+  --eye-unit: calc(1.55em / 48);
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  width: calc(108 * var(--eye-unit));
+  height: calc(34 * var(--eye-unit));
+}
+
+/*
+ * The eyeball: an almond, pointed at both corners, not a disc.
+ *
+ * A circle with a slit in it is a cat's eye the way a circle with a dot in it is
+ * an eye — it is the pupil doing all the work. The icon's is 55 x 35 with the
+ * outer corner carried high, and that silhouette is most of what makes it read
+ * as the same animal.
+ *
+ * Traced rather than guessed, but not literally: the icon is pixel art, and its
+ * stepped hull rendered at 20px reads as a torn polygon. This is a lens built
+ * from two circular arcs meeting at 60 degrees, rotated 10 degrees in the box's
+ * own coordinates — about 7 on screen, since the box is wider than it is tall —
+ * and mirrored for the second eye so both outer corners lift. Twenty points is
+ * a segment every two pixels at the size this renders; the curve is gone long
+ * before the facets arrive.
+ *
+ * clip-path also clips the pupil, which is the other half of why the shape can
+ * be this specific: a glance to the side crops against the real outline.
+ *
+ * And the reason this needs two child elements rather than ::before and ::after
+ * on the one span.
+ *
+ * The slit wants to be an ellipse, and every way of drawing one in a background
+ * runs into the same WebKit corner. `radial-gradient(ellipse 4px 14px, C 100%,
+ * transparent 100%)` — the obvious spelling — paints C to the edge of the
+ * element and swallows the iris. `ellipse closest-side` with a background-size
+ * draws correctly, but the moment the dilation animates that size, the
+ * background-position percentage starts resolving against the *auto* image size
+ * instead of the specified one, so 50% lands at 0 and both pupils slide out of
+ * their eyes. An element has none of this: it is centred by its own box, it
+ * scales about its own middle, and it animates on the compositor.
+ *
+ * overflow:hidden is what makes the rest work. The pupil is clipped to the rim,
+ * so a glance to the side crops against the round edge, and the blink — which
+ * animates the eye's height — closes over a pupil that stays centred in
+ * whatever is left of it.
+ */
+.nyra-eye {
+  position: relative;
+  display: block;
+  width: calc(48 * var(--eye-unit));
+  height: calc(34 * var(--eye-unit));
+  background: var(--eye-iris);
+  animation: nyra-eye-blink 10s infinite;
+}
+
+.nyra-eye:first-child {
+  clip-path: polygon(
+    0.8% 41.3%, 10.7% 25.9%, 21.9% 13.7%, 34.1% 5.2%, 46.5% 0.8%, 58.7% 0.8%,
+    70.1% 5.0%, 80.3% 13.4%, 88.8% 25.5%, 95.2% 40.8%, 99.2% 58.7%,
+    89.3% 74.1%, 78.1% 86.3%, 65.9% 94.8%, 53.5% 99.2%, 41.3% 99.2%,
+    29.9% 95.0%, 19.7% 86.6%, 11.2% 74.5%, 4.8% 59.2%
+  );
+}
+
+.nyra-eye:last-child {
+  clip-path: polygon(
+    99.2% 41.3%, 89.3% 25.9%, 78.1% 13.7%, 65.9% 5.2%, 53.5% 0.8%, 41.3% 0.8%,
+    29.9% 5.0%, 19.7% 13.4%, 11.2% 25.5%, 4.8% 40.8%, 0.8% 58.7%, 10.7% 74.1%,
+    21.9% 86.3%, 34.1% 94.8%, 46.5% 99.2%, 58.7% 99.2%, 70.1% 95.0%,
+    80.3% 86.6%, 88.8% 74.5%, 95.2% 59.2%
+  );
+}
+
+/* 9 x 22 against the icon's 13% x 60% of the eye. The slit is proportionally
+ * fatter than the one it came from because that one is 8 device pixels wide and
+ * this is four. */
+.nyra-eye::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(9 * var(--eye-unit));
+  height: calc(22 * var(--eye-unit));
+  border-radius: 50%;
+  background: var(--eye-pupil);
+  transform: translate(-50%, -50%);
+  animation: nyra-eye-move 10s infinite;
+}
+
+/* Long holds with a short glide between them. Transforms interpolate, so the 3%
+ * between one hold and the next is a ~300ms saccade rather than a jump cut, and
+ * the eye spends most of the loop parked somewhere.
+ *
+ * 13 units of travel against a slit 5 units from its own centre and a rim at
+ * 24: the pupil reaches the side of the eye and stops whole.
+ *
+ * The fourth beat is a dilation rather than a downward glance. A round pupil can
+ * look down; a vertical slit looking down is a vertical slit. Widening it is the
+ * thing a cat's eye does that a person's does not, and it is the one beat in the
+ * loop that reads as a reaction rather than a scan.
+ *
+ * Every frame repeats the translate(-50%, -50%) that centres the pupil on its
+ * own box. Transform lists interpolate function by function, so dropping it from
+ * a frame would not mean "unchanged", it would mean the pupil jumps a half-width
+ * down and to the right on the way there. */
+@keyframes nyra-eye-move {
+  0%,
+  10% {
+    transform: translate(-50%, -50%);
+  }
+  13%,
+  40% {
+    transform: translate(-50%, -50%) translateX(calc(-13 * var(--eye-unit)));
+  }
+  43%,
+  70% {
+    transform: translate(-50%, -50%) translateX(calc(13 * var(--eye-unit)));
+  }
+  73% {
+    transform: translate(-50%, -50%);
+  }
+  78%,
+  88% {
+    transform: translate(-50%, -50%) scale(2, 1.15);
+  }
+  93%,
+  100% {
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* One frame shut, on an irregular rhythm — evenly spaced blinks read as a
+ * mechanism, uneven ones read as a creature. */
+@keyframes nyra-eye-blink {
+  0%,
+  10%,
+  12%,
+  20%,
+  22%,
+  40%,
+  42%,
+  60%,
+  62%,
+  70%,
+  72%,
+  90%,
+  92%,
+  98%,
+  100% {
+    height: calc(34 * var(--eye-unit));
+  }
+  11%,
+  21%,
+  41%,
+  61%,
+  71%,
+  91%,
+  99% {
+    height: calc(13 * var(--eye-unit));
+  }
+}
+
+/* Reduced motion still has to answer "is this still going" — the shimmer settles
+ * on its base colour rather than on the highlight, so a stalled label does not
+ * read as louder than the finished text around it. */
+@media (prefers-reduced-motion: reduce) {
+  .nyra-shimmer {
+    animation: none;
+    background-image: none;
+    color: var(--muted-foreground);
+  }
+
+  .nyra-breathe {
+    animation: none;
+  }
+
+  /* The wash settles rather than stopping mid-sweep, so a running row still
+   * reads as a running row when it is not allowed to move. */
+  .nyra-shimmer-bg {
+    animation: none;
+    background-image: linear-gradient(90deg, var(--shimmer-wash), var(--shimmer-wash));
+  }
+
+  /* Eyes open, looking straight ahead. Removing them entirely would leave the
+   * label a word with nothing in front of it, and the gap it left would be the
+   * only thing that changed between the two modes. */
+  .nyra-eye,
+  .nyra-eye::before {
+    animation: none;
   }
 }
 

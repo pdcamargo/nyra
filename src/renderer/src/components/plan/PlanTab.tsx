@@ -54,7 +54,7 @@ export default function PlanTab({
   if (!message) {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        <p className="text-center text-[11px] text-muted-foreground/50">
+        <p className="text-center text-[11px] text-muted-foreground">
           This plan is no longer in the conversation.
         </p>
       </div>
@@ -76,7 +76,7 @@ export default function PlanTab({
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/80">
           {title}
         </span>
-        <span className="shrink-0 text-[10px] text-muted-foreground/60">{status}</span>
+        <span className="shrink-0 text-[10px] text-muted-foreground">{status}</span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-c-md">
         <MarkdownRenderer>{body}</MarkdownRenderer>

@@ -39,7 +39,7 @@ export default function FileBreadcrumb({
       {crumbs.map((crumb, i) => (
         <React.Fragment key={crumb.path}>
           {i > 0 && (
-            <ChevronRight className="size-3 shrink-0 text-muted-foreground/40" aria-hidden />
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
           )}
           <CrumbMenu
             crumb={crumb}
@@ -93,9 +93,9 @@ function CrumbMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 w-60 overflow-y-auto">
         {entries === null ? (
-          <p className="px-2 py-1.5 text-[11px] text-muted-foreground/70">Loading…</p>
+          <p className="px-2 py-1.5 text-[11px] text-muted-foreground">Loading…</p>
         ) : entries.length === 0 ? (
-          <p className="px-2 py-1.5 text-[11px] text-muted-foreground/70">Nothing here</p>
+          <p className="px-2 py-1.5 text-[11px] text-muted-foreground">Nothing here</p>
         ) : (
           entries.map((entry) => {
             const target = joinPath(listDir, entry.name)

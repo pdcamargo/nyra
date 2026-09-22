@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { extractAskBlocks, parseAskBlock, composeAnswer } from '../../renderer/src/lib/askBlocks'
+import {
+  extractAskBlocks,
+  parseAskBlock,
+  composeAnswer,
+  parseAnswer,
+  readAnswer
+} from '../../renderer/src/lib/askBlocks'
 
 const block = (body: string): string => '```nyra-ask\n' + body + '\n```'
 
@@ -110,5 +116,77 @@ describe('composeAnswer', () => {
 
   it('is empty when nothing was answered at all, so the caller can do nothing', () => {
     expect(composeAnswer(two, {})).toBe('')
+  })
+})
+
+describe('parseAnswer', () => {
+  const three = [
+    { question: 'Which store?', options: [{ label: 'Postgres' }, { label: 'SQLite' }] },
+    { question: 'Which host?', options: [{ label: 'Fly' }, { label: 'Render' }] },
+    { question: 'Which CI?', options: [{ label: 'Actions' }, { label: 'Buildkite' }] }
+  ]
+
+  it('reads one question back as the bare answer', () => {
+    expect(parseAnswer('Postgres', [three[0]])).toEqual(['Postgres'])
+  })
+
+  it('splits a set back into one answer per question', () => {
+    const composed = composeAnswer(three, { 1: ['Fly'] }, { 0: 'Neither, use Redis' })
+    expect(parseAnswer(composed, three)).toEqual(['Neither, use Redis', 'Fly', null])
+  })
+
+  it('keeps a typed answer that runs to several lines with its question', () => {
+    const composed = 'Which store? Redis,\nbecause of the TTLs\nWhich host? Fly'
+    expect(parseAnswer(composed, three)).toEqual(['Redis,\nbecause of the TTLs', 'Fly', null])
+  })
+
+  it('prefers the longest matching question, so a prefix does not steal the line', () => {
+    const overlapping = [
+      { question: 'Which host?', options: [{ label: 'Fly' }] },
+      { question: 'Which host? And which region?', options: [{ label: 'Fly, iad' }] }
+    ]
+    expect(parseAnswer('Which host? And which region? Fly, iad', overlapping)).toEqual([
+      null,
+      'Fly, iad'
+    ])
+  })
+
+  it('gives nothing back for a question nobody answered', () => {
+    expect(parseAnswer(undefined, three)).toEqual([null, null, null])
+    expect(parseAnswer('   ', three)).toEqual([null, null, null])
+  })
+})
+
+describe('readAnswer', () => {
+  const options = [{ label: 'Postgres' }, { label: 'SQLite' }, { label: 'Redis, clustered' }]
+
+  it('recognises a single option', () => {
+    expect(readAnswer('Postgres', options)).toEqual({ picked: ['Postgres'], typed: null })
+  })
+
+  it('recognises a multi-select', () => {
+    expect(readAnswer('Postgres, SQLite', options)).toEqual({
+      picked: ['Postgres', 'SQLite'],
+      typed: null
+    })
+  })
+
+  // The thing the old card could not show at all.
+  it('keeps your own words whole, commas and all', () => {
+    expect(readAnswer('Neither, use DynamoDB', options)).toEqual({
+      picked: [],
+      typed: 'Neither, use DynamoDB'
+    })
+  })
+
+  it('does not split an option that contains a comma', () => {
+    expect(readAnswer('Redis, clustered', options)).toEqual({
+      picked: ['Redis, clustered'],
+      typed: null
+    })
+  })
+
+  it('reports an unanswered question as neither', () => {
+    expect(readAnswer(null, options)).toEqual({ picked: [], typed: null })
   })
 })

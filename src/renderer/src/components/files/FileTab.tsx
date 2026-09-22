@@ -65,7 +65,7 @@ export default function FileTab({
               onRevealDir={revealDir}
             />
           ) : (
-            <p className="truncate px-2 py-1 text-[11px] text-muted-foreground/40">No file open</p>
+            <p className="truncate px-2 py-1 text-[11px] text-muted-foreground">No file open</p>
           )}
         </div>
         <Tooltip>

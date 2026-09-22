@@ -52,7 +52,7 @@ export default function FilePreviewPane({ path }: { path: string | null }): Reac
   if (!path) {
     return (
       <Empty>
-        <FileText className="mb-3 size-6 text-muted-foreground/50" />
+        <FileText className="mb-3 size-6 text-muted-foreground" />
         <p className="mb-1 text-[12px] text-foreground">Open file</p>
         <p className="max-w-[240px] text-[11px] leading-relaxed text-muted-foreground">
           Select a file from the workspace tree.

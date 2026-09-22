@@ -57,21 +57,23 @@ describe('QuestionDock', () => {
     expect(useQuestionAnswerStore.getState().picks).toEqual({ 0: ['Postgres', 'SQLite'] })
   })
 
-  it('shows the ticks as cleared once you type, and says why', () => {
-    useQuestionAnswerStore.setState({ picks: { 0: ['Postgres'] }, mode: 'typed' })
+  it('shows the ticks as cleared once you type', () => {
+    // Typing is what clears them, and it clears only this question's.
+    useQuestionAnswerStore.setState({ picks: {}, typed: { 0: 'Neither, use Redis' } })
 
     render(<QuestionDock message={ask()} text="Neither, use Redis" onSubmit={vi.fn()} />)
 
     expect(screen.getByRole('radio', { name: /Postgres/ })).not.toBeChecked()
-    expect(screen.getByText(/Your words win/)).toBeInTheDocument()
+    // And says nothing about it: the hint narrated the box you are typing in.
+    expect(screen.queryByText(/Pick one, or just type/)).not.toBeInTheDocument()
   })
 
   it('warns that a tick beats whatever is still sitting in the composer', () => {
-    useQuestionAnswerStore.setState({ picks: { 0: ['Postgres'] }, mode: 'picked' })
+    useQuestionAnswerStore.setState({ picks: { 0: ['Postgres'] }, typed: {} })
 
     render(<QuestionDock message={ask()} text="Neither, use Redis" onSubmit={vi.fn()} />)
 
-    expect(screen.getByText(/Picks win — your text is ignored/)).toBeInTheDocument()
+    expect(screen.getByText(/Picked — your text is ignored/)).toBeInTheDocument()
   })
 
   it('a single-select click is the answer — no Submit press needed', async () => {
@@ -116,21 +118,91 @@ describe('QuestionDock', () => {
 })
 
 describe('useQuestionAnswerStore', () => {
-  it('typing clears every tick, whichever question they were on', () => {
-    useQuestionAnswerStore.setState({ picks: { 0: ['a'], 1: ['b'] }, mode: 'picked' })
+  // The bug this replaced: one `mode` flag for the whole set, so a keystroke on
+  // question 3 cleared the answers to 1 and 2 and the reply carried only the
+  // sentence just typed.
+  it('typing clears the ticks on that question and no others', () => {
+    useQuestionAnswerStore.setState({ picks: { 0: ['a'], 1: ['b'] }, typed: {} })
 
-    useQuestionAnswerStore.getState().noteTyping()
+    useQuestionAnswerStore.getState().setTyped(1, 'something else')
 
-    expect(useQuestionAnswerStore.getState()).toMatchObject({ mode: 'typed', picks: {} })
+    expect(useQuestionAnswerStore.getState()).toMatchObject({
+      picks: { 0: ['a'] },
+      typed: { 1: 'something else' }
+    })
   })
 
-  it('is a no-op once there is nothing left to clear, so keystrokes do not re-render', () => {
-    useQuestionAnswerStore.setState({ picks: {}, mode: 'typed' })
+  it('ticking clears what was typed on that question and no others', () => {
+    useQuestionAnswerStore.setState({ picks: {}, typed: { 0: 'mine', 1: 'also mine' } })
+
+    useQuestionAnswerStore.getState().pick(1, 'b', false)
+
+    expect(useQuestionAnswerStore.getState()).toMatchObject({
+      picks: { 1: ['b'] },
+      typed: { 0: 'mine' }
+    })
+  })
+
+  it('emptying the box drops that question back to unanswered', () => {
+    useQuestionAnswerStore.setState({ picks: {}, typed: { 0: 'mine' } })
+
+    useQuestionAnswerStore.getState().setTyped(0, '   ')
+
+    expect(useQuestionAnswerStore.getState().typed).toEqual({})
+  })
+
+  it('is a no-op once there is nothing to record or clear, so keystrokes do not re-render', () => {
+    useQuestionAnswerStore.setState({ picks: {}, typed: {} })
     const before = useQuestionAnswerStore.getState()
 
-    useQuestionAnswerStore.getState().noteTyping()
+    useQuestionAnswerStore.getState().setTyped(0, '')
 
     expect(useQuestionAnswerStore.getState().picks).toBe(before.picks)
+    expect(useQuestionAnswerStore.getState().typed).toBe(before.typed)
+  })
+
+  // Typing is recorded as it happens, so Skip has to undo it — otherwise the
+  // words still in the box travel with the reply for a question you skipped.
+  it('skip drops that question\u2019s answer, typed or ticked', () => {
+    useQuestionAnswerStore.setState({
+      picks: { 0: ['a'], 1: ['b'] },
+      typed: { 0: 'mine', 2: 'also mine' }
+    })
+
+    useQuestionAnswerStore.getState().skip(0)
+
+    expect(useQuestionAnswerStore.getState()).toMatchObject({
+      picks: { 1: ['b'] },
+      typed: { 2: 'also mine' }
+    })
+  })
+
+  describe('advance', () => {
+    it('records this question and lands on the next with an empty box', () => {
+      useQuestionAnswerStore.setState({ picks: {}, typed: {}, page: 0 })
+
+      const next = useQuestionAnswerStore.getState().advance(0, 'Neither, use Redis')
+
+      expect(next).toBe('')
+      expect(useQuestionAnswerStore.getState()).toMatchObject({
+        page: 1,
+        typed: { 0: 'Neither, use Redis' }
+      })
+    })
+
+    it('brings back what the next question was already answered with', () => {
+      useQuestionAnswerStore.setState({ picks: {}, typed: { 1: 'earlier words' }, page: 0 })
+
+      expect(useQuestionAnswerStore.getState().advance(0, 'mine')).toBe('earlier words')
+    })
+
+    it('keeps the ticks on other questions', () => {
+      useQuestionAnswerStore.setState({ picks: { 1: ['Fly'] }, typed: {}, page: 0 })
+
+      useQuestionAnswerStore.getState().advance(0, 'Neither, use Redis')
+
+      expect(useQuestionAnswerStore.getState().picks).toEqual({ 1: ['Fly'] })
+    })
   })
 
   it('a new question starts clean', () => {

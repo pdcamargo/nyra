@@ -132,7 +132,7 @@ export default function NewChatEnvironment({
 
   return (
     // Docked to the top of the composer, so it reads as part of it.
-    <div className="-mb-3 ml-4 flex w-fit items-center gap-0.5 rounded-t-lg border border-b-0 border-border bg-muted px-2 pb-4 pt-1">
+    <div className="-mb-3 ml-4 flex w-fit items-center gap-0.5 rounded-t-lg border border-b-0 border-border bg-background px-2 pb-4 pt-1 dark:border-muted dark:bg-muted">
       <Chip icon={<Folder className="size-3.5 text-muted-foreground" />} label={project.name} />
 
       <DropdownMenu>
@@ -197,7 +197,7 @@ export default function NewChatEnvironment({
           <div className="max-h-64 overflow-y-auto p-1">
             <p className="px-2 py-1.5 text-xs text-muted-foreground">Branches</p>
             {shownBranches.length === 0 && (
-              <p className="px-2 py-1.5 text-xs text-muted-foreground/70">No branches match</p>
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">No branches match</p>
             )}
             {shownBranches.map((b) => (
               <button

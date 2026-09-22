@@ -71,17 +71,17 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }): Reac
       <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${dotClass(agent.status)}`} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[12px] text-foreground/80">{agent.name}</span>
-        <span className="block truncate text-[10px] text-muted-foreground/50">
+        <span className="block truncate text-[10px] text-muted-foreground">
           {agent.status === 'running' && agent.activity ? agent.activity : agent.subagentType}
         </span>
       </span>
       {model && (
-        <span className="mt-0.5 shrink-0 font-mono text-[10px] text-muted-foreground/40">
+        <span className="mt-0.5 shrink-0 font-mono text-[10px] text-muted-foreground">
           {model}
         </span>
       )}
       {agent.durationMs != null && (
-        <span className="mt-0.5 shrink-0 text-[10px] text-muted-foreground/40">
+        <span className="mt-0.5 shrink-0 text-[10px] text-muted-foreground">
           {formatElapsed(agent.durationMs)}
         </span>
       )}
@@ -103,13 +103,13 @@ function AgentList({
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/80">
           Subagents
         </span>
-        <span className="shrink-0 text-[10px] text-muted-foreground/60">
+        <span className="shrink-0 text-[10px] text-muted-foreground">
           {agents.length === 0 ? 'None yet' : `${agents.length}`}
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {agents.length === 0 ? (
-          <p className="px-2 py-6 text-center text-[11px] text-muted-foreground/50">
+          <p className="px-2 py-6 text-center text-[11px] text-muted-foreground">
             No subagents in this chat yet.
           </p>
         ) : (
@@ -141,7 +141,7 @@ function LiveFooter({ activity }: { activity?: string }): React.JSX.Element {
   return (
     <div className="mt-2 flex items-center gap-2 px-1 py-1">
       <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-info" />
-      <span className="min-w-0 flex-1 truncate text-[11px] italic text-info/60">
+      <span className="min-w-0 flex-1 truncate text-[11px] italic text-info">
         {activity || 'Working…'}
       </span>
     </div>
@@ -220,7 +220,7 @@ function AgentStream({
               type="button"
               onClick={onBack}
               aria-label="Back to all subagents"
-              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground/80"
+              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
             >
               <ChevronLeft className="size-3.5" />
             </button>
@@ -234,7 +234,7 @@ function AgentStream({
         {/* What it actually ran on, off its own messages — not the model the
             composer is set to, which a subagent need not have inherited. */}
         {model && (
-          <span className="shrink-0 rounded-sm bg-accent/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/70">
+          <span className="shrink-0 rounded-sm bg-accent/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
             {model}
           </span>
         )}
@@ -242,7 +242,7 @@ function AgentStream({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-c-md">
         {empty ? (
-          <p className="px-1 py-6 text-center text-[11px] italic text-muted-foreground/60">
+          <p className="px-1 py-6 text-center text-[11px] italic text-muted-foreground">
             It left no transcript and no report.
           </p>
         ) : (
@@ -253,7 +253,7 @@ function AgentStream({
               ) : block.entry.kind === 'thinking' ? (
                 <p
                   key={block.key}
-                  className="my-1 whitespace-pre-wrap border-l border-border/55 pl-2 text-c-sm italic text-muted-foreground/50"
+                  className="my-1 whitespace-pre-wrap border-l border-border/55 pl-2 text-c-sm italic text-muted-foreground"
                 >
                   {block.entry.text}
                 </p>
@@ -265,7 +265,7 @@ function AgentStream({
             )}
             {report && (
               <div className="mt-3 border-t border-border/55 pt-2">
-                <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground/50">
+                <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                   Report
                 </p>
                 <MarkdownRenderer>{report}</MarkdownRenderer>
@@ -308,13 +308,13 @@ export default function SubagentsTab({
   if (tab.focus && !focused) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6">
-        <p className="text-center text-[11px] text-muted-foreground/50">
+        <p className="text-center text-[11px] text-muted-foreground">
           That subagent is no longer in the conversation.
         </p>
         <button
           type="button"
           onClick={() => openSubagentsInPanel(null)}
-          className="text-[11px] text-info/70 transition-colors hover:text-info"
+          className="text-[11px] text-info transition-colors hover:underline"
         >
           All subagents
         </button>

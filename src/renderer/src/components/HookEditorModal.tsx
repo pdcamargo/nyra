@@ -304,7 +304,7 @@ function EventSection({
           <TooltipTrigger asChild>
             <button
               onClick={onRemoveEvent}
-              className="text-muted-foreground/70 hover:text-danger/70 transition-colors text-sm leading-none"
+              className="text-muted-foreground hover:text-danger transition-colors text-sm leading-none"
             >
               &times;
             </button>
@@ -328,7 +328,7 @@ function EventSection({
           ))}
           <button
             onClick={onAddMatcherGroup}
-            className="text-[11px] text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+            className="text-[11px] text-muted-foreground hover:text-foreground/80 transition-colors"
           >
             + Add Matcher Group
           </button>
@@ -368,7 +368,7 @@ function MatcherGroupCard({
           <TooltipTrigger asChild>
             <button
               onClick={onRemove}
-              className="text-muted-foreground/70 hover:text-danger/60 transition-colors text-xs leading-none"
+              className="text-muted-foreground hover:text-danger transition-colors text-xs leading-none"
             >
               &times;
             </button>
@@ -388,7 +388,7 @@ function MatcherGroupCard({
 
       <button
         onClick={onAddHandler}
-        className="text-[10px] text-muted-foreground/70 hover:text-muted-foreground transition-colors pl-1"
+        className="text-[10px] text-muted-foreground hover:text-foreground transition-colors pl-1"
       >
         + Add Hook
       </button>
@@ -451,7 +451,7 @@ function HookHandlerRow({
         <TooltipTrigger asChild>
           <button
             onClick={onRemove}
-            className="text-muted-foreground/70 hover:text-danger/60 transition-colors text-xs leading-none mt-1 shrink-0"
+            className="text-muted-foreground hover:text-danger transition-colors text-xs leading-none mt-1 shrink-0"
           >
             &times;
           </button>
@@ -489,7 +489,7 @@ function AddEventDropdown({
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="text-[11px] text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+        className="text-[11px] text-muted-foreground hover:text-foreground/80 transition-colors"
       >
         + Add Event
       </button>

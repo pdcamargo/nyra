@@ -115,15 +115,90 @@ export function questionsOf(input: Record<string, unknown>): AskQuestion[] {
  * question text goes in front — "Postgres" on its own is not something the reader
  * on the other end can make sense of.
  */
+/**
+ * Read a composed answer back into one answer per question.
+ *
+ * The record a card shows once a question is answered used to be every option
+ * of every question, bordered, with nothing marking the one that was picked —
+ * and a typed answer appeared nowhere at all, because it is not an option. The
+ * answer is on the message as the string `composeAnswer` built, so this is that
+ * function run backwards.
+ *
+ * Only for display. An answer that does not parse falls back to being shown
+ * whole rather than being dropped.
+ */
+export function parseAnswer(
+  result: string | undefined,
+  questions: AskQuestion[]
+): (string | null)[] {
+  const blank = questions.map(() => null as string | null)
+  const text = (result ?? '').trim()
+  if (!text || questions.length === 0) return blank
+  // One question is composed as the bare answer — there is no prefix to find.
+  if (questions.length === 1) return [text]
+
+  const out = [...blank]
+  let current = -1
+  for (const line of text.split('\n')) {
+    // Longest match, so a question that is a prefix of another does not win.
+    let best = -1
+    for (let i = 0; i < questions.length; i++) {
+      const prefix = questions[i].question
+      if (!line.startsWith(prefix)) continue
+      if (best === -1 || prefix.length > questions[best].question.length) best = i
+    }
+    if (best !== -1) {
+      current = best
+      out[best] = line.slice(questions[best].question.length).trim()
+    } else if (current !== -1) {
+      // A typed answer can run to several lines; they belong to the question
+      // whose prefix opened them.
+      out[current] = `${out[current]}\n${line}`
+    }
+  }
+  return out.some((a) => a !== null) ? out : blank
+}
+
+/**
+ * Which of a question's options an answer names, and whether it is free text.
+ *
+ * A multi-select is composed as `A, B`, and free text can contain a comma too —
+ * so the split only counts when *every* part is an option. Anything else is
+ * your own words, kept whole.
+ */
+export function readAnswer(
+  answer: string | null,
+  options: AskOption[]
+): { picked: string[]; typed: string | null } {
+  const text = (answer ?? '').trim()
+  if (!text) return { picked: [], typed: null }
+  const labels = new Set(options.map((o) => o.label))
+  if (labels.has(text)) return { picked: [text], typed: null }
+  const parts = text.split(', ').map((p) => p.trim())
+  if (parts.length > 1 && parts.every((p) => labels.has(p))) return { picked: parts, typed: null }
+  return { picked: [], typed: text }
+}
+
 export function composeAnswer(
   questions: AskQuestion[],
-  picks: Record<number, string[]>
+  picks: Record<number, string[]>,
+  /**
+   * Question index → your own words, where you gave them instead of ticking.
+   *
+   * Free text used to replace the whole reply: one sentence went to Claude and
+   * every tick on every other question was dropped. A question you answered in
+   * your own words is still one answer among several, so it takes its place in
+   * the list like any other.
+   */
+  typed: Record<number, string> = {}
 ): string {
   return questions
     .map((q, i) => {
+      const own = (typed[i] ?? '').trim()
       const chosen = (picks[i] ?? []).filter(Boolean)
-      if (chosen.length === 0) return null
-      return questions.length > 1 ? `${q.question} ${chosen.join(', ')}` : chosen.join(', ')
+      const answer = own || chosen.join(', ')
+      if (!answer) return null
+      return questions.length > 1 ? `${q.question} ${answer}` : answer
     })
     .filter((line): line is string => line !== null)
     .join('\n')

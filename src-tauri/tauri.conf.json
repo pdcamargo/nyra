@@ -54,7 +54,7 @@
     "macOS": {
       "entitlements": "entitlements.plist",
       "minimumSystemVersion": "13.3",
-      "signingIdentity": "-"
+      "signingIdentity": null
     },
     "resources": {
       "../sidecar": "sidecar"

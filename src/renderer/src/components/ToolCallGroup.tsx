@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import type { ToolCallMessage } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { inlineLabel, buildGroupSummary, formatToolName } from '../utils/toolSummary'
@@ -31,29 +32,29 @@ function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.Element
     : null
 
   return (
-    <div className="w-full flex items-center gap-2 py-[3px] px-1">
+    <div className="w-full flex items-center gap-2 px-1 py-1">
       <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
       <span
         title={message.tool_name}
-        className={`font-mono text-c-sm w-[120px] shrink-0 truncate ${denied ? 'text-danger/50' : 'text-muted-foreground'}`}
+        className={`font-mono text-c-sm w-[120px] shrink-0 truncate ${denied ? 'text-danger' : 'text-muted-foreground'}`}
       >
         {formatToolName(message.tool_name)}
       </span>
       {filePath && !denied ? (
         <button
           type="button"
-          className="text-c-sm text-info/50 hover:text-info font-mono truncate min-w-0 transition-colors text-left"
+          className="text-c-sm text-info hover:underline font-mono truncate min-w-0 transition-colors text-left"
           onClick={() => openFileInPanel(filePath)}
         >
           {filePath.split('/').slice(-3).join('/')}
         </button>
       ) : (
-        <span className={`text-c-sm font-mono truncate min-w-0 ${denied ? 'text-danger/40' : 'text-muted-foreground/70'}`}>
+        <span className={`text-c-sm font-mono truncate min-w-0 ${denied ? 'text-danger' : 'text-muted-foreground'}`}>
           {label.replace(/^\S+\s*/, '')}
         </span>
       )}
       {denied && (
-        <span className="text-c-xs text-danger/40 ml-auto shrink-0">denied</span>
+        <span className="text-c-xs text-danger ml-auto shrink-0">denied</span>
       )}
     </div>
   )
@@ -87,7 +88,7 @@ export default function ToolCallGroup({
       return <FinishedChecklist message={only} />
     }
     return (
-      <div className="py-0.5">
+      <div className="py-2">
         <TraceLine message={only} />
       </div>
     )
@@ -95,26 +96,25 @@ export default function ToolCallGroup({
 
   // Group of tool calls
   const summary = buildGroupSummary(messages)
-  const dotClass = anyDenied
-    ? 'bg-danger/50'
-    : allDone
-      ? 'bg-success/40'
-      : 'bg-warning/60 animate-pulse'
+  const dotClass = anyDenied ? 'bg-danger' : allDone ? 'bg-success' : 'bg-warning nyra-breathe'
 
   return (
-    <div className="py-0.5">
+    <div className="py-2">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-2 py-[3px] px-1 text-left rounded-sm hover:bg-muted/40 transition-colors"
+        className="w-full flex items-center gap-2 rounded-sm px-1 py-1 text-left transition-colors hover:bg-muted/40"
       >
         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
-        <span className={`text-c-sm font-mono ${anyDenied ? 'text-danger/40' : 'text-muted-foreground'}`}>
+        <span className={`text-c-sm font-mono ${anyDenied ? 'text-danger' : 'text-muted-foreground'}`}>
           {summary}
         </span>
-        <span className="ml-auto text-muted-foreground/70 shrink-0 text-c-xs">{expanded ? '▾' : '▸'}</span>
+        <ChevronRight
+          className={`size-3 shrink-0 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`}
+        />
+        <span className="flex-1" />
       </button>
       {expanded && (
-        <div className="ml-3 border-l border-border/55 pl-2 mt-0.5">
+        <div className="ml-3 mt-1 border-l border-border/55 pl-2">
           {messages.map((m) => (
             <TraceLine key={m.id} message={m} />
           ))}

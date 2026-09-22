@@ -10,7 +10,7 @@ import React from 'react'
 
 export function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <p className="mt-5 mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 first:mt-0">
+    <p className="mt-5 mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground first:mt-0">
       {children}
     </p>
   )
@@ -43,7 +43,7 @@ export function SettingRow({
     <div className="flex items-center justify-between gap-4 border-b border-separator py-2.5 last:border-b-0 [&:has(+p)]:border-b-0">
       <label className="min-w-0 text-xs text-foreground/80">
         {label}
-        {hint ? <span className="text-muted-foreground/70"> — {hint}</span> : null}
+        {hint ? <span className="text-muted-foreground"> — {hint}</span> : null}
       </label>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
     </div>

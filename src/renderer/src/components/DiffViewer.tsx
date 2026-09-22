@@ -51,7 +51,7 @@ export default function DiffViewer({
     <div className="overflow-hidden rounded-lg border border-border/55">
       <div className="flex items-center gap-2 border-b border-border/55 bg-muted/40 px-3 py-1.5">
         <span className="truncate font-mono text-[10px] text-muted-foreground">{fileName}</span>
-        <span className="ml-auto truncate text-[10px] text-muted-foreground/70">{filePath}</span>
+        <span className="ml-auto truncate text-[10px] text-muted-foreground">{filePath}</span>
       </div>
       <div style={{ maxHeight: height }} className="nyra-diff overflow-auto">
         <DiffView

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { CircleHelp } from 'lucide-react'
+import { Circle, CircleCheck, CircleHelp, PenLine } from 'lucide-react'
 import {
   Questionnaire,
   QuestionnaireActions,
@@ -14,7 +14,7 @@ import {
   QuestionnaireSubmit,
   QuestionnaireTitle
 } from './ui/questionnaire'
-import { composeAnswer, questionsOf } from '../lib/askBlocks'
+import { composeAnswer, parseAnswer, questionsOf, readAnswer, type AskQuestion } from '../lib/askBlocks'
 import { useUiStore } from '../store/ui'
 import { useSessionsStore, type ToolCallMessage } from '../store/sessions'
 import { useQuestionAnswerStore } from '../store/questionAnswer'
@@ -95,14 +95,17 @@ export default function AskUserQuestionCard({
 
   return (
     <div
-      className={`my-1 overflow-hidden rounded-lg border text-c-md ${
+      /* mb over my: the answer to a question is a user bubble directly below
+         it, and at the transcript's own rhythm the two touched — the card read
+         as the top half of the reply rather than the thing being replied to. */
+      className={`mt-1 mb-4 overflow-hidden rounded-lg border text-c-md ${
         denied ? 'border-danger/15 bg-danger/5' : 'border-border bg-muted/40'
       }`}
     >
       <div className="flex items-center gap-2 border-b border-border/55 px-3 py-2">
         <CircleHelp className="size-3.5 text-info" />
         <span className="font-medium text-foreground/80">Question</span>
-        {denied && <span className="text-c-xs text-danger/60">denied</span>}
+        {denied && <span className="text-c-xs text-danger">denied</span>}
         <span className="ml-auto text-c-xs text-muted-foreground">
           {submitted ? 'Sent' : interactive ? 'Pick to answer' : 'Answered in chat'}
         </span>
@@ -144,29 +147,116 @@ export default function AskUserQuestionCard({
           </QuestionnaireActions>
         </Questionnaire>
       ) : (
-        <div className="space-y-3 px-3 py-2">
-          {questions.map((q, i) => (
-            <div key={i} className="space-y-1.5">
-              <p className="leading-relaxed text-foreground/80">
-                {q.header && <HeaderChip>{q.header}</HeaderChip>}
-                {q.question}
-              </p>
-              <ul className="mt-1 space-y-1">
-                {q.options?.map((opt) => (
-                  <li key={opt.label} className="rounded-sm border border-border/55 px-2 py-1.5">
-                    <p className="font-medium text-foreground/80">{opt.label}</p>
-                    {opt.description && (
-                      <p className="mt-0.5 text-c-sm leading-relaxed text-muted-foreground">
-                        {opt.description}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
+        <Record questions={questions} result={message.result} />
       )}
     </div>
+  )
+}
+
+/**
+ * What a question looks like once it has been answered.
+ *
+ * It used to be every option of every question in its own bordered box, with
+ * nothing saying which one was picked — three questions of four options was a
+ * screenful of boxes inside a box, and a typed answer was not in there at all,
+ * because it is not one of the options.
+ *
+ * So the record is the answers, and the options are behind a toggle for when
+ * you want to know what else was on offer. A marker column rather than a border
+ * each: the shape of the list is what says these are alternatives.
+ */
+function Record({
+  questions,
+  result
+}: {
+  questions: AskQuestion[]
+  result?: string
+}): React.JSX.Element {
+  const [showOptions, setShowOptions] = useState(false)
+  const answers = useMemo(() => parseAnswer(result, questions), [result, questions])
+  const hasOptions = questions.some((q) => q.options.length > 0)
+
+  return (
+    <div className="px-3 py-2.5">
+      <div className="space-y-3">
+        {questions.map((q, i) => {
+          const { picked, typed } = readAnswer(answers[i], q.options)
+          const unanswered = picked.length === 0 && !typed
+          return (
+            <div key={i} className="space-y-1">
+              {/* No header chip here, unlike the dock. The chip exists so one
+                  question of a set can be told apart when you see them one at a
+                  time; a record lists every question in full, so it earns
+                  nothing — and an inline chip pushed the question text a chip's
+                  width right of every answer under it, which is two columns in
+                  a block that should read as one. */}
+              <p className="leading-relaxed text-foreground/80">{q.question}</p>
+
+              {typed && <Answer icon={PenLine}>{typed}</Answer>}
+              {!showOptions &&
+                picked.map((label) => (
+                  <Answer key={label} icon={CircleCheck}>
+                    {label}
+                  </Answer>
+                ))}
+              {!showOptions && unanswered && (
+                <p className="pl-[22px] text-c-sm text-muted-foreground">Not answered</p>
+              )}
+
+              {showOptions &&
+                q.options.map((opt) => {
+                  const on = picked.includes(opt.label)
+                  return (
+                    <Answer key={opt.label} icon={on ? CircleCheck : Circle} muted={!on}>
+                      {opt.label}
+                      {opt.description && (
+                        <span className="text-muted-foreground"> — {opt.description}</span>
+                      )}
+                    </Answer>
+                  )
+                })}
+            </div>
+          )
+        })}
+      </div>
+
+      {hasOptions && (
+        <button
+          type="button"
+          onClick={() => setShowOptions((v) => !v)}
+          className="mt-2.5 text-c-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {showOptions ? 'Hide options' : 'Show all options'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** One line of the record: a marker, then the text. */
+function Answer({
+  icon: Icon,
+  muted,
+  children
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  muted?: boolean
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <p
+      className={`flex gap-1.5 text-c-md leading-relaxed ${
+        muted ? 'text-muted-foreground' : 'text-foreground'
+      }`}
+    >
+      {/* One line box tall, with the icon centred in it, rather than a pixel
+          nudge: `leading-relaxed` is 1.625, so this tracks the type size and
+          the marker stays on the centre of the first line at any of them. A
+          hand-tuned margin put it 3px high. */}
+      <span className="flex h-[1.625em] shrink-0 items-center">
+        <Icon className={`size-3.5 ${muted ? 'text-muted-foreground' : 'text-success'}`} />
+      </span>
+      <span className="min-w-0 whitespace-pre-wrap">{children}</span>
+    </p>
   )
 }

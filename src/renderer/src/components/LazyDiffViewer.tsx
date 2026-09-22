@@ -11,7 +11,7 @@ export default function LazyDiffViewer(props: DiffViewerProps): React.JSX.Elemen
       fallback={
         <div
           style={{ height: props.height ?? 360 }}
-          className="flex items-center justify-center rounded-lg border border-border/55 bg-muted/40 text-[11px] text-muted-foreground/70"
+          className="flex items-center justify-center rounded-lg border border-border/55 bg-muted/40 text-[11px] text-muted-foreground"
         >
           Loading diff…
         </div>

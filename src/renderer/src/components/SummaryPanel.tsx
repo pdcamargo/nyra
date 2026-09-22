@@ -52,6 +52,14 @@ function Section({
   )
 }
 
+function StatusDot({ className }: { className: string }): React.JSX.Element {
+  return (
+    <span className="mt-px flex size-3.5 shrink-0 items-center justify-center">
+      <span className={`size-1.5 rounded-full ${className}`} />
+    </span>
+  )
+}
+
 function Row({
   icon,
   label,
@@ -63,7 +71,9 @@ function Row({
 }): React.JSX.Element {
   return (
     <div className="flex items-center gap-2 py-1 min-w-0">
-      <span className="text-muted-foreground/70 shrink-0">{icon}</span>
+      <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+        {icon}
+      </span>
       <span className="text-[11px] text-foreground/80 truncate flex-1">{label}</span>
       {trailing}
     </div>
@@ -156,7 +166,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
   // `top-3` rather than the old hand-tuned `top-[92px]` — the title bar is a
   // real element now, so this is positioned against the chat column itself.
   return (
-    <div className="pointer-events-auto min-h-0 shrink overflow-y-auto rounded-lg border border-border bg-secondary/80 shadow-xl backdrop-blur-xl backdrop-saturate-150">
+    <div className="pointer-events-auto min-h-0 shrink overflow-y-auto rounded-lg border border-border/70 bg-background/85 shadow-panel backdrop-blur-xl backdrop-saturate-150 dark:border-border dark:bg-card/85">
       <Section
         label="Environment"
         action={
@@ -164,7 +174,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
             <TooltipTrigger
               onClick={refresh}
               aria-label="Refresh"
-              className="p-0.5 text-muted-foreground/70 transition-colors hover:text-foreground/80"
+              className="p-0.5 text-muted-foreground transition-colors hover:text-foreground/80"
             >
               <RotateCw className="size-3" />
             </TooltipTrigger>
@@ -186,7 +196,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
             aria-label="Open changes"
             className="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
           >
-            <span className="shrink-0 text-muted-foreground/70">
+            <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
               <FileDiff className="size-3.5" />
             </span>
             <span className="flex-1 truncate text-[11px] text-foreground/80">Changes</span>
@@ -196,7 +206,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
                 <span className="text-danger/80">−{stat.deletions.toLocaleString()}</span>
               </span>
             ) : (
-              <span className="shrink-0 text-[11px] text-muted-foreground/40">
+              <span className="shrink-0 text-[11px] text-muted-foreground">
                 {stat ? 'none' : '—'}
               </span>
             )}
@@ -210,7 +220,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
             <Laptop className="size-3.5" />
           }
           label={isWorktree ? (session.worktree?.permanent ? 'Permanent worktree' : 'Worktree') : 'Local'}
-          trailing={project && <span className="text-[10px] text-muted-foreground/40 truncate max-w-[110px]">{project.name}</span>}
+          trailing={project && <span className="text-[10px] text-muted-foreground truncate max-w-[110px]">{project.name}</span>}
         />
         {session.branch && (
           <Row
@@ -220,7 +230,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
             label={session.branch}
           />
         )}
-        <p className="mt-1 text-[10px] text-muted-foreground/40 font-mono break-all">{cwd || '—'}</p>
+        <p className="mt-1 text-[10px] text-muted-foreground font-mono break-all">{cwd || '—'}</p>
       </Section>
 
       {/* Shells and monitors Claude left running. The CLI lists these; Nyra had
@@ -239,7 +249,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
                 // this same list again with one column changed.
                 <span className="flex shrink-0 items-center gap-1.5">
                   <PortBadges sessionId={session.id} process={proc} />
-                  <span className="text-[10px] text-muted-foreground/40">
+                  <span className="text-[10px] text-muted-foreground">
                     {formatElapsed(now - proc.startedAt)}
                   </span>
                 </span>
@@ -272,7 +282,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
               <TooltipTrigger
                 onClick={() => openSubagentsInPanel(null)}
                 aria-label="See all subagents"
-                className="rounded text-[10px] text-muted-foreground/60 opacity-0 transition-opacity hover:text-foreground/80 group-hover:opacity-100 focus-visible:opacity-100"
+                className="rounded text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground/80 group-hover:opacity-100 focus-visible:opacity-100"
               >
                 See all
               </TooltipTrigger>
@@ -288,25 +298,25 @@ export default function SummaryPanel(): React.JSX.Element | null {
                   onClick={() => openSubagentsInPanel(agent.toolId)}
                   className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
                 >
-                  <span
-                    className={`mt-1 size-1.5 shrink-0 rounded-full ${
+                  <StatusDot
+                    className={
                       agent.status === 'running'
-                        ? 'bg-info animate-pulse'
+                        ? 'bg-info nyra-breathe'
                         : agent.status === 'failed'
-                          ? 'bg-danger/60'
+                          ? 'bg-danger'
                           : 'bg-success'
-                    }`}
+                    }
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[11px] text-foreground/80">{agent.name}</span>
                     {agent.status === 'running' && agent.activity && (
-                      <span className="block truncate text-[10px] italic text-info/60">
+                      <span className="block truncate text-[10px] italic text-info">
                         {agent.activity}
                       </span>
                     )}
                   </span>
                   {agent.durationMs != null && (
-                    <span className="shrink-0 text-[10px] text-muted-foreground/40">
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
                       {formatElapsed(agent.durationMs)}
                     </span>
                   )}
@@ -330,7 +340,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
               <button
                 type="button"
                 onClick={() => session && dismissPip(session.id, false)}
-                className="text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground"
+                className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
               >
                 Show preview
               </button>
@@ -351,16 +361,12 @@ export default function SummaryPanel(): React.JSX.Element | null {
               title={tab.url}
               className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
             >
-              <span
-                className={`mt-1 size-1.5 shrink-0 rounded-full ${
-                  tab.loading ? 'animate-pulse bg-info' : 'bg-success'
-                }`}
-              />
+              <StatusDot className={tab.loading ? 'bg-info nyra-breathe' : 'bg-success'} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[11px] text-foreground/80">
                   {tab.title || 'Loading…'}
                 </span>
-                <span className="block truncate text-[10px] text-muted-foreground/60">
+                <span className="block truncate text-[10px] text-muted-foreground">
                   {tab.url}
                 </span>
               </span>
@@ -371,7 +377,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
 
       <Section label="Attachments">
         {attachments.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground/40">Nothing attached</p>
+          <p className="text-[11px] text-muted-foreground">Nothing attached</p>
         ) : (
           <>
             {shown.map((a) => (
@@ -396,13 +402,13 @@ export default function SummaryPanel(): React.JSX.Element | null {
                 label={a.name}
                 trailing={
                   a.kind === 'file' ? (
-                    <span className="text-[10px] text-muted-foreground/40 shrink-0">{formatSize(a.size)}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{formatSize(a.size)}</span>
                   ) : undefined
                 }
               />
             ))}
             {attachments.length > shown.length && (
-              <p className="pt-0.5 text-[10px] text-muted-foreground/40">
+              <p className="pt-0.5 text-[10px] text-muted-foreground">
                 {attachments.length - shown.length} more
               </p>
             )}

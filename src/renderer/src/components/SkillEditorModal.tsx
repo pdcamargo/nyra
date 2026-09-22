@@ -212,7 +212,7 @@ export default function SkillEditorModal(): React.JSX.Element | null {
                   </button>
                 ))}
               </div>
-              <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+              <p className="mt-1.5 text-[10px] text-muted-foreground">
                 {scope === 'project'
                   ? 'Saved to .claude/skills/ in your project'
                   : 'Saved to ~/.claude/skills/ (available everywhere)'}
@@ -224,7 +224,7 @@ export default function SkillEditorModal(): React.JSX.Element | null {
         {/* Monaco Editor */}
         <div className="flex-1 min-h-0">
           {loading ? (
-            <div className="flex items-center justify-center h-full text-muted-foreground/70 text-sm">
+            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
               Loading...
             </div>
           ) : (
@@ -265,7 +265,7 @@ export default function SkillEditorModal(): React.JSX.Element | null {
           <div className="flex gap-2">
             <button
               onClick={close}
-              className="rounded-md px-3 py-1.5 text-xs text-foreground/80 hover:text-foreground/80 hover:bg-accent/50 transition-colors"
+              className="rounded-md px-3 py-1.5 text-xs text-foreground/80 hover:text-foreground hover:bg-accent/50 transition-colors"
             >
               Cancel
             </button>

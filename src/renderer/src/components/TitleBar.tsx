@@ -56,8 +56,8 @@ function TitleBarButton({
         aria-label={label}
         className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
           active
-            ? 'bg-accent text-foreground'
-            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+            ? 'bg-background text-foreground ring-1 ring-border'
+            : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
         }`}
       >
         {children}

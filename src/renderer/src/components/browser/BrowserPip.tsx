@@ -105,10 +105,10 @@ export default function BrowserPip(): React.JSX.Element | null {
   }
 
   return (
-    <div className="pointer-events-auto overflow-hidden rounded-lg border border-border bg-secondary/80 shadow-xl backdrop-blur-xl backdrop-saturate-150">
+    <div className="pointer-events-auto min-h-0 shrink-[4] overflow-hidden rounded-lg border border-border/70 bg-background/85 shadow-panel backdrop-blur-xl backdrop-saturate-150 dark:border-border dark:bg-card/85">
       <div className="flex items-center gap-1.5 px-2.5 py-1.5">
         <Globe className="size-3 shrink-0 text-muted-foreground" />
-        <span className="flex-1 truncate text-[10px] font-medium uppercase tracking-widest text-muted-foreground/70">
+        <span className="flex-1 truncate text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
           Browser
         </span>
         {others > 0 && (
@@ -137,7 +137,7 @@ export default function BrowserPip(): React.JSX.Element | null {
         </Tooltip>
       </div>
 
-      <div className="max-h-[46vh] space-y-px overflow-y-auto">
+      <div className="max-h-[32vh] min-h-0 space-y-px overflow-y-auto">
         {shown.filter(Boolean).map((tab) => (
           <button
             key={tab.tabId}

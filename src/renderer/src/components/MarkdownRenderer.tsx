@@ -98,7 +98,7 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
   return (
     <div className={`my-3 rounded-lg overflow-hidden border border-border bg-muted`}>
       <div className="flex items-center justify-between border-b border-border/55 bg-muted/40 py-1 pl-3 pr-2">
-        <span className="text-c-xs text-muted-foreground/70 font-mono">{language || 'code'}</span>
+        <span className="text-c-xs text-muted-foreground font-mono">{language || 'code'}</span>
         {/* Icon-only, and the separation comes from each button's own padding
             rather than a gap — the hit target and the spacing are then the same
             thing, so they cannot drift apart. */}
@@ -110,7 +110,7 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
                 aria-pressed={wrapped}
                 aria-label={wrapped ? 'Stop wrapping long lines' : 'Wrap long lines'}
                 className={`rounded-md p-1.5 transition-colors hover:bg-accent/50 ${
-                  wrapped ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  wrapped ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <WrapText className="size-3.5" />
@@ -515,7 +515,7 @@ function MarkdownRendererInner({
         if (isFilePath(text)) {
           return (
             <code
-              className="rounded-sm bg-accent px-1.5 py-0.5 text-[0.85em] font-mono text-info/70 hover:text-info cursor-pointer transition-colors"
+              className="cursor-pointer rounded-sm bg-accent px-1.5 py-0.5 font-mono text-[0.85em] text-info transition-colors hover:bg-info/15"
               onClick={() => openFileInPanel(text)}
               {...props}
             >

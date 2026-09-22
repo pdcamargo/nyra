@@ -1473,6 +1473,12 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
 
     if event_type == "rate_limit_event" {
         if let Some(info) = raw.get("rate_limit_info") {
+            // `unifiedWindows` is where the numbers live — every window the
+            // account has, each with its own reset and a 0..1 utilization.
+            // Only the top-level status and reset used to be forwarded, so the
+            // app could say when the limit lifts and never how much of it was
+            // spent. The block is passed through whole rather than picked
+            // apart: the CLI has added windows before and will again.
             emit_event(
                 nyra_session_id,
                 json!({
@@ -1480,6 +1486,7 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
                     "status": info.get("status").and_then(Value::as_str).unwrap_or("unknown"),
                     "resetsAt": info.get("resetsAt").and_then(Value::as_i64).unwrap_or(0),
                     "rateLimitType": info.get("rateLimitType").and_then(Value::as_str).unwrap_or("five_hour"),
+                    "windows": info.get("unifiedWindows").cloned().unwrap_or(Value::Null),
                 }),
             );
         }

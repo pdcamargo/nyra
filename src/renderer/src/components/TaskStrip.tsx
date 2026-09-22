@@ -1,14 +1,21 @@
 import React, { useState } from 'react'
-import { ChevronDown, ChevronRight, ListTodo } from 'lucide-react'
+import { ChevronDown, ChevronRight, Circle, CircleCheck, CircleDot, ListTodo } from 'lucide-react'
 import { useSessionsStore, type Task } from '../store/sessions'
 
 /** A stable empty array — a fresh one per call would re-render forever. */
 const EMPTY_TASKS: Task[] = []
 
-function dotClass(status: Task['status']): string {
-  if (status === 'completed') return 'bg-success'
-  if (status === 'in_progress') return 'bg-info animate-pulse'
-  return 'bg-secondary'
+/* No top nudge. The row's text sets its own line-height, so a 14px marker at the
+ * top of a 16px line box is already centred on it — the nudge these used to
+ * carry was correcting for a line box that should not have been 24px tall. */
+function TaskMarker({ status }: { status: Task['status'] }): React.JSX.Element {
+  if (status === 'completed') {
+    return <CircleCheck className="size-3.5 shrink-0 text-success" />
+  }
+  if (status === 'in_progress') {
+    return <CircleDot className="nyra-breathe size-3.5 shrink-0 text-info" />
+  }
+  return <Circle className="size-3.5 shrink-0 text-border-strong" />
 }
 
 /**
@@ -69,25 +76,31 @@ export default function TaskStrip(): React.JSX.Element | null {
         />
       </div>
 
+      {/* pl-[34px] is the header's own label column: px-3 (12) + the chevron (14)
+          + gap-2 (8). The chevron is a control, not content, so the rows start
+          under the header's icon and their text lands under "Tasks" rather than
+          a column to its left.
+
+          text-xs on the wrapper, not only on the span inside it: a block that
+          sets no size of its own gets the app's base line-height, which put a
+          24px line box around 12px text and dropped it below the marker. */}
       {expanded && (
-        <ul className="space-y-0.5 px-2 py-1.5">
+        <ul className="space-y-0.5 py-1.5 pl-[34px] pr-3">
           {tasks.map((task) => (
-            <li key={task.taskId} className="flex items-start gap-2 px-1 py-0.5">
-              <span
-                className={`mt-[7px] size-1.5 shrink-0 rounded-full ${dotClass(task.status)}`}
-              />
-              <div className="min-w-0 flex-1">
+            <li key={task.taskId} className="flex items-start gap-2 py-0.5">
+              <TaskMarker status={task.status} />
+              <div className="min-w-0 flex-1 text-xs leading-snug">
                 <span
-                  className={`text-xs leading-snug ${
+                  className={
                     task.status === 'completed'
                       ? 'text-muted-foreground line-through'
                       : 'text-foreground/80'
-                  }`}
+                  }
                 >
                   {task.subject}
                 </span>
                 {task.status === 'in_progress' && task.activeForm && (
-                  <p className="mt-0.5 text-[10px] italic text-info/60">{task.activeForm}</p>
+                  <p className="mt-0.5 text-[10px] italic text-info">{task.activeForm}</p>
                 )}
               </div>
             </li>

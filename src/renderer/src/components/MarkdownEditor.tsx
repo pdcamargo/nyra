@@ -161,6 +161,13 @@ export default function MarkdownEditor({
       livePreview,
       composerDecorations,
       EditorView.lineWrapping,
+      // CodeMirror turns the platform's text checking off on its content
+      // element — sensible for code, wrong for this: both places this editor
+      // renders hold prose you are about to send someone. Spelling only;
+      // autocorrect and autocapitalise stay off, because they rewrite what you
+      // typed, and what you type here is full of identifiers and paths that
+      // look to them like mistakes.
+      EditorView.contentAttributes.of({ spellcheck: 'true' }),
       theme,
       maxHeightComp.of(EditorView.theme({ '.cm-scroller': { maxHeight: `${maxHeight}px` } })),
       EditorView.updateListener.of((update) => {

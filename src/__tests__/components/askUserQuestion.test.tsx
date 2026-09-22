@@ -77,3 +77,63 @@ describe('AskUserQuestionCard', () => {
     expect(screen.getByText('(no questions provided)')).toBeInTheDocument()
   })
 })
+
+/**
+ * The record a card becomes once the question is answered.
+ *
+ * It used to list every option of every question in its own bordered box, with
+ * nothing marking the pick — and a typed answer appeared nowhere, because it is
+ * not one of the options.
+ */
+describe('the answered record', () => {
+  const answered = (result: string): ToolCallMessage => ask({ result })
+
+  const set = (result: string): ToolCallMessage =>
+    ({
+      ...ask({ result }),
+      input: {
+        questions: [
+          { question: 'Which base?', options: [{ label: 'Radix' }, { label: 'Base UI' }] },
+          { question: 'Which host?', options: [{ label: 'Fly' }, { label: 'Render' }] }
+        ]
+      }
+    }) as ToolCallMessage
+
+  it('shows what was picked and not what was not', () => {
+    render(<AskUserQuestionCard message={answered('Radix')} />)
+
+    expect(screen.getByText('Radix')).toBeInTheDocument()
+    expect(screen.queryByText('Base UI')).not.toBeInTheDocument()
+  })
+
+  it('shows an answer given in your own words', () => {
+    render(<AskUserQuestionCard message={answered('Neither, plain CSS')} />)
+
+    expect(screen.getByText('Neither, plain CSS')).toBeInTheDocument()
+  })
+
+  it('reveals the rest on request, and marks the one that was picked', async () => {
+    const user = userEvent.setup()
+    render(<AskUserQuestionCard message={answered('Radix')} />)
+
+    await user.click(screen.getByRole('button', { name: /show all options/i }))
+
+    expect(screen.getByText('Base UI')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /hide options/i }))
+    expect(screen.queryByText('Base UI')).not.toBeInTheDocument()
+  })
+
+  it('keeps each answer of a set with its own question', () => {
+    render(<AskUserQuestionCard message={set('Which base? Radix\nWhich host? Fly')} />)
+
+    expect(screen.getByText('Radix')).toBeInTheDocument()
+    expect(screen.getByText('Fly')).toBeInTheDocument()
+    expect(screen.queryByText('Render')).not.toBeInTheDocument()
+  })
+
+  it('says so where a question of a set went unanswered', () => {
+    render(<AskUserQuestionCard message={set('Which host? Fly')} />)
+
+    expect(screen.getByText('Not answered')).toBeInTheDocument()
+  })
+})

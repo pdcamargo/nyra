@@ -12,7 +12,7 @@ export default function ProcessesView(): React.JSX.Element {
   if (processes.length === 0) {
     return (
       <div className="flex-1 min-h-0 flex items-center justify-center bg-background">
-        <div className="text-center text-[11px] text-muted-foreground/70 max-w-xs px-6">
+        <div className="text-center text-[11px] text-muted-foreground max-w-xs px-6">
           No background processes this session.<br />
           Claude will list them here when it runs something in the background.
         </div>
@@ -26,14 +26,14 @@ export default function ProcessesView(): React.JSX.Element {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-background">
       {showSummary && (
-        <div className="sticky top-0 z-10 px-3 py-1.5 text-[10px] text-muted-foreground/70 bg-sidebar border-b border-border/55 flex items-center gap-3">
+        <div className="sticky top-0 z-10 px-3 py-1.5 text-[10px] text-muted-foreground bg-sidebar border-b border-border/55 flex items-center gap-3">
           <span>{counts.running} running</span>
           <span>·</span>
           <span>{counts.exited + counts.killed} done</span>
           {counts.failed > 0 && (
             <>
               <span>·</span>
-              <span className="text-danger/70">{counts.failed} failed</span>
+              <span className="text-danger">{counts.failed} failed</span>
             </>
           )}
         </div>
@@ -89,12 +89,12 @@ function ProcessRow({ proc, sessionId }: { proc: BgProcess; sessionId: string })
         <ChevronRight className="size-2.5" />
         <StatusDot status={proc.status} exitCode={proc.exitCode} />
         <span className="flex-1 min-w-0 truncate text-xs text-foreground/80 font-mono">{proc.command || '(empty command)'}</span>
-        <span className="shrink-0 w-[68px] text-[10px] text-muted-foreground/70 font-mono">
+        <span className="shrink-0 w-[68px] text-[10px] text-muted-foreground font-mono">
           {proc.pid != null ? `PID ${proc.pid}` : '—'}
         </span>
         <span className="shrink-0 w-[110px] text-[10px] text-muted-foreground">
           {statusLabel(proc)}
-          <span className="text-muted-foreground/70 ml-1">{runtime}</span>
+          <span className="text-muted-foreground ml-1">{runtime}</span>
         </span>
         <div className="shrink-0 w-[56px] flex justify-end">
           {isAlive ? (
@@ -103,7 +103,7 @@ function ProcessRow({ proc, sessionId }: { proc: BgProcess; sessionId: string })
                 <button
                   onClick={handleKill}
                   disabled={killing || proc.pid == null}
-                  className="text-[10px] font-medium px-2 py-0.5 rounded-sm border border-danger/30 text-danger/70 hover:bg-danger/10 hover:border-danger/50 hover:text-danger transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="text-[10px] font-medium px-2 py-0.5 rounded-sm border border-danger/30 text-danger hover:bg-danger/10 hover:border-danger/50 hover:text-danger transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   aria-label={
                 proc.pid == null
                   ? proc.status === 'untracked'
@@ -131,7 +131,7 @@ function ProcessRow({ proc, sessionId }: { proc: BgProcess; sessionId: string })
           <div className="bg-muted/40 border border-border/55 rounded-sm mx-7 px-2.5 py-2 text-[10px] font-mono text-muted-foreground leading-relaxed max-h-[120px] overflow-y-auto whitespace-pre-wrap">
             {proc.lastOutput ?? '— No output captured yet —'}
           </div>
-          <div className="mx-7 mt-1 text-[9px] italic text-muted-foreground/70">
+          <div className="mx-7 mt-1 text-[9px] italic text-muted-foreground">
             {proc.outputFile ? `tail of ${proc.outputFile}` : 'Last read by Claude · not a live stream'}
           </div>
         </div>

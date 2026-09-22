@@ -15,6 +15,19 @@ export type SkillInfo = {
 }
 
 /**
+ * A custom slash command: one `.md` file under `.claude/commands`.
+ *
+ * `name` is what you type without the slash, and a subdirectory namespaces it
+ * the way the CLI reads it — `.claude/commands/git/sync.md` is `git:sync`.
+ */
+export type CommandInfo = {
+  name: string
+  description: string
+  scope: Scope
+  filePath: string
+}
+
+/**
  * A skill Nyra ships into `~/.claude/skills`.
  *
  * `managed` — Nyra wrote it and still updates it.

@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "NYRA_DEV_PASSIVE=1 tauri dev",
     "dev:active": "tauri dev",
-    "build": "node scripts/prebundle.mjs && TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/nyra-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD= tauri build",
+    "build": "node scripts/prebundle.mjs && node scripts/build-app.mjs",
     "vite:dev": "vite",
     "vite:build": "tsc --noEmit -p tsconfig.web.json && vite build",
     "vite:preview": "vite preview",
@@ -17,7 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "package": "node scripts/prebundle.mjs && TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/nyra-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD= tauri build",
+    "package": "node scripts/prebundle.mjs && node scripts/build-app.mjs",
     "gh-release": "gh release create v$(node -p \"require('./package.json').version\") --title v$(node -p \"require('./package.json').version\") --generate-notes src-tauri/target/release/bundle/dmg/*.dmg src-tauri/target/release/bundle/macos/*.app.tar.gz src-tauri/target/release/bundle/macos/*.app.tar.gz.sig latest.json",
     "release": "npm test && npm run test:rust && npm version patch && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",
     "release:minor": "npm test && npm run test:rust && npm version minor && npm run package && git push && git push --tags && npm run release:manifest && npm run gh-release",

@@ -94,7 +94,7 @@ export default function BottomPanel({
                 <TooltipTrigger asChild>
                   <button
                     onClick={(e) => { e.stopPropagation(); closeTerminal(tab.id) }}
-                    className="text-muted-foreground/70 hover:text-foreground/80 ml-1"
+                    className="text-muted-foreground hover:text-foreground/80 ml-1"
                     aria-label="Close terminal"
                   >
                     <X className="size-2.5" />
@@ -109,7 +109,7 @@ export default function BottomPanel({
           <TooltipTrigger asChild>
             <button
               onClick={createTerminal}
-              className="text-muted-foreground/70 hover:text-foreground/80 px-2 py-1 text-[13px] transition-colors"
+              className="text-muted-foreground hover:text-foreground/80 px-2 py-1 text-[13px] transition-colors"
             >
               +
             </button>

@@ -37,7 +37,7 @@ export default function BottomDock(): React.JSX.Element | null {
       <div style={{ height }} className="min-h-0 shrink-0">
         <Suspense
           fallback={
-            <div className="flex items-center justify-center h-full text-muted-foreground/70 text-xs">
+            <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
               Loading bottom panel…
             </div>
           }

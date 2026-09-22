@@ -90,13 +90,13 @@ export default function FileTree({
   }
 
   if (!root) {
-    return <p className="p-3 text-[11px] text-muted-foreground/70">This chat has no folder.</p>
+    return <p className="p-3 text-[11px] text-muted-foreground">This chat has no folder.</p>
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-1 px-2 py-1">
-        <span className="truncate text-[10px] font-medium uppercase tracking-widest text-muted-foreground/70">
+        <span className="truncate text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
           Files
         </span>
         <Tooltip>
@@ -115,7 +115,7 @@ export default function FileTree({
       </div>
       <div className="px-2 pb-1">
         <div className="flex items-center gap-1.5 rounded-md bg-muted/40 px-1.5 py-1 focus-within:bg-secondary">
-          <Search className="size-3 shrink-0 text-muted-foreground/70" />
+          <Search className="size-3 shrink-0 text-muted-foreground" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -125,7 +125,7 @@ export default function FileTree({
             spellCheck={false}
             placeholder="Filter files…"
             aria-label="Filter files"
-            className="min-w-0 flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground/60"
+            className="min-w-0 flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
           />
         </div>
       </div>
@@ -254,7 +254,7 @@ function Row({
         {isDir ? (
           <>
             <ChevronRight
-              className={`size-3 shrink-0 text-muted-foreground/70 transition-transform ${
+              className={`size-3 shrink-0 text-muted-foreground transition-transform ${
                 isOpen ? 'rotate-90' : ''
               }`}
             />
@@ -268,7 +268,7 @@ function Row({
           <span className="size-3 shrink-0" />
         )}
         <span className="truncate">{entry.name}</span>
-        {entry.symlink && <span className="shrink-0 text-muted-foreground/40">↗</span>}
+        {entry.symlink && <span className="shrink-0 text-muted-foreground">↗</span>}
       </button>
       </FileRowMenu>
       {isOpen && (
@@ -291,7 +291,7 @@ function Note({ depth, children }: { depth: number; children: React.ReactNode })
   return (
     <p
       style={{ paddingLeft: 8 + depth * 12 + 18 }}
-      className="py-[3px] pr-2 text-[11px] text-muted-foreground/40"
+      className="py-[3px] pr-2 text-[11px] text-muted-foreground"
     >
       {children}
     </p>
@@ -337,7 +337,7 @@ function SearchResults({
             }`}
           >
             <span className="w-full truncate text-[11px]">{basenameOf(relative)}</span>
-            <span className="w-full truncate text-[10px] text-muted-foreground/60">{relative}</span>
+            <span className="w-full truncate text-[10px] text-muted-foreground">{relative}</span>
           </button>
         )
       })}

@@ -161,7 +161,7 @@ export default function LoginModal(): React.JSX.Element | null {
         </div>
 
         <div className="px-5 py-2.5 border-t border-border">
-          <p className="text-[10px] text-muted-foreground/70">
+          <p className="text-[10px] text-muted-foreground">
             Click the auth URL to open it in your browser, then paste the code back into the terminal above.
           </p>
         </div>

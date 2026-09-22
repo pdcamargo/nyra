@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, Loader2, X } from 'lucide-react'
+import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, X } from 'lucide-react'
 import NewTabMenu from './NewTabMenu'
 import type { NewTabKind } from './tabs'
 import { tabKey, type WorkspaceTab } from '../../store/workspace'
@@ -122,22 +122,23 @@ export default function WorkspaceTabStrip({
           >
             {dropAt === key && dragKey !== key && <DropMark side="left" />}
             {dropAt === END && i === tabs.length - 1 && dragKey !== key && <DropMark side="right" />}
-            {live?.loading ? (
-              <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
-            ) : tab.kind === 'browser' ? (
-              <Globe className="size-3 shrink-0 text-muted-foreground/70" />
+            {/* A loading tab keeps its own icon and shimmers its label: the
+                icon says what the tab is, which does not stop being true while
+                it loads. */}
+            {tab.kind === 'browser' ? (
+              <Globe className="size-3 shrink-0 text-muted-foreground" />
             ) : tab.kind === 'changes' ? (
-              <FileDiff className="size-3 shrink-0 text-muted-foreground/70" />
+              <FileDiff className="size-3 shrink-0 text-muted-foreground" />
             ) : tab.kind === 'plan' ? (
-              <ListChecks className="size-3 shrink-0 text-muted-foreground/70" />
+              <ListChecks className="size-3 shrink-0 text-muted-foreground" />
             ) : tab.kind === 'subagents' ? (
-              <Bot className="size-3 shrink-0 text-muted-foreground/70" />
+              <Bot className="size-3 shrink-0 text-muted-foreground" />
             ) : tab.kind === 'design' ? (
-              <Frame className="size-3 shrink-0 text-muted-foreground/70" />
+              <Frame className="size-3 shrink-0 text-muted-foreground" />
             ) : (
-              <FileText className="size-3 shrink-0 text-muted-foreground/70" />
+              <FileText className="size-3 shrink-0 text-muted-foreground" />
             )}
-            <span className="truncate">{label}</span>
+            <span className={`truncate ${live?.loading ? 'nyra-shimmer' : ''}`}>{label}</span>
             <button
               aria-label="Close tab"
               draggable={false}

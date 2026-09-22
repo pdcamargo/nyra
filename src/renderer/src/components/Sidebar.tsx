@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSessionsStore, activeProject, activeProjectCwd, sortProjects } from '../store/sessions'
-import { useUiStore, type SidebarTab } from '../store/ui'
+import { useUiStore, type MainView } from '../store/ui'
 import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBrowserStore } from '../store/browser'
 import { useRunningStore, projectSpinnerVisible } from '../store/running'
-import { useSkillEditorStore } from '../store/skillEditor'
+import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { ArrowDownToLine, Copy, Folder, Sparkles, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, LoaderCircle, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
+import { ArrowDownToLine, Brain, Copy, Folder, Slash, Sparkles, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -19,7 +19,8 @@ import {
 } from './ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { ChatRowPrChip, PrCardLines } from './PullRequestChips'
-import { useChordLabel } from './ui/kbd'
+import UsageMenu from './UsageMenu'
+import { CommandKbd, useChordLabel } from './ui/kbd'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,7 +29,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from './ui/dropdown-menu'
-import { BUILT_IN_COMMANDS } from '../data/commands'
 import { homedir } from '../lib/homedir'
 import { groupFlowsByProject, triggerSummary, flowMeta, flowComposition } from '../lib/flowGrouping'
 import { createPermanentWorktree, defaultBranchName } from '../lib/worktrees'
@@ -37,17 +37,25 @@ import type { WorkflowDefinition } from '../../../shared/workflow-types'
 // Lazy so monaco-editor only loads when Memory is opened.
 const MemoryTab = React.lazy(() => import('./MemoryTab'))
 
+/** The main area's pages, in the order the rail lists them. */
+const NAV = [
+  { view: 'skills', label: 'Skills', Icon: Sparkles },
+  { view: 'commands', label: 'Commands', Icon: Slash },
+  { view: 'memory', label: 'Memory', Icon: Brain }
+] as const satisfies readonly { view: Exclude<MainView, 'chat'>; label: string; Icon: unknown }[]
+
 export default function Sidebar(): React.JSX.Element {
   // In the ui store rather than local state: opening a memory file from an agent
   // definition has to be able to bring this tab forward from outside.
-  const activeTab = useUiStore((s) => s.sidebarTab)
-  const setActiveTab = useUiStore((s) => s.setSidebarTab)
+  const mainView = useUiStore((s) => s.mainView)
+  const setMainView = useUiStore((s) => s.setMainView)
   // The canvas already replaced the chat area rather than floating over it, so
   // this flag was a view mode in all but name. The toggle just makes it one.
   const flowMode = useWorkflowStore((s) => s.isCanvasOpen)
   // shrink-0 because the width has to stay what the user set: flex would
   // otherwise squeeze this rail on a narrow window and --rail would start lying.
   const width = usePanelLayoutStore((s) => s.sidebarWidth)
+  const { onScroll } = useAutoHideScrollbar()
 
   return (
     // The rail's type is set once here and everything inside is sized in `em`
@@ -55,14 +63,19 @@ export default function Sidebar(): React.JSX.Element {
     // exactly as small as it was.
     <aside
       style={{ width, fontSize: 'var(--ui-font-size, 13px)' }}
-      className="flex h-full shrink-0 flex-col bg-card border-r border-border/55"
+      className="flex h-full shrink-0 flex-col bg-sidebar border-r border-border/55"
     >
       {/* The wordmark sits here rather than only in the title bar: the rail is
           what you look at, and the title bar shows the chat's name. Search stays
           up there with the other window-level actions. */}
-      {/* The mode toggle rides the wordmark row rather than sitting under it.
-          Stacked, wordmark + toggle + tabs is three bars of chrome before any
-          content; on one row it reads as a header and costs nothing. */}
+      {/* The mode toggle is segmented — one of two is on — so it marks the live
+          one with --bubble and white on it, the same dark pill the reader's own
+          messages are drawn in. It used to differ from the page by a fill
+          alone, and on the light rail that fill was 0.9702 against 0.984: the
+          `on` state was, in practice, not drawn.
+
+          Stacked, wordmark + toggle + nav would be three bars of chrome before
+          any content; on one row the first two read as a header. */}
       <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-1">
         <span className="text-[1.08em] font-semibold tracking-tight text-foreground">Nyra</span>
         <ModeToggle />
@@ -70,51 +83,74 @@ export default function Sidebar(): React.JSX.Element {
 
       <UpdateBadge />
 
-      {/* Tabs — Chat mode only. A rail of chat tabs is no use beside a graph. */}
+      {/* The rail's nav.
+
+          Vertical, and no longer tabs over the rail's own body: picking Skills
+          used to replace the chat list with a 256px column of them, so a chat
+          and a page about your setup competed for the same 256px. They are
+          pages in the main area now and the chats stay where they are. Chats is
+          not in the list for the same reason — it is not a destination when it
+          is always on screen; the page it opens is whatever chat is selected.
+
+          Each row carries its chord, shown on hover and kept visible on the
+          live one. */}
       {!flowMode && (
-      <div className="mb-2 flex gap-0.5 px-2 pt-2">
-        {(['sessions', 'skills', 'commands', 'memory'] as SidebarTab[]).map((tab) => {
-          const label: Record<SidebarTab, string> = {
-            sessions: 'Chats',
-            skills: 'Skills',
-            commands: 'Cmds',
-            memory: 'Memory'
-          }
-          return (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`min-w-0 flex-1 truncate rounded-md py-1.5 text-[0.85em] font-medium transition-colors ${
-                activeTab === tab
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:text-foreground/80 hover:bg-accent/50'
-              }`}
-            >
-              {label[tab]}
-            </button>
-          )
-        })}
-      </div>
+        /* pb-4, not pb-1: the rows inside this list sit 2px apart, so a 4px
+           break under it was the same distance as the gaps within it and
+           PROJECTS read as a fourth nav item. The space between two groups has
+           to beat the space inside one. */
+        <nav className="flex flex-col gap-0.5 px-2 pb-4">
+          {NAV.map(({ view, label, Icon }) => {
+            const on = mainView === view
+            return (
+              <button
+                key={view}
+                type="button"
+                aria-current={on ? 'page' : undefined}
+                onClick={() => setMainView(on ? 'chat' : view)}
+                /* The same fill and ring a selected chat gets. One rail, one
+                   idea of "this is what you are looking at" — and since only
+                   one of the two can be true at a time, they never appear
+                   together to be told apart. */
+                className={`group flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.92em] transition-colors ${
+                  on
+                    ? 'bg-rail-selected text-foreground ring-1 ring-rail-selected-ring'
+                    : 'text-foreground/80 hover:bg-accent/50 hover:text-foreground'
+                }`}
+              >
+                <Icon className="size-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <CommandKbd
+                  id={`view.${view}`}
+                  className={on ? 'opacity-70' : 'opacity-0 transition-opacity group-hover:opacity-60'}
+                />
+              </button>
+            )
+          })}
+        </nav>
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {flowMode ? (
-          <FlowsList />
-        ) : (
-          <>
-            {activeTab === 'sessions' && <SessionsList />}
-            {activeTab === 'skills' && <SkillsList />}
-            {activeTab === 'commands' && <CommandsList />}
-            {activeTab === 'memory' && (
-              <Suspense
-                fallback={<div className="p-3 text-[0.85em] text-muted-foreground/70">Loading…</div>}
-              >
-                <MemoryTab />
-              </Suspense>
-            )}
-          </>
-        )}
+      <div className="scroll-auto-hide flex-1 overflow-y-auto px-2 pb-2" onScroll={onScroll}>
+        {flowMode ? <FlowsList /> : <SessionsList />}
+      </div>
+
+      {/* The rail's footer: a rule to sit on, and a fade above it.
+          
+          Both, not either. The rule is what separates the footer from the list
+          at rest — without it the row floats in the same field as the chats and
+          reads as one more of them. The fade is for the scrolling case, where a
+          row arriving at a hard line is cut in half; it dissolves into the
+          rail's own colour over 28px so the row leaves instead. It is drawn
+          above the border and outside the footer's box, so it costs the list no
+          height and the footer stays the size of its own content — the same bar
+          as the status line it replaces. */}
+      <div className="relative shrink-0 border-t border-border/55 px-2 py-1.5">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 -top-7 h-7 bg-gradient-to-t from-sidebar to-transparent"
+        />
+        <UsageMenu />
       </div>
 
       {flowMode && (
@@ -136,57 +172,6 @@ export default function Sidebar(): React.JSX.Element {
             className="flex-1 rounded-md border border-border bg-muted/40 hover:bg-accent py-1.5 text-[0.92em] font-medium text-foreground/80 hover:text-foreground transition-colors"
           >
             Templates
-          </button>
-        </div>
-      )}
-      {activeTab === 'skills' && (
-        <div className="p-2 border-t border-border/55 flex gap-1.5">
-          <button
-            onClick={() => useSkillEditorStore.getState().openNew()}
-            className="flex-1 rounded-md bg-info/90 hover:bg-info py-1.5 text-[0.92em] font-medium text-info-foreground transition-colors"
-          >
-            + New
-          </button>
-          <button
-            onClick={async () => {
-              const filePath = await window.api.dialog.pickFile()
-              if (!filePath) return
-              const { content, error } = await window.api.fs.readFile(filePath)
-              if (error || !content) return
-              // Extract name from frontmatter if present, otherwise derive from filename
-              const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
-              let name: string | null = null
-              if (fmMatch) {
-                const nameMatch = fmMatch[1].match(/^name:\s*(.+)$/m)
-                if (nameMatch) name = nameMatch[1].trim()
-              }
-              if (!name) {
-                const parts = filePath.split('/')
-                const fileName = parts[parts.length - 1]
-                if (fileName.toLowerCase() === 'skill.md') {
-                  name = parts[parts.length - 2] ?? 'imported-skill'
-                } else {
-                  name = fileName.replace(/\.md$/i, '')
-                }
-              }
-              name = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'imported-skill'
-              // If no frontmatter, open editor so user can add description
-              if (!fmMatch) {
-                const cwd = activeProjectCwd(useSessionsStore.getState()) || homedir()
-                // Write the file first so the editor can load it
-                await window.api.skills.write('project', name, content, cwd)
-                window.dispatchEvent(new Event('nyra:skills-changed'))
-                const projectDir = cwd + '/.claude/skills/' + name + '/SKILL.md'
-                useSkillEditorStore.getState().openEdit({ name, scope: 'project', filePath: projectDir })
-              } else {
-                const cwd = activeProjectCwd(useSessionsStore.getState()) || homedir()
-                await window.api.skills.write('project', name, content, cwd)
-                window.dispatchEvent(new Event('nyra:skills-changed'))
-              }
-            }}
-            className="flex-1 rounded-md border border-border bg-muted/40 hover:bg-accent py-1.5 text-[0.92em] font-medium text-foreground/80 hover:text-foreground transition-colors"
-          >
-            Import
           </button>
         </div>
       )}
@@ -228,7 +213,7 @@ function ModeToggle(): React.JSX.Element {
                 onClick={() => (isFlow ? openCanvas() : closeCanvas())}
                 className={`rounded-full px-2.5 py-[3px] text-[0.8em] transition-colors ${
                   on
-                    ? 'bg-secondary font-semibold text-foreground shadow-2xs'
+                    ? 'bg-bubble font-semibold text-bubble-foreground'
                     : 'text-muted-foreground hover:text-foreground/80'
                 }`}
               >
@@ -247,7 +232,7 @@ function ModeToggle(): React.JSX.Element {
 
 function SectionLabel({ label }: { label: string }): React.JSX.Element {
   return (
-    <p className="px-2 mb-1.5 text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground/70">
+    <p className="px-2 mb-1.5 text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground">
       {label}
     </p>
   )
@@ -315,7 +300,7 @@ function ChatCard({
           <GitBranch className="size-3 shrink-0" />
           <span className="truncate font-mono">{session.branch}</span>
           {session.worktree && (
-            <span className="shrink-0 text-info/70">
+            <span className="shrink-0 text-info">
               {session.worktree.permanent ? 'permanent worktree' : 'worktree'}
             </span>
           )}
@@ -405,19 +390,12 @@ function FlowCard({
   )
 }
 
-function Spinner({ title }: { title: string }): React.JSX.Element {
-  return (
-    <span title={title} className="flex shrink-0 items-center">
-      <LoaderCircle className="size-3 animate-spin text-warning/80" />
-    </span>
-  )
-}
-
 /**
  * A chat that is waiting on you, said in the list rather than only inside it.
  *
- * A spinner says Claude is busy. This says the opposite — it has stopped, and it
- * stopped on you. Without it the two look identical from the sidebar: quiet.
+ * A shimmering title says Claude is busy. This says the opposite — it has
+ * stopped, and it stopped on you. Without it the two look identical from the
+ * sidebar: quiet.
  */
 function WaitingChip({ label }: { label: string }): React.JSX.Element {
   return (
@@ -541,6 +519,10 @@ function ProjectMenu({ project }: { project: Project }): React.JSX.Element {
 }
 
 function SessionsList(): React.JSX.Element {
+  // A chat stops looking selected the moment a page covers it: the rail would
+  // otherwise show two live rows, and only one of them is what you are reading.
+  const onChatView = useUiStore((s) => s.mainView === 'chat')
+  const showChat = useUiStore((s) => s.setMainView)
   const sessions = useSessionsStore((state) => state.sessions)
   // Subscribe to the raw array and sort in render: sortProjects allocates, and a
   // selector returning a fresh reference re-renders forever under zustand's
@@ -618,7 +600,7 @@ function SessionsList(): React.JSX.Element {
     opts: { indented?: boolean; showFolder?: boolean } = {}
   ): React.JSX.Element => {
     const isPinned = !!session.favorite
-    const isActive = session.id === activeSessionId
+    const isActive = session.id === activeSessionId && onChatView
     const isRunning = running[session.id] === true
     const unread = session.unread ?? 0
     // A chat's browser keeps running whether or not you are looking at that
@@ -635,9 +617,15 @@ function SessionsList(): React.JSX.Element {
     return (
       <ContextMenu key={session.id}>
       <ContextMenuTrigger
+        /* --rail-selected rather than --accent: on the light rail --accent is
+           0.9702 against a 0.9740 sidebar and the list read as having nothing
+           selected at all. A running chat also washes, because a shimmering
+           title alone is not findable in a list this long. */
         className={`group relative flex items-center rounded-md transition-colors ${
-          isActive ? 'bg-accent' : 'hover:bg-accent/50'
-        } ${dragId === session.id ? 'opacity-40' : ''}`}
+          isActive ? 'bg-rail-selected ring-1 ring-rail-selected-ring' : 'hover:bg-accent/50'
+        } ${isRunning ? 'nyra-shimmer-bg' : ''} ${
+          dragId === session.id ? 'opacity-40' : ''
+        }`}
         onDragOver={
           isPinned
             ? (e) => {
@@ -663,7 +651,7 @@ function SessionsList(): React.JSX.Element {
                   setDragId(null)
                   setDragOverId(null)
                 }}
-                className="flex items-center pl-1.5 cursor-grab active:cursor-grabbing text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+                className="flex items-center pl-1.5 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground/80 transition-colors"
                 aria-label="Drag to reorder"
               >
                 <GripVertical className="size-2.5" />
@@ -675,7 +663,11 @@ function SessionsList(): React.JSX.Element {
         <Tooltip>
         <TooltipTrigger asChild>
         <button
-          onClick={() => setActiveSession(session.id)}
+          onClick={() => {
+            setActiveSession(session.id)
+            // Picking a chat is asking to read it, which a page is in the way of.
+            showChat('chat')
+          }}
           onDoubleClick={() => {
             setRenamingId(session.id)
             setRenameValue(session.title)
@@ -700,8 +692,14 @@ function SessionsList(): React.JSX.Element {
             />
           ) : (
             <div className="flex min-w-0 items-center gap-1.5">
-              {isRunning && <Spinner title="Agent running" />}
-              <p className={`truncate text-[0.92em] ${unread ? 'font-medium text-foreground' : ''}`}>
+              {/* Running is said by the title itself rather than by a spinner
+                  beside it. One less thing in the row, and it is the same
+                  signal the transcript uses for the same state. */}
+              <p
+                className={`truncate text-[0.92em] ${
+                  isRunning ? 'nyra-shimmer' : unread ? 'font-medium text-foreground' : ''
+                }`}
+              >
                 {session.title}
               </p>
               {waiting && <WaitingChip label={waiting} />}
@@ -743,7 +741,7 @@ function SessionsList(): React.JSX.Element {
                 className={`p-1 transition-all ${
                   isPinned
                     ? 'text-warning/80 hover:text-warning'
-                    : 'text-muted-foreground/70 hover:text-foreground/80 opacity-0 group-hover:opacity-100'
+                    : 'text-muted-foreground hover:text-foreground/80 opacity-0 group-hover:opacity-100'
                 }`}
                 aria-label={isPinned ? 'Unpin' : 'Pin'}
               >
@@ -796,8 +794,9 @@ function SessionsList(): React.JSX.Element {
             ) : (
               <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
             )}
-            <span className="text-[0.92em] truncate">{project.name}</span>
-            {projectSpinner && <Spinner title="Agent running in this project" />}
+            <span className={`truncate text-[0.92em] ${projectSpinner ? 'nyra-shimmer' : ''}`}>
+              {project.name}
+            </span>
           </button>
           <div className="flex items-center shrink-0 pr-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <ProjectMenu project={project} />
@@ -808,7 +807,7 @@ function SessionsList(): React.JSX.Element {
                     e.stopPropagation()
                     newChatIn(project)
                   }}
-                  className="p-1 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+                  className="p-1 text-muted-foreground hover:text-foreground/80 transition-colors"
                   aria-label={`New chat in ${project.name}`}
                 >
                   <SquarePen className="size-3.5" />
@@ -821,16 +820,31 @@ function SessionsList(): React.JSX.Element {
         {!collapsed && (
           <>
             {visible.map((s) => renderRow(s, { indented: true, showFolder: false }))}
-            {hiddenCount > 0 && (
+            {/* One control, both directions. `Show more` was a one-way door: a
+                project opened to forty chats stayed forty rows tall for the
+                rest of the session, and the only way back was a reload.
+                
+                Keyed off the child count rather than off hiddenCount, which is
+                zero while expanded — and rather than off the expanded set,
+                which can still name a project whose chats have since been
+                deleted down below the cap. */}
+            {children.length > VISIBLE_PER_PROJECT && (
               <button
-                onClick={() => setExpandedAll((prev) => new Set(prev).add(project.id))}
-                className="py-1 pl-[27px] pr-2 text-[0.77em] text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+                onClick={() =>
+                  setExpandedAll((prev) => {
+                    const next = new Set(prev)
+                    if (showingAll) next.delete(project.id)
+                    else next.add(project.id)
+                    return next
+                  })
+                }
+                className="py-1 pl-[27px] pr-2 text-left text-[0.77em] text-muted-foreground transition-colors hover:text-foreground/80"
               >
-                Show more ({hiddenCount})
+                {showingAll ? 'Show less' : `Show more (${hiddenCount})`}
               </button>
             )}
             {children.length === 0 && (
-              <p className="py-1 pl-[27px] pr-2 text-[0.77em] text-muted-foreground/40">No chats yet</p>
+              <p className="py-1 pl-[27px] pr-2 text-[0.77em] text-muted-foreground">No chats yet</p>
             )}
           </>
         )}
@@ -844,7 +858,7 @@ function SessionsList(): React.JSX.Element {
         <div className="mb-2">
           <div className="flex items-center gap-1 px-2 mb-1.5">
             <Star className="size-2.5 text-warning/80" />
-            <span className="text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground/70">
+            <span className="text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground">
               Pinned
             </span>
           </div>
@@ -854,14 +868,14 @@ function SessionsList(): React.JSX.Element {
 
       <div className="mb-2">
         <div className="flex items-center justify-between px-2 mb-1.5">
-          <span className="text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground/70">
+          <span className="text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground">
             Projects
           </span>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={addProject}
-                className="p-0.5 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+                className="p-0.5 text-muted-foreground hover:text-foreground/80 transition-colors"
                 aria-label="Add project"
               >
                 <Plus className="size-3" />
@@ -873,7 +887,7 @@ function SessionsList(): React.JSX.Element {
         {projects.length === 0 ? (
           <button
             onClick={addProject}
-            className="w-full px-2 py-1.5 text-left text-[0.85em] text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+            className="w-full px-2 py-1.5 text-left text-[0.85em] text-muted-foreground hover:text-foreground/80 transition-colors"
           >
             Add a folder to get started
           </button>
@@ -884,14 +898,14 @@ function SessionsList(): React.JSX.Element {
 
       <div>
         <div className="flex items-center justify-between px-2 mb-1.5">
-          <span className="text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground/70">
+          <span className="text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground">
             Recents
           </span>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={newRecentChat}
-                className="p-0.5 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+                className="p-0.5 text-muted-foreground hover:text-foreground/80 transition-colors"
                 aria-label="New chat with no project (runs in ~)"
               >
                 <Plus className="size-3" />
@@ -901,7 +915,7 @@ function SessionsList(): React.JSX.Element {
           </Tooltip>
         </div>
         {recents.length === 0 ? (
-          <p className="px-2 py-1 text-[0.77em] text-muted-foreground/40">Nothing outside a project</p>
+          <p className="px-2 py-1 text-[0.77em] text-muted-foreground">Nothing outside a project</p>
         ) : (
           <div className="space-y-px">{recents.map((s) => renderRow(s))}</div>
         )}
@@ -909,250 +923,6 @@ function SessionsList(): React.JSX.Element {
     </div>
   )
 }
-
-function SkillsList(): React.JSX.Element {
-  const [skills, setSkills] = useState<{ global: SkillInfo[]; project: SkillInfo[] }>({ global: [], project: [] })
-  const [search, setSearch] = useState('')
-  // Skills Nyra installs into ~/.claude/skills. Marked in the list so a file
-  // nobody wrote by hand explains where it came from.
-  const [bundled, setBundled] = useState<BundledSkill[]>([])
-  const setPendingAction = useSessionsStore((s) => s.setPendingAction)
-
-  // Skills resolve against the project root, not the chat's cwd — a worktree chat
-  // should still list and write the project's skills.
-  const cwd = useSessionsStore(activeProjectCwd)
-
-  const refresh = useCallback(() => {
-    window.api.skills.list(cwd).then(setSkills)
-  }, [cwd])
-
-  useEffect(() => {
-    refresh()
-  }, [refresh])
-
-  useEffect(() => {
-    window.api.skills.bundledNames().then(setBundled)
-  }, [])
-
-  useEffect(() => {
-    window.addEventListener('nyra:skills-changed', refresh)
-    return () => window.removeEventListener('nyra:skills-changed', refresh)
-  }, [refresh])
-
-  const filter = (list: SkillInfo[]): SkillInfo[] => {
-    if (!search.trim()) return list
-    const q = search.toLowerCase()
-    return list.filter((s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q))
-  }
-
-  const filteredProject = filter(skills.project)
-  const filteredGlobal = filter(skills.global)
-  const hasResults = filteredProject.length > 0 || filteredGlobal.length > 0
-
-  const handleRun = useCallback((skill: SkillInfo) => {
-    setPendingAction({ type: 'send', text: `/${skill.name}` })
-  }, [setPendingAction])
-
-  const handleEdit = useCallback((skill: SkillInfo) => {
-    useSkillEditorStore.getState().openEdit(skill)
-  }, [])
-
-  const handleDelete = useCallback(async (skill: SkillInfo) => {
-    await window.api.skills.delete(skill.filePath)
-    window.dispatchEvent(new Event('nyra:skills-changed'))
-  }, [])
-
-  const handleExport = useCallback(async (skill: SkillInfo) => {
-    const { content, error } = await window.api.fs.readFile(skill.filePath)
-    if (error || !content) return
-    await window.api.dialog.saveFile(`${skill.name}.md`, content)
-  }, [])
-
-  const handleRestore = useCallback(async (name: string) => {
-    await window.api.skills.restoreBundled(name)
-    window.dispatchEvent(new Event('nyra:skills-changed'))
-  }, [])
-
-  // Two states leave a Nyra skill off updates, and neither is visible anywhere
-  // else: deleted (the backend records it and stops reinstalling) and edited
-  // (the backend adopts it and stops writing). Both are one-way doors without
-  // an offer to reinstall, and a silently stale skill is a bad surprise.
-  const needsAttention = bundled.flatMap((b) => {
-    const installed = skills.global.some((s) => s.name === b.name)
-    // "not installed" rather than "removed": this row also shows in the moment
-    // before the launch sync lands, when nothing has been removed.
-    if (!installed) return [{ name: b.name, note: 'is not installed', action: 'Install' }]
-    if (b.status === 'adopted')
-      return [{ name: b.name, note: 'is edited, so updates stopped', action: 'Reset' }]
-    return []
-  })
-
-  return (
-    <div className="space-y-2">
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Filter skills…"
-        className="w-full rounded-md border border-border bg-muted/40 px-2 py-1.5 text-[0.85em] text-foreground placeholder-muted-foreground/70 outline-hidden focus:border-border-strong"
-      />
-      {filteredProject.length > 0 && (
-        <div>
-          <SectionLabel label="Project" />
-          <div className="space-y-1">
-            {filteredProject.map((skill) => (
-              <SkillRow
-                key={skill.filePath}
-                skill={skill}
-                managed={
-                  skill.scope === 'global'
-                    ? bundled.find((b) => b.name === skill.name)?.status
-                    : undefined
-                }
-                onRun={handleRun}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onExport={handleExport}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-      {filteredGlobal.length > 0 && (
-        <div>
-          <SectionLabel label="Global" />
-          <div className="space-y-1">
-            {filteredGlobal.map((skill) => (
-              <SkillRow
-                key={skill.filePath}
-                skill={skill}
-                managed={
-                  skill.scope === 'global'
-                    ? bundled.find((b) => b.name === skill.name)?.status
-                    : undefined
-                }
-                onRun={handleRun}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onExport={handleExport}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-      {!hasResults && (
-        <p className="text-center text-[0.77em] text-muted-foreground/70 py-4">
-          {search ? 'No matching skills' : 'No skills found'}
-        </p>
-      )}
-      {!search &&
-        needsAttention.map(({ name, note, action }) => (
-          <div
-            key={name}
-            className="flex items-center justify-between gap-2 rounded-md border border-dashed border-border/55 px-2.5 py-2"
-          >
-            <span className="truncate text-[0.77em] text-muted-foreground">
-              Nyra&rsquo;s <span className="font-medium text-foreground/70">/{name}</span> {note}
-            </span>
-            <button
-              onClick={() => handleRestore(name)}
-              className="shrink-0 text-[0.77em] text-info/80 transition-colors hover:text-info"
-            >
-              {action}
-            </button>
-          </div>
-        ))}
-    </div>
-  )
-}
-
-const SkillRow = React.memo(function SkillRow({
-  skill,
-  managed,
-  onRun,
-  onEdit,
-  onDelete,
-  onExport
-}: {
-  skill: SkillInfo
-  /** Set when Nyra ships this skill; the value says whether it still updates it. */
-  managed?: BundledSkill['status']
-  onRun: (skill: SkillInfo) => void
-  onEdit: (skill: SkillInfo) => void
-  onDelete: (skill: SkillInfo) => void
-  onExport: (skill: SkillInfo) => void
-}): React.JSX.Element {
-  const [confirmDelete, setConfirmDelete] = useState(false)
-
-  return (
-    <div className="group rounded-md border border-border/55 bg-muted/40 hover:bg-accent/50 px-2.5 py-2 transition-colors">
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-[0.92em] font-medium text-foreground/80">/{skill.name}</span>
-          {managed && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="shrink-0 rounded-[3px] border border-border/70 px-1 py-px text-[0.62em] font-medium uppercase tracking-wide text-muted-foreground">
-                  {managed === 'adopted' ? 'Nyra · yours' : 'Nyra'}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                {managed === 'adopted'
-                  ? 'Shipped by Nyra, then edited — so Nyra no longer updates it. Reset it below to go back to the current version.'
-                  : 'Installed by Nyra and kept current. Edit it and it becomes yours — Nyra stops touching it.'}
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </span>
-        {confirmDelete ? (
-          <div className="flex items-center gap-1.5 text-[0.77em]">
-            <span className="text-muted-foreground">Delete?</span>
-            <button
-              onClick={() => { onDelete(skill); setConfirmDelete(false) }}
-              className="text-danger/80 hover:text-danger transition-colors"
-            >
-              Yes
-            </button>
-            <button
-              onClick={() => setConfirmDelete(false)}
-              className="text-muted-foreground hover:text-foreground/80 transition-colors"
-            >
-              No
-            </button>
-          </div>
-        ) : (
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-            <button
-              onClick={() => onEdit(skill)}
-              className="text-[0.77em] text-muted-foreground hover:text-foreground/80 transition-colors"
-            >
-              Edit
-            </button>
-            <button
-              onClick={() => onExport(skill)}
-              className="text-[0.77em] text-muted-foreground hover:text-foreground/80 transition-colors"
-            >
-              Exp
-            </button>
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="text-[0.77em] text-muted-foreground hover:text-danger transition-colors"
-            >
-              Del
-            </button>
-            <button
-              onClick={() => onRun(skill)}
-              className="text-[0.77em] text-info/80 hover:text-info transition-colors"
-            >
-              Run
-            </button>
-          </div>
-        )}
-      </div>
-      <p className="mt-0.5 text-[0.77em] text-muted-foreground truncate">{skill.description}</p>
-    </div>
-  )
-})
 
 /**
  * The rail in Flow mode.
@@ -1259,7 +1029,7 @@ function FlowsList(): React.JSX.Element {
           type="button"
           onClick={() => create(projectId)}
           aria-label={`New flow in ${where}`}
-          className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 transition-all hover:bg-accent hover:text-foreground/80 group-hover:opacity-100 focus-visible:opacity-100"
+          className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:bg-accent hover:text-foreground/80 group-hover:opacity-100 focus-visible:opacity-100"
         >
           <Plus className="size-3" />
         </button>
@@ -1303,7 +1073,9 @@ function FlowsList(): React.JSX.Element {
         className={`flex w-full flex-col gap-0.5 rounded-md py-1.5 pr-2 text-left transition-colors ${
           indent ? 'pl-5' : 'pl-2'
         } ${
-          currentWorkflow?.id === wf.id ? 'bg-accent' : 'hover:bg-accent/50'
+          currentWorkflow?.id === wf.id
+            ? 'bg-rail-selected ring-1 ring-rail-selected-ring'
+            : 'hover:bg-accent/50'
         }`}
       >
         <span className="flex items-center gap-1.5">
@@ -1319,7 +1091,7 @@ function FlowsList(): React.JSX.Element {
         </span>
         <span
           className={`flex items-center gap-1 text-[0.77em] ${
-            running ? 'text-info' : ended === 'failed' ? 'text-danger' : 'text-muted-foreground/60'
+            running ? 'text-info' : ended === 'failed' ? 'text-danger' : 'text-muted-foreground'
           }`}
         >
           {trigger && !running && !ended && <Timer className="size-[0.9em] shrink-0" />}
@@ -1351,7 +1123,7 @@ function FlowsList(): React.JSX.Element {
           Duplicate
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuLabel className="text-[0.7em] uppercase tracking-wider text-muted-foreground/70">
+        <ContextMenuLabel className="text-[0.7em] uppercase tracking-wider text-muted-foreground">
           Belongs to
         </ContextMenuLabel>
         <ContextMenuItem
@@ -1413,14 +1185,14 @@ function FlowsList(): React.JSX.Element {
         return (
           <div key={project.id}>
             <div className="group flex items-center gap-1.5 rounded-md px-2 py-1.5 hover:bg-accent/40">
-              <Folder className="size-[0.9em] shrink-0 text-muted-foreground/60" />
-              <span className="truncate text-[0.85em] font-semibold text-foreground/70">
+              <Folder className="size-[0.9em] shrink-0 text-muted-foreground" />
+              <span className="truncate text-[0.85em] font-semibold text-foreground/80">
                 {project.name}
               </span>
               {/* The count rides with the + rather than sitting there always:
                   the flows are listed directly underneath, so at rest it is
                   restating what you can already see. */}
-              <span className="ml-auto text-[0.77em] tabular-nums text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100">
+              <span className="ml-auto text-[0.77em] tabular-nums text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
                 {flows.length}
               </span>
               {addButton(project.id, project.name)}
@@ -1434,10 +1206,10 @@ function FlowsList(): React.JSX.Element {
           make a flow that is not about a repo, and hiding it until one exists
           made that unreachable. */}
       <div className="group flex items-center gap-1.5 rounded-md px-2 pt-2 hover:bg-accent/40">
-        <span className="text-[0.7em] font-semibold uppercase tracking-wider text-muted-foreground/60">
+        <span className="text-[0.7em] font-semibold uppercase tracking-wider text-muted-foreground">
           Any project
         </span>
-        <span className="ml-auto text-[0.77em] tabular-nums text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100">
+        <span className="ml-auto text-[0.77em] tabular-nums text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
           {grouped.loose.length}
         </span>
         {addButton(null, 'any project')}
@@ -1445,56 +1217,11 @@ function FlowsList(): React.JSX.Element {
       {grouped.loose.map((wf) => row(wf, false))}
 
       {workflows.length === 0 && (
-        <p className="px-2 pt-3 text-[0.8em] leading-relaxed text-muted-foreground/60">
-          No flows yet. Use <span className="text-foreground/70">+</span> on a project to make one
-          there, or on <span className="text-foreground/70">Any project</span> for one that suits
+        <p className="px-2 pt-3 text-[0.8em] leading-relaxed text-muted-foreground">
+          No flows yet. Use <span className="text-foreground/80">+</span> on a project to make one
+          there, or on <span className="text-foreground/80">Any project</span> for one that suits
           any repo.
         </p>
-      )}
-    </div>
-  )
-}
-
-function CommandsList(): React.JSX.Element {
-  const [search, setSearch] = useState('')
-
-  const filtered = search.trim()
-    ? BUILT_IN_COMMANDS.filter(
-        (c) =>
-          c.name.toLowerCase().includes(search.toLowerCase()) ||
-          c.description.toLowerCase().includes(search.toLowerCase())
-      )
-    : BUILT_IN_COMMANDS
-
-  return (
-    <div className="space-y-2">
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Filter commands…"
-        className="w-full rounded-md border border-border bg-muted/40 px-2 py-1.5 text-[0.85em] text-foreground placeholder-muted-foreground/70 outline-hidden focus:border-border-strong"
-      />
-      {filtered.length > 0 ? (
-        <div>
-          <SectionLabel label="CLI Reference" />
-          <p className="px-2 mb-1.5 text-[0.77em] text-muted-foreground/70">
-            These commands work in the Claude Code CLI terminal, not in Nyra chat.
-          </p>
-          <div className="space-y-0.5">
-            {filtered.map((cmd) => (
-              <div
-                key={cmd.name}
-                className="rounded-md px-2 py-1.5"
-              >
-                <div className="text-[0.92em] font-mono text-muted-foreground">{cmd.name}</div>
-                <div className="text-[0.77em] text-muted-foreground/70">{cmd.description}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <p className="text-center text-[0.77em] text-muted-foreground/70 py-4">No matching commands</p>
       )}
     </div>
   )

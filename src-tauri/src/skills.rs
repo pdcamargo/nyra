@@ -1,4 +1,5 @@
-//! Discovery for `.claude/skills` and `.claude/agents`, global and per-project.
+//! Discovery for `.claude/skills`, `.claude/agents` and `.claude/commands`,
+//! global and per-project.
 
 use serde::Serialize;
 use std::path::Path;
@@ -19,6 +20,18 @@ pub struct AgentInfo {
     pub name: String,
     pub description: String,
     pub scope: String,
+}
+
+/// A custom slash command — one `.md` file under `.claude/commands`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandInfo {
+    /// What you type, without the slash. Nested directories namespace it the
+    /// way the CLI reads them: `.claude/commands/git/sync.md` is `git:sync`.
+    pub name: String,
+    pub description: String,
+    pub scope: String,
+    pub file_path: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -107,6 +120,80 @@ async fn scan_skills_dir(dir: &Path, scope: &str) -> Vec<SkillInfo> {
     skills
 }
 
+/// Walk `.claude/commands`, including subdirectories, which the CLI treats as
+/// namespaces rather than as ordinary folders.
+fn scan_commands_dir<'a>(
+    dir: std::path::PathBuf,
+    scope: &'a str,
+    prefix: String,
+    out: &'a mut Vec<CommandInfo>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+    Box::pin(async move {
+        let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+            return;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let Ok(file_type) = entry.file_type().await else {
+                continue;
+            };
+            if file_type.is_dir() {
+                let nested = format!("{prefix}{file_name}:");
+                scan_commands_dir(entry.path(), scope, nested, out).await;
+                continue;
+            }
+            if !file_name.ends_with(".md") {
+                continue;
+            }
+            let stem = file_name.trim_end_matches(".md");
+            let content = tokio::fs::read_to_string(entry.path()).await.unwrap_or_default();
+            let (fm_description, body) = parse_skill_frontmatter(&content);
+            let description = if fm_description.is_empty() {
+                // No frontmatter is normal for a command — the file *is* the
+                // prompt. Its first real line is the best one-liner available.
+                body.lines()
+                    .find(|l| !l.trim().is_empty())
+                    .unwrap_or_default()
+                    .trim_start_matches('#')
+                    .trim()
+                    .chars()
+                    .take(140)
+                    .collect()
+            } else {
+                fm_description
+            };
+            out.push(CommandInfo {
+                name: format!("{prefix}{stem}"),
+                description,
+                scope: scope.to_string(),
+                file_path: entry.path().to_string_lossy().to_string(),
+            });
+        }
+    })
+}
+
+pub async fn list_commands(cwd: &str) -> ScopedList<CommandInfo> {
+    let mut global = Vec::new();
+    let mut project = Vec::new();
+    scan_commands_dir(
+        util::home_dir().join(".claude").join("commands"),
+        "global",
+        String::new(),
+        &mut global,
+    )
+    .await;
+    scan_commands_dir(
+        Path::new(cwd).join(".claude").join("commands"),
+        "project",
+        String::new(),
+        &mut project,
+    )
+    .await;
+    global.sort_by(|a, b| a.name.cmp(&b.name));
+    project.sort_by(|a, b| a.name.cmp(&b.name));
+    ScopedList { global, project }
+}
+
 pub async fn list_skills(cwd: &str) -> ScopedList<SkillInfo> {
     let global_dir = util::home_dir().join(".claude").join("skills");
     let project_dir = Path::new(cwd).join(".claude").join("skills");
@@ -165,6 +252,23 @@ pub async fn delete_skill(file_path: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Delete one custom slash command.
+///
+/// A command is a single `.md` file, where a skill is a whole directory — so
+/// this removes a file and `delete_skill` removes a tree.
+///
+/// The path has to sit under a `.claude/commands` directory and end in `.md`.
+/// This is reachable from a dialog with one click, and `remove_file` on whatever
+/// string it was handed is a worse bug than a refusal.
+pub async fn delete_command(file_path: &str) -> Result<(), String> {
+    let path = Path::new(file_path);
+    let under_commands = path.ancestors().any(|a| a.ends_with(".claude/commands"));
+    if !under_commands || path.extension().and_then(|e| e.to_str()) != Some("md") {
+        return Err("Not a custom command path".to_string());
+    }
+    tokio::fs::remove_file(path).await.map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +285,30 @@ mod tests {
         let (d, body) = parse_skill_frontmatter("# Title\n");
         assert_eq!(d, "");
         assert_eq!(body, "# Title\n");
+    }
+
+    #[tokio::test]
+    async fn refuses_to_delete_outside_a_commands_directory() {
+        for path in [
+            "/Users/someone/Documents/taxes.md",
+            "/Users/someone/.claude/skills/thing/SKILL.md",
+            "/Users/someone/.claude/commands/sync.sh",
+        ] {
+            assert!(delete_command(path).await.is_err(), "{path} should be refused");
+        }
+    }
+
+    #[tokio::test]
+    async fn deletes_a_command_file() {
+        let dir = std::env::temp_dir().join(format!("nyra-cmd-{}", std::process::id()));
+        let commands = dir.join(".claude/commands/git");
+        std::fs::create_dir_all(&commands).unwrap();
+        let file = commands.join("sync.md");
+        std::fs::write(&file, "body").unwrap();
+
+        delete_command(file.to_str().unwrap()).await.unwrap();
+
+        assert!(!file.exists());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

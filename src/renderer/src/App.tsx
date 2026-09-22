@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, Suspense } from 'react'
+import React, { useEffect, useRef, Suspense } from 'react'
 import Sidebar from './components/Sidebar'
 import TitleBar from './components/TitleBar'
 import { TooltipProvider } from './components/ui/tooltip'
@@ -23,22 +23,18 @@ import { useProcessesStore, type BgProcess } from './store/processes'
 import { applySessionPanels, useUiStore } from './store/ui'
 import { dropBrowserHub, useBrowserStore } from './store/browser'
 import { syncBrowserGone, syncSidecarTabs, useWorkspaceStore } from './store/workspace'
-import { handleBinding, usePanelLayoutStore } from './store/panelLayout'
+import { handleBinding } from './store/panelLayout'
 import { usePanelSizesStore } from './store/panelSizes'
 import { startAppControl } from './lib/appControl'
 import { ViewErrorBoundary } from './components/ViewErrorBoundary'
 
 // Lazy-load heavy components — modals with Monaco, WorkflowCanvas with React Flow
 const WorkflowCanvas = React.lazy(() => import('./components/WorkflowCanvas'))
+const MainViews = React.lazy(() => import('./components/views/MainViews'))
 const SkillEditorModal = React.lazy(() => import('./components/SkillEditorModal'))
 const HookEditorModal = React.lazy(() => import('./components/HookEditorModal'))
 const WelcomeModal = React.lazy(() => import('./components/WelcomeModal'))
 const LoginModal = React.lazy(() => import('./components/LoginModal'))
-
-/** Both stores feed the same two variables; unsubscribe from both together. */
-function combineUnsubscribe(...offs: (() => void)[]): () => void {
-  return () => offs.forEach((off) => off())
-}
 
 export default function App(): React.JSX.Element {
   // Both side panels live in the ui store now, next to bottomPanelOpen — the
@@ -47,6 +43,7 @@ export default function App(): React.JSX.Element {
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
   const projectsPanelOpen = useUiStore((s) => s.projectsPanelOpen)
   const isCanvasOpen = useWorkflowStore((s) => s.isCanvasOpen)
+  const mainView = useUiStore((s) => s.mainView)
   const resolvedTheme = useResolvedTheme()
   const zoom = useSettingsStore((s) => s.zoom)
   const shellRef = useRef<HTMLDivElement>(null)
@@ -127,34 +124,6 @@ export default function App(): React.JSX.Element {
       current = state.activeSessionId
       applySessionPanels(current)
     })
-  }, [])
-
-  // Publish --rail and --right: how much of the window the panels take, so the
-  // conversation can work out what is left for it.
-  //
-  // Chat centres its column on the window rather than on its own container, so
-  // these are the parts of the geometry CSS cannot work out for itself. Written
-  // from a subscription rather than rendered, so dragging the rail does not
-  // reconcile the whole conversation sixty times a second — Chat just inherits it.
-  //
-  // Layout effect, not effect: this has to land before the first paint, or the
-  // column is briefly centred as though no rail were open and visibly jumps.
-  useLayoutEffect(() => {
-    const publish = (rail: number, right: number): void => {
-      shellRef.current?.style.setProperty('--rail', `${rail}px`)
-      shellRef.current?.style.setProperty('--right', `${right}px`)
-    }
-    const read = (): [number, number] => {
-      const { sidebarWidth, rightPanelWidth } = usePanelLayoutStore.getState()
-      const ui = useUiStore.getState()
-      return [ui.projectsPanelOpen ? sidebarWidth : 0, ui.rightPanelOpen ? rightPanelWidth : 0]
-    }
-    publish(...read())
-    const republish = (): void => publish(...read())
-    return combineUnsubscribe(
-      usePanelLayoutStore.subscribe(republish),
-      useUiStore.subscribe(republish)
-    )
   }, [])
 
   // Subscribe to background-process updates from main
@@ -262,10 +231,19 @@ export default function App(): React.JSX.Element {
       {/* Center: Chat/Workflow + Bottom Panel + Status bar */}
       <main className="flex flex-1 flex-col overflow-hidden min-w-0">
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          {/* Flows still wins: it is a mode rather than a page, and the rail
+              hides the nav while it is open. Otherwise the rail's nav picks
+              what fills this, with the chat as the resting state. */}
           {isCanvasOpen ? (
             <ViewErrorBoundary label="Flows">
-              <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground/70 text-xs">Loading workflow canvas…</div>}>
+              <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground text-xs">Loading workflow canvas…</div>}>
                 <WorkflowCanvas />
+              </Suspense>
+            </ViewErrorBoundary>
+          ) : mainView !== 'chat' ? (
+            <ViewErrorBoundary label={mainView}>
+              <Suspense fallback={null}>
+                <MainViews view={mainView} />
               </Suspense>
             </ViewErrorBoundary>
           ) : (

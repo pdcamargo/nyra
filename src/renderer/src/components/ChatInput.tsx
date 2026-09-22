@@ -26,6 +26,8 @@ import QuestionDock from './QuestionDock'
 import PlanCard, { type PlanAnswer } from './PlanCard'
 import { useQuestionAnswerStore } from '../store/questionAnswer'
 import { composerIntent } from '../lib/composerIntent'
+import { queuePreview, type QueuedImage } from '../lib/queuePreview'
+import { cachedImage, loadImage } from '../lib/imageCache'
 
 const EMPTY_AGENTS: Agent[] = []
 const EMPTY_QUEUE: QueuedMessage[] = []
@@ -71,6 +73,26 @@ export default function ChatInput({
   const [input, setInput] = useState('')
   const pendingPrefill = useUiStore((s) => s.pendingInputPrefill)
   const consumePrefill = useUiStore((s) => s.consumeInputPrefill)
+
+  // The composer holds the free text for the question on screen, so stepping
+  // between questions swaps what is in it: Previous brings your own words back
+  // instead of losing them, and Next arrives on an empty box.
+  //
+  // Guarded on the tool id as well as the page, because arriving at a *new*
+  // question must not wipe something that was already typed before it appeared.
+  const questionPage = useQuestionAnswerStore((s) => s.page)
+  const questionToolId = useQuestionAnswerStore((s) => s.toolId)
+  const lastQuestionPage = useRef<{ toolId: string | null; page: number }>({
+    toolId: null,
+    page: 0
+  })
+  useEffect(() => {
+    const previous = lastQuestionPage.current
+    lastQuestionPage.current = { toolId: questionToolId, page: questionPage }
+    if (!questionToolId) return
+    if (previous.toolId !== questionToolId || previous.page === questionPage) return
+    setInput(useQuestionAnswerStore.getState().typed[questionPage] ?? '')
+  }, [questionPage, questionToolId])
 
   useEffect(() => {
     if (!pendingPrefill) return
@@ -393,10 +415,17 @@ export default function ChatInput({
       text: input,
       question,
       plan: pendingPlan,
-      mode: qs.mode,
-      picks: qs.picks
+      picks: qs.picks,
+      typed: qs.typed,
+      page: qs.page
     })
     if (intent.kind === 'none') return
+    if (intent.kind === 'next-question') {
+      // The box then shows whatever the next question was last answered with,
+      // which is usually nothing.
+      setInput(qs.advance(intent.page, input))
+      return
+    }
     if (intent.kind === 'answer') {
       setInput('')
       qs.clear()
@@ -859,11 +888,11 @@ export default function ChatInput({
         <div className="mb-2 rounded-lg border border-info/20 bg-info/10 px-3 py-2 text-[12px] text-info/80 flex items-center justify-between">
           <span>
             <span className="font-medium">Draft stashed</span>
-            <span className="text-info/50 ml-1">— Ctrl+S to restore</span>
+            <span className="text-info ml-1">— Ctrl+S to restore</span>
           </span>
           <button
             onClick={() => { stashRef.current = ''; setHasStash(false) }}
-            className="text-info/40 hover:text-info ml-2 shrink-0"
+            className="text-info hover:underline ml-2 shrink-0"
           >
             ×
           </button>
@@ -874,7 +903,7 @@ export default function ChatInput({
           <span className="truncate">
             <span className="font-medium">Loop active:</span>{' '}
             {activeLoop.prompt.slice(0, 40)}{activeLoop.prompt.length > 40 ? '…' : ''}{' '}
-            <span className="text-success/50">
+            <span className="text-success">
               every {activeLoop.intervalMs < 60_000 ? `${activeLoop.intervalMs / 1000}s` : activeLoop.intervalMs < 3_600_000 ? `${activeLoop.intervalMs / 60_000}m` : `${activeLoop.intervalMs / 3_600_000}h`}
               {' '}— run #{activeLoop.runCount}
               {activeLoop.skippedCount > 0 && ` (${activeLoop.skippedCount} skipped)`}
@@ -882,7 +911,7 @@ export default function ChatInput({
           </span>
           <button
             onClick={() => { if (activeSessionId) useLoopsStore.getState().removeLoop(activeSessionId) }}
-            className="text-success/40 hover:text-success ml-2 shrink-0 text-[11px] font-medium"
+            className="ml-2 shrink-0 text-[11px] font-medium text-success transition-colors hover:underline"
           >
             Stop
           </button>
@@ -891,11 +920,11 @@ export default function ChatInput({
       {queuedMessages.length > 0 && (
         // Docked to the top of the composer rather than floating above it as a
         // warning banner: these are the next things you will send, not problems.
-        <div className="-mb-2 rounded-t-lg border border-b-0 border-border bg-muted pb-4 pt-1 text-xs">
+        <div className="-mb-2 rounded-t-lg border border-b-0 border-border bg-background pb-4 pt-1 text-xs dark:border-muted dark:bg-muted">
           {queuedMessages.map((queued, i) => (
             <div key={i} className="group/q flex items-center gap-2 px-3 py-1.5">
               <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate text-foreground/80">{queued.text}</span>
+              <QueuedPreview queued={queued} />
               {/* Only while a turn is live: with nothing running there is nothing
                   to steer, and the queue outlives the turn when a result errors. */}
               {isLoading && steerMessage && (
@@ -942,7 +971,7 @@ export default function ChatInput({
       {fileError && (
         <div className="mb-2 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-[12px] text-danger flex items-center justify-between">
           <span>{fileError}</span>
-          <button onClick={() => setFileError(null)} className="text-danger/50 hover:text-danger ml-2">×</button>
+          <button onClick={() => setFileError(null)} className="ml-2 rounded px-1 text-danger transition-colors hover:bg-danger/10">×</button>
         </div>
       )}
       {/* Inside the composer's own padded box rather than a sibling of it, so the
@@ -958,7 +987,7 @@ export default function ChatInput({
           misaligned boxes rather than one. `rounded-b-lg` rather than adding
           `rounded-t-none`, so the corners are stated once either way. */}
       <div
-        className={`composer-box ${queuedMessages.length > 0 ? 'rounded-b-lg' : 'rounded-lg'} border border-muted bg-muted transition-colors focus-within:border-border-strong`}
+        className={`composer-box ${queuedMessages.length > 0 ? 'rounded-b-lg' : 'rounded-lg'} border border-border bg-background shadow-panel transition-colors focus-within:border-border-strong dark:border-muted dark:bg-muted`}
       >
         {/* Inside the box, not docked above it: one border, and `focus-within`
             lights the question and the field together as the single control they
@@ -989,11 +1018,11 @@ export default function ChatInput({
           value={input}
           onChange={(v) => {
             setInput(v)
-            // Typing is answering in your own words, so it clears the ticks. The
-            // store no-ops once there is nothing left to clear.
-            if (useQuestionAnswerStore.getState().toolId) {
-              useQuestionAnswerStore.getState().noteTyping()
-            }
+            // Typing answers *this* question in your own words, so it clears
+            // that question's ticks and no others. The store no-ops once there
+            // is nothing to record and nothing to clear.
+            const qs = useQuestionAnswerStore.getState()
+            if (qs.toolId) qs.setTyped(qs.page, v)
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
@@ -1017,5 +1046,69 @@ export default function ChatInput({
         />
       </div>
     </div>
+  )
+}
+
+/** How many thumbnails a one-line row can carry before it stops being a row. */
+const QUEUE_THUMBS = 3
+
+/**
+ * A queued message's own row: its pictures, then whatever text is left.
+ *
+ * See `queuePreview` for why the text alone was not enough.
+ */
+function QueuedPreview({ queued }: { queued: QueuedMessage }): React.JSX.Element {
+  const { text, images } = useMemo(() => queuePreview(queued), [queued])
+  const shown = images.slice(0, QUEUE_THUMBS)
+  const rest = images.length - shown.length
+
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-1.5">
+      {shown.map((image, i) => (
+        <QueuedThumb key={image.dataUrl ?? image.path ?? i} image={image} />
+      ))}
+      {rest > 0 && <span className="shrink-0 text-c-xs text-muted-foreground">+{rest}</span>}
+      {queued.files?.map((file) => (
+        <span
+          key={file.id}
+          title={file.path}
+          className="shrink-0 rounded-sm bg-accent px-1.5 py-px text-c-xs text-muted-foreground"
+        >
+          {file.name}
+        </span>
+      ))}
+      {/* Only where there is something left to say. An image on its own is a
+          queued message with no text, and an empty span should not take a gap. */}
+      {text && <span className="min-w-0 flex-1 truncate text-foreground/80">{text}</span>}
+    </span>
+  )
+}
+
+/** One thumbnail. A staged attachment is already decoded; a path written into
+ *  the message has to be read, through the same cache the transcript uses. */
+function QueuedThumb({ image }: { image: QueuedImage }): React.JSX.Element | null {
+  const [entry, setEntry] = useState(() =>
+    image.dataUrl ? { status: 'ready' as const, dataUrl: image.dataUrl } : image.path ? cachedImage(image.path) : undefined
+  )
+
+  useEffect(() => {
+    if (image.dataUrl || !image.path || entry) return
+    let live = true
+    void loadImage(image.path).then((next) => {
+      if (live) setEntry(next)
+    })
+    return () => {
+      live = false
+    }
+  }, [image.dataUrl, image.path, entry])
+
+  if (entry?.status !== 'ready') return null
+  return (
+    <img
+      src={entry.dataUrl}
+      alt=""
+      title={image.path}
+      className="size-5 shrink-0 rounded-sm object-cover ring-1 ring-border/60"
+    />
   )
 }

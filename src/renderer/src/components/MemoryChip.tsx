@@ -36,7 +36,7 @@ export default function MemoryChip({ writes }: { writes: MemoryWrite[] }): React
     <div className="py-0.5">
       <div className="flex w-full items-center gap-2 px-1 py-[3px]">
         <span className={`size-1.5 shrink-0 rounded-full ${dotClass}`} />
-        <Brain className="size-3 shrink-0 text-muted-foreground/70" />
+        <Brain className="size-3 shrink-0 text-muted-foreground" />
         {named.length === 0 ? (
           // Nothing but the index: the headline already names the one file, so it
           // is the link rather than repeating "MEMORY" after itself.
@@ -54,12 +54,12 @@ export default function MemoryChip({ writes }: { writes: MemoryWrite[] }): React
             <span className="flex min-w-0 items-center gap-1 truncate">
               {named.map((w, i) => (
                 <React.Fragment key={w.toolId}>
-                  {i > 0 && <span className="shrink-0 text-c-sm text-muted-foreground/40">·</span>}
+                  {i > 0 && <span className="shrink-0 text-c-sm text-muted-foreground">·</span>}
                   <button
                     type="button"
                     onClick={() => openMemoryFile(w.filePath)}
                     title={w.filePath}
-                    className="truncate text-left font-mono text-c-sm text-info/50 transition-colors hover:text-info"
+                    className="truncate text-left font-mono text-c-sm text-info transition-colors hover:underline"
                   >
                     {w.displayName}
                   </button>

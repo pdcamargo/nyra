@@ -18,6 +18,7 @@ import { listen } from '@tauri-apps/api/event'
 import type {
   AgentInfo,
   BgProcessRow,
+  CommandInfo,
   BundledSkill,
   BrowserEvent,
   BrowserReply,
@@ -213,6 +214,15 @@ export const api = {
       call<{ success?: boolean; error?: string }>('memory_write', { filePath, content, cwd }),
     delete: (filePath: string, cwd: string) =>
       call<{ success?: boolean; error?: string }>('memory_delete', { filePath, cwd })
+  },
+
+  /** Custom slash commands on disk: ~/.claude/commands and .claude/commands. */
+  commands: {
+    list: (cwd: string) => call<ScopedList<CommandInfo>>('commands_list', { cwd }),
+    /** Removes the one `.md` file. Refused unless it sits under
+     *  `.claude/commands`, since this is one click inside a dialog. */
+    delete: (filePath: string) =>
+      call<{ success?: boolean; error?: string }>('commands_delete', { filePath })
   },
 
   skills: {

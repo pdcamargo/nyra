@@ -37,8 +37,8 @@ export function IconButton({
         onClick={onClick}
         aria-pressed={active}
         aria-label={label}
-        className={`rounded p-0.5 transition-colors hover:text-foreground/80 ${
-          active ? 'text-foreground/80' : 'text-muted-foreground/70'
+        className={`rounded p-0.5 transition-colors hover:text-foreground ${
+          active ? 'bg-accent text-foreground' : 'text-muted-foreground'
         } ${className}`}
       >
         {children}

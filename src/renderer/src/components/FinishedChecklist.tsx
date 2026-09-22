@@ -31,16 +31,20 @@ export default function FinishedChecklist({
         ) : (
           <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
         )}
-        <ListTodo className="size-3.5 shrink-0 text-success/70" />
+        <ListTodo className="size-3.5 shrink-0 text-success" />
         <span className="text-c-md text-muted-foreground">
           {tasks.length} task{tasks.length === 1 ? '' : 's'} done
         </span>
       </button>
+      {/* pl-[34px] puts the rows under the header's icon and their text under its
+          label — px-3 (12) + chevron (14) + gap-2 (8). mx-1 gives the 6px dot the
+          same 14px column the icons above it occupy, so the text lands on the
+          same edge in both halves of the card. */}
       {expanded && (
-        <ul className="space-y-0.5 border-t border-border/55 px-3 py-1.5">
+        <ul className="space-y-0.5 border-t border-border/55 py-1.5 pl-[34px] pr-3">
           {tasks.map((task) => (
             <li key={task.taskId} className="flex items-start gap-2 py-0.5">
-              <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-success" />
+              <span className="mx-1 mt-[6px] size-1.5 shrink-0 rounded-full bg-success" />
               <span className="text-c-md leading-snug text-muted-foreground line-through">
                 {task.subject}
               </span>

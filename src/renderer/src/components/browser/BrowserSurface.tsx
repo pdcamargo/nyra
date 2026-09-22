@@ -222,7 +222,7 @@ export function BrowserPhaseState({ sessionId }: { sessionId: string }): React.J
   if (chat.phase === 'needs-chromium') {
     return (
       <Empty>
-        <Globe className="mb-3 size-6 text-muted-foreground/50" />
+        <Globe className="mb-3 size-6 text-muted-foreground" />
         <p className="mb-1 text-[12px] text-foreground">Nyra needs a browser engine</p>
         <p className="mb-4 max-w-[240px] text-[11px] leading-relaxed text-muted-foreground">
           Chromium is a one-time 182&nbsp;MB download, kept outside the app so updates stay small.
@@ -312,7 +312,7 @@ function UrlBar({
         spellCheck={false}
         placeholder="Address, or a port like :5173"
         aria-label="Address"
-        className="min-w-0 flex-1 rounded-md bg-secondary/60 px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-secondary"
+        className="min-w-0 flex-1 rounded-md bg-secondary/60 px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground focus:bg-secondary"
       />
       {menu}
     </form>
