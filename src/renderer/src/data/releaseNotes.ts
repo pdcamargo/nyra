@@ -8,7 +8,13 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Press the mic in the composer to dictate, edit the transcript before sending',
+      'Speech is transcribed entirely on this Mac: no account, no API key, no cost',
+      'A live transcript shimmers as you speak, then sharpens into the final wording',
+      'Dictation matches names and terms from your project as you speak',
+      "Dictation warns when it can't hear the mic, instead of transcribing silence"
+    ]
   },
   {
     version: '0.2.3',
