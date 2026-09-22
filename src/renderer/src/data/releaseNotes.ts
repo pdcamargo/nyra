@@ -8,7 +8,18 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Return to a chat and see a recap of what happened while you were away',
+      'Press Cmd P to fuzzy-find and jump straight to any project file',
+      'Attaching a file now accepts any size or type, not just 10 MB of text',
+      'Click any image in the chat — an attachment, an upload, something Claude drew — to view it full-size',
+      'Dragging a file over 100 MB onto the chat is refused; use Attach files instead',
+      'Monitors Claude leaves running now show a live "watching" pill, next to shells and ports',
+      'An unfinished checklist now stays above the composer across turns instead of disappearing',
+      'Slash-command autocomplete now recognizes every command the running CLI has',
+      '/goal now leaves a chip in the transcript naming what the turn was aimed at',
+      'Fixed the invisible selection highlight in Quick Open and the command palette'
+    ]
   },
   {
     version: '0.3.0',
