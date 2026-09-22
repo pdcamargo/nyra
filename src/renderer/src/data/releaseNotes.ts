@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.3.0',
+    date: '2026-09-22',
     notes: [
       'Press the mic in the composer to dictate, edit the transcript before sending',
       'Speech is transcribed entirely on this Mac: no account, no API key, no cost',
