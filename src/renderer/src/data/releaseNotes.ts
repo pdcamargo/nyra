@@ -9,9 +9,21 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     version: 'next',
     date: '',
     notes: [
+      'Archive chats, browse plugins, and inspect MCP servers',
       'Fixed the model picker capped by a stale Claude CLI install',
       'Settings → Advanced lists every Claude CLI install Nyra finds, with versions',
-      'Archive chats, browse plugins, and inspect MCP servers in Nyra'
+      'Claude generates chat titles again, matching newer CLI versions',
+      'Nyra checks MCP server status at launch, before any chat is open',
+      '/status now opens a live session panel in the composer, instead of a chip',
+      "Slash-command autocomplete shows each command's expected arguments",
+      '"While you were away" has a Settings toggle and a minutes field, default 30',
+      "Press Up or Down to recall a prompt you've already sent",
+      'File preview now shows images and renders markdown, not just plain text',
+      'Clicking a file opens a reusable preview tab; double-click keeps it open',
+      'Turn on "Chat RAM" in Settings to see memory use in the Pinned Summary',
+      'Rename a chat from its right-click menu',
+      'Changes card: click a filename to open it, a separate button opens the diff',
+      'The unread dot now waits until a running turn finishes'
     ]
   },
   {
