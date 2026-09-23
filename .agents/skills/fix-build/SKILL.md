@@ -1,8 +1,6 @@
 ---
 name: fix-build
-description: Fix electron-vite build failures by reading errors and patching the failing files
-disable-model-invocation: true
-argument-hint: [error-output]
+description: Fix electron-vite build failures by reading the errors, patching the failing files, and rerunning the build. Use when the user explicitly asks to fix a build failure.
 ---
 
 # Fix build

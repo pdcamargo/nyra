@@ -61,7 +61,7 @@ const requiredByKind = NODE_KINDS.map((k) => {
 
 const body = `---
 name: nyra-design
-description: Draft a UI as a design document that Nyra renders to a picture — for any request to design, mock up, lay out, restyle or explore the look of a screen, page, panel, modal or component, and before implementing UI in code. Produces a .nyui.json file, not HTML or React.
+description: Draft a UI as a .nyui.json design document rendered by Nyra, not HTML or React. Use only when the nyra_design tool is available and the user asks to design, mock up, lay out, restyle, or explore a screen, page, panel, modal, or component.
 ---
 
 # Designing in Nyra
@@ -283,7 +283,7 @@ Designs are **named, not filed**. You never choose or remember a location — th
  * same reason `write-a-flow` and `nyra-app` live there.
  */
 const out = resolve(
-  process.argv[2] ?? resolve(import.meta.dirname, '../../../.claude/skills/nyra-design/SKILL.md')
+  process.argv[2] ?? resolve(import.meta.dirname, '../../../.agents/skills/nyra-design/SKILL.md')
 )
 writeFileSync(out, body)
 console.log(`wrote ${out} — ${body.length} chars, ${names.length} properties`)

@@ -1,7 +1,6 @@
 ---
 name: write-a-flow
 description: Nyra flows — what they are, and how to author one as importable JSON. Use when the user asks to build, create, or change a flow ("make me a flow that does X", "add a loop to this flow", "turn this into a pipeline"), and when they ask what Flows is or what it is for ("what is Nyra Flows?", "what does the Flows tab do?", "when would I use a flow instead of a chat?").
-argument-hint: <what the flow should do>
 ---
 
 # Nyra flows

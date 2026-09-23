@@ -17,7 +17,7 @@
 //!    said no. We record that and stop, rather than resurrecting it on every
 //!    launch. `restore()` is the way back, so the decision stays reversible.
 //!
-//! The bundled copy is this repo's own `.claude/skills/<name>/SKILL.md`, pulled
+//! The bundled copy is this repo's own `.agents/skills/<name>/SKILL.md`, pulled
 //! in with `include_str!`. One file serves both jobs, so the copy we develop
 //! against and the copy we ship cannot drift.
 
@@ -37,7 +37,7 @@ pub struct Bundled {
 pub const BUNDLED: &[Bundled] = &[
     Bundled {
         name: "write-a-flow",
-        content: include_str!("../../.claude/skills/write-a-flow/SKILL.md"),
+        content: include_str!("../../.agents/skills/write-a-flow/SKILL.md"),
     },
     // The app's own geography. Split from `write-a-flow` because the questions
     // are different — one is "compose a graph", the other is "what is this
@@ -45,7 +45,7 @@ pub const BUNDLED: &[Bundled] = &[
     // description, so two narrow ones fire more accurately than one wide one.
     Bundled {
         name: "nyra-app",
-        content: include_str!("../../.claude/skills/nyra-app/SKILL.md"),
+        content: include_str!("../../.agents/skills/nyra-app/SKILL.md"),
     },
     // The design vocabulary. Generated from the property registry rather than
     // written, so shipping a property without teaching it is not possible —
@@ -54,7 +54,7 @@ pub const BUNDLED: &[Bundled] = &[
     // description, and only the frontmatter is carried in every turn.
     Bundled {
         name: "nyra-design",
-        content: include_str!("../../.claude/skills/nyra-design/SKILL.md"),
+        content: include_str!("../../.agents/skills/nyra-design/SKILL.md"),
     },
 ];
 

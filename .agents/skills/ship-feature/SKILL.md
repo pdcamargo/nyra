@@ -1,8 +1,6 @@
 ---
 name: ship-feature
-description: Test, commit all changes, move the feature from VISION.md roadmap to SHIPPED.md, update release notes, and push to origin
-disable-model-invocation: false
-argument-hint: [feature-description]
+description: Test, document, commit, and push a completed feature. Use only when the user explicitly asks to ship a feature.
 ---
 
 # Ship Feature
@@ -23,7 +21,7 @@ Wrap up a completed feature: ensure tests exist and pass, commit all changes, mo
 3. **Run the full test suite** with `npx vitest run`
    - If any test fails, fix the issue and re-run until all tests pass
    - Do NOT proceed to commit if tests are failing
-4. Read `VISION.md` and find the unchecked item (`- [ ]`) under `## Roadmap` that best matches: "$ARGUMENTS"
+4. Read `VISION.md` and find the unchecked item (`- [ ]`) under `## Roadmap` that best matches the feature the user asked to ship
    - If no match is found, list the unchecked items and ask which one (or skip — polish/bug fixes don't always map to a roadmap item)
 5. **Move the matched item to `SHIPPED.md`:**
    - Remove the `- [ ]` line from VISION.md's `## Roadmap` section

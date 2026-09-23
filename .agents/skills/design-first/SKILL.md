@@ -1,7 +1,6 @@
 ---
 name: design-first
 description: Create a Pencil mockup before implementing any UI feature or enhancement. Design first, code second.
-argument-hint: <feature-description>
 ---
 
 # Design First

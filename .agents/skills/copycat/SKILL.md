@@ -1,7 +1,6 @@
 ---
 name: copycat
-description: Research new Claude Code features, compare against nyra's VISION.md, and suggest what to add to the roadmap
-argument-hint: [optional: specific area to focus on, e.g. "MCP" or "permissions"]
+description: Research new Claude Code features, compare them with Nyra's roadmap, and suggest gaps to add. Use when scouting Claude Code parity or a specific parity area.
 ---
 
 # Copycat — Claude Code Feature Scout
@@ -13,7 +12,7 @@ Find what's new in Claude Code that nyra doesn't have yet, assess feasibility, a
 1. **Research what's new in Claude Code**
    - Web search for recent Claude Code updates, changelogs, release notes, blog posts
    - Search queries like: "Claude Code new features", "Claude Code changelog", "Claude Code update", "Anthropic Claude Code release"
-   - If "$ARGUMENTS" is provided, focus the search on that specific area
+   - If the user provided a specific area, focus the search on it
    - Look at the official docs: https://docs.anthropic.com/en/docs/claude-code
 
 2. **Read nyra's current state**

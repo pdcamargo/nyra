@@ -235,7 +235,7 @@ a guess. The schema is about 40 lines, which is too much to carry in the system
 prompt of every chat for something used occasionally, so it is a skill instead:
 it loads only when someone asks.
 
-The skill lives at `.claude/skills/write-a-flow/SKILL.md` in this repo and is
+The skill lives at `.agents/skills/write-a-flow/SKILL.md` in this repo and is
 compiled into the binary with `include_str!`, so the copy we develop against and
 the copy we ship cannot drift. Cargo tracks the dependency, so editing the skill
 rebuilds the binary.

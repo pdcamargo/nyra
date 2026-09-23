@@ -1,7 +1,6 @@
 ---
 name: nyra-dev
 description: Inspect a running dev-mode Nyra from outside it — screenshot its window, read its renderer console, evaluate JS in it. Use when verifying a UI change in the real app ("does this look right?", "screenshot the dev app", "why is the panel blank"), when something only reproduces in the running app, or when a change needs checking against the actual window rather than tests. Requires `npm run dev` to be running.
-argument-hint: [what to inspect]
 ---
 
 # Inspecting a running Nyra

@@ -8,7 +8,7 @@ import { NODE_KINDS } from '../src/registry/define'
 import type { PropName } from '../src/registry/types'
 
 // The bundled path, which `managed_skills.rs` include_str!s.
-const SKILL = resolve(__dirname, '../../../.claude/skills/nyra-design/SKILL.md')
+const SKILL = resolve(__dirname, '../../../.agents/skills/nyra-design/SKILL.md')
 const text = readFileSync(SKILL, 'utf8')
 
 describe('the skill is generated from the registry', () => {
@@ -47,9 +47,9 @@ describe('the skill is generated from the registry', () => {
 
 describe('the app installs it, rather than the user copying it', () => {
   it('lives at the path managed_skills.rs bundles', () => {
-    expect(SKILL).toMatch(/\.claude\/skills\/nyra-design\/SKILL\.md$/)
+    expect(SKILL).toMatch(/\.agents\/skills\/nyra-design\/SKILL\.md$/)
     const rust = readFileSync(resolve(__dirname, '../../../src-tauri/src/managed_skills.rs'), 'utf8')
-    expect(rust).toContain('.claude/skills/nyra-design/SKILL.md')
+    expect(rust).toContain('.agents/skills/nyra-design/SKILL.md')
     expect(rust).toContain('name: "nyra-design"')
   })
 
