@@ -18,10 +18,14 @@ installMonacoEnvironment()
 
 export default function MonacoPreview({
   value,
-  language
+  language,
+  wrap = false
 }: {
   value: string
   language: string
+  /** Soft-wrap long lines. Off by default, because this is usually a document
+   *  with a shape the line breaks are part of. */
+  wrap?: boolean
 }): React.JSX.Element | null {
   const { defined, theme } = useMonacoNyraTheme()
   if (!defined) return null
@@ -44,9 +48,10 @@ export default function MonacoPreview({
         lineNumbersMinChars: 3,
         overviewRulerBorder: false,
         overviewRulerLanes: 0,
-        // The panel is narrow and this is a document, not a quoted fragment:
-        // wrapping a 200-column line would cost more than scrolling to it.
-        wordWrap: 'off',
+        // The panel is narrow and this is a document, not a quoted fragment, so
+        // wrapping is off unless the reader asks for it — a 200-column line that
+        // has been wrapped is harder to read than one you scroll to.
+        wordWrap: wrap ? 'on' : 'off',
         stickyScroll: { enabled: false },
         occurrencesHighlight: 'off',
         renderLineHighlight: 'none',

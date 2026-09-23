@@ -10,7 +10,8 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     date: '',
     notes: [
       'Fixed the model picker capped by a stale Claude CLI install',
-      'Settings → Advanced lists every Claude CLI install Nyra finds, with versions'
+      'Settings → Advanced lists every Claude CLI install Nyra finds, with versions',
+      'Archive chats, browse plugins, and inspect MCP servers in Nyra'
     ]
   },
   {

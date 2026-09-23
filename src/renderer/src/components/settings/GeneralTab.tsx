@@ -18,6 +18,15 @@ export default function GeneralTab(): React.JSX.Element {
       <SettingRow label="Let Claude drive Nyra">
         <Toggle checked={settings.appTools} onChange={(v) => update({ appTools: v })} />
       </SettingRow>
+      <SettingRow
+        label="Chat RAM"
+        hint="What the active chat is holding, in the summary card"
+      >
+        <Toggle
+          checked={settings.showChatMemory}
+          onChange={(v) => update({ showChatMemory: v })}
+        />
+      </SettingRow>
 
       <SectionLabel>Browser</SectionLabel>
       <SettingRow label="Browser tools for Claude">

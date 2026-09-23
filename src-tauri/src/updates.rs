@@ -7,6 +7,7 @@
 use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 #[derive(Serialize)]
 pub struct UpdateInfo {
@@ -54,5 +55,10 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
         .download_and_install(|_, _| {}, || {})
         .await
         .map_err(|e| e.to_string())?;
+    // The updater replaces and restarts the process directly. Save before that
+    // handoff so a maximized window comes back maximized at its prior normal size.
+    if let Err(error) = app.save_window_state(StateFlags::SIZE | StateFlags::MAXIMIZED) {
+        crate::log!("update", "Could not save window state before restart: {error}");
+    }
     app.restart();
 }

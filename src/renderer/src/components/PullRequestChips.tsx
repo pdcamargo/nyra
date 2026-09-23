@@ -218,9 +218,18 @@ export function ChatRowPrChip({ sessionId }: { sessionId: string }): React.JSX.E
   return (
     <span className="flex shrink-0 items-center gap-0.5">
       <PrIcon pr={sorted[0]} className="size-3" />
-      {sorted.length > 1 && (
-        <span className="font-mono text-[0.7em] text-muted-foreground">{sorted.length}</span>
-      )}
+      {/* The count's space is reserved even when there is nothing to count.
+          These chips are trailing, so a number that appears only for the second
+          PR pushes that row's icon a character to the left — a column of rows
+          then reads as ragged instead of as a list. */}
+      <span
+        aria-hidden={sorted.length <= 1}
+        className={`w-2.5 text-center font-mono text-[0.7em] text-muted-foreground ${
+          sorted.length > 1 ? '' : 'invisible'
+        }`}
+      >
+        {sorted.length}
+      </span>
     </span>
   )
 }

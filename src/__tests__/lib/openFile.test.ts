@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { isDesignPath, openFileInPanel, splitDesignRef } from '@renderer/lib/openFile'
+import {
+  isDesignPath,
+  openChangedFileInPanel,
+  openFileInPanel,
+  splitDesignRef
+} from '@renderer/lib/openFile'
+import { vi } from 'vitest'
 import { useSessionsStore } from '@renderer/store/sessions'
 import { useUiStore } from '@renderer/store/ui'
 import {
@@ -93,6 +99,72 @@ describe('openFileInPanel', () => {
     openFileInPanel('/repo/a.ts')
 
     expect(useUiStore.getState().rightPanelOpen).toBe(false)
+    expect(ws().tabs).toEqual([])
+  })
+
+  // A click in the transcript lands in the chat's replaceable slot, not in
+  // whatever file tab happens to be in front: retargeting a tab someone
+  // double-clicked to keep would lose the thing the double click was for.
+  it('adds a preview row rather than overwriting a pinned one', () => {
+    const pinned = useWorkspaceStore.getState().openFileTab(SID, '/repo/pinned.ts')
+    useWorkspaceStore.getState().selectTab(SID, pinned)
+
+    openFileInPanel('/repo/a.ts')
+
+    expect(paths()).toEqual(['/repo/pinned.ts', '/repo/a.ts'])
+    expect(ws().tabs[1]).toMatchObject({ preview: true })
+  })
+
+  it('keeps replacing that one row as more paths are clicked', () => {
+    useWorkspaceStore.getState().openFileTab(SID, '/repo/pinned.ts')
+
+    openFileInPanel('/repo/a.ts')
+    openFileInPanel('/repo/b.ts')
+
+    expect(paths()).toEqual(['/repo/pinned.ts', '/repo/b.ts'])
+  })
+})
+
+describe('openChangedFileInPanel', () => {
+  const worktrees = (paths: string[]): void => {
+    vi.spyOn(window.api.git, 'worktreeList').mockResolvedValue(
+      paths.map((path) => ({ path, branch: 'main', detached: false }))
+    )
+  }
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({ bySession: {} })
+  })
+
+  /**
+   * The bug: a chat opened in a subdirectory shows the repo's changes, git
+   * names them from the repo's top, and clicking one resolved that name against
+   * the subdirectory — a path nothing lives at.
+   */
+  it('resolves a repo-relative path against the top of the repo', async () => {
+    worktrees(['/repo'])
+    useSessionsStore.setState({
+      activeSessionId: SID,
+      sessions: [{ id: SID, cwd: '/repo/apps/mv-ui' }] as never,
+      projects: []
+    })
+
+    await openChangedFileInPanel('apps/api/src/a.ts')
+
+    expect(paths()).toEqual(['/repo/apps/api/src/a.ts'])
+  })
+
+  it('leaves an already-absolute path alone', async () => {
+    worktrees(['/repo'])
+    await openChangedFileInPanel('/elsewhere/a.ts')
+
+    expect(paths()).toEqual(['/elsewhere/a.ts'])
+  })
+
+  it('does nothing with no chat on screen', async () => {
+    useSessionsStore.setState({ activeSessionId: null })
+    await openChangedFileInPanel('src/a.ts')
+
     expect(ws().tabs).toEqual([])
   })
 })

@@ -152,6 +152,7 @@ Object.defineProperty(globalThis, 'api', {
     },
     processes: {
       list: () => Promise.resolve([]),
+      memory: () => Promise.resolve({ bytes: 0, processes: 0 }),
       kill: noop,
       clear: noop,
       onUpdate: unsub

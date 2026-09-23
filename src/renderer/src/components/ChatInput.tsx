@@ -30,6 +30,19 @@ import { useQuestionAnswerStore } from '../store/questionAnswer'
 import { composerIntent } from '../lib/composerIntent'
 import { queuePreview, type QueuedImage } from '../lib/queuePreview'
 import { cachedImage, loadImage } from '../lib/imageCache'
+import { showResource } from '../lib/resourceCommands'
+import { useResourceDockStore } from '../store/resourceDock'
+import StatusDock from './StatusDock'
+import McpExplorer from './McpExplorer'
+import {
+  createPromptHistory,
+  endPromptRecall,
+  hasRoomToMove,
+  recallNewer,
+  recallOlder,
+  syncPromptHistory,
+  type PromptHistory
+} from '../lib/promptHistory'
 
 const EMPTY_AGENTS: Agent[] = []
 const EMPTY_QUEUE: QueuedMessage[] = []
@@ -143,16 +156,41 @@ export default function ChatInput({
   const stashRef = useRef<string>('')
   const [hasStash, setHasStash] = useState(false)
 
+  // Up/Down through what this chat has already sent.
+  //
+  // The prompts themselves are read back out of the session's messages when a
+  // key is pressed — see `promptHistory` — so the walk outlives a restart and
+  // follows you between chats. This holds the cursor and the draft you had
+  // before the walk started, and nothing else.
+  const historyRef = useRef<PromptHistory>(createPromptHistory())
+  // The last text a recall wrote into the box. Its echo arrives back through
+  // onChange, and that must not read as you editing a recalled prompt.
+  const recalledRef = useRef<string | null>(null)
+
+  const promptEntries = useCallback((): string[] => {
+    const store = useSessionsStore.getState()
+    const session = store.sessions.find((s) => s.id === store.activeSessionId)
+    return (session?.messages ?? [])
+      .filter((m): m is TextMessage => m.role === 'user' && m.text.trim().length > 0)
+      .map((m) => m.text)
+  }, [])
+
   // Collect all past user prompts across sessions
   const sessions = useSessionsStore((s) => s.sessions)
 
   // Focus textarea on session switch
   const activeSessionId = useSessionsStore((s) => s.activeSessionId)
+  const resourceDock = useResourceDockStore((s) =>
+    activeSessionId ? s.bySession[activeSessionId] : undefined
+  )
   const dictationPhase = useDictationStore((s) => s.phase)
   const dictationInterim = useDictationStore((s) => s.interim)
   const dictationError = useDictationStore((s) => s.error)
   useEffect(() => {
     editorRef.current?.focus()
+    // The walk belongs to the chat you are in, so it starts over on the way in.
+    historyRef.current = createPromptHistory()
+    recalledRef.current = null
   }, [activeSessionId])
 
   // Consume pending actions from Sidebar (skills run / command insert)
@@ -281,6 +319,8 @@ export default function ChatInput({
           `| Command | Description |\n|---|---|\n` +
           `| /clear | Clear conversation history |\n` +
           `| /status | Show session status |\n` +
+          `| /mcp | Explore MCP servers and tools |\n` +
+          `| /marketplace | Browse Claude Code plugins |\n` +
           `| /cost | Show token usage |\n` +
           `| /help | Show this help |\n` +
           `| /compact | Compact conversation context |\n` +
@@ -294,13 +334,14 @@ export default function ChatInput({
         )
         break
       case 'status':
-        addInfo(
-          `**Session status**\n\n` +
-          `- **CWD:** \`${session.cwd}\`\n` +
-          `- **Session ID:** \`${session.claudeSessionId ?? 'not started'}\`\n` +
-          `- **Messages:** ${session.messages.length}\n` +
-          `- **Created:** ${new Date(session.createdAt).toLocaleString()}`
-        )
+        showResource(sid, 'status')
+        break
+      case 'mcp':
+        showResource(sid, 'mcp')
+        break
+      case 'plugin':
+      case 'marketplace':
+        useUiStore.getState().setMainView('plugins')
         break
       case 'cost':
         addInfo(`**Token usage** — Cost tracking is not yet available in Nyra. Use \`/stats\` for a detailed overview.`)
@@ -377,10 +418,15 @@ export default function ChatInput({
     const cursor = textarea?.selectionStart ?? input.length
     const before = input.slice(0, mentionStart)
     const after = input.slice(cursor)
-    const newInput = `${before}@${item.path} ${after}`
+    // A file is done, so it gets its space and the mention closes. A folder
+    // stays open — no space, so the caret is still inside the mention and one
+    // more character keeps browsing inside it, which is the whole point of
+    // drilling into `@../api.v2/`.
+    const tail = item.type === 'folder' ? '' : ' '
+    const newInput = `${before}@${item.path}${tail}${after}`
     setInput(newInput)
     // Place cursor after the inserted mention
-    const newCursor = mentionStart + 1 + item.path.length + 1
+    const newCursor = mentionStart + 1 + item.path.length + tail.length
     requestAnimationFrame(() => {
       textarea?.focus()
       textarea?.setSelectionRange(newCursor, newCursor)
@@ -641,6 +687,40 @@ export default function ChatInput({
         return
       }
     }
+
+    // Up and Down walk back through what this chat has already sent.
+    //
+    // Both autocompletes have already had the arrows — they returned above —
+    // and a caret that is not on the first line (Up) or the last one (Down) is
+    // moving between lines, which is the editor's business. Only when the key
+    // has nowhere else to go does it mean "the message before this one".
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const direction = e.key === 'ArrowUp' ? 'up' : 'down'
+      const editor = editorRef.current
+      const from = editor?.selectionStart ?? input.length
+      const to = editor?.selectionEnd ?? from
+      if (!hasRoomToMove(input, from, to, direction)) {
+        const next =
+          direction === 'up'
+            ? recallOlder(syncPromptHistory(historyRef.current, promptEntries()), input)
+            : recallNewer(historyRef.current)
+        if (next) {
+          e.preventDefault()
+          historyRef.current = next.history
+          recalledRef.current = next.text
+          setInput(next.text)
+          requestAnimationFrame(() => {
+            const ta = editorRef.current
+            if (!ta) return
+            ta.focus()
+            const end = Number.MAX_SAFE_INTEGER
+            ta.setSelectionRange(end, end)
+          })
+          return
+        }
+      }
+    }
+
     // Shift+Enter breaks the line, and inside a list starts the next item.
     // Pressing it on an empty item drops the marker and leaves the list.
     //
@@ -783,7 +863,7 @@ export default function ChatInput({
       {queuedMessages.length > 0 && (
         // Docked to the top of the composer rather than floating above it as a
         // warning banner: these are the next things you will send, not problems.
-        <div className="-mb-2 rounded-t-lg border border-b-0 border-border bg-background pb-4 pt-1 text-xs dark:border-muted dark:bg-muted">
+        <div className="-mb-2 max-h-[min(25vh,160px)] overflow-y-auto rounded-t-lg border border-b-0 border-border bg-background pb-4 pt-1 text-xs dark:border-muted dark:bg-muted">
           {queuedMessages.map((queued, i) => (
             <div key={i} className="group/q flex items-center gap-2 px-3 py-1.5">
               <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />
@@ -850,37 +930,60 @@ export default function ChatInput({
           misaligned boxes rather than one. `rounded-b-lg` rather than adding
           `rounded-t-none`, so the corners are stated once either way. */}
       <div
-        className={`composer-box ${queuedMessages.length > 0 ? 'rounded-b-lg' : 'rounded-lg'} border border-border bg-background shadow-panel transition-colors focus-within:border-border-strong dark:border-muted dark:bg-muted`}
+        className={`composer-box max-h-[calc(100dvh-64px)] overflow-y-auto ${queuedMessages.length > 0 ? 'rounded-b-lg' : 'rounded-lg'} border border-border bg-background shadow-panel transition-colors focus-within:border-border-strong dark:border-muted dark:bg-muted`}
       >
         {/* Inside the box, not docked above it: one border, and `focus-within`
             lights the question and the field together as the single control they
             are. A question outranks a plan — the two cannot both be live, but if
             they ever were, the question is the one that stops the turn. */}
         {question ? (
-          <QuestionDock
-            message={question}
-            text={input}
-            onSubmit={(answer) => {
-              setInput('')
-              useQuestionAnswerStore.getState().clear()
-              onQuestionAnswer?.(question.tool_id, answer)
-            }}
-          />
+          <div className="max-h-[min(44vh,380px)] overflow-y-auto">
+            <QuestionDock
+              message={question}
+              text={input}
+              onSubmit={(answer) => {
+                setInput('')
+                useQuestionAnswerStore.getState().clear()
+                onQuestionAnswer?.(question.tool_id, answer)
+              }}
+            />
+          </div>
         ) : (
           pendingPlan && <PlanCard message={pendingPlan} onAnswer={onPlanAnswer} pinned />
         )}
-        <AttachmentStrip
-          images={stagedImages}
-          files={stagedFiles}
-          pending={pendingAttachments}
-          onRemoveImage={removeImage}
-          onRemoveFile={removeFile}
-        />
+        {!question && !pendingPlan && activeSessionId && resourceDock === 'status' && (
+          <StatusDock sessionId={activeSessionId} />
+        )}
+        {!question && !pendingPlan && activeSessionId && resourceDock === 'mcp' && (
+          <div className="mb-2 max-h-[min(42vh,360px)] overflow-y-auto border-b border-border/55 pb-2">
+            <McpExplorer
+              variant="composer"
+              cwd={cwd}
+              onClose={() => useResourceDockStore.getState().close(activeSessionId)}
+            />
+          </div>
+        )}
+        <div className="max-h-[min(24vh,180px)] overflow-y-auto">
+          <AttachmentStrip
+            images={stagedImages}
+            files={stagedFiles}
+            pending={pendingAttachments}
+            onRemoveImage={removeImage}
+            onRemoveFile={removeFile}
+          />
+        </div>
         <MarkdownEditor
           ref={editorRef}
           value={input}
           onChange={(v) => {
             setInput(v)
+            // The echo of a recall is not an edit. Anything else is, and an
+            // edited prompt ends the walk: Up goes back to what you sent last
+            // rather than continuing from wherever the walk had got to.
+            if (v !== recalledRef.current) {
+              recalledRef.current = null
+              historyRef.current = endPromptRecall(historyRef.current)
+            }
             // Typing answers *this* question in your own words, so it clears
             // that question's ticks and no others. The store no-ops once there
             // is nothing to record and nothing to clear.

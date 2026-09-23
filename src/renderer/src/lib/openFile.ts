@@ -11,12 +11,29 @@ import { useUiStore } from '../store/ui'
 import { usePanelSizesStore } from '../store/panelSizes'
 import { useChangesStore, type ChangeScope } from '../store/changes'
 import {
-  activeTab,
   tabKey,
   useWorkspaceStore,
   workspaceFor
 } from '../store/workspace'
 import { resolvePath } from '../utils/paths'
+import { absoluteInRepo } from './repoRoot'
+
+/**
+ * Show a file a git command named, in the side panel.
+ *
+ * Git's paths are relative to the top of the repo; the file is not necessarily
+ * under the chat's directory. Both have to be true at once for a click on a
+ * changed file to land anywhere, which is why this is a function rather than a
+ * `resolvePath` at each call site — the Changes tab and a card row in the
+ * transcript were each getting it wrong in their own way.
+ */
+export async function openChangedFileInPanel(gitPath: string): Promise<void> {
+  const sessions = useSessionsStore.getState()
+  const sessionId = sessions.activeSessionId
+  if (!sessionId) return
+  const cwd = cwdForSession(sessions, sessionId)
+  openFileInPanel(cwd ? await absoluteInRepo(cwd, gitPath) : gitPath)
+}
 
 /**
  * Wide enough for a diff.
@@ -72,13 +89,10 @@ export function openFileInPanel(filePath: string): void {
   const already = ws.tabs.find((t) => t.kind === 'file' && t.path === absolute)
   if (already) return store.selectTab(sessionId, tabKey(already))
 
-  const active = activeTab(ws)
-  if (active?.kind === 'file') {
-    store.setFilePath(sessionId, active.id, absolute)
-    return store.selectTab(sessionId, tabKey(active))
-  }
-
-  store.openFileTab(sessionId, absolute)
+  // The chat's one replaceable slot, rather than the tab that happens to be in
+  // front: overwriting a tab someone double-clicked to keep would lose the
+  // thing the double click was for.
+  store.openFilePreviewTab(sessionId, absolute)
 }
 
 /**

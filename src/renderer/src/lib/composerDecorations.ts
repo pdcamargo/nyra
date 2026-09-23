@@ -31,8 +31,17 @@ import {
  */
 
 
-/** A command only counts at the very start of the message, which is where the CLI reads it. */
-const COMMAND_AT_START = /^\/([a-z][\w-]*)/
+/**
+ * A command only counts at the very start of the message, which is where the CLI
+ * reads it.
+ *
+ * The colon is not decoration: `.claude/commands/git/sync.md` is `/git:sync`,
+ * and a command a plugin contributes is namespaced the same way. Without it the
+ * name stopped at the colon and the whole thing read as a path — which is what
+ * made `/claude-api prompt-audit` look like an unrecognised command. The match
+ * still stops at the command itself: `prompt-audit` is its argument.
+ */
+const COMMAND_AT_START = /^\/([a-z][a-z0-9:_-]*)/
 
 /** Matched case-insensitively and on a word boundary, the way the CLI triggers it. */
 const ULTRATHINK = /\bultrathink\b/gi

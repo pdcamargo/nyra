@@ -6,7 +6,7 @@
  * read as a bug, not a feature.
  */
 import React from 'react'
-import { PanelRight } from 'lucide-react'
+import { PanelRight, WrapText } from 'lucide-react'
 import FileBreadcrumb from './FileBreadcrumb'
 import FilePreviewPane from './FilePreviewPane'
 import FileTree from './FileTree'
@@ -16,8 +16,14 @@ import ResizeHandle from '../ResizeHandle'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { useChordLabel } from '../ui/kbd'
 import { usePanelLayoutStore } from '../../store/panelLayout'
+import { useSettingsStore } from '../../store/settings'
 import { cwdForSession, useSessionsStore } from '../../store/sessions'
-import { useWorkspaceStore, workspaceFor, type FileWorkspaceTab } from '../../store/workspace'
+import {
+  fileKey,
+  useWorkspaceStore,
+  workspaceFor,
+  type FileWorkspaceTab
+} from '../../store/workspace'
 
 export default function FileTab({
   sessionId,
@@ -32,15 +38,33 @@ export default function FileTab({
   const ws = useWorkspaceStore((s) => workspaceFor(s, sessionId))
   const panelWidth = usePanelLayoutStore((s) => s.rightPanelWidth)
   const treeKeys = useChordLabel('panel.right.tree')
+  const wrapKeys = useChordLabel('file.wrap')
+  const wrap = useSettingsStore((s) => s.fileWrap)
 
   const fits = treeFits(panelWidth)
   const showTree = ws.treeOpen && fits
   const treeWidth = clampTreeWidth(ws.treeWidth ?? TREE_DEFAULT_WIDTH, panelWidth)
 
-  const openFile = (path: string, sameTab = true): void => {
+  /**
+   * One click lands in the chat's replaceable preview slot; a double click asks
+   * for a tab of its own and pins it. The distinction is the whole point of the
+   * slot: browsing a tree should not leave ten tabs behind, and one file you are
+   * actually working in should not be replaced by the next click.
+   */
+  const openFile = (path: string, pin = false): void => {
     const store = useWorkspaceStore.getState()
-    if (sameTab) store.setFilePath(sessionId, tab.id, path)
-    else store.openFileTab(sessionId, path)
+    // Already on screen: a click takes you there, a double click also keeps it.
+    // Retargeting a row that already shows this file would leave two of them.
+    const already = workspaceFor(store, sessionId).tabs.find(
+      (t): t is FileWorkspaceTab => t.kind === 'file' && t.path === path
+    )
+    if (already) {
+      if (pin) store.pinFileTab(sessionId, already.id)
+      store.selectTab(sessionId, fileKey(already.id))
+      return
+    }
+    if (pin) store.openFileTab(sessionId, path)
+    else store.openFilePreviewTab(sessionId, path)
   }
 
   /** A folder picked from a breadcrumb: open it in the tree rather than in the
@@ -61,13 +85,36 @@ export default function FileTab({
             <FileBreadcrumb
               root={root}
               path={tab.path}
-              onOpenFile={openFile}
+              // A crumb is a click like any other: `sameTab` is the breadcrumb's
+              // own rule about the file the tab already shows, and the preview
+              // slot answers the same question the tree does.
+              onOpenFile={(path) => openFile(path, false)}
               onRevealDir={revealDir}
             />
           ) : (
             <p className="truncate px-2 py-1 text-[11px] text-muted-foreground">No file open</p>
           )}
         </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="Wrap long lines"
+              aria-pressed={wrap}
+              onClick={() => useSettingsStore.getState().updateSettings({ fileWrap: !wrap })}
+              className={`shrink-0 rounded p-1 transition-colors ${
+                wrap
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+              }`}
+            >
+              <WrapText className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {wrapKeys ? `Unwrap long lines (${wrapKeys})` : 'Wrap long lines'}
+          </TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger
             aria-label="Toggle file tree"
@@ -94,7 +141,7 @@ export default function FileTab({
 
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
-          <FilePreviewPane path={tab.path} />
+          <FilePreviewPane path={tab.path} wrap={wrap} />
         </div>
         {showTree && (
           <>
@@ -123,7 +170,7 @@ export default function FileTab({
                 root={root}
                 selectedPath={tab.path}
                 expanded={ws.treeExpanded}
-                onOpen={(path) => openFile(path)}
+                onOpen={openFile}
               />
             </aside>
           </>
@@ -132,4 +179,3 @@ export default function FileTab({
     </div>
   )
 }
-

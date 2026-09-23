@@ -125,7 +125,9 @@ export default function MarkdownEditor({
   placeholder,
   ghost,
   ghostSettling = false,
-  maxHeight = 300
+  maxHeight = 300,
+  readOnly = false,
+  wrap = true
 }: {
   ref?: React.Ref<MarkdownEditorHandle>
   value: string
@@ -139,6 +141,14 @@ export default function MarkdownEditor({
   /** Shimmer it: the words are final but the model is still deciding. */
   ghostSettling?: boolean
   maxHeight?: number
+  /** Somebody else's markdown: the file viewer. It renders exactly like the
+   *  composer — markers hidden until the cursor lands on the line — with the
+   *  editing taken out: no caret to put anywhere, no history, no chips, and the
+   *  document itself read-only. */
+  readOnly?: boolean
+  /** Soft-wrap long lines. Live, unlike the other options, because the viewer
+   *  toggles it under the reader's hand. */
+  wrap?: boolean
 }): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -157,31 +167,55 @@ export default function MarkdownEditor({
   // listener to contentDOM pointing at a detached node.
   const placeholderComp = useRef(new Compartment()).current
   const maxHeightComp = useRef(new Compartment()).current
+  const wrapComp = useRef(new Compartment()).current
 
   useEffect(() => {
     if (!hostRef.current) return
 
+    // Read-only means read-only: no history to walk, no chips explaining a
+    // prompt nobody is writing, no spellcheck on somebody else's file, and no
+    // listener writing a document nothing can edit.
     const extensions: Extension[] = [
-      history(),
-      keymap.of([...historyKeymap, ...defaultKeymap]),
+      ...(readOnly ? [] : [history(), keymap.of([...historyKeymap, ...defaultKeymap])]),
       markdown({ codeLanguages: languages }),
       syntaxHighlighting(highlightStyle),
       livePreview,
-      composerDecorations,
-      ghostText,
-      EditorView.lineWrapping,
-      // CodeMirror turns the platform's text checking off on its content
-      // element — sensible for code, wrong for this: both places this editor
-      // renders hold prose you are about to send someone. Spelling only;
-      // autocorrect and autocapitalise stay off, because they rewrite what you
-      // typed, and what you type here is full of identifiers and paths that
-      // look to them like mistakes.
-      EditorView.contentAttributes.of({ spellcheck: 'true' }),
+      ...(readOnly ? [] : [composerDecorations, ghostText]),
+      wrapComp.of(wrap ? EditorView.lineWrapping : []),
+      ...(readOnly
+        ? [
+            EditorState.readOnly.of(true),
+            EditorView.editable.of(false),
+            // With no caret to park on a line, pointing at one is how you ask
+            // to see its markup — the composer's rule, with the pointer
+            // standing in for the cursor.
+            EditorView.domEventHandlers({
+              mousemove: (event, view) => {
+                // Mid-drag is a selection, not a question.
+                if (event.buttons !== 0) return false
+                const node = (event.target as HTMLElement | null)?.closest('.cm-line')
+                if (!node) return false
+                const from = view.state.doc.lineAt(view.posAtDOM(node, 0)).from
+                if (view.state.selection.main.head === from) return false
+                view.dispatch({ selection: { anchor: from } })
+                return false
+              }
+            })
+          ]
+        : [
+            // CodeMirror turns the platform's text checking off on its content
+            // element — sensible for code, wrong for this: both places this
+            // editor renders hold prose you are about to send someone. Spelling
+            // only; autocorrect and autocapitalise stay off, because they
+            // rewrite what you typed, and what you type here is full of
+            // identifiers and paths that look to them like mistakes.
+            EditorView.contentAttributes.of({ spellcheck: 'true' }),
+            EditorView.updateListener.of((update) => {
+              if (update.docChanged) onChangeRef.current(update.state.doc.toString())
+            })
+          ]),
       theme,
       maxHeightComp.of(EditorView.theme({ '.cm-scroller': { maxHeight: `${maxHeight}px` } })),
-      EditorView.updateListener.of((update) => {
-        if (update.docChanged) onChangeRef.current(update.state.doc.toString())
-      }),
       // Highest precedence, or the default keymap gets Enter first and inserts a
       // newline before the composer ever sees it — Enter then both broke the line
       // and sent the message.
@@ -242,6 +276,12 @@ export default function MarkdownEditor({
       )
     })
   }, [maxHeight, maxHeightComp])
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: wrapComp.reconfigure(wrap ? EditorView.lineWrapping : [])
+    })
+  }, [wrap, wrapComp])
 
   // Reconcile the controlled value, skipping the echo of our own edits.
   useEffect(() => {

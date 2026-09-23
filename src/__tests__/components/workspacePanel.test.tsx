@@ -43,18 +43,21 @@ describe('WorkspaceTabStrip', () => {
     const onSelect = vi.fn()
     const onClose = vi.fn()
     const onReorder = vi.fn()
+    const onPin = vi.fn()
     render(
       <WorkspaceTabStrip
         tabs={tabs}
         activeKey={tabs[0] ? tabKey(tabs[0]) : null}
         browserTabs={browserTabs}
+        browserPhase="off"
         onSelect={onSelect}
         onClose={onClose}
+        onPin={onPin}
         onReorder={onReorder}
         onNew={vi.fn()}
       />
     )
-    return { onSelect, onClose, onReorder }
+    return { onSelect, onClose, onReorder, onPin }
   }
 
   it('draws a browser row and a file row side by side', () => {
@@ -91,6 +94,53 @@ describe('WorkspaceTabStrip', () => {
     await user.click(screen.getAllByLabelText('Close tab')[1])
     expect(onClose).toHaveBeenCalledWith('file:y')
     expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  // Every editor closes a tab with the wheel, and the gesture has to work on
+  // every kind of row — a file, a diff, a page.
+  it('closes a tab on a middle click', () => {
+    const { onClose } = renderStrip([
+      { kind: 'file', id: 'x', path: '/a.ts' },
+      { kind: 'changes', id: 'c' }
+    ])
+
+    fireEvent(screen.getAllByRole('tab')[1], new MouseEvent('auxclick', { button: 1, bubbles: true }))
+    expect(onClose).toHaveBeenCalledWith('changes:c')
+  })
+
+  it('ignores a right click, which is a menu and not a close', () => {
+    const { onClose } = renderStrip([{ kind: 'file', id: 'x', path: '/a.ts' }])
+
+    fireEvent(screen.getByRole('tab'), new MouseEvent('auxclick', { button: 2, bubbles: true }))
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  // A preview row is the chat's replaceable slot; a double click is how it
+  // stops being one.
+  it('pins a preview tab on a double click', () => {
+    const { onPin } = renderStrip([{ kind: 'file', id: 'x', path: '/a.ts', preview: true }])
+
+    fireEvent.doubleClick(screen.getByRole('tab'))
+    expect(onPin).toHaveBeenCalledWith('file:x')
+  })
+
+  it('draws a preview tab italic, and a pinned one upright', () => {
+    renderStrip([
+      { kind: 'file', id: 'x', path: '/a.ts', preview: true },
+      { kind: 'file', id: 'y', path: '/b.ts' }
+    ])
+
+    expect(screen.getByText('a.ts').className).toContain('italic')
+    expect(screen.getByText('b.ts').className).not.toContain('italic')
+  })
+
+  // The tab is the whole point of the provisional row: it is on screen before
+  // the browser is, saying what it is waiting for.
+  it('draws a browser row that is still waking', () => {
+    renderStrip([{ kind: 'browser', tabId: 'pending-1', provisional: true }])
+
+    expect(screen.getByRole('tab')).toHaveTextContent('New tab')
+    expect(screen.getByRole('tab').getAttribute('title')).toMatch(/starting the browser/i)
   })
 
   describe('reordering', () => {

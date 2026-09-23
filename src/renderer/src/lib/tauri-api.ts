@@ -18,6 +18,7 @@ import { listen } from '@tauri-apps/api/event'
 import type {
   AgentInfo,
   BgProcessRow,
+  ChatMemory,
   CommandInfo,
   BundledSkill,
   BrowserEvent,
@@ -32,6 +33,11 @@ import type {
   FileEntry,
   FileStamp,
   McpEntry,
+  McpInspection,
+  McpToggleResult,
+  PluginCatalog,
+  PluginActionRequest,
+  PluginActionResult,
   MemoryListResult,
   ProcessFileResult,
   ReadTextOutcome,
@@ -230,6 +236,15 @@ export const api = {
       }>('claude_check_binary', {
         customPath: customPath ?? null
       }),
+
+    accountStatus: (binaryPath: string) =>
+      call<{
+        loggedIn: boolean
+        loginMethod: string | null
+        organization: string | null
+        email: string | null
+        error: string | null
+      }>('claude_account_status', { binaryPath }),
 
     /**
      * Family → the id this CLI build resolves that alias to, from its catalog.
@@ -433,7 +448,19 @@ export const api = {
   },
 
   mcp: {
-    list: (cwd: string) => call<McpEntry[]>('mcp_list', { cwd })
+    list: (cwd: string) => call<McpEntry[]>('mcp_list', { cwd }),
+    inspect: (cwd: string, name: string) =>
+      call<McpInspection>('mcp_inspect', { cwd, name }),
+    setEnabled: (cwd: string, name: string, enabled: boolean) =>
+      call<McpToggleResult>('mcp_set_enabled', { cwd, name, enabled })
+  },
+
+  plugins: {
+    catalog: (cwd?: string) =>
+      call<PluginCatalog>('plugins_catalog', { cwd: cwd ?? null }),
+    action: (request: PluginActionRequest) =>
+      call<PluginActionResult>('plugins_action', { request }),
+    publicLogos: () => call<Record<string, string>>('plugins_public_logos')
   },
 
   hooks: {
@@ -501,6 +528,8 @@ export const api = {
 
   processes: {
     list: (nyraSessionId: string) => call<BgProcessRow[]>('processes_list', { nyraSessionId }),
+    memory: (nyraSessionId: string) =>
+      call<ChatMemory>('processes_memory', { nyraSessionId }),
     kill: (nyraSessionId: string, shellId: string) =>
       call<{ ok: boolean; error?: string }>('processes_kill', { nyraSessionId, shellId }),
     clear: (nyraSessionId: string) => call<void>('processes_clear', { nyraSessionId }),

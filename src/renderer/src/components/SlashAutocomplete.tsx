@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { slashCommands } from '../lib/slashCommands'
+import { noteCustomCommands, noteSkills, slashCommands } from '../lib/slashCommands'
 
 export type AutocompleteItem = {
   name: string
@@ -7,13 +7,40 @@ export type AutocompleteItem = {
   type: 'skill' | 'command'
 }
 
-/** Build the filtered autocomplete items list */
+/** Reads one scope of a scoped list, or nothing when the backend is not up. */
+const read = async <T,>(fn: () => Promise<{ global: T[]; project: T[] }>): Promise<T[]> => {
+  try {
+    const list = await fn()
+    return [...list.project, ...list.global]
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The completable commands, filtered by what has been typed after the slash.
+ *
+ * The list is `lib/slashCommands`' index — built-ins, the CLI's own report,
+ * skills and custom commands in one place — and this hook is what keeps it in
+ * step with the disk. Nodes are re-read when the popup opens and whenever
+ * something says a skill or a command changed, so one added a moment ago
+ * completes without a restart.
+ */
 export function useSlashItems(query: string, cwd: string): AutocompleteItem[] {
-  const [skills, setSkills] = useState<SkillInfo[]>([])
+  // The index is module state, not React state, so its revision is what a
+  // re-render hangs off. The number itself is never read.
+  const [, setRevision] = useState(0)
+  const live = useRef(true)
 
   const refresh = useCallback((): void => {
-    window.api.skills.list(cwd).then((result) => {
-      setSkills([...result.project, ...result.global])
+    void Promise.all([
+      read(() => window.api.skills.list(cwd)),
+      read(() => window.api.commands.list(cwd))
+    ]).then(([skills, commands]) => {
+      if (!live.current) return
+      noteSkills(skills)
+      noteCustomCommands(commands)
+      setRevision((n) => n + 1)
     })
   }, [cwd])
 
@@ -24,22 +51,26 @@ export function useSlashItems(query: string, cwd: string): AutocompleteItem[] {
   }, [query !== '', refresh]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    live.current = true
     refresh()
-    window.addEventListener('nyra:skills-changed', refresh)
-    return () => window.removeEventListener('nyra:skills-changed', refresh)
+    const onChanged = (): void => refresh()
+    window.addEventListener('nyra:skills-changed', onChanged)
+    window.addEventListener('nyra:commands-changed', onChanged)
+    return () => {
+      live.current = false
+      window.removeEventListener('nyra:skills-changed', onChanged)
+      window.removeEventListener('nyra:commands-changed', onChanged)
+    }
   }, [refresh])
 
   const q = query.toLowerCase()
-
-  const skillItems: AutocompleteItem[] = skills
-    .filter((s) => s.name.toLowerCase().includes(q))
-    .map((s) => ({ name: s.name, description: s.description, type: 'skill' as const }))
-
-  const commandItems: AutocompleteItem[] = slashCommands()
+  return slashCommands()
     .filter((c) => c.name.slice(1).toLowerCase().includes(q))
-    .map((c) => ({ name: c.name.slice(1), description: c.description, type: 'command' as const }))
-
-  return [...skillItems, ...commandItems]
+    .map((c) => ({
+      name: c.name.slice(1),
+      description: c.description,
+      type: c.kind
+    }))
 }
 
 type Props = {

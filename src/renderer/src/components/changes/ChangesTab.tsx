@@ -41,7 +41,7 @@ import {
   type ChatChanges
 } from '../../store/changes'
 import type { ChangedFile } from '../../lib/api-types'
-import { openFileInPanel } from '../../lib/openFile'
+import { openChangedFileInPanel } from '../../lib/openFile'
 
 /** Split needs room for two gutters and two columns of code; below this it is
  *  narrower per side than unified is in total. */
@@ -397,7 +397,10 @@ export default function ChangesTab({ sessionId }: { sessionId: string }): React.
           else rows.current.delete(f.path)
         }}
         onToggle={() => void useChangesStore.getState().toggleFile(sessionId, cwd, f.path)}
-        onOpenFile={() => openFileInPanel(f.path)}
+        // Git's path, resolved against the top of the repo rather than the
+        // chat's directory: a chat opened in a subdirectory was opening a file
+        // that did not exist.
+        onOpenFile={() => void openChangedFileInPanel(f.path)}
       />
     ))
   )

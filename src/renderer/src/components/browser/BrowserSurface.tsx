@@ -6,11 +6,12 @@
  * the canvas, and the states a page can be in before it is one.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Download, Globe, RotateCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Download, Globe, Loader2, RotateCw } from 'lucide-react'
 import AgentCursor from './AgentCursor'
 import BrowserCanvas from './BrowserCanvas'
 import BrowserMenu, { isEmulating, type DeviceSpec } from './BrowserMenu'
 import DeviceBar from './DeviceBar'
+import { startBrowserTab } from './useBrowserSession'
 import { displayUrl, toUrl } from './url'
 import Empty from '../workspace/Empty'
 import { EMPTY_BROWSER, useBrowserStore, type BrowserPhase } from '../../store/browser'
@@ -257,7 +258,10 @@ export function BrowserPhaseState({ sessionId }: { sessionId: string }): React.J
               setBusy(true)
               try {
                 const result = await window.api.browser.install()
-                if (result.ok) useBrowserStore.getState().setPhase(sessionId, 'off')
+                // Straight into the boot the download was blocking, rather than
+                // back to a phase the tab is no longer in: the row is already
+                // up, and it is waiting for a page.
+                if (result.ok) void startBrowserTab(sessionId)
               } finally {
                 setBusy(false)
               }
@@ -284,7 +288,12 @@ export function BrowserPhaseState({ sessionId }: { sessionId: string }): React.J
   }
 
   // `ready` here means the browser is up and a tab is on its way.
-  return <Empty>{chat.phase === 'ready' ? 'Opening…' : 'Starting the browser…'}</Empty>
+  return (
+    <Empty>
+      <Loader2 className="mb-3 size-5 animate-spin text-muted-foreground" />
+      {chat.phase === 'ready' ? 'Opening…' : 'Starting the browser…'}
+    </Empty>
+  )
 }
 
 function UrlBar({

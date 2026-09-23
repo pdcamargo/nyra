@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
-import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, X } from 'lucide-react'
+import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, Loader2, X } from 'lucide-react'
 import NewTabMenu from './NewTabMenu'
 import type { NewTabKind } from './tabs'
 import { tabKey, type WorkspaceTab } from '../../store/workspace'
+import type { BrowserPhase } from '../../store/browser'
 import type { BrowserTab } from '../../lib/api-types'
 
 /**
@@ -16,13 +17,19 @@ import type { BrowserTab } from '../../lib/api-types'
  * It holds file tabs now too, which is why a row's label comes from a join
  * rather than from the row: a browser tab's title belongs to the sidecar and
  * changes on every navigation, and only the title should re-render when it does.
+ *
+ * The interaction is the one every editor taught: a click on a file lands in the
+ * chat's single replaceable slot, drawn italic; a double click keeps a tab of its
+ * own. A middle click closes whatever it lands on, preview or not.
  */
 export default function WorkspaceTabStrip({
   tabs,
   activeKey,
   browserTabs,
+  browserPhase,
   onSelect,
   onClose,
+  onPin,
   onReorder,
   onNew
 }: {
@@ -30,8 +37,13 @@ export default function WorkspaceTabStrip({
   activeKey: string | null
   /** The sidecar's mirror, for the browser rows' titles and spinners. */
   browserTabs: BrowserTab[]
+  /** Only the provisional row reads this: a browser that failed to start should
+   *  stop claiming to be loading. */
+  browserPhase: BrowserPhase
   onSelect: (key: string) => void
   onClose: (key: string) => void
+  /** Keep a preview row open — a double click on its tab. */
+  onPin: (key: string) => void
   /** Put `fromKey` immediately before `beforeKey`, or last when null. */
   onReorder: (fromKey: string, beforeKey: string | null) => void
   onNew: (kind: NewTabKind) => void
@@ -76,7 +88,21 @@ export default function WorkspaceTabStrip({
                   ? "This chat's subagents"
                   : tab.kind === 'design'
                     ? 'The design canvas'
-                    : (tab.path ?? 'No file open')
+                    : tab.preview
+                      ? `${tab.path ?? 'No file open'} — double-click to keep it open`
+                      : (tab.path ?? 'No file open')
+        const waking = tab.kind === 'browser' && tab.provisional === true
+        /** A boot that failed is no longer loading, and a spinner that never
+         *  stops is a lie about the state of the world. */
+        const stuck = waking && (browserPhase === 'needs-chromium' || browserPhase === 'error')
+        // A provisional row has no url to show yet; what it has is a reason to be
+        // on screen, which is the honest thing to say in its tooltip — and once
+        // the boot has failed, that reason changes.
+        const title = waking
+          ? stuck
+            ? 'The browser could not start'
+            : 'Starting the browser…'
+          : hint
 
         return (
           <div
@@ -110,10 +136,21 @@ export default function WorkspaceTabStrip({
               endDrag()
             }}
             onClick={() => onSelect(key)}
+            onDoubleClick={() => {
+              if (tab.kind === 'file') onPin(key)
+            }}
+            // Middle click closes, on every kind of row. `auxclick` rather than
+            // `mouseup` so it is the button's own event and not a modifier of a
+            // left click.
+            onAuxClick={(e) => {
+              if (e.button !== 1) return
+              e.preventDefault()
+              onClose(key)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') onSelect(key)
             }}
-            title={hint}
+            title={title}
             className={`group relative flex min-w-0 max-w-[150px] shrink-0 cursor-default items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors ${
               key === activeKey
                 ? 'bg-accent text-foreground'
@@ -126,7 +163,11 @@ export default function WorkspaceTabStrip({
                 icon says what the tab is, which does not stop being true while
                 it loads. */}
             {tab.kind === 'browser' ? (
-              <Globe className="size-3 shrink-0 text-muted-foreground" />
+              waking && !stuck ? (
+                <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
+              ) : (
+                <Globe className="size-3 shrink-0 text-muted-foreground" />
+              )
             ) : tab.kind === 'changes' ? (
               <FileDiff className="size-3 shrink-0 text-muted-foreground" />
             ) : tab.kind === 'plan' ? (
@@ -138,7 +179,13 @@ export default function WorkspaceTabStrip({
             ) : (
               <FileText className="size-3 shrink-0 text-muted-foreground" />
             )}
-            <span className={`truncate ${live?.loading ? 'nyra-shimmer' : ''}`}>{label}</span>
+            <span
+              className={`truncate ${live?.loading || (waking && !stuck) ? 'nyra-shimmer' : ''} ${
+                tab.kind === 'file' && tab.preview ? 'italic' : ''
+              }`}
+            >
+              {label}
+            </span>
             <button
               aria-label="Close tab"
               draggable={false}

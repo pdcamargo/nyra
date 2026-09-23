@@ -470,6 +470,33 @@ pub fn dispose_session(nyra_session_id: &str) {
     fail_result_callback(nyra_session_id, "Session disposed");
 }
 
+/// Dispose a chat and wait for its process to exit before a caller snapshots
+/// files it may have been writing. The ordinary dispose path is intentionally
+/// fire-and-forget; archiving needs a stronger completion boundary.
+pub async fn dispose_session_and_wait(nyra_session_id: &str) -> Result<(), String> {
+    let pid = get_session(nyra_session_id).and_then(|session| session.inner.lock().pid);
+    dispose_session(nyra_session_id);
+
+    #[cfg(unix)]
+    if let Some(pid) = pid {
+        for _ in 0..40 {
+            let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
+            if !alive {
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ESRCH) {
+                    return Ok(());
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        return Err("Claude did not stop before the archive snapshot".into());
+    }
+
+    #[cfg(not(unix))]
+    let _ = pid;
+    Ok(())
+}
+
 pub fn dispose_all() {
     let all: Vec<Arc<Session>> = SESSIONS.lock().drain().map(|(_, v)| v).collect();
     for sess in all {

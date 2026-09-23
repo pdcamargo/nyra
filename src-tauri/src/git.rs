@@ -14,6 +14,24 @@ async fn git(cwd: &str, args: &[&str], timeout_ms: u64) -> Result<std::process::
     .map_err(|e| e.to_string())
 }
 
+/// The top of the working tree `cwd` is in — the path git's own output is
+/// relative to.
+///
+/// A chat's directory is not necessarily the repo root: opened in
+/// `Developer/mv-ui`, it sits inside a repo whose files git names from
+/// `Developer`. `git diff` always prints paths from the top, so asking git for
+/// the top is the only way to read them back as files. `rev-parse` rather than
+/// the first line of `worktree list`, because a linked worktree's top is the
+/// worktree — which is where the chat is actually working.
+async fn worktree_root(cwd: &str) -> Option<String> {
+    let out = git(cwd, &["rev-parse", "--show-toplevel"], 5000).await.ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!root.is_empty()).then_some(root)
+}
+
 pub async fn branch(cwd: &str) -> String {
     match git(cwd, &["branch", "--show-current"], 3000).await {
         Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
@@ -516,14 +534,26 @@ fn parse_shortstat(text: &str) -> Value {
 /// `git add -N`: intent-to-add would mutate the user's index behind their back,
 /// and this is a read-only surface.
 async fn untracked_files(cwd: &str) -> Vec<Value> {
-    let Ok(out) = git(cwd, &["ls-files", "--others", "--exclude-standard"], 10_000).await else {
+    // `--full-name` because `ls-files` prints paths relative to wherever it ran,
+    // unlike `git diff`, which always prints them from the top of the tree. Both
+    // halves of the Changes list have to speak the same language or the rows
+    // resolve against the wrong directory.
+    let Ok(out) = git(
+        cwd,
+        &["ls-files", "--others", "--exclude-standard", "--full-name"],
+        10_000,
+    )
+    .await
+    else {
         return Vec::new();
     };
     if !out.status.success() {
         return Vec::new();
     }
 
-    let root = std::path::Path::new(cwd);
+    // The line count needs a real path, and the path above is now repo-relative.
+    let top = worktree_root(cwd).await.unwrap_or_else(|| cwd.to_string());
+    let root = std::path::Path::new(&top);
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter(|p| !p.trim().is_empty())
@@ -628,6 +658,12 @@ pub async fn diff_patch(
     untracked: bool,
     ignore_whitespace: bool,
 ) -> Value {
+    // Git resolves a pathspec against the directory it runs in, and the paths
+    // the renderer holds are the ones `diff_files` printed — relative to the top
+    // of the tree. Running from the top is what makes the two agree, and it is
+    // what makes a chat opened in a subdirectory able to open any diff at all.
+    let at = worktree_root(cwd).await.unwrap_or_else(|| cwd.to_string());
+
     // `-w` belongs here rather than in the renderer: the view draws a patch git
     // already computed, so dropping whitespace is a property of making it.
     let ws: &[&str] = if ignore_whitespace {
@@ -640,7 +676,7 @@ pub async fn diff_patch(
         let mut args = vec!["diff", "--no-index"];
         args.extend_from_slice(ws);
         args.extend_from_slice(&["--", "/dev/null", path]);
-        let out = git(cwd, &args, 20_000).await;
+        let out = git(&at, &args, 20_000).await;
         // `--no-index` exits 1 when the files differ, which is the normal case
         // here — only a failure to run at all is an error.
         return match out {
@@ -657,7 +693,7 @@ pub async fn diff_patch(
     let mut args = vec!["diff"];
     args.extend_from_slice(ws);
     args.extend_from_slice(&[&target, "--", path]);
-    match git(cwd, &args, 20_000).await {
+    match git(&at, &args, 20_000).await {
         Ok(out) if out.status.success() => json!({ "patch": String::from_utf8_lossy(&out.stdout) }),
         Ok(out) => json!({
             "patch": "",
@@ -1137,6 +1173,58 @@ mod tests {
 
         let files = files_of(&diff_files(cwd, None).await);
         assert_eq!(files, vec![("new.ts".to_string(), 3, 0, true)]);
+    }
+
+    /// A chat can be opened in a subdirectory of its repo, and git names changed
+    /// files from the top of the tree no matter where it ran. Both halves of the
+    /// list have to agree on that, or the renderer resolves them against a
+    /// directory the files are not in.
+    #[tokio::test]
+    async fn diff_files_names_paths_from_the_repo_top_in_a_subdirectory() {
+        let repo = TempRepo::new("diff-subdir");
+        let sub = repo.path().join("apps/api");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(repo.path().join("README.md"), "base\nsecond\n").unwrap();
+        std::fs::write(sub.join("tracked.ts"), "x\n").unwrap();
+
+        let files = files_of(&diff_files(sub.to_str().unwrap(), None).await);
+
+        // `ls-files` prints relative to where it ran unless told otherwise, which
+        // is what made an untracked row unusable from a subdirectory.
+        assert_eq!(
+            files,
+            vec![
+                ("README.md".to_string(), 1, 0, false),
+                ("apps/api/tracked.ts".to_string(), 1, 0, true),
+            ]
+        );
+    }
+
+    /// And the patch has to be built from the same root the row was named from:
+    /// git reads a pathspec relative to its working directory.
+    #[tokio::test]
+    async fn diff_patch_reads_a_repo_relative_path_from_a_subdirectory() {
+        let repo = TempRepo::new("patch-subdir");
+        let sub = repo.path().join("apps/api");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(repo.path().join("README.md"), "base\nadded\n").unwrap();
+
+        let patch = diff_patch(sub.to_str().unwrap(), None, "README.md", false, false).await
+            ["patch"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        assert!(patch.contains("+added"), "unexpected patch: {patch}");
+
+        // The same for a file git has never seen, which goes through `--no-index`.
+        std::fs::write(sub.join("fresh.ts"), "one\n").unwrap();
+        let untracked = diff_patch(sub.to_str().unwrap(), None, "apps/api/fresh.ts", true, false)
+            .await["patch"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(untracked.contains("+one"), "unexpected patch: {untracked}");
     }
 
     /// And it must not do so by staging anything — the panel is read-only, and an

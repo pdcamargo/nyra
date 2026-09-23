@@ -27,6 +27,15 @@ export type NyraSettings = {
    *  costs nothing to have from the start. */
   browserPip: boolean
   /**
+   * Show what the active chat is holding in memory, in the summary card.
+   *
+   * Off by default. It answers one question — which conversation is the heavy
+   * one — and answers it with a number that is only worth having while you are
+   * asking, and costs a process-table read every few seconds while it is on.
+   * Renderer-only, like `browserDevice`: nothing Rust-side reads it.
+   */
+  showChatMemory: boolean
+  /**
    * Where device mode goes when it is switched back on.
    *
    * The binding cannot be persisted — the tab it applied to does not survive a
@@ -62,6 +71,12 @@ export type NyraSettings = {
    *  someone who reads diffs unified reads every diff unified. */
   diffView: DiffViewMode
   diffWrap: boolean
+  /** Soft-wrap the text in a file preview tab. The file equivalent of the
+   *  conversation's measure: a minified JSON or a long line of prose is the
+   *  same complaint, and this is the switch that answers it. Separate from
+   *  `diffWrap` because reading a patch and reading a file are different jobs
+   *  and someone can reasonably want one wrapped and not the other. */
+  fileWrap: boolean
   /** Passes `-w` to git. Unlike the other two this is not a rendering choice —
    *  the library draws a patch that git already computed, so whitespace has to
    *  be dropped when the patch is made, not when it is shown. */
@@ -141,6 +156,7 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   browserTools: true,
   appTools: true,
   browserPip: true,
+  showChatMemory: false,
   browserDevice: 'iphone-16-pro',
   zoom: 1,
   uiFont: '',
@@ -154,6 +170,7 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   chatWidth: 'wide',
   diffView: 'auto',
   diffWrap: false,
+  fileWrap: false,
   diffIgnoreWhitespace: false,
   dictationModel: 'turbo',
   dictationLanguage: '',

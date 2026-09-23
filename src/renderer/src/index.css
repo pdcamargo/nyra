@@ -636,6 +636,15 @@ html:not(.dark) .nyra-on-bubble {
   background-color: var(--scrollbar-thumb-hover);
 }
 
+/* The marketplace's category rail can scroll at the 900×600 minimum without
+ * drawing a second scrollbar beside the results. */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /*
  * A table wide enough to run past the column should say so.
  *

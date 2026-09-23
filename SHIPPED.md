@@ -29,6 +29,7 @@ Versions in parentheses are where the work landed.
 - Live MCP server status and rate-limit countdown (v0.0.1)
 - Per-chat model, effort and plan mode, instead of one global setting (v0.0.3)
 - A hook editor, a skill editor and an MCP settings panel — GUI surfaces the CLI has no equivalent for (v0.0.1)
+- Plugins and marketplaces — discover, install, update and manage plugins from a dedicated page (next)
 - Subagents you can watch — click one to follow its work in a tab of its own (v0.0.10)
 - In-session transcript search (v0.0.3)
 - Rebindable keyboard shortcuts, every one listed and searchable (v0.0.3)

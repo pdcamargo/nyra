@@ -100,13 +100,128 @@ export type BgProcessRow = {
   ports: number[]
 }
 
+export type ChatMemory = { bytes: number; processes: number }
+
 export type McpEntry = {
   name: string
+  transport?: 'stdio' | 'http' | 'sse' | 'ws' | string
   command?: string
   args?: string[]
   url?: string
   scope: Scope
+  source?: string
+  envKeys?: string[]
+  headerKeys?: string[]
+  disabled?: boolean
 }
+
+export type McpInspection =
+  | {
+      ok: true
+      protocolVersion?: string | null
+      serverInfo?: { name?: string; version?: string } | null
+      capabilities?: unknown
+      tools: {
+        name: string
+        description: string
+        parameters: { name: string; type: string; required: boolean }[]
+        inputSchema: unknown | null
+      }[]
+    }
+  | { ok: false; error: string }
+
+export type McpToggleResult =
+  | { ok: true; name: string; enabled: boolean }
+  | { ok: false; error: string }
+
+export type PluginComponents = {
+  skills: number
+  commands: number
+  agents: number
+  hooks: number
+  mcpServers: number
+  lspServers: number
+}
+
+export type AvailablePlugin = {
+  id: string
+  name: string
+  displayName: string | null
+  description: string | null
+  marketplace: string | null
+  category: string | null
+  author: string | null
+  homepage: string | null
+  keywords: string[]
+  tags: string[]
+  installCount: number | null
+  version: string | null
+  kind: 'integration' | 'plugin'
+  verified: boolean
+  source: string
+  components: PluginComponents | null
+  tokens: { model: string; alwaysOn: number | null; onInvoke: number | null }[]
+  installed: boolean
+  enabled: boolean
+  installedVersion: string | null
+  installedScope: string | null
+}
+
+export type InstalledPlugin = {
+  id: string
+  name: string
+  marketplace: string | null
+  version: string | null
+  scope: string | null
+  enabled: boolean
+  installPath: string | null
+  installedAt: string | null
+  lastUpdated: string | null
+  description: string | null
+  category: string | null
+  author: string | null
+  components: PluginComponents | null
+}
+
+export type PluginCatalog =
+  | {
+      ok: true
+      binary: string
+      installed: InstalledPlugin[]
+      available: AvailablePlugin[]
+      marketplaces: {
+        name: string
+        source: string
+        location: string
+        official: boolean
+        pluginCount: number
+      }[]
+      categories: { id: string; label: string; count: number }[]
+    }
+  | { ok: false; error: string }
+
+export type PluginActionRequest = {
+  action:
+    | 'install'
+    | 'update'
+    | 'enable'
+    | 'disable'
+    | 'uninstall'
+    | 'details'
+    | 'marketplace.add'
+    | 'marketplace.remove'
+    | 'marketplace.update'
+  id?: string
+  scope?: 'user' | 'project' | 'local'
+  source?: string
+  cwd?: string
+  acceptCommand?: string
+}
+
+export type PluginActionResult =
+  | { ok: true; result?: unknown; output?: string; id?: string; components?: unknown; tokens?: unknown; resolved?: boolean }
+  | { ok: false; needsConfirmation: true; command: string; sha256: string | null; message: string }
+  | { ok: false; error: string; code?: number | null }
 
 /** A prompt attachment after the backend extracted its text. */
 export type ProcessedFile = {

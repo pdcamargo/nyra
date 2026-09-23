@@ -9,9 +9,16 @@ import { FileText } from 'lucide-react'
 import Empty from '../workspace/Empty'
 import { useFileStamp } from '../../hooks/useFileStamp'
 import { detectLanguage } from '../../utils/diff'
-import type { ReadTextOutcome } from '../../lib/api-types'
+import { isImagePath, isMarkdownPath } from './media'
+import type { ReadImageResult, ReadTextOutcome } from '../../lib/api-types'
 
 const MonacoPreview = React.lazy(() => import('./MonacoPreview'))
+const MarkdownPreview = React.lazy(() => import('./MarkdownPreview'))
+
+/** What came back for this path: text, or the bytes of a picture. */
+type Loaded =
+  | { kind: 'text'; outcome: ReadTextOutcome }
+  | { kind: 'image'; result: ReadImageResult }
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -19,25 +26,43 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-export default function FilePreviewPane({ path }: { path: string | null }): React.JSX.Element {
-  const [outcome, setOutcome] = useState<ReadTextOutcome | null>(null)
+export default function FilePreviewPane({
+  path,
+  wrap
+}: {
+  path: string | null
+  /** Soft-wrap the text viewer. Shared with the diff, so a panel that wraps
+   *  diffs wraps files too rather than making the reader set it twice. */
+  wrap: boolean
+}): React.JSX.Element {
+  const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [loading, setLoading] = useState(false)
   const stamp = useFileStamp(path)
+  const image = path !== null && isImagePath(path)
+  const markdown = path !== null && isMarkdownPath(path)
 
   useEffect(() => {
     if (!path) {
-      setOutcome(null)
+      setLoaded(null)
       return
     }
     let cancelled = false
     setLoading(true)
-    void window.api.fs
-      .readTextFile(path)
+    // A picture is read as bytes, not as text: `readTextFile` answers "binary"
+    // for every one of them, and showing a placeholder for a screenshot the
+    // agent just took is the one thing the preview should never do.
+    const read: Promise<Loaded> = image
+      ? window.api.fs.readImage(path).then((result) => ({ kind: 'image', result }))
+      : window.api.fs.readTextFile(path).then((outcome) => ({ kind: 'text', outcome }))
+    void read
       .then((next) => {
-        if (!cancelled) setOutcome(next)
+        if (cancelled) return
+        setLoaded(next)
       })
       .catch((err: Error) => {
-        if (!cancelled) setOutcome({ kind: 'error', message: err.message })
+        if (!cancelled) {
+          setLoaded({ kind: 'text', outcome: { kind: 'error', message: err.message } })
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -47,7 +72,7 @@ export default function FilePreviewPane({ path }: { path: string | null }): Reac
     }
     // `stamp` is the whole point: it changes when the file does, and re-reading
     // is how the preview follows an edit made outside Nyra.
-  }, [path, stamp])
+  }, [path, stamp, image])
 
   if (!path) {
     return (
@@ -61,8 +86,28 @@ export default function FilePreviewPane({ path }: { path: string | null }): Reac
     )
   }
 
-  if (!outcome) return <Empty>{loading ? 'Reading…' : ''}</Empty>
+  if (!loaded) return <Empty>{loading ? 'Reading…' : ''}</Empty>
 
+  if (loaded.kind === 'image') {
+    const { base64, mediaType, error, missing } = loaded.result
+    if (!base64 || !mediaType) {
+      // What Rust refuses — SVG, or a raster the allowlist has not been widened
+      // to — says so where the picture would have been. A missing file says
+      // that instead, because it is the one the reader can do something about.
+      return <Empty>{missing ? 'This file no longer exists.' : (error ?? 'Not an image.')}</Empty>
+    }
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center overflow-auto bg-muted/20 p-3">
+        <img
+          src={`data:${mediaType};base64,${base64}`}
+          alt={path ?? ''}
+          className="max-h-full max-w-full object-contain"
+        />
+      </div>
+    )
+  }
+
+  const outcome = loaded.outcome
   switch (outcome.kind) {
     case 'binary':
       return <Empty>Binary file ({formatBytes(outcome.size)})</Empty>
@@ -84,7 +129,15 @@ export default function FilePreviewPane({ path }: { path: string | null }): Reac
         <div className="flex h-full min-h-0 flex-col">
           <div className="min-h-0 flex-1">
             <Suspense fallback={<Empty>Loading viewer…</Empty>}>
-              <MonacoPreview value={outcome.content} language={detectLanguage(path)} />
+              {markdown ? (
+                <MarkdownPreview value={outcome.content} wrap={wrap} />
+              ) : (
+                <MonacoPreview
+                  value={outcome.content}
+                  language={detectLanguage(path)}
+                  wrap={wrap}
+                />
+              )}
             </Suspense>
           </div>
           {outcome.truncated && (

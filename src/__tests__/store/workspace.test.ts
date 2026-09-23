@@ -136,14 +136,10 @@ describe('the store', () => {
 
   const ws = (): ChatWorkspace => workspaceFor(useWorkspaceStore.getState(), SID)
 
-  it('opens a file tab, selects it, and renames it when a file is picked', () => {
+  it('opens a file tab, selects it, and starts it on no file at all', () => {
     const key = useWorkspaceStore.getState().openFileTab(SID)
     expect(ws().activeKey).toBe(key)
     expect((ws().tabs[0] as { path: string | null }).path).toBeNull()
-
-    const id = (ws().tabs[0] as { id: string }).id
-    useWorkspaceStore.getState().setFilePath(SID, id, '/repo/a.ts')
-    expect((ws().tabs[0] as { path: string | null }).path).toBe('/repo/a.ts')
   })
 
   it('closes a file tab locally and picks the neighbour', () => {
@@ -262,7 +258,189 @@ describe('the store', () => {
   })
 })
 
+describe('the preview slot', () => {
+  beforeEach(() => useWorkspaceStore.setState({ bySession: {} }))
+
+  const ws = (): ChatWorkspace => workspaceFor(useWorkspaceStore.getState(), SID)
+  const pathOf = (key: string | null): string | null => {
+    const tab = ws().tabs.find((t) => tabKey(t) === key)
+    return tab?.kind === 'file' ? tab.path : null
+  }
+
+  // Clicking five files in a tree is five looks at them, not a request for five
+  // tabs. One row is retargeted until something asks for it to stay.
+  it('retargets one row instead of stacking a tab per click', () => {
+    const store = useWorkspaceStore.getState()
+    const first = store.openFilePreviewTab(SID, '/repo/a.ts')
+    const second = store.openFilePreviewTab(SID, '/repo/b.ts')
+
+    expect(second).toBe(first)
+    expect(ws().tabs).toHaveLength(1)
+    expect(pathOf(first)).toBe('/repo/b.ts')
+    expect(ws().activeKey).toBe(first)
+  })
+
+  it('leaves the preview row alone when a file is pinned', () => {
+    const store = useWorkspaceStore.getState()
+    const preview = store.openFilePreviewTab(SID, '/repo/a.ts')
+    const pinned = store.openFileTab(SID, '/repo/b.ts')
+
+    expect(ws().tabs).toHaveLength(2)
+    expect(pathOf(preview)).toBe('/repo/a.ts')
+    expect(pathOf(pinned)).toBe('/repo/b.ts')
+    expect(ws().activeKey).toBe(pinned)
+  })
+
+  it('keeps the row open once it is pinned', () => {
+    const store = useWorkspaceStore.getState()
+    const key = store.openFilePreviewTab(SID, '/repo/a.ts')
+    const id = (ws().tabs[0] as { id: string }).id
+    store.pinFileTab(SID, id)
+
+    store.openFilePreviewTab(SID, '/repo/b.ts')
+
+    expect(pathOf(key)).toBe('/repo/a.ts')
+    expect(ws().tabs).toHaveLength(2)
+  })
+
+  it('pins a row that is already showing the file rather than making a second', () => {
+    const store = useWorkspaceStore.getState()
+    store.openFilePreviewTab(SID, '/repo/a.ts')
+    const id = (ws().tabs[0] as { id: string }).id
+    store.pinFileTab(SID, id)
+
+    // Pinning twice, or pinning a file that is already open, is one row.
+    store.pinFileTab(SID, id)
+    expect(ws().tabs).toHaveLength(1)
+  })
+})
+
+describe('the provisional browser row', () => {
+  beforeEach(() => useWorkspaceStore.setState({ bySession: {} }))
+
+  const ws = (): ChatWorkspace => workspaceFor(useWorkspaceStore.getState(), SID)
+
+  // The whole feature: the row is on screen before the browser is, so a cold
+  // start does not look like a button that did nothing.
+  it('goes up immediately, and is selected', () => {
+    const key = useWorkspaceStore.getState().openProvisionalBrowserTab(SID)
+
+    expect(ws().activeKey).toBe(key)
+    expect(ws().tabs).toHaveLength(1)
+    expect(ws().tabs[0]).toMatchObject({ kind: 'browser', provisional: true })
+    expect(wantsBrowser(ws())).toBe(true)
+  })
+
+  it('is asked for twice, and drawn once', () => {
+    const first = useWorkspaceStore.getState().openProvisionalBrowserTab(SID)
+    const second = useWorkspaceStore.getState().openProvisionalBrowserTab(SID)
+
+    expect(second).toBe(first)
+    expect(ws().tabs).toHaveLength(1)
+  })
+
+  it('is replaced where it stands, with the selection following the row', () => {
+    const store = useWorkspaceStore.getState()
+    store.openFileTab(SID, '/repo/a.ts')
+    const provisional = store.openProvisionalBrowserTab(SID)
+    const id = provisional.slice('browser:'.length)
+    // Three rows, with the browser row in the middle: the real tab has to land
+    // in that slot rather than at the end.
+    store.openFileTab(SID, '/repo/b.ts')
+    store.selectTab(SID, provisional)
+
+    const key = store.adoptBrowserTab(SID, id, 't9')
+
+    expect(key).toBe(browserKey('t9'))
+    expect(ws().tabs.map(tabKey)).toEqual([
+      fileKey((ws().tabs[0] as { id: string }).id),
+      browserKey('t9'),
+      fileKey((ws().tabs[2] as { id: string }).id)
+    ])
+    expect(ws().tabs[1]).toMatchObject({ kind: 'browser', tabId: 't9' })
+    expect(ws().activeKey).toBe(browserKey('t9'))
+  })
+
+  it('does not steal the selection back when the page arrives', () => {
+    const store = useWorkspaceStore.getState()
+    const provisional = store.openProvisionalBrowserTab(SID)
+    const id = provisional.slice('browser:'.length)
+    const file = store.openFileTab(SID, '/repo/a.ts')
+    store.selectTab(SID, file)
+
+    store.adoptBrowserTab(SID, id, 't9')
+
+    expect(ws().activeKey).toBe(file)
+  })
+
+  // The broadcast and the reply that created the tab race each other. Whichever
+  // lands second, there is one row and not two.
+  it('clears itself when the real row got there first', () => {
+    const store = useWorkspaceStore.getState()
+    const provisional = store.openProvisionalBrowserTab(SID)
+    const id = provisional.slice('browser:'.length)
+    store.selectTab(SID, provisional)
+    store.reconcile(SID, ['t9'])
+
+    const key = store.adoptBrowserTab(SID, id, 't9')
+
+    expect(key).toBe(browserKey('t9'))
+    expect(ws().tabs.map(tabKey)).toEqual([browserKey('t9')])
+    expect(ws().activeKey).toBe(browserKey('t9'))
+  })
+
+  it('reports a missing placeholder, which is how a cancel is seen', () => {
+    const store = useWorkspaceStore.getState()
+    const provisional = store.openProvisionalBrowserTab(SID)
+    store.closeTab(SID, provisional)
+
+    expect(store.adoptBrowserTab(SID, provisional.slice('browser:'.length), 't9')).toBeNull()
+    expect(ws().tabs).toEqual([])
+  })
+
+  // A row that left for any other reason is not a cancel: the page exists, so it
+  // gets a row rather than being thrown away with the placeholder.
+  it('gives the page a row when the placeholder went missing some other way', () => {
+    const store = useWorkspaceStore.getState()
+    const provisional = store.openProvisionalBrowserTab(SID)
+    const id = provisional.slice('browser:'.length)
+    useWorkspaceStore.setState({ bySession: {} })
+
+    const key = store.adoptBrowserTab(SID, id, 't9')
+
+    expect(key).toBe(browserKey('t9'))
+    expect(ws().tabs.map(tabKey)).toEqual([browserKey('t9')])
+    expect(ws().activeKey).toBe(browserKey('t9'))
+  })
+
+  // It outlives a broadcast that leaves it out — it is ours, not the sidecar's —
+  // and it never becomes the page the miniature is drawn from.
+  it('survives an empty broadcast but is not a tab to draw', () => {
+    const key = useWorkspaceStore.getState().openProvisionalBrowserTab(SID)
+    useWorkspaceStore.getState().reconcile(SID, [])
+
+    expect(ws().tabs.map(tabKey)).toEqual([key])
+    expect(activeBrowserTabId(ws())).toBeNull()
+  })
+
+  // A provisional row is a browser row on the way out, so the persisted blob
+  // never carries a name for a tab that will not exist after a restart.
+  it('is dropped on the way out, like every browser row', () => {
+    const out = sanitizeWorkspaces({
+      [SID]: { tabs: [{ kind: 'browser', tabId: 'pending-1', provisional: true }] }
+    })
+    expect(out[SID]).toBeUndefined()
+  })
+})
+
 describe('sanitizeWorkspaces', () => {
+  it('restores a preview row as a preview row', () => {
+    const out = sanitizeWorkspaces({
+      [SID]: { tabs: [{ kind: 'file', id: 'x', path: '/repo/a.ts', preview: true }] }
+    })
+    expect(out[SID].tabs).toEqual([{ kind: 'file', id: 'x', path: '/repo/a.ts', preview: true }])
+  })
+
   it('drops browser entries and re-resolves an activeKey that named one', () => {
     const out = sanitizeWorkspaces({
       [SID]: {

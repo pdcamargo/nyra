@@ -87,6 +87,7 @@ describe('command registry', () => {
 
     it('covers every panel toggle', () => {
       expect(togglers.map((c) => c.id).sort()).toEqual([
+        'file.wrap',
         'panel.bottom',
         'panel.canvas',
         'panel.left',

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
-import { useSessionsStore, activeCwd, activeProjectCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
+import { useSessionsStore, activeCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
@@ -52,7 +52,6 @@ import { useRateLimitStore } from '../store/rateLimit'
 import { useRunningStore, isSessionRunning } from '../store/running'
 import { useUiStore } from '../store/ui'
 import { useLoopsStore } from '../store/loops'
-import { BUILT_IN_COMMANDS } from '../data/commands'
 import { noteSlashCommands } from '../lib/slashCommands'
 import { noteModelId, noteModelVersion, noteOfferedModels } from '../store/modelVersions'
 import type { OfferedModel } from '../lib/models'
@@ -1258,28 +1257,9 @@ export default function Chat(): React.JSX.Element {
     const hasAttachments = (images?.length ?? 0) > 0 || (files?.length ?? 0) > 0
     if ((!text.trim() && !hasAttachments) || (routedSid && isSessionRunning(routedSid))) return
 
+    // Keep slash invocations intact. The running Claude CLI decides whether a
+    // command or skill exists and reports an error for one it does not know.
     let prompt = text.trim()
-
-    // Claude CLI treats /foo as a skill invocation. If it's neither a real skill
-    // nor a built-in CLI command, strip the leading / so it becomes a normal prompt
-    // instead of an "Unknown skill" error.
-    if (prompt.startsWith('/')) {
-      const slashName = prompt.slice(1).split(/\s/)[0]
-      const builtInNames = new Set(BUILT_IN_COMMANDS.map((c) => c.name.slice(1).split(/\s/)[0]))
-      if (!builtInNames.has(slashName)) {
-        // Skills resolve against the project root, not a worktree's directory.
-        const skillCwd = activeProjectCwd(useSessionsStore.getState()) || homedir
-        try {
-          const skills = await window.api.skills.list(skillCwd)
-          const allNames = [...skills.global, ...skills.project].map((s) => s.name)
-          if (!allNames.includes(slashName)) {
-            prompt = prompt.slice(1) // strip leading /
-          }
-        } catch {
-          prompt = prompt.slice(1) // on error, be safe and strip
-        }
-      }
-    }
 
     pendingToolsRef.current.clear()
 

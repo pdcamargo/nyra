@@ -2,6 +2,7 @@
 
 mod updates;
 mod ai_title;
+mod account_status;
 mod app_mcp;
 mod browser;
 mod claude;
@@ -24,6 +25,8 @@ mod model_catalog;
 mod memory;
 mod notify_user;
 mod open_with;
+mod plugins;
+mod plugin_logos;
 mod processes;
 mod settings;
 mod skills;
@@ -100,6 +103,14 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
         .setup(|app| {
             util::set_app_handle(app.handle().clone());
 
@@ -165,6 +176,7 @@ pub fn run() {
             commands::claude_steer,
             commands::claude_dispose,
             commands::claude_check_binary,
+            commands::claude_account_status,
             commands::model_alias_targets,
             commands::claude_save_image,
             commands::claude_save_temp_file,
@@ -218,6 +230,11 @@ pub fn run() {
             commands::git_worktree_merge,
             commands::git_worktree_remove,
             commands::mcp_list,
+            commands::mcp_inspect,
+            commands::mcp_set_enabled,
+            commands::plugins_catalog,
+            commands::plugins_action,
+            commands::plugins_public_logos,
             commands::hooks_read,
             commands::hooks_write,
             commands::workflow_list,
@@ -247,6 +264,7 @@ pub fn run() {
             commands::processes_list,
             commands::processes_kill,
             commands::processes_clear,
+            processes::processes_memory,
             commands::subagent_transcript,
             commands::login_start,
             commands::login_input,

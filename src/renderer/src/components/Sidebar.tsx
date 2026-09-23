@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
-import { useSessionsStore, activeProject, activeProjectCwd, sortProjects } from '../store/sessions'
+import {
+  useSessionsStore,
+  activeProject,
+  activeProjectCwd,
+  liveSessions,
+  sortProjects
+} from '../store/sessions'
 import { useUiStore, type MainView } from '../store/ui'
 import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
@@ -8,7 +14,7 @@ import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { ArrowDownToLine, Brain, Copy, Folder, Slash, Sparkles, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
+import { Archive, ArrowDownToLine, Brain, Copy, Folder, Slash, Sparkles, Store, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -17,6 +23,16 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from './ui/context-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from './ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { ChatRowPrChip, PrCardLines } from './PullRequestChips'
 import UsageMenu from './UsageMenu'
@@ -32,6 +48,7 @@ import {
 import { homedir } from '../lib/homedir'
 import { groupFlowsByProject, triggerSummary, flowMeta, flowComposition } from '../lib/flowGrouping'
 import { createPermanentWorktree, defaultBranchName } from '../lib/worktrees'
+import { archiveChat, openArchivedChats } from '../lib/archive'
 import type { WorkflowDefinition } from '../../../shared/workflow-types'
 
 // Lazy so monaco-editor only loads when Memory is opened.
@@ -41,7 +58,9 @@ const MemoryTab = React.lazy(() => import('./MemoryTab'))
 const NAV = [
   { view: 'skills', label: 'Skills', Icon: Sparkles },
   { view: 'commands', label: 'Commands', Icon: Slash },
-  { view: 'memory', label: 'Memory', Icon: Brain }
+  { view: 'memory', label: 'Memory', Icon: Brain },
+  { view: 'plugins', label: 'Plugins', Icon: Store },
+  { view: 'archived', label: 'Archived', Icon: Archive }
 ] as const satisfies readonly { view: Exclude<MainView, 'chat'>; label: string; Icon: unknown }[]
 
 export default function Sidebar(): React.JSX.Element {
@@ -107,7 +126,18 @@ export default function Sidebar(): React.JSX.Element {
                 key={view}
                 type="button"
                 aria-current={on ? 'page' : undefined}
-                onClick={() => setMainView(on ? 'chat' : view)}
+                onClick={() => {
+                  if (on) {
+                    setMainView('chat')
+                    return
+                  }
+                  // The Archived page carries a project selection, so its row
+                  // opens it the way the command does rather than setting the
+                  // view alone. `null` clears the selection, which lands on the
+                  // project the chat you are reading belongs to.
+                  if (view === 'archived') openArchivedChats(null)
+                  else setMainView(view)
+                }}
                 /* The same fill and ring a selected chat gets. One rail, one
                    idea of "this is what you are looking at" — and since only
                    one of the two can be true at a time, they never appear
@@ -483,6 +513,12 @@ function ProjectMenu({ project }: { project: Project }): React.JSX.Element {
           <FolderOpen />
           Change folder…
         </DropdownMenuItem>
+        {/* The project's own way in to the archive. It opens already on this
+            project rather than on whatever the page last showed. */}
+        <DropdownMenuItem onSelect={() => openArchivedChats(project.id)}>
+          <Archive />
+          View archived chats
+        </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => {
             const branch = window.prompt('Branch for the permanent worktree', defaultBranchName())
@@ -524,6 +560,9 @@ function SessionsList(): React.JSX.Element {
   const onChatView = useUiStore((s) => s.mainView === 'chat')
   const showChat = useUiStore((s) => s.setMainView)
   const sessions = useSessionsStore((state) => state.sessions)
+  // Archived chats are not in the rail at all. Their own page is where they
+  // live, and it is the only place that knows how to bring one back.
+  const railSessions = useMemo(() => liveSessions(sessions), [sessions])
   // Subscribe to the raw array and sort in render: sortProjects allocates, and a
   // selector returning a fresh reference re-renders forever under zustand's
   // Object.is comparison.
@@ -541,6 +580,22 @@ function SessionsList(): React.JSX.Element {
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [expandedAll, setExpandedAll] = useState<Set<string>>(new Set())
+  // Archiving a chat that is working has to ask first — it stops the work. A
+  // chat that is idle goes straight away, and only shows up here if it could
+  // not go: a snapshot that failed is not worth a silent menu item.
+  const [archivePrompt, setArchivePrompt] = useState<
+    { kind: 'confirm' | 'failed'; session: Session; error?: string } | null
+  >(null)
+
+  const runArchive = useCallback(async (session: Session): Promise<void> => {
+    const result = await archiveChat(session.id)
+    if (!result.ok) setArchivePrompt({ kind: 'failed', session, error: result.error })
+  }, [])
+
+  const requestArchive = (session: Session): void => {
+    if (running[session.id]) setArchivePrompt({ kind: 'confirm', session })
+    else void runArchive(session)
+  }
 
   const commitRename = (): void => {
     if (renamingId && renameValue.trim()) {
@@ -549,12 +604,12 @@ function SessionsList(): React.JSX.Element {
     setRenamingId(null)
   }
 
-  const pinned = sessions
+  const pinned = railSessions
     .filter((s) => s.favorite)
     .sort((a, b) => (a.favoriteOrder ?? 0) - (b.favoriteOrder ?? 0))
 
   const knownProjects = new Set(projects.map((p) => p.id))
-  const recents = sessions.filter(
+  const recents = railSessions.filter(
     (s) =>
       (!s.projectId || !knownProjects.has(s.projectId)) &&
       (s.messages.length > 0 || s.id === activeSessionId)
@@ -753,6 +808,11 @@ function SessionsList(): React.JSX.Element {
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <ContextMenuItem onSelect={() => requestArchive(session)}>
+          <Archive />
+          Archive chat
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onSelect={() => deleteSession(session.id)}>
           <Trash2 />
           Delete chat
@@ -766,7 +826,7 @@ function SessionsList(): React.JSX.Element {
     // A chat with nothing in it is not worth a row — it reads as a stray
     // "New session" line. The one you are looking at stays, or it would vanish
     // from under you the moment you started it.
-    const children = sessions.filter(
+    const children = railSessions.filter(
       (s) => s.projectId === project.id && (s.messages.length > 0 || s.id === activeSessionId)
     )
     const collapsed = project.collapsed === true
@@ -920,6 +980,56 @@ function SessionsList(): React.JSX.Element {
           <div className="space-y-px">{recents.map((s) => renderRow(s))}</div>
         )}
       </div>
+
+      {/* One dialog for both halves of the same question. A running chat is
+          asked before it is put away; a chat that could not be put away says
+          why and offers to try again, rather than a menu item that did nothing. */}
+      <AlertDialog
+        open={archivePrompt !== null}
+        onOpenChange={(next) => {
+          if (!next) setArchivePrompt(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {archivePrompt?.kind === 'failed'
+                ? `Could not archive “${archivePrompt.session.title}”`
+                : `Archive “${archivePrompt?.session.title ?? ''}”?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {archivePrompt?.kind === 'failed' ? (
+                <>
+                  {archivePrompt.error} Nothing was changed — the chat is still in your rail.
+                </>
+              ) : (
+                <>
+                  This chat is working. Archiving stops its Claude session, anything it started in
+                  the background, and its browser. Its worktree is saved before it goes, and the
+                  chat moves to Archived, where you can bring it back.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {archivePrompt?.kind === 'failed' ? 'Close' : 'Cancel'}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const session = archivePrompt?.session
+                if (!session) return
+                // Cleared first: a second failure puts the dialog straight back
+                // up with the new reason.
+                setArchivePrompt(null)
+                void runArchive(session)
+              }}
+            >
+              {archivePrompt?.kind === 'failed' ? 'Try again' : 'Archive'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -17,6 +17,7 @@ import { useSettingsStore } from '../store/settings'
 import { Check, Copy, WrapText } from 'lucide-react'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
 import { useSessionsStore, activeCwd } from '../store/sessions'
+import { useResourceDockStore } from '../store/resourceDock'
 import { resolvePath } from '../utils/paths'
 import { cachedImage, loadImage, type ImageEntry } from '../lib/imageCache'
 import { remarkPromptDecorations } from '../lib/promptMarkdown'
@@ -201,6 +202,15 @@ type NyraLink = { label: string; run: () => void }
 /** Returns what a `nyra://` href does, or null if it points at nothing we know. */
 function resolveNyraLink(href: string): NyraLink | null {
   const rest = href.slice('nyra://'.length)
+  if (rest === 'mcp' || rest === 'status') {
+    return {
+      label: rest === 'mcp' ? 'Open MCP servers' : 'Open session status',
+      run: () => {
+        const sessionId = useSessionsStore.getState().activeSessionId
+        if (sessionId) useResourceDockStore.getState().open(sessionId, rest)
+      }
+    }
+  }
   if (rest === 'update') {
     return {
       // Deliberately the only place in the app besides Settings that installs.

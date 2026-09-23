@@ -22,7 +22,6 @@ Items move from `## Roadmap` here into `SHIPPED.md` via `/ship-feature`.
 ### Tier 1 — the parity holes worth closing first
 
 - [ ] Checkpointing and rewind — snapshot files and conversation per turn, and restore to any point from the transcript, including back past a `/clear`, with "summarise up to here"
-- [ ] Plugins and marketplaces — browse, install and update plugins from marketplaces; a fourth settings tab beside MCP, Skills and Hooks
 - [ ] Usage attribution — break plan-limit consumption down by skill, subagent, plugin and MCP server, on top of the rate-limit tracking already there
 - [ ] Scheduled chats — fire a prompt into a new chat on a cron, reusing the flow trigger runtime
 

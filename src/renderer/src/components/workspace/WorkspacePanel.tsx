@@ -55,6 +55,7 @@ export default function WorkspacePanel(): React.JSX.Element {
         tabs={ws.tabs}
         activeKey={ws.activeKey}
         browserTabs={browserTabs}
+        browserPhase={phase}
         onSelect={(key) => useWorkspaceStore.getState().selectTab(sessionId, key)}
         onClose={(key) => {
           const tab = ws.tabs.find((t) => tabKey(t) === key)
@@ -67,8 +68,13 @@ export default function WorkspacePanel(): React.JSX.Element {
           // A browser tab's removal is the sidecar's to report. Splicing it out
           // here would let the broadcast already in flight put it back, at the
           // far end of the strip rather than where it was.
-          if (tab.kind === 'browser') void window.api.browser.tabClose(sessionId, tab.tabId)
-          else useWorkspaceStore.getState().closeTab(sessionId, key)
+          if (tab.kind === 'browser' && tab.provisional !== true) {
+            void window.api.browser.tabClose(sessionId, tab.tabId)
+          } else {
+            // A provisional row is ours, so there is nothing to ask about; and
+            // closing it is how a browser still waking up gets cancelled.
+            useWorkspaceStore.getState().closeTab(sessionId, key)
+          }
 
           // Closing the last tab is a way of putting the panel away. Tied to the
           // click rather than to the strip emptying, so an eviction or a browser
@@ -78,6 +84,10 @@ export default function WorkspacePanel(): React.JSX.Element {
         onReorder={(fromKey, beforeKey) =>
           useWorkspaceStore.getState().moveTab(sessionId, fromKey, beforeKey)
         }
+        onPin={(key) => {
+          const tab = ws.tabs.find((t) => tabKey(t) === key)
+          if (tab?.kind === 'file') useWorkspaceStore.getState().pinFileTab(sessionId, tab.id)
+        }}
         onNew={newTab}
       />
 

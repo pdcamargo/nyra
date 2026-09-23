@@ -1,5 +1,5 @@
 import React from 'react'
-import McpSettings from '../McpSettings'
+import McpExplorer from '../McpExplorer'
 import { SectionLabel, SectionNote } from './primitives'
 
 export default function McpTab(): React.JSX.Element {
@@ -7,10 +7,13 @@ export default function McpTab(): React.JSX.Element {
     <>
       <SectionLabel>MCP servers</SectionLabel>
       <SectionNote>
-        Servers configured for this project and globally. A server is set up once and then
-        forgotten, which is what settings are for.
+        Servers configured for this project and globally, plus whatever this chat started. A
+        server is set up once and then forgotten, which is what settings are for.
       </SectionNote>
-      <McpSettings />
+      {/* No card around it: the pane is already a surface, and an outlined box
+          inside it would read as a second, competing one. The composer dock is
+          where a container earns its keep. */}
+      <McpExplorer variant="settings" />
     </>
   )
 }

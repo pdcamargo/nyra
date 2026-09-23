@@ -15,8 +15,8 @@ use crate::workflow::helpers::{build_marketplace_share_url, marketplace_repo_url
 use crate::workflow::types::{MarketplaceEntry, TriggerSource};
 use crate::workflow::{engine, marketplace, store, triggers};
 use crate::{
-    browser, claude, devtools, dictation, file_extractor, file_tree, fs_ops, gh, git, hooks, login, mcp,
-    memory, model_catalog, open_with, processes, skills, subagents,
+    account_status, browser, claude, devtools, dictation, file_extractor, file_tree, fs_ops, gh, git, hooks, login, mcp,
+    memory, model_catalog, open_with, plugin_logos, plugins, processes, skills, subagents,
 };
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
 
@@ -68,13 +68,18 @@ pub async fn claude_steer(prompt: String, nyra_session_id: String) -> bool {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn claude_dispose(nyra_session_id: String) {
-    claude::dispose_session(&nyra_session_id);
+pub async fn claude_dispose(nyra_session_id: String) -> Result<(), String> {
+    claude::dispose_session_and_wait(&nyra_session_id).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn claude_check_binary(custom_path: Option<String>) -> Value {
     claude::check_binary(custom_path).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn claude_account_status(binary_path: String) -> Value {
+    json!(account_status::read(&binary_path).await)
 }
 
 /// Family → the id this CLI build resolves that alias to, from its own catalog.
@@ -523,6 +528,31 @@ pub async fn git_worktree_remove(cwd: String, worktree_path: String) -> Value {
 #[tauri::command]
 pub async fn mcp_list(cwd: String) -> Value {
     json!(mcp::list(&cwd).await)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn mcp_inspect(cwd: String, name: String) -> Value {
+    mcp::inspect(&cwd, &name).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn mcp_set_enabled(cwd: String, name: String, enabled: bool) -> Value {
+    mcp::set_enabled(&cwd, &name, enabled).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn plugins_catalog(cwd: Option<String>) -> Value {
+    plugins::catalog(cwd).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn plugins_action(request: plugins::PluginAction) -> Value {
+    plugins::action(request).await
+}
+
+#[tauri::command]
+pub async fn plugins_public_logos() -> Value {
+    json!(plugin_logos::list().await)
 }
 
 #[tauri::command]

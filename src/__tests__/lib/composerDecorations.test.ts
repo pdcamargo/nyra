@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { isDesignPath } from '@renderer/lib/openFile'
+import {
+  noteCustomCommands,
+  noteSkills,
+  resetSlashCommands
+} from '@renderer/lib/slashCommands'
 import {
   findCommand,
   findFileMentions,
@@ -9,7 +14,11 @@ import {
   attachmentMarker,
   removeAttachmentRef,
   spanTouched
-} from '../../renderer/src/lib/composerDecorations'
+  } from '../../renderer/src/lib/composerDecorations'
+
+// A skill or a command registered by one test must not style the next one's
+// text — `isKnownCommand` reads module state, which outlives the test.
+afterEach(() => resetSlashCommands())
 
 describe('findCommand', () => {
   it('matches a known command at the start', () => {
@@ -32,6 +41,21 @@ describe('findCommand', () => {
   it('stops at the command, not the whole line', () => {
     const span = findCommand('/clear and then some')!
     expect(span.to).toBe('/clear'.length)
+  })
+
+  // The screenshot case: a skill on disk with an argument after it. The span has
+  // to stop at the name, or the argument gets drawn as part of the command.
+  it('styles a skill on disk and stops before its argument', () => {
+    noteSkills([{ name: 'claude-api', description: '' }])
+    expect(findCommand('/claude-api prompt-audit')).toEqual({
+      from: 0,
+      to: '/claude-api'.length
+    })
+  })
+
+  it('matches a namespaced custom command in one span', () => {
+    noteCustomCommands([{ name: 'git:sync', description: '' }])
+    expect(findCommand('/git:sync now')).toEqual({ from: 0, to: '/git:sync'.length })
   })
 })
 

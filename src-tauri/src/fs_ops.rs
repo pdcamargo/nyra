@@ -61,10 +61,12 @@ const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 /// to fail before we read anything, not after. SVG stays out deliberately — it
 /// is a script-execution surface inside an `<img>` and needs its own decision
 /// about sanitising.
-const RENDERABLE_IMAGES: [(&str, &str); 3] = [
+const RENDERABLE_IMAGES: [(&str, &str); 5] = [
     ("png", "image/png"),
     ("jpg", "image/jpeg"),
     ("jpeg", "image/jpeg"),
+    ("gif", "image/gif"),
+    ("webp", "image/webp"),
 ];
 
 /// The policy half of `read_image`, split out so it is testable without a disk.
@@ -80,7 +82,7 @@ fn renderable_media_type(file_path: &str) -> Result<&'static str, String> {
         .iter()
         .find(|(e, _)| *e == ext)
         .map(|(_, media_type)| *media_type)
-        .ok_or_else(|| "Not a PNG or JPEG.".to_string())
+        .ok_or_else(|| "Not a PNG, JPEG, GIF or WebP image.".to_string())
 }
 
 /// Bytes for an image the transcript wants to show, as base64.
@@ -358,9 +360,116 @@ pub async fn revert_file(file_path: &str, original_content: Option<String>) -> V
     }
 }
 
+/// How many entries a directory browse offers. Wider than the fuzzy limit
+/// because these are one level, already inside the directory you asked for, and
+/// the popup scrolls.
+const BROWSE_LIMIT: usize = 30;
+
+/// A query that names a directory to open, split into the directory and the
+/// fragment to filter its entries by.
+///
+/// `@../api` cannot go through `git ls-files`: it asks about a directory that is
+/// not even in this repository, and no fuzzy match over tracked paths will ever
+/// produce it. Anything with a path separator — or a bare `.` or `..`, or an
+/// absolute or `~` path — is a directory to open; the rest of the query is the
+/// fragment to filter what is inside it.
+///
+/// `~/code` keeps its own spelling in the answer. The user typed it, and a
+/// readable path in the composer is the point; only the read underneath
+/// expands it.
+fn browse_split(query: &str) -> Option<(String, String)> {
+    if query.is_empty() {
+        return None;
+    }
+    let absolute = query.starts_with('/') || query.starts_with('~');
+    if !absolute && !query.contains('/') && query != "." && query != ".." {
+        return None;
+    }
+    let (dir, filter) = match query.rfind('/') {
+        // A trailing slash names the directory itself: `@../` is "show me what
+        // is next door".
+        Some(at) if at + 1 == query.len() => (&query[..at], ""),
+        Some(at) => (&query[..at], &query[at + 1..]),
+        None => (query, ""),
+    };
+    // `/home` splits to an empty directory at the root, which is still a
+    // directory worth reading.
+    let dir = if dir.is_empty() && absolute { "/" } else { dir };
+    Some((dir.to_string(), filter.to_string()))
+}
+
+/// Resolve a browse directory against the chat's cwd, expanding `~`.
+fn browse_base(cwd: &str, dir: &str) -> PathBuf {
+    if let Some(rest) = dir.strip_prefix("~/") {
+        return util::home_dir().join(rest);
+    }
+    if dir == "~" {
+        return util::home_dir();
+    }
+    if Path::new(dir).is_absolute() {
+        return PathBuf::from(dir);
+    }
+    Path::new(cwd).join(dir)
+}
+
+/// One directory's entries, for a path-shaped `@` query.
+///
+/// Folders first and prefix matches first, both by name: while you are typing
+/// `@../ap`, `api.v2/` should be the first row, not the twenty-ninth.
+async fn browse_directory(cwd: &str, dir: &str, filter: &str) -> Vec<FileEntry> {
+    let Ok(mut entries) = tokio::fs::read_dir(browse_base(cwd, dir)).await else {
+        return Vec::new();
+    };
+
+    let needle = filter.to_lowercase();
+    // Dot-entries are noise unless you are asking for one.
+    let want_hidden = needle.starts_with('.');
+    let mut found: Vec<(String, String, bool)> = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') && !want_hidden {
+            continue;
+        }
+        let lower = name.to_lowercase();
+        if !lower.contains(&needle) {
+            continue;
+        }
+        let is_dir = entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false);
+        found.push((name, lower, is_dir));
+    }
+
+    // Stable sorts, so the alphabetical order survives inside each rank.
+    found.sort_by(|a, b| a.1.cmp(&b.1));
+    found.sort_by_key(|(_, lower, is_dir)| (!lower.starts_with(&needle), !*is_dir));
+
+    // `dir` keeps the shape the user typed: `..`, `../api.v2`, `/tmp`, `~/dev`.
+    let prefix = if dir == "/" { "" } else { dir };
+    found
+        .into_iter()
+        .take(BROWSE_LIMIT)
+        .map(|(name, _, is_dir)| FileEntry {
+            path: format!("{prefix}/{name}{}", if is_dir { "/" } else { "" }),
+            kind: if is_dir { "folder" } else { "file" },
+        })
+        .collect()
+}
+
 /// Fuzzy file lookup for the `@` mention autocomplete. Prefers `git ls-files`
 /// (respects .gitignore, no deep traversal) and degrades to a shallow readdir.
 pub async fn list_files(cwd: &str, query: &str) -> Vec<FileEntry> {
+    if let Some((dir, filter)) = browse_split(query) {
+        let browsed = browse_directory(cwd, &dir, &filter).await;
+        if !browsed.is_empty() {
+            return browsed;
+        }
+        // Nothing to open. The query may still name a path *inside* the repo —
+        // `@src/comp` is a fine way to reach `src/components/…` — so fall
+        // through to the fuzzy search rather than closing the popup.
+    }
+    fuzzy_list_files(cwd, query).await
+}
+
+async fn fuzzy_list_files(cwd: &str, query: &str) -> Vec<FileEntry> {
     let files: Vec<String> = match tokio::time::timeout(
         Duration::from_secs(5),
         tokio::process::Command::new("git")
@@ -569,13 +678,14 @@ mod tests {
         assert_eq!(renderable_media_type("/tmp/chart.png"), Ok("image/png"));
         assert_eq!(renderable_media_type("/tmp/shot.jpeg"), Ok("image/jpeg"));
         assert_eq!(renderable_media_type("/tmp/SHOT.JPG"), Ok("image/jpeg"));
+        assert_eq!(renderable_media_type("/tmp/anim.gif"), Ok("image/gif"));
+        assert_eq!(renderable_media_type("/tmp/preview.webp"), Ok("image/webp"));
     }
 
     #[test]
     fn rejects_non_images_before_touching_disk() {
         assert!(renderable_media_type("/etc/passwd").is_err());
         assert!(renderable_media_type("/tmp/diagram.svg").is_err());
-        assert!(renderable_media_type("/tmp/anim.gif").is_err());
         assert!(renderable_media_type("/tmp/noextension").is_err());
     }
 
@@ -823,5 +933,118 @@ mod tests {
         assert_ne!(grown.size, after.size);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn splits_a_query_into_a_directory_and_a_filter() {
+        // The report: sitting in one project folder, reaching for its sibling.
+        assert_eq!(browse_split("../"), Some(("..".to_string(), String::new())));
+        assert_eq!(
+            browse_split("../api.v2/ro"),
+            Some(("../api.v2".to_string(), "ro".to_string()))
+        );
+        assert_eq!(
+            browse_split("../api.v2/routes.ts"),
+            Some(("../api.v2".to_string(), "routes.ts".to_string()))
+        );
+        // A directory of this one is reachable the same way.
+        assert_eq!(browse_split("src/"), Some(("src".to_string(), String::new())));
+        assert_eq!(browse_split("./"), Some((".".to_string(), String::new())));
+        assert_eq!(browse_split(".."), Some(("..".to_string(), String::new())));
+        assert_eq!(browse_split("."), Some((".".to_string(), String::new())));
+        // Absolute and home paths are directories with more ahead of them.
+        assert_eq!(
+            browse_split("/Users/pd/dev"),
+            Some(("/Users/pd".to_string(), "dev".to_string()))
+        );
+        assert_eq!(browse_split("/Users/"), Some(("/Users".to_string(), String::new())));
+        assert_eq!(browse_split("/"), Some(("/".to_string(), String::new())));
+        assert_eq!(browse_split("~/dev/"), Some(("~/dev".to_string(), String::new())));
+    }
+
+    #[test]
+    fn leaves_a_bare_name_to_the_fuzzy_search() {
+        // No separator and no directory: these are filenames to match, and still
+        // the common case — `@ChatInput` must not list a whole directory.
+        for query in ["", "Chat", "chat", ".env", "src"] {
+            assert_eq!(browse_split(query), None, "{query} should not browse");
+        }
+    }
+
+    #[tokio::test]
+    async fn browses_the_directory_next_door() {
+        let root = scratch("browse");
+        let here = root.join("mv-ui");
+        let there = root.join("api.v2");
+        std::fs::create_dir_all(&here).unwrap();
+        std::fs::create_dir_all(there.join("routes")).unwrap();
+        std::fs::write(there.join("README.md"), "x").unwrap();
+        std::fs::write(there.join("server.ts"), "x").unwrap();
+        std::fs::create_dir_all(there.join(".git")).unwrap();
+
+        let found = list_files(here.to_str().unwrap(), "../api.v2/").await;
+
+        // Folders first, then alphabetically — and the paths keep the `../` that
+        // was typed, because that is what the composer shows and sends.
+        assert_eq!(
+            found.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(),
+            vec!["../api.v2/routes/", "../api.v2/README.md", "../api.v2/server.ts"]
+        );
+        assert_eq!(found[0].kind, "folder");
+        assert_eq!(found[1].kind, "file");
+        // `.git` is not offered unless it is asked for.
+        assert!(!found.iter().any(|e| e.path.contains(".git")));
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn browse_filters_the_directory_by_what_you_have_typed() {
+        let root = scratch("browsefilter");
+        let here = root.join("mv-ui");
+        let there = root.join("api.v2");
+        std::fs::create_dir_all(&here).unwrap();
+        std::fs::create_dir_all(there.join("routes")).unwrap();
+        std::fs::create_dir_all(there.join("server")).unwrap();
+        std::fs::write(there.join("notes.md"), "x").unwrap();
+
+        let found = list_files(here.to_str().unwrap(), "../api.v2/serv").await;
+        assert_eq!(
+            found.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(),
+            vec!["../api.v2/server/"]
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn a_path_that_is_not_a_directory_still_gets_the_fuzzy_search() {
+        let root = scratch("browsefallback");
+        // The fuzzy half is `git ls-files`, so this has to be a real repository
+        // for the assertion to mean anything. Skipped, not failed, where git is
+        // not installed.
+        let inited = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&root)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !inited {
+            std::fs::remove_dir_all(&root).ok();
+            return;
+        }
+        std::fs::create_dir_all(root.join("src/components")).unwrap();
+        std::fs::write(root.join("src/components/Chat.tsx"), "x").unwrap();
+
+        // `components` is not a directory at the root here, so browsing finds
+        // nothing and the query falls through to the deep match it always had —
+        // this is the `@components/Cha` case, which reached `src/components/`.
+        let found = list_files(root.to_str().unwrap(), "components/Cha").await;
+        assert_eq!(
+            found.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(),
+            vec!["src/components/Chat.tsx"]
+        );
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }

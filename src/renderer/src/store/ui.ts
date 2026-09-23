@@ -14,7 +14,7 @@ import { useSessionsStore } from './sessions'
  * keeps the chats visible at all times and the choice changes what sits beside
  * it, which is what a person means by picking Skills.
  */
-export type MainView = 'chat' | 'skills' | 'commands' | 'memory'
+export type MainView = 'chat' | 'skills' | 'commands' | 'memory' | 'archived' | 'plugins'
 
 /** Settings' left nav. Exported so anything that deep-links into a pane names a
  *  tab rather than firing a window event and hoping. */
@@ -30,6 +30,8 @@ export type SettingsTab =
 
 type UiStore = {
   mainView: MainView
+  /** Project selected when opening Archived from a project menu. */
+  archivedProjectId: string | null
   /** Set by the one check at launch. Null until it answers, and when it says no. */
   updateAvailable: string | null
   pendingMemoryFilePath: string | null
@@ -63,6 +65,7 @@ type UiStore = {
   paletteMode: 'all' | 'history'
   quickOpenOpen: boolean
   setMainView: (view: MainView) => void
+  openArchived: (projectId?: string | null) => void
   setUpdateAvailable: (version: string | null) => void
   openMemoryFile: (filePath: string) => void
   consumePendingMemoryFile: () => void
@@ -125,6 +128,7 @@ export function applySessionPanels(sessionId: string | null): void {
 
 export const useUiStore = create<UiStore>()(persist((set, get) => ({
   mainView: 'chat',
+  archivedProjectId: null,
   updateAvailable: null,
   pendingMemoryFilePath: null,
   pendingInputPrefill: null,
@@ -139,6 +143,7 @@ export const useUiStore = create<UiStore>()(persist((set, get) => ({
   paletteMode: 'all',
   quickOpenOpen: false,
   setMainView: (mainView) => set({ mainView }),
+  openArchived: (projectId = null) => set({ mainView: 'archived', archivedProjectId: projectId }),
   setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
   openMemoryFile: (filePath) =>
     set({ mainView: 'memory', pendingMemoryFilePath: filePath, projectsPanelOpen: true }),

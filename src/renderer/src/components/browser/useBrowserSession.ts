@@ -12,7 +12,7 @@ import { useBrowserStore } from '../../store/browser'
 import { useSettingsStore } from '../../store/settings'
 import {
   activeBrowserTabId,
-  browserKey,
+  browserTabIdFromKey,
   syncSidecarTabs,
   useWorkspaceStore
 } from '../../store/workspace'
@@ -22,11 +22,27 @@ import { useSessionsStore } from '../../store/sessions'
  *  sweeper never evicts a context somebody is looking at. */
 const TOUCH_INTERVAL_MS = 60_000
 
+/** One boot per chat, however many callers ask at once.
+ *
+ *  The provisionally-drawn tab makes the panel and `startBrowserTab` reach for
+ *  the browser in the same tick, and the boot is a status probe plus an
+ *  `openChat` — two of those racing is two contexts asked for where one is
+ *  coming. */
+const boots = new Map<string, Promise<boolean>>()
+
 /**
  * Get the chat's context open on the sidecar. Resolves false when there is no
  * browser to be had, having left the reason in `phase`.
  */
-export async function ensureBrowser(sessionId: string): Promise<boolean> {
+export function ensureBrowser(sessionId: string): Promise<boolean> {
+  const inFlight = boots.get(sessionId)
+  if (inFlight) return inFlight
+  const boot = bootBrowser(sessionId).finally(() => boots.delete(sessionId))
+  boots.set(sessionId, boot)
+  return boot
+}
+
+async function bootBrowser(sessionId: string): Promise<boolean> {
   const store = useBrowserStore.getState()
 
   // Toggling back to a browser that is already up should not flash a starting
@@ -65,14 +81,29 @@ export async function ensureBrowser(sessionId: string): Promise<boolean> {
 /**
  * Open a page in this chat's browser, starting the browser if it is not up.
  *
- * The tab is selected through `selectTab`, which parks the key when the strip
- * has not heard about the tab yet — the sidecar's broadcast and this reply race,
- * and either order has to end with the new tab on screen.
+ * The row goes up before the browser does. A cold Chromium is seconds of work
+ * with nothing on screen, and an empty strip during it reads as a button that
+ * did nothing — so the strip gets a provisional tab immediately, which the body
+ * fills with the waking state and which is swapped for the real tab, in place,
+ * when `tabCreate` answers.
  */
 export async function startBrowserTab(sessionId: string, url = 'about:blank'): Promise<void> {
+  const provisional = useWorkspaceStore.getState().openProvisionalBrowserTab(sessionId)
+  const provisionalId = browserTabIdFromKey(provisional)
+
+  // No browser to be had: the row stays, and the panel explains why where the
+  // page would have been.
   if (!(await ensureBrowser(sessionId))) return
+
   const created = await window.api.browser.tabCreate(sessionId, url)
-  if (created.ok) useWorkspaceStore.getState().selectTab(sessionId, browserKey(created.tab.tabId))
+  if (!created.ok) return
+
+  const adopted = useWorkspaceStore
+    .getState()
+    .adoptBrowserTab(sessionId, provisionalId, created.tab.tabId)
+  // Adopting failed because the row is gone — the tab was closed while the
+  // browser was still waking, which is a cancel, not an orphan.
+  if (!adopted) void window.api.browser.tabClose(sessionId, created.tab.tabId)
 }
 
 /**

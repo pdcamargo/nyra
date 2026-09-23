@@ -3,7 +3,7 @@ import { Brain, Slash, Sparkles, SquareTerminal } from 'lucide-react'
 import { BUILT_IN_COMMANDS } from '../../data/commands'
 import { useSkillEditorStore } from '../../store/skillEditor'
 import { useSessionsStore, activeProjectCwd } from '../../store/sessions'
-import { useUiStore } from '../../store/ui'
+import { useUiStore, type MainView } from '../../store/ui'
 import { homedir } from '../../lib/homedir'
 import type { BundledSkill, CommandInfo, SkillInfo } from '../../lib/api-types'
 import { openFileInPanel } from '../../lib/openFile'
@@ -22,6 +22,8 @@ import {
 } from './Library'
 
 const MemoryTab = React.lazy(() => import('../MemoryTab'))
+const PluginsView = React.lazy(() => import('./PluginsView'))
+const ArchivedView = React.lazy(() => import('./ArchivedView'))
 
 /**
  * The shell every page in the main area shares.
@@ -470,9 +472,15 @@ function MemoryView(): React.JSX.Element {
 export default function MainViews({
   view
 }: {
-  view: 'skills' | 'commands' | 'memory'
+  view: Exclude<MainView, 'chat'>
 }): React.JSX.Element {
   if (view === 'skills') return <SkillsView />
   if (view === 'commands') return <CommandsView />
+  if (view === 'archived') {
+    return <Suspense fallback={<p className="p-8 text-c-md text-muted-foreground">Loading archive…</p>}><ArchivedView /></Suspense>
+  }
+  if (view === 'plugins') {
+    return <Suspense fallback={<p className="p-8 text-c-md text-muted-foreground">Loading plugins…</p>}><PluginsView /></Suspense>
+  }
   return <MemoryView />
 }

@@ -1,5 +1,6 @@
 import type React from 'react'
 import {
+  Archive,
   Bot,
   Braces,
   Brain,
@@ -38,10 +39,12 @@ import {
   Smartphone,
   Square,
   SquareTerminal,
+  Store,
   Sun,
   Target,
   TextQuote,
   Workflow,
+  WrapText,
   Zap
 } from 'lucide-react'
 import type { Chord } from '../lib/keys'
@@ -96,6 +99,7 @@ export type CommandId =
   | 'panel.right.changes.refresh'
   | 'panel.right.subagents'
   | 'panel.right.tree'
+  | 'file.wrap'
   | 'panel.bottom'
   | 'panel.summary'
   | 'panel.canvas'
@@ -103,6 +107,8 @@ export type CommandId =
   | 'view.skills'
   | 'view.commands'
   | 'view.memory'
+  | 'view.plugins'
+  | 'view.archived'
   | 'flow.run'
   | 'flow.addNode'
   | 'flow.arrange'
@@ -523,12 +529,12 @@ export const COMMANDS: Command[] = [
     }
   },
   {
-    // Unbound by default — there is a button for it. Registered anyway so it can
-    // be given a key and so it shows up in the palette with everything else.
+    // The chord every editor spends on the file explorer. There is a button for
+    // it too; the binding is what the tooltip has been missing.
     id: 'panel.right.tree',
     label: 'Toggle file tree',
     group: 'Panels',
-    defaultChord: null,
+    defaultChord: 'mod+shift+e',
     icon: PanelRightOpen,
     palette: true,
     available: hasSession,
@@ -548,6 +554,23 @@ export const COMMANDS: Command[] = [
       const sessionId = useSessionsStore.getState().activeSessionId
       return sessionId ? workspaceFor(store, sessionId).treeOpen : false
     }
+  },
+  {
+    // Alt+Z, the chord editors spend on soft wrap. It sits in View rather than
+    // Composer because it is not about what you are writing: it is about how a
+    // document someone else wrote is drawn.
+    id: 'file.wrap',
+    label: 'Toggle line wrap',
+    group: 'View',
+    defaultChord: 'alt+z',
+    icon: WrapText,
+    palette: true,
+    run: () =>
+      useSettingsStore
+        .getState()
+        .updateSettings({ fileWrap: !useSettingsStore.getState().fileWrap }),
+    setState: (on) => useSettingsStore.getState().updateSettings({ fileWrap: on }),
+    isOn: () => useSettingsStore.getState().fileWrap
   },
   {
     id: 'panel.bottom',
@@ -582,7 +605,9 @@ export const COMMANDS: Command[] = [
       ['view.chat', 'Chat', 'mod+shift+1', MessageSquare],
       ['view.skills', 'Skills', 'mod+shift+2', Sparkles],
       ['view.commands', 'Commands', 'mod+shift+3', Slash],
-      ['view.memory', 'Memory', 'mod+shift+4', Brain]
+      ['view.memory', 'Memory', 'mod+shift+4', Brain],
+      ['view.plugins', 'Plugins', 'mod+shift+5', Store],
+      ['view.archived', 'Archived', 'mod+shift+6', Archive]
     ] as const
   ).map(([id, label, defaultChord, icon]) => ({
     id,

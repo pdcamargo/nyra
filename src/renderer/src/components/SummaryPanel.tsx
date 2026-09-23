@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Eye, FileDiff, GitBranch, Laptop, RotateCw, TerminalSquare } from 'lucide-react'
+import { Eye, FileDiff, GitBranch, Laptop, MemoryStick, RotateCw, TerminalSquare } from 'lucide-react'
 import { useSessionsStore, findProject, type TextMessage } from '../store/sessions'
 import { useUiStore } from '../store/ui'
+import { useSettingsStore } from '../store/settings'
 import { EMPTY_BROWSER, useBrowserStore } from '../store/browser'
 import { browserKey, useWorkspaceStore } from '../store/workspace'
 import { collectAttachments, formatSize } from '../lib/summary'
+import { formatMemory, readChatMemory, type ChatMemory } from '../lib/chatMemory'
 import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
 import { useChordLabel } from './ui/kbd'
 import { useProcessesStore, type BgProcess } from '../store/processes'
@@ -103,10 +105,34 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const changesKeys = useChordLabel('panel.right.changes')
   const [stat, setStat] = useState<Stat | null>(null)
   const [projectBranch, setProjectBranch] = useState('')
+  const showMemory = useSettingsStore((s) => s.showChatMemory)
+  const [memory, setMemory] = useState<ChatMemory | null>(null)
 
   const cwd = session?.cwd ?? ''
   const projectPath = project?.path ?? ''
   const isWorktree = !!session?.worktree
+  const sessionId = session?.id ?? null
+
+  // Only while the card is on screen, and only when the preference is on. The
+  // number comes off the process table, so it is a real read every few seconds —
+  // there is nothing to poll for a panel nobody has open.
+  useEffect(() => {
+    if (!open || !showMemory || !sessionId) {
+      setMemory(null)
+      return
+    }
+    let cancelled = false
+    const read = async (): Promise<void> => {
+      const next = await readChatMemory(sessionId)
+      if (!cancelled) setMemory(next)
+    }
+    void read()
+    const id = setInterval(() => void read(), 4000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [open, showMemory, sessionId])
 
   // A worktree chat is measured against the branch it diverged from, so the
   // number covers everything the branch has done, commits included. A local chat
@@ -229,6 +255,22 @@ export default function SummaryPanel(): React.JSX.Element | null {
               <GitBranch className="size-3.5" />
             }
             label={session.branch}
+          />
+        )}
+        {/* What this chat is holding: its Claude process, everything under it,
+            and the shells it left running. Off the summary card for the same
+            reason the cwd is — it is a fact about this conversation, not a
+            panel of its own. Gated on the preference because it costs a read of
+            the process table every few seconds. */}
+        {showMemory && (
+          <Row
+            icon={<MemoryStick className="size-3.5" />}
+            label="Chat RAM"
+            trailing={
+              <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                {memory && memory.processes > 0 ? formatMemory(memory.bytes) : '—'}
+              </span>
+            }
           />
         )}
         <p className="mt-1 text-[10px] text-muted-foreground font-mono break-all">{cwd || '—'}</p>

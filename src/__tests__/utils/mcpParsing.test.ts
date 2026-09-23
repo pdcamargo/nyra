@@ -46,6 +46,14 @@ describe('parseMcpFromInit', () => {
     expect(result[1].tools).toEqual(['gmail_search_messages'])
   })
 
+  it('maps namespaced plugin servers to their tool prefixes', () => {
+    const result = parseMcpFromInit(
+      [{ name: 'plugin:vercel:vercel', status: 'connected' }],
+      ['mcp__plugin_vercel_vercel__deployments_list']
+    )
+    expect(result[0].tools).toEqual(['deployments_list'])
+  })
+
   it('returns empty tools for servers with no matching tools', () => {
     const result = parseMcpFromInit(
       [{ name: 'unknown-server', status: 'failed' }],

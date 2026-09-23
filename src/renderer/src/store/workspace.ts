@@ -21,10 +21,20 @@ import { persist } from 'zustand/middleware'
 import type { BrowserTab } from '../lib/api-types'
 import { useBrowserStore } from './browser'
 
-export type BrowserWorkspaceTab = { kind: 'browser'; tabId: string }
+/**
+ * `provisional` marks the row made the instant somebody asked for a browser,
+ * before the sidecar had a tab to name. A cold Chromium is several seconds of
+ * nothing, and an empty strip during that reads as a button that did not work —
+ * so the row goes up first and is replaced in place, at the same index and with
+ * the same selection, once `tabCreate` answers.
+ */
+export type BrowserWorkspaceTab = { kind: 'browser'; tabId: string; provisional?: boolean }
 /** `path` is absolute. The mtime poller keys on it, which is what lets a chat's
- *  cwd move under an open tab without the preview needing to care. */
-export type FileWorkspaceTab = { kind: 'file'; id: string; path: string | null }
+ *  cwd move under an open tab without the preview needing to care. `preview`
+ *  marks the chat's one replaceable slot — the tab a single click in the tree
+ *  lands in, drawn italic, and retargeted rather than stacked until a double
+ *  click pins it. */
+export type FileWorkspaceTab = { kind: 'file'; id: string; path: string | null; preview?: boolean }
 /** The repo's changes. Never reachable from "+": `NEW_TAB_CHOICES` is a separate
  *  list from this union, so a kind absent from it simply cannot be created that
  *  way. It is opened from the Pinned Summary's Changes row, or from a card in the
@@ -87,6 +97,10 @@ export const EMPTY_WORKSPACE: ChatWorkspace = {
 }
 
 export const browserKey = (tabId: string): string => `browser:${tabId}`
+/** The tab id behind a `browser:` key — the key is what the strip trades in, and
+ *  a caller that has to hand a tab id back as an argument should not be slicing
+ *  the prefix off by hand. */
+export const browserTabIdFromKey = (key: string): string => key.slice('browser:'.length)
 export const fileKey = (id: string): string => `file:${id}`
 export const changesKey = (id: string): string => `changes:${id}`
 export const planKey = (id: string): string => `plan:${id}`
@@ -112,6 +126,23 @@ function nextFileTabId(): string {
   counter += 1
   return `${Date.now().toString(36)}-${counter}`
 }
+
+/** The id a provisional browser row wears until a real tab replaces it. Shaped
+ *  like a sidecar id would be, but prefixed, because `browser.tabClose` must
+ *  never be handed one. */
+function nextProvisionalTabId(): string {
+  return `pending-${nextFileTabId()}`
+}
+
+/**
+ * Placeholders somebody closed while the browser was still waking.
+ *
+ * Closing the row is a cancel, and the tab being built for it should go with it
+ * rather than appear from nowhere a second later. A row that left the strip for
+ * any other reason is not a cancel, and only this remembers which is which.
+ */
+const cancelledBoots = new Set<string>()
+const bootKey = (sessionId: string, tabId: string): string => `${sessionId}|${tabId}`
 
 // ---------------------------------------------------------------------------
 // Reconciliation
@@ -161,9 +192,17 @@ function nextActiveKey(ws: ChatWorkspace, tabs: WorkspaceTab[]): {
  */
 export function reconcileTabs(ws: ChatWorkspace, liveTabIds: string[]): ChatWorkspace {
   const live = new Set(liveTabIds)
-  const survivors = ws.tabs.filter((t) => t.kind !== 'browser' || live.has(t.tabId))
+  // A provisional row is ours, not the sidecar's, so its absence from the list
+  // is not an eviction — the one place a browser row outlives a broadcast.
+  const survivors = ws.tabs.filter(
+    (t) => t.kind !== 'browser' || t.provisional === true || live.has(t.tabId)
+  )
   const known = new Set(
-    survivors.filter((t): t is BrowserWorkspaceTab => t.kind === 'browser').map((t) => t.tabId)
+    survivors
+      .filter(
+        (t): t is BrowserWorkspaceTab => t.kind === 'browser' && t.provisional !== true
+      )
+      .map((t) => t.tabId)
   )
   const appended: WorkspaceTab[] = liveTabIds
     .filter((id) => !known.has(id))
@@ -243,7 +282,14 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
       const path = (tab as Partial<FileWorkspaceTab>).path
       if (path !== null && path !== undefined && typeof path !== 'string') return []
       seen.add(tab.id)
-      return [{ kind: 'file', id: tab.id, path: path ?? null }]
+      return [
+        {
+          kind: 'file',
+          id: tab.id,
+          path: path ?? null,
+          preview: (tab as Partial<FileWorkspaceTab>).preview === true ? true : undefined
+        }
+      ]
     }
   )
 
@@ -308,9 +354,22 @@ type WorkspaceStore = {
   reconcileAllEmpty: () => void
   /** Returns the new tab's key. */
   openFileTab: (sessionId: string, path?: string | null) => string
+  /** The chat's one replaceable file slot. Reuses the row already wearing the
+   *  preview mark, retargeting it; makes one if this chat has none. Returns the
+   *  row's key, which is stable across retargets. */
+  openFilePreviewTab: (sessionId: string, path?: string | null) => string
+  /** Keep a preview row open — a double click on the file or on its tab. */
+  pinFileTab: (sessionId: string, fileTabId: string) => void
   /** The chat's changes row, reusing the one already in the strip. One per chat:
    *  two of them would be two views of the same repo fighting over a scope. */
   openChangesTab: (sessionId: string) => string
+  /** The placeholder row for a browser nobody has started yet. Reuses the one
+   *  this chat already has, so pressing "+" twice does not stack two. */
+  openProvisionalBrowserTab: (sessionId: string) => string
+  /** Swap a provisional row for the real tab. Returns the new key, or null if
+   *  the placeholder is gone — the caller's cue that the tab was closed while
+   *  the browser was still waking. */
+  adoptBrowserTab: (sessionId: string, provisionalTabId: string, tabId: string) => string | null
   /** The design canvas. One per chat, like changes: opening a second design is
    *  still looking at designs, and the picker in the tab switches between them.
    *  Reachable from "+" — unlike changes, a design canvas is a workspace rather
@@ -329,7 +388,6 @@ type WorkspaceStore = {
    *  for the list and a `Task` toolId for one agent's stream — the same action
    *  drives the summary row, the "See all" header and the back arrow. */
   openSubagentsTab: (sessionId: string, focus: string | null) => string
-  setFilePath: (sessionId: string, fileTabId: string, path: string) => void
   /** Strip-local. Closing a *browser* tab is the sidecar's to report — removing
    *  the row here would let an in-flight broadcast re-append it at the far end. */
   closeTab: (sessionId: string, key: string) => void
@@ -382,6 +440,128 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }))
         )
         return tabKey(tab)
+      },
+
+      openFilePreviewTab: (sessionId, path = null) => {
+        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
+          (t): t is FileWorkspaceTab => t.kind === 'file' && t.preview === true
+        )
+        if (existing) {
+          const key = tabKey(existing)
+          set((s) =>
+            patch(s, sessionId, (ws) => ({
+              ...ws,
+              tabs: ws.tabs.map((t) =>
+                t.kind === 'file' && t.id === existing.id ? { ...t, path } : t
+              ),
+              activeKey: key
+            }))
+          )
+          return key
+        }
+        const tab: FileWorkspaceTab = { kind: 'file', id: nextFileTabId(), path, preview: true }
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: [...ws.tabs, tab],
+            activeKey: tabKey(tab)
+          }))
+        )
+        return tabKey(tab)
+      },
+
+      pinFileTab: (sessionId, fileTabId) =>
+        set((s) =>
+          patch(s, sessionId, (ws) => {
+            const current = ws.tabs.find((t) => t.kind === 'file' && t.id === fileTabId)
+            if (!current || current.kind !== 'file' || current.preview !== true) return ws
+            return {
+              ...ws,
+              tabs: ws.tabs.map((t) =>
+                t.kind === 'file' && t.id === fileTabId ? { ...t, preview: undefined } : t
+              )
+            }
+          })
+        ),
+
+      openProvisionalBrowserTab: (sessionId) => {
+        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
+          (t): t is BrowserWorkspaceTab => t.kind === 'browser' && t.provisional === true
+        )
+        if (existing) {
+          const key = browserKey(existing.tabId)
+          set((s) => patch(s, sessionId, (ws) => ({ ...ws, activeKey: key })))
+          return key
+        }
+        const tab: BrowserWorkspaceTab = {
+          kind: 'browser',
+          tabId: nextProvisionalTabId(),
+          provisional: true
+        }
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: [...ws.tabs, tab],
+            activeKey: tabKey(tab)
+          }))
+        )
+        return tabKey(tab)
+      },
+
+      adoptBrowserTab: (sessionId, provisionalTabId, tabId) => {
+        const ws = get().bySession[sessionId] ?? EMPTY_WORKSPACE
+        const key = browserKey(tabId)
+        const provisionalKey = browserKey(provisionalTabId)
+        const cancelled = cancelledBoots.delete(bootKey(sessionId, provisionalTabId))
+        const at = ws.tabs.findIndex(
+          (t) => t.kind === 'browser' && t.provisional === true && t.tabId === provisionalTabId
+        )
+        // The broadcast can beat the reply that created the tab, in which case
+        // the real row is already in the strip and only the placeholder is left
+        // to clear.
+        const already = ws.tabs.some((t) => tabKey(t) === key)
+        // Nothing to replace and nothing to clear: the row was closed while the
+        // browser was waking, which is a cancel rather than an orphan.
+        if (cancelled && at === -1 && !already) return null
+        if (at === -1 && !already) {
+          // Gone for some other reason — the chat's workspace was replaced, or a
+          // list that predated this tab reconciled it away. The page exists, so
+          // it gets a row; dropping it would leave a browser with no way back.
+          set((s) =>
+            patch(s, sessionId, (current) => ({
+              ...current,
+              tabs: [...current.tabs, { kind: 'browser', tabId } as WorkspaceTab],
+              activeKey:
+                current.activeKey === null || current.activeKey === provisionalKey
+                  ? key
+                  : current.activeKey
+            }))
+          )
+          return key
+        }
+        set((s) =>
+          patch(s, sessionId, (current) => ({
+            ...current,
+            tabs:
+              at === -1 || already
+                ? current.tabs.filter(
+                    (t) => !(t.kind === 'browser' && t.provisional === true && t.tabId === provisionalTabId)
+                  )
+                : current.tabs.map((t, i) =>
+                    // Replaced at its own index rather than appended: the row
+                    // was up before the sidecar answered, and where it sits is
+                    // where the person put it.
+                    i === at ? ({ kind: 'browser', tabId } as WorkspaceTab) : t
+                  ),
+            // The selection follows the row that was selected, not the page
+            // that arrived: switching tabs while Chromium wakes must not be
+            // undone by the tab finishing.
+            activeKey: current.activeKey === provisionalKey ? key : current.activeKey,
+            pendingSelectKey:
+              current.pendingSelectKey === provisionalKey ? null : current.pendingSelectKey
+          }))
+        )
+        return key
       },
 
       openChangesTab: (sessionId) => {
@@ -519,25 +699,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         return tabKey(tab)
       },
 
-      setFilePath: (sessionId, fileTabId, path) =>
-        set((s) =>
-          patch(s, sessionId, (ws) => {
-            const current = ws.tabs.find((t) => t.kind === 'file' && t.id === fileTabId)
-            if (!current || (current.kind === 'file' && current.path === path)) return ws
-            return {
-              ...ws,
-              tabs: ws.tabs.map((t) =>
-                t.kind === 'file' && t.id === fileTabId ? { ...t, path } : t
-              )
-            }
-          })
-        ),
-
       closeTab: (sessionId, key) =>
         set((s) =>
           patch(s, sessionId, (ws) => {
             const at = ws.tabs.findIndex((t) => tabKey(t) === key)
             if (at === -1) return ws
+            const removed = ws.tabs[at]
+            if (removed.kind === 'browser' && removed.provisional === true) {
+              cancelledBoots.add(bootKey(sessionId, removed.tabId))
+            }
             const tabs = ws.tabs.filter((_, i) => i !== at)
             if (ws.activeKey !== key) return { ...ws, tabs }
             const keys = tabs.map(tabKey)
@@ -598,6 +768,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (!(sessionId in s.bySession)) return s
           const bySession = { ...s.bySession }
           delete bySession[sessionId]
+          for (const key of [...cancelledBoots]) {
+            if (key.startsWith(`${sessionId}|`)) cancelledBoots.delete(key)
+          }
           return { bySession }
         }),
 
@@ -658,8 +831,12 @@ export function wantsBrowser(ws: ChatWorkspace): boolean {
 /** Which browser tab the miniature should show, if any. */
 export function activeBrowserTabId(ws: ChatWorkspace): string | null {
   const active = activeTab(ws)
-  if (active?.kind === 'browser') return active.tabId
-  const first = ws.tabs.find((t): t is BrowserWorkspaceTab => t.kind === 'browser')
+  // A provisional row names a tab that does not exist yet, so pointing the
+  // miniature at it would ask the sidecar about a stranger.
+  if (active?.kind === 'browser' && active.provisional !== true) return active.tabId
+  const first = ws.tabs.find(
+    (t): t is BrowserWorkspaceTab => t.kind === 'browser' && t.provisional !== true
+  )
   return first?.tabId ?? null
 }
 

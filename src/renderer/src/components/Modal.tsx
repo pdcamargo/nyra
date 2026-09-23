@@ -23,6 +23,7 @@ export default function Modal({
   titleHidden = true,
   className,
   showCloseButton = false,
+  focusContentOnOpen = false,
   children
 }: {
   open?: boolean
@@ -32,13 +33,21 @@ export default function Modal({
   titleHidden?: boolean
   className?: string
   showCloseButton?: boolean
+  focusContentOnOpen?: boolean
   children: React.ReactNode
 }): React.JSX.Element {
+  const contentRef = React.useRef<HTMLDivElement>(null)
+
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent
+        ref={contentRef}
         showCloseButton={showCloseButton}
         className={cn('max-h-[85vh] gap-0 overflow-hidden', className)}
+        onOpenAutoFocus={focusContentOnOpen ? (event) => {
+          event.preventDefault()
+          contentRef.current?.focus({ preventScroll: true })
+        } : undefined}
       >
         <DialogTitle className={titleHidden ? 'sr-only' : undefined}>{title}</DialogTitle>
         {description ? (

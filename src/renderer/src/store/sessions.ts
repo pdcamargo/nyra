@@ -7,6 +7,7 @@ import { useWorkspaceStore } from './workspace'
 import { backfillProjects, nameForPath } from './projects-migration'
 import { homedir } from '../lib/homedir'
 import { useTerminalsStore } from './terminals'
+import { useResourceDockStore } from './resourceDock'
 import type { ChangeBlock } from '../lib/changeBlocks'
 import type { PullRequest } from '../lib/pullRequests'
 
@@ -206,6 +207,17 @@ export type Session = {
   favorite?: boolean
   /** Manual sort position within Pinned (lower = higher up). Decoupled from recency. */
   favoriteOrder?: number
+  /**
+   * When this chat was put away, or unset while it is still in the rail.
+   *
+   * Archiving is not deleting: the transcript stays and the chat simply leaves
+   * Pinned, Projects and Recents for the Archived page. What it does stop is
+   * the work — its Claude process, its background shells and its browser — so
+   * the one thing it cannot keep is a running conversation's worktree, which is
+   * snapshotted and removed first. `worktreeSnapshotted` then says whether
+   * unarchiving has work of its own to bring back.
+   */
+  archivedAt?: number | null
   /** Owning project, or null/undefined for a Recents chat. */
   projectId?: string | null
   /** Worktree asked for in the composer, created when the first message is sent.
@@ -311,6 +323,14 @@ type SessionsStore = {
   applyAiTitle: (sessionId: string, title: string) => void
   toggleFavorite: (sessionId: string) => void
   reorderFavorites: (orderedIds: string[]) => void
+  /**
+   * Put a chat in the Archived page, or bring it back.
+   *
+   * Only the flag: stopping the process and retiring the worktree happen in
+   * `lib/archive.ts`, which has to await a snapshot before it can say the chat
+   * is safely away. Archiving also unpins — Pinned is a shelf you work from.
+   */
+  setArchivedAt: (sessionId: string, at: number | null) => void
   deleteSession: (sessionId: string) => void
   addTask: (sessionId: string, task: Task) => void
   updateTask: (sessionId: string, taskId: string, updates: Partial<Task>) => void
@@ -753,6 +773,33 @@ export const useSessionsStore = create<SessionsStore>()(
         })
       },
 
+      setArchivedAt: (sessionId: string, at: number | null) => {
+        set((state) => {
+          const target = state.sessions.find((s) => s.id === sessionId)
+          if (!target) return state
+          if ((target.archivedAt ?? null) === at) return state
+          const sessions = state.sessions.map((s) =>
+            s.id === sessionId
+              ? {
+                  ...s,
+                  archivedAt: at,
+                  // Putting a chat away unpins it: Pinned is the shelf you work
+                  // from, and a chat you just set aside is not on it.
+                  ...(at ? { favorite: false } : {})
+                }
+              : s
+          )
+          // An archived chat cannot stay on screen — the page it would be shown
+          // on is the one you just left it out of. Fall back to the first chat
+          // still in the rail, or to nothing at all.
+          const activeSessionId =
+            at && state.activeSessionId === sessionId
+              ? (sessions.find((s) => !s.archivedAt)?.id ?? null)
+              : state.activeSessionId
+          return { sessions, activeSessionId }
+        })
+      },
+
       deleteSession: (sessionId: string) => {
         // Tear down the long-lived Claude PTY for this session before forgetting it
         try { window.api.claude.dispose(sessionId) } catch { /* ignore */ }
@@ -766,10 +813,16 @@ export const useSessionsStore = create<SessionsStore>()(
         // And its side-panel tabs, which outlive the browser and would otherwise
         // be restored forever for a chat that is gone.
         useWorkspaceStore.getState().forget(sessionId)
+        // And the /mcp or /status view it had open above the composer: there is
+        // no chat left for one to belong to.
+        useResourceDockStore.getState().forget(sessionId)
         // Take the chat's managed worktree with it, snapshotting first — a
         // permanent one is shared with other chats and stays put. Fire-and-forget
         // so deleting a chat never blocks on git.
         const doomed = get().sessions.find((s) => s.id === sessionId)
+        if (doomed?.worktreeSnapshotted) {
+          void window.api.git.snapshotDiscard(sessionId).catch(() => {})
+        }
         if (doomed?.worktree && !doomed.worktree.permanent) {
           const { path, branch } = doomed.worktree
           try {
@@ -1195,6 +1248,27 @@ export function sessionsForProject(state: SessionsStore, projectId: string): Ses
 export function orphanSessions(state: SessionsStore): Session[] {
   const known = new Set(state.projects.map((p) => p.id))
   return state.sessions.filter((s) => !s.projectId || !known.has(s.projectId))
+}
+
+/** True when a chat has been put away — see `Session.archivedAt`. */
+export function isArchived(session: Session): boolean {
+  return !!session.archivedAt
+}
+
+/**
+ * The chats the rail shows: everything but the ones that were archived.
+ *
+ * Takes the array rather than the store, like `sortProjects`, because it
+ * allocates — a selector handing back a new array on every render never
+ * settles under zustand's `Object.is` check.
+ */
+export function liveSessions(sessions: Session[]): Session[] {
+  return sessions.filter((s) => !s.archivedAt)
+}
+
+/** The Archived page's list, most recently archived first. */
+export function archivedSessions(sessions: Session[]): Session[] {
+  return sessions.filter(isArchived).sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0))
 }
 
 /**

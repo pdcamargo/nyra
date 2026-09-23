@@ -9,7 +9,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::time::Duration;
 
@@ -625,6 +625,138 @@ pub fn is_alive(pid: i32) -> bool {
     }
 }
 
+// ---- memory ----
+
+/// What one chat is holding in resident memory.
+///
+/// A measurement, not a bill: resident size counts shared pages in every process
+/// that maps them, so the sum is bigger than what would be freed if the chat
+/// went away. It is the right number for "which conversation is the heavy one",
+/// which is the only question it gets asked.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMemory {
+    pub bytes: u64,
+    /// How many processes that covered. Zero is "nothing of this chat is
+    /// running", which is a different answer from a small number.
+    pub processes: usize,
+}
+
+/// `ps -axo pid=,ppid=,rss=` → (child → parent, pid → resident KB).
+///
+/// The whole table in one read. A chat's tree is a dozen processes deep on a
+/// busy turn, and the alternative is one syscall per pid.
+pub fn parse_ps_table(text: &str) -> (HashMap<i32, i32>, HashMap<i32, u64>) {
+    let mut parents = HashMap::new();
+    let mut rss = HashMap::new();
+    for line in text.lines() {
+        let mut fields = line.split_whitespace();
+        let pid = fields.next().and_then(|v| v.parse::<i32>().ok());
+        let ppid = fields.next().and_then(|v| v.parse::<i32>().ok());
+        // macOS reports resident size in KB, like every other `ps` this touches.
+        let resident = fields.next().and_then(|v| v.parse::<u64>().ok());
+        if let (Some(pid), Some(ppid), Some(kb)) = (pid, ppid, resident) {
+            parents.insert(pid, ppid);
+            rss.insert(pid, kb);
+        }
+    }
+    (parents, rss)
+}
+
+/// Resident bytes under `roots`, inclusive, with each pid counted once.
+///
+/// Downward, unlike the port roll-up, because the question is what a chat
+/// started — and the only things it started are below it. Exactly why Nyra's own
+/// memory and Chromium's are not in the answer: they hang off the app, not off a
+/// chat's Claude process.
+pub fn rss_under_roots(
+    roots: &[i32],
+    parents: &HashMap<i32, i32>,
+    rss: &HashMap<i32, u64>,
+) -> (u64, usize) {
+    const MAX_DEPTH: usize = 64;
+    let mut children: HashMap<i32, Vec<i32>> = HashMap::new();
+    for (pid, parent) in parents {
+        children.entry(*parent).or_default().push(*pid);
+    }
+
+    let mut seen: HashSet<i32> = HashSet::new();
+    let mut bytes: u64 = 0;
+    let mut counted: usize = 0;
+    let mut stack: Vec<(i32, usize)> = roots.iter().map(|pid| (*pid, 0)).collect();
+    while let Some((pid, depth)) = stack.pop() {
+        // A pid cycle should not exist, but this walks a map the kernel wrote.
+        if depth > MAX_DEPTH || !seen.insert(pid) {
+            continue;
+        }
+        // A root that exited between the registry read and this one contributes
+        // nothing rather than a made-up number.
+        if let Some(kb) = rss.get(&pid) {
+            bytes += kb * 1024;
+            counted += 1;
+        }
+        if let Some(kids) = children.get(&pid) {
+            for kid in kids {
+                stack.push((*kid, depth + 1));
+            }
+        }
+    }
+    (bytes, counted)
+}
+
+/// The chat's process roots: its Claude PTY, plus every shell it left running.
+///
+/// Both, because both are the chat's: the PTY is what answers, and a background
+/// shell is a child of it that outlives the turn that started it.
+fn memory_roots(nyra_session_id: &str) -> Vec<i32> {
+    let sessions = SESSIONS.lock();
+    let Some(state) = sessions.get(nyra_session_id) else {
+        return Vec::new();
+    };
+    let mut roots: Vec<i32> = Vec::new();
+    if let Some(pid) = state.claude_pid {
+        roots.push(pid as i32);
+    }
+    for proc in state.by_shell_id.values() {
+        if !matches!(proc.status, ProcStatus::Running | ProcStatus::Orphaned) {
+            continue;
+        }
+        if let Some(pid) = proc.pid {
+            if !roots.contains(&pid) {
+                roots.push(pid);
+            }
+        }
+    }
+    roots
+}
+
+/// Resident memory for one chat, or zeroes when nothing of it is running.
+pub async fn session_memory(nyra_session_id: &str) -> SessionMemory {
+    let roots = memory_roots(nyra_session_id);
+    if roots.is_empty() {
+        return SessionMemory {
+            bytes: 0,
+            processes: 0,
+        };
+    }
+    let Some(table) = run_capture("ps", &["-axo", "pid=,ppid=,rss="]).await else {
+        return SessionMemory {
+            bytes: 0,
+            processes: 0,
+        };
+    };
+    let (parents, rss) = parse_ps_table(&table);
+    let (bytes, processes) = rss_under_roots(&roots, &parents, &rss);
+    SessionMemory { bytes, processes }
+}
+
+/// The summary card's Chat RAM row. Registered in `lib.rs` beside the other
+/// `processes_*` commands.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn processes_memory(nyra_session_id: String) -> SessionMemory {
+    session_memory(&nyra_session_id).await
+}
+
 /// Read only the last 4 KB of an append-only log via a positional read, so a
 /// large file never lands in memory. `None` when unreadable or unchanged.
 pub fn read_output_tail(path: &str, prev_size: Option<u64>) -> Option<(u64, String)> {
@@ -1190,6 +1322,64 @@ mod tests {
         let parents = HashMap::from([(10, 11), (11, 10)]);
         let listening = HashMap::from([(10, vec![1234])]);
         assert!(roll_up_ports(&[999], &parents, &listening).is_empty());
+    }
+
+    #[test]
+    fn parses_the_ps_resident_table() {
+        let (parents, rss) = parse_ps_table("    1     0  1234\n   42     1  2048\n");
+        assert_eq!(parents.get(&42), Some(&1));
+        assert_eq!(rss.get(&42), Some(&2048));
+        assert_eq!(rss.get(&1), Some(&1234));
+    }
+
+    #[test]
+    fn skips_ps_lines_missing_a_column() {
+        // A two-field line cannot say what anything costs, and half a row is
+        // worse than none: it would report the process and none of its memory.
+        let (parents, rss) = parse_ps_table("    7     1\n    8     1   512\n");
+        assert!(!parents.contains_key(&7));
+        assert_eq!(rss.get(&8), Some(&512));
+    }
+
+    #[test]
+    fn counts_a_chats_tree_once_and_stops_at_its_roots() {
+        // 10 is the chat's Claude process (100 KB) with a node child (200 KB);
+        // 20 is a background shell (20 KB) with a worker of its own. 30 is
+        // something else entirely — Nyra, or Chromium — and must not be in the
+        // answer even though `ps` handed it over.
+        let table = "10 1 100\n11 10 200\n12 11 50\n20 1 20\n21 20 50\n30 1 999";
+        let (parents, rss) = parse_ps_table(table);
+        let (bytes, count) = rss_under_roots(&[10, 20], &parents, &rss);
+        assert_eq!(count, 5);
+        assert_eq!(bytes, (100 + 200 + 50 + 20 + 50) * 1024);
+    }
+
+    #[test]
+    fn counts_a_shared_descendant_once() {
+        // Both roots parent the same child. Summing per root would bill it twice.
+        let table = "10 1 100\n20 1 100\n30 10 400\n30 20 400";
+        let (parents, rss) = parse_ps_table(table);
+        let (bytes, count) = rss_under_roots(&[10, 20], &parents, &rss);
+        assert_eq!(count, 3);
+        assert_eq!(bytes, 600 * 1024);
+    }
+
+    #[test]
+    fn a_root_that_has_exited_is_not_memory() {
+        let (parents, rss) = parse_ps_table("   10     1   100\n");
+        let (bytes, count) = rss_under_roots(&[10, 99], &parents, &rss);
+        assert_eq!(count, 1);
+        assert_eq!(bytes, 100 * 1024);
+    }
+
+    #[test]
+    fn a_cycle_among_the_children_cannot_hang_the_walk() {
+        let (parents, rss) = parse_ps_table("   10     1   100\n   11    10   100\n");
+        let mut looped = parents.clone();
+        looped.insert(10, 11);
+        let (bytes, count) = rss_under_roots(&[10], &looped, &rss);
+        assert_eq!(count, 2);
+        assert_eq!(bytes, 200 * 1024);
     }
 
     #[test]

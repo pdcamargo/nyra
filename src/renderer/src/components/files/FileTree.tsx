@@ -29,7 +29,9 @@ export default function FileTree({
   root: string
   selectedPath: string | null
   expanded: string[]
-  onOpen: (absolutePath: string) => void
+  /** A click lands in this chat's replaceable preview slot; `pin`, which a
+   *  double click sets, asks for a tab of its own instead. */
+  onOpen: (absolutePath: string, pin?: boolean) => void
 }): React.JSX.Element {
   const [listings, setListings] = useState<Listings>({})
   const [query, setQuery] = useState('')
@@ -173,7 +175,7 @@ function Level({
   expanded: string[]
   selectedPath: string | null
   onToggle: (dir: string) => void
-  onOpen: (path: string) => void
+  onOpen: (path: string, pin?: boolean) => void
 }): React.JSX.Element | null {
   const listing = listings[dir]
 
@@ -229,7 +231,7 @@ function Row({
   expanded: string[]
   selectedPath: string | null
   onToggle: (dir: string) => void
-  onOpen: (path: string) => void
+  onOpen: (path: string, pin?: boolean) => void
 }): React.JSX.Element {
   const path = joinPath(dir, entry.name)
   const isDir = entry.type === 'dir'
@@ -244,6 +246,11 @@ function Row({
         title={relativeTo(root, path)}
         aria-expanded={isDir ? isOpen : undefined}
         onClick={() => (isDir ? onToggle(path) : onOpen(path))}
+        // Double click keeps a tab of its own, the way every editor's file
+        // list does. A folder has no second meaning, so it keeps toggling.
+        onDoubleClick={() => {
+          if (!isDir) onOpen(path, true)
+        }}
         style={{ paddingLeft: 8 + depth * 12 }}
         className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left text-[11px] transition-colors ${
           selected
@@ -315,7 +322,7 @@ function SearchResults({
   paths: string[] | null
   truncated: boolean
   selectedPath: string | null
-  onOpen: (path: string) => void
+  onOpen: (path: string, pin?: boolean) => void
 }): React.JSX.Element {
   if (paths === null) return <Note depth={0}>Searching…</Note>
   if (paths.length === 0) return <Note depth={0}>No files match.</Note>
@@ -330,6 +337,7 @@ function SearchResults({
             type="button"
             title={relative}
             onClick={() => onOpen(path)}
+            onDoubleClick={() => onOpen(path, true)}
             className={`flex w-full flex-col items-start px-2 py-[3px] text-left transition-colors ${
               path === selectedPath
                 ? 'bg-accent text-foreground'
