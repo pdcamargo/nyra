@@ -7,7 +7,7 @@ import {
   type ViewUpdate,
   WidgetType
 } from '@codemirror/view'
-import { isKnownCommand } from './slashCommands'
+import { argumentHint, isKnownCommand } from './slashCommands'
 import {
   designArtboardName,
   designNameFromPath,
@@ -289,6 +289,49 @@ class FileChipWidget extends WidgetType {
   }
 }
 
+/**
+ * What a command takes, drawn after it until you start typing it.
+ *
+ * `/model` then a caret gives no clue that it wants a model name; the CLI does
+ * say so, as `<model>`, and this puts it where you are about to type. Only while
+ * nothing follows the command but a space, and only with the caret at the end:
+ * a hint over an argument you have written would be in the way of it.
+ */
+export function commandHintAt(
+  text: string,
+  caret: number
+): { at: number; hint: string } | null {
+  const command = findCommand(text)
+  if (!command) return null
+  const rest = text.slice(command.to)
+  if (rest !== '' && rest !== ' ') return null
+  if (caret !== text.length) return null
+  const hint = argumentHint(text.slice(1, command.to))
+  return hint ? { at: text.length, hint } : null
+}
+
+class CommandHintWidget extends WidgetType {
+  constructor(
+    private readonly hint: string,
+    private readonly spaced: boolean
+  ) {
+    super()
+  }
+  eq(other: CommandHintWidget): boolean {
+    return other.hint === this.hint && other.spaced === this.spaced
+  }
+  toDOM(): HTMLElement {
+    const el = document.createElement('span')
+    el.className = 'nyra-command-hint'
+    el.setAttribute('aria-hidden', 'true')
+    el.textContent = this.spaced ? this.hint : ` ${this.hint}`
+    return el
+  }
+  ignoreEvent(): boolean {
+    return true
+  }
+}
+
 class CommandIconWidget extends WidgetType {
   eq(): boolean {
     return true
@@ -333,6 +376,13 @@ function buildDecorations(view: EditorView): DecorationSet {
   if (command) {
     decorations.push(commandIcon.range(command.from))
     decorations.push(commandMark.range(command.from, command.to))
+  }
+
+  // Side 1, so it sits after the caret rather than pushing it along.
+  const hint = ranges.length === 1 && ranges[0].empty ? commandHintAt(text, ranges[0].head) : null
+  if (hint) {
+    const widget = new CommandHintWidget(hint.hint, text.endsWith(' '))
+    decorations.push(Decoration.widget({ widget, side: 1 }).range(hint.at))
   }
 
   for (const span of findUltrathink(text)) {

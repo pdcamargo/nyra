@@ -2,6 +2,7 @@ import React from 'react'
 import { ArrowDown, CircleAlert, CircleCheck, GitPullRequest, History, Sparkles, X } from 'lucide-react'
 import { buildRecap, formatAway, RECAP_FILE_LIMIT, type RecapStat } from '../lib/recap'
 import { useSessionsStore } from '../store/sessions'
+import { useSettingsStore } from '../store/settings'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 /**
@@ -57,21 +58,25 @@ function StatRow({ stat }: { stat: RecapStat }): React.JSX.Element {
 export default function SessionRecap({
   sessionId,
   onSummarise,
-  onJump
+  onJump,
+  isOnScreen
 }: {
   sessionId: string | null
   /** Spends a turn: runs the CLI's `/recap`. */
   onSummarise: () => void
   onJump: (messageId: string) => void
+  /** Whether a message is already in view, which makes jumping to it pointless. */
+  isOnScreen: (messageId: string) => boolean
 }): React.JSX.Element | null {
   const session = useSessionsStore((s) => s.sessions.find((x) => x.id === sessionId))
   const dismissAway = useSessionsStore((s) => s.dismissAway)
+  const enabled = useSettingsStore((s) => s.awayRecap)
 
-  // Frozen at mount rather than ticking. This is a report on a window that has
-  // already closed — a stopwatch would imply it is still running.
+  // Only a fallback for a window pinned before its length was recorded. Frozen
+  // at mount rather than ticking: a stopwatch would imply it is still running.
   const [now] = React.useState(() => Date.now())
   const recap = session ? buildRecap(session, now) : null
-  if (!session || !recap) return null
+  if (!enabled || !session || !recap) return null
 
   const shown = recap.files.slice(0, RECAP_FILE_LIMIT)
   const rest = recap.files.length - shown.length
@@ -147,14 +152,17 @@ export default function SessionRecap({
             1 turn
           </span>
         </button>
-        {recap.firstMessageId && (
+        {/* The card sits over the bottom of the transcript, and a short
+            window is often all still in view: offering to scroll to it then
+            is a button that does nothing. */}
+        {recap.firstMessageId && !isOnScreen(recap.firstMessageId) && (
           <button
             type="button"
             onClick={() => onJump(recap.firstMessageId as string)}
             className="flex shrink-0 items-center gap-1 rounded-md border border-border px-3 py-1 text-c-xs text-foreground transition-colors hover:bg-accent/50"
           >
             <ArrowDown className="size-3" />
-            Jump to where it stopped
+            Jump to where you left off
           </button>
         )}
       </div>

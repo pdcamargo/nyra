@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest'
-import {
-  AWAY_MIN_MS,
-  useSessionsStore,
-  type Message,
-  type Session
-} from '../../renderer/src/store/sessions'
+import { useSessionsStore, type Message, type Session } from '../../renderer/src/store/sessions'
+import { useRunningStore } from '../../renderer/src/store/running'
+import { useSettingsStore } from '../../renderer/src/store/settings'
 
 const T0 = 1_700_000_000_000
+const MIN = 60_000
+/** The threshold every test runs with, unless it sets its own. */
+const THRESHOLD = 2 * MIN
 
 function base(id: string, partial: Partial<Session> = {}): Session {
   return {
@@ -32,6 +32,12 @@ const get = (id: string): Session =>
 describe('the away window', () => {
   beforeEach(() => {
     useSessionsStore.setState({ sessions: [], activeSessionId: null, windowAway: false })
+    useRunningStore.setState({ running: {} })
+    useSettingsStore.setState({ awayRecap: true, awayRecapMinutes: THRESHOLD / MIN })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('pins the window before unread is cleared', () => {
@@ -41,7 +47,7 @@ describe('the away window', () => {
           unread: 2,
           turns: 5,
           turnsSeen: 3,
-          messages: [msg('m1', T0), msg('m2', T0 + 100), msg('m3', T0 + 200)]
+          messages: [msg('m1', T0), msg('m2', T0 + MIN), msg('m3', T0 + 4 * MIN)]
         })
       ],
       activeSessionId: 'other'
@@ -52,7 +58,7 @@ describe('the away window', () => {
     const s = get('a')
     expect(s.unread).toBe(0)
     // Two unread of three messages: the window opens at the second.
-    expect(s.away).toEqual({ since: T0 + 100, turnsAtLeave: 3 })
+    expect(s.away).toEqual({ since: T0 + MIN, turnsAtLeave: 3, ms: 3 * MIN })
   })
 
   it('does not open a window for a chat you were already reading', () => {
@@ -90,53 +96,70 @@ describe('the away window', () => {
     expect(s.turnsSeen).toBe(9)
   })
 
-  it('treats a chat that was never open as away since its first unread', () => {
+  it('leaving the chat puts its recap away', () => {
     useSessionsStore.setState({
-      sessions: [base('a', { unread: 1, turns: 2, messages: [msg('m1', T0), msg('m2', T0 + 50)] })],
-      activeSessionId: null
+      sessions: [base('a', { away: { since: T0, turnsAtLeave: 0, ms: 5 * MIN } }), base('b')],
+      activeSessionId: 'a'
     })
-    useSessionsStore.getState().setActiveSession('a')
-    expect(get('a').away).toEqual({ since: T0 + 50, turnsAtLeave: 0 })
+    useSessionsStore.getState().setActiveSession('b')
+    expect(get('a').away).toBeNull()
   })
 
-  describe('a minimum time away', () => {
-    afterEach(() => {
-      vi.useRealTimers()
+  /** Leave `a` for `b`, let the turn keep working in `a` for `worked`, come
+   *  back after `gone`. */
+  const workedFor = (worked: number, gone: number, running = false): Session => {
+    vi.useFakeTimers({ now: T0 })
+    useSessionsStore.setState({
+      sessions: [base('a', { turns: 1, messages: [msg('m1', T0 - 10)] }), base('b')],
+      activeSessionId: 'a'
     })
+    useSessionsStore.getState().setActiveSession('b')
+    useSessionsStore.getState().addMessage('a', msg('m2', T0 + 1000))
+    useSessionsStore.getState().addMessage('a', msg('m3', T0 + worked))
+    if (running) useRunningStore.setState({ running: { a: true } })
+    vi.setSystemTime(T0 + gone)
+    useSessionsStore.getState().setActiveSession('a')
+    return get('a')
+  }
 
-    /** Leave `a` for `b`, let a message land in `a`, come back after `ms`. */
-    const awayFor = (ms: number): Session => {
-      vi.useFakeTimers({ now: T0 })
-      useSessionsStore.setState({
-        sessions: [base('a', { turns: 1, messages: [msg('m1', T0 - 10)] }), base('b')],
-        activeSessionId: 'a'
-      })
-      useSessionsStore.getState().setActiveSession('b')
-      useSessionsStore.getState().addMessage('a', msg('m2', T0 + 1000))
-      vi.setSystemTime(T0 + ms)
-      useSessionsStore.getState().setActiveSession('a')
-      return get('a')
-    }
-
+  describe('a minimum amount of work missed', () => {
     it('opens no window for a quick look at another chat', () => {
-      const s = awayFor(20_000)
+      const s = workedFor(10_000, 20_000)
       expect(s.unread).toBe(0)
-      expect(s.away).toBeUndefined()
+      expect(s.away ?? null).toBeNull()
     })
 
-    it('opens one once you were gone long enough', () => {
-      const s = awayFor(AWAY_MIN_MS)
+    it('opens one once the chat worked without you long enough', () => {
+      const s = workedFor(THRESHOLD, THRESHOLD + 5 * MIN)
       expect(s.unread).toBe(0)
-      expect(s.away).toEqual({ since: T0 + 1000, turnsAtLeave: 1 })
+      expect(s.away).toEqual({ since: T0 + 1000, turnsAtLeave: 1, ms: THRESHOLD })
+    })
+
+    it('stops the clock when the turn finished, however long you stay gone', () => {
+      const s = workedFor(30_000, 3 * 60 * MIN)
+      expect(s.away ?? null).toBeNull()
+    })
+
+    it('keeps the clock running while the turn is still going', () => {
+      const s = workedFor(30_000, THRESHOLD, true)
+      expect(s.away).toEqual({ since: T0 + 1000, turnsAtLeave: 1, ms: THRESHOLD })
+    })
+
+    it('uses the threshold from Settings', () => {
+      useSettingsStore.setState({ awayRecapMinutes: 30 })
+      expect(workedFor(10 * MIN, 60 * MIN).away ?? null).toBeNull()
+    })
+
+    it('opens nothing when the recap is switched off', () => {
+      useSettingsStore.setState({ awayRecap: false })
+      const s = workedFor(10 * MIN, 60 * MIN)
+      expect(s.unread).toBe(0)
+      expect(s.away ?? null).toBeNull()
     })
   })
 
   describe('the window out of focus', () => {
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
-    it('counts minimising towards the time away from the chat on screen', () => {
+    it('counts minimising towards the work missed in the chat on screen', () => {
       vi.useFakeTimers({ now: T0 })
       useSessionsStore.setState({
         sessions: [base('a', { turns: 3, messages: [msg('m1', T0 - 10)] })],
@@ -146,12 +169,13 @@ describe('the away window', () => {
       // On screen, but nobody is looking: it is news.
       useSessionsStore.getState().addMessage('a', msg('m2', T0 + 1000))
       expect(get('a').unread).toBe(1)
+      useSessionsStore.getState().addMessage('a', msg('m3', T0 + THRESHOLD))
 
-      vi.setSystemTime(T0 + AWAY_MIN_MS)
+      vi.setSystemTime(T0 + THRESHOLD + MIN)
       useSessionsStore.getState().setWindowAway(false)
       const s = get('a')
       expect(s.unread).toBe(0)
-      expect(s.away).toEqual({ since: T0 + 1000, turnsAtLeave: 3 })
+      expect(s.away).toEqual({ since: T0 + 1000, turnsAtLeave: 3, ms: THRESHOLD })
       expect(s.leftAt).toBeUndefined()
     })
 
@@ -166,20 +190,30 @@ describe('the away window', () => {
       expect(get('a').away).toBeUndefined()
     })
 
+    it('keeps a recap on screen through an alt-tab', () => {
+      const away = { since: T0, turnsAtLeave: 0, ms: 5 * MIN }
+      useSessionsStore.setState({ sessions: [base('a', { away })], activeSessionId: 'a' })
+      useSessionsStore.getState().setWindowAway(true)
+      useSessionsStore.getState().setWindowAway(false)
+      expect(get('a').away).toEqual(away)
+    })
+
     it('adds a minute in another chat to a minute minimised', () => {
       vi.useFakeTimers({ now: T0 })
       useSessionsStore.setState({
         sessions: [base('a', { turns: 1 }), base('b')],
         activeSessionId: 'a'
       })
+      useRunningStore.setState({ running: { a: true } })
       useSessionsStore.getState().setActiveSession('b')
       useSessionsStore.getState().addMessage('a', msg('m1', T0 + 1000))
-      vi.setSystemTime(T0 + 60_000)
+      vi.setSystemTime(T0 + MIN)
       useSessionsStore.getState().setWindowAway(true)
-      vi.setSystemTime(T0 + 120_000)
+      vi.setSystemTime(T0 + 2 * MIN)
       useSessionsStore.getState().setWindowAway(false)
       useSessionsStore.getState().setActiveSession('a')
-      expect(get('a').away).toEqual({ since: T0 + 1000, turnsAtLeave: 1 })
+      // Still running, so the clock ran up to the moment you came back.
+      expect(get('a').away).toEqual({ since: T0 + 1000, turnsAtLeave: 1, ms: 2 * MIN })
     })
   })
 })

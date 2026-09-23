@@ -22,19 +22,10 @@ beforeEach(() => {
 })
 
 describe('composer resource commands', () => {
-  it('opens MCP without leaving a transcript badge', () => {
-    showResource('chat-a', 'mcp')
+  it.each(['mcp', 'status'] as const)('opens %s without leaving a transcript badge', (kind) => {
+    showResource('chat-a', kind)
 
-    expect(useResourceDockStore.getState().bySession['chat-a']).toBe('mcp')
+    expect(useResourceDockStore.getState().bySession['chat-a']).toBe(kind)
     expect(useSessionsStore.getState().sessions[0].messages).toEqual([])
-  })
-
-  it('opens status and leaves a link that can reopen it', () => {
-    showResource('chat-a', 'status')
-
-    expect(useResourceDockStore.getState().bySession['chat-a']).toBe('status')
-    expect(useSessionsStore.getState().sessions[0].messages).toEqual([
-      expect.objectContaining({ role: 'assistant', text: '[Session status](nyra://status)' })
-    ])
   })
 })

@@ -15,7 +15,7 @@ export function parseMcpFromInit(
   }
   return mcpServers.map((s) => ({
     name: s.name,
-    status: s.status as 'connected' | 'failed' | 'pending',
+    status: s.status as McpServerInfo['status'],
     // Claude prefixes plugin servers with their namespaced id flattened to
     // underscores (`plugin:vercel:vercel` → `plugin_vercel_vercel`).
     tools: toolsByServer.get(s.name.replace(/[\s.:]/g, '_')) ?? []

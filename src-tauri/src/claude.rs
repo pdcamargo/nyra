@@ -316,6 +316,9 @@ struct SessionInner {
     /// Held only between a write being announced and its result arriving, which
     /// is the point the file is actually on disk and can be read back.
     plan_writes: HashMap<String, String>,
+    /// Whether this process has been asked for the conversation's title. Once
+    /// per process: the CLI answers from what it already has after that.
+    title_requested: bool,
 }
 
 /// What answering one queued prompt did to the permission gate.
@@ -347,6 +350,7 @@ impl SessionInner {
             stale_resume_detected: false,
             retry_in_flight: false,
             plan_writes: HashMap::new(),
+            title_requested: false,
         }
     }
 
@@ -846,6 +850,13 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
         if let Some(models) = offered_models(raw) {
             emit_event(nyra_session_id, json!({ "type": "models", "models": models }));
         }
+        if let Some(commands) = offered_commands(raw) {
+            emit_event(nyra_session_id, json!({ "type": "commands", "commands": commands }));
+        }
+        if let Some(title) = requested_title(raw) {
+            crate::logf!("AI title [{}]: {title}", util::short(nyra_session_id));
+            emit_event(nyra_session_id, json!({ "type": "ai_title", "title": title }));
+        }
         return;
     }
 
@@ -1280,7 +1291,11 @@ async fn send_prompt_to_session(
         inner.turn_prompt = prompt.to_string();
     }
 
-    let payload = format_user_message(prompt);
+    let mut payload = format_user_message(prompt);
+    let ask_title = !std::mem::replace(&mut sess.inner.lock().title_requested, true);
+    if ask_title {
+        payload.push_str(&title_request(prompt));
+    }
     let mut guard = sess.stdin.lock().await;
     let write = match guard.as_mut() {
         Some(stdin) => stdin
@@ -1469,6 +1484,7 @@ async fn spawn_session(
             stale_resume_detected: false,
             retry_in_flight: false,
             plan_writes: HashMap::new(),
+            title_requested: false,
         }),
         stdin: AsyncMutex::new(Some(stdin)),
     });
@@ -1605,6 +1621,86 @@ fn offered_models(raw: &Value) -> Option<Value> {
         })
         .collect();
     (!trimmed.is_empty()).then_some(Value::Array(trimmed))
+}
+
+/// `commands` from the answer to [`INITIALIZE_REQUEST`]: every slash command
+/// this CLI has, with what it says about each one.
+///
+/// `system/init` names the same commands and nothing more. This is the only
+/// place the CLI says what a command takes — `argumentHint`, `<model>` for
+/// `/model` — which is what the composer shows after a command you have typed.
+/// A description is cut to its first line: a skill's runs to paragraphs of
+/// instructions meant for the model, and a completion popup has one line.
+fn offered_commands(raw: &Value) -> Option<Value> {
+    let response = raw.get("response")?;
+    if response.get("request_id").and_then(Value::as_str) != Some("nyra-initialize") {
+        return None;
+    }
+    let commands = response.get("response")?.get("commands")?.as_array()?;
+    let trimmed: Vec<Value> = commands
+        .iter()
+        .filter_map(|c| {
+            let name = c.get("name").and_then(Value::as_str).filter(|n| !n.is_empty())?;
+            let text = |key: &str| {
+                c.get(key)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+            };
+            let description = text("description")
+                .and_then(|d| d.lines().next())
+                .map(|d| d.chars().take(200).collect::<String>());
+            Some(json!({
+                "name": name,
+                "description": description,
+                "argumentHint": text("argumentHint"),
+            }))
+        })
+        .collect();
+    (!trimmed.is_empty()).then_some(Value::Array(trimmed))
+}
+
+/// Ask the CLI to title the conversation.
+///
+/// Up to 2.1.275 a headless CLI titled a conversation on its own, a few seconds
+/// into the first turn, and wrote the result into the transcript for
+/// `ai_title.rs` to find. From 2.1.278 it does not: the host has to ask, the way
+/// the Agent SDK's `generateSessionTitle` does. With `persist` the CLI still
+/// appends the `ai-title` record itself, and a conversation that already has a
+/// title — a resumed one, or one you renamed — gets that back rather than a new
+/// one, so asking every process once costs nothing past the first time.
+///
+/// Written straight after the prompt it describes. The CLI cuts the description
+/// at a thousand characters; this cuts it first so a pasted file is not sent
+/// twice.
+fn title_request(prompt: &str) -> String {
+    let description: String = prompt.chars().take(1000).collect();
+    format!(
+        "{}\n",
+        json!({
+            "type": "control_request",
+            "request_id": TITLE_REQUEST_ID,
+            "request": {
+                "subtype": "generate_session_title",
+                "description": description,
+                "persist": true,
+            },
+        })
+    )
+}
+
+const TITLE_REQUEST_ID: &str = "nyra-title";
+
+/// The title from the answer to [`title_request`]. None for any other control
+/// response, an error, or a CLI that had nothing to offer — a slash command
+/// gets no title.
+fn requested_title(raw: &Value) -> Option<String> {
+    let response = raw.get("response")?;
+    if response.get("request_id").and_then(Value::as_str) != Some(TITLE_REQUEST_ID) {
+        return None;
+    }
+    let title = response.get("response")?.get("title")?.as_str()?.trim();
+    (!title.is_empty()).then(|| title.to_string())
 }
 
 /// What the CLI prints when `--resume` names a conversation it does not have.
@@ -2178,6 +2274,71 @@ mod tests {
         assert_eq!(models[0]["resolvedModel"], "claude-opus-4-6");
         // Only what the picker reads crosses to the renderer.
         assert!(models[0].get("supportsEffort").is_none());
+    }
+
+    #[test]
+    fn reads_each_command_and_what_it_takes_out_of_the_initialize_answer() {
+        let raw = json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": "nyra-initialize",
+                "response": {
+                    "commands": [
+                        { "name": "model", "description": "Set the AI model", "argumentHint": "<model>", "builtin": true },
+                        { "name": "init", "description": "Initialize CLAUDE.md", "argumentHint": "" },
+                        { "name": "claude-api", "description": "Reference for the API.\nTRIGGER — read BEFORE…" },
+                        { "description": "no name, so not a command" }
+                    ],
+                    "models": []
+                }
+            }
+        });
+        let commands = offered_commands(&raw).unwrap();
+        let commands = commands.as_array().unwrap();
+        assert_eq!(commands.len(), 3);
+        assert_eq!(commands[0]["argumentHint"], "<model>");
+        // An empty hint is no hint.
+        assert!(commands[1]["argumentHint"].is_null());
+        // Only the first line of a skill's description.
+        assert_eq!(commands[2]["description"], "Reference for the API.");
+        assert!(commands[0].get("builtin").is_none());
+        assert!(offered_commands(&json!({ "type": "control_response", "response": { "request_id": "other" } })).is_none());
+    }
+
+    #[test]
+    fn asks_for_a_persisted_title_described_by_the_prompt() {
+        let line = title_request(&"x".repeat(1500));
+        assert!(line.ends_with('\n'));
+        let value: Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(value["type"], "control_request");
+        assert_eq!(value["request_id"], TITLE_REQUEST_ID);
+        assert_eq!(value["request"]["subtype"], "generate_session_title");
+        assert_eq!(value["request"]["persist"], true);
+        assert_eq!(value["request"]["description"].as_str().unwrap().len(), 1000);
+    }
+
+    #[test]
+    fn reads_the_title_from_its_own_answer_only() {
+        let answer = |id: &str, title: Value| {
+            json!({
+                "type": "control_response",
+                "response": { "subtype": "success", "request_id": id, "response": { "title": title } }
+            })
+        };
+        assert_eq!(
+            requested_title(&answer(TITLE_REQUEST_ID, json!(" DNS resolution "))),
+            Some("DNS resolution".into())
+        );
+        assert_eq!(requested_title(&answer("nyra-initialize", json!("Nope"))), None);
+        // A slash command has no title to give.
+        assert_eq!(requested_title(&answer(TITLE_REQUEST_ID, Value::Null)), None);
+        assert_eq!(requested_title(&answer(TITLE_REQUEST_ID, json!("  "))), None);
+        let refused = json!({
+            "type": "control_response",
+            "response": { "subtype": "error", "request_id": TITLE_REQUEST_ID, "error": "unknown subtype" }
+        });
+        assert_eq!(requested_title(&refused), None);
     }
 
     #[test]

@@ -6,6 +6,11 @@
 //! session transcript under `~/.claude/projects/<dir>/<id>.jsonl`, so reading
 //! that file is the only way to get it.
 //!
+//! From CLI 2.1.278 a headless session no longer titles itself: the host has
+//! to ask, and `claude.rs` does, with a `generate_session_title` control
+//! request whose answer carries the title directly. This file is still how an
+//! older CLI's title arrives, and how Claude's later revisions of it do.
+//!
 //! This tails the transcript for a while after a turn starts and reports a title
 //! the moment one lands. Only the bytes nobody has read yet are scanned: these
 //! files reach tens of megabytes, and walking one every second and a half to

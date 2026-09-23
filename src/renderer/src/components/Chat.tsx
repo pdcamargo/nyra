@@ -52,7 +52,7 @@ import { useRateLimitStore } from '../store/rateLimit'
 import { useRunningStore, isSessionRunning } from '../store/running'
 import { useUiStore } from '../store/ui'
 import { useLoopsStore } from '../store/loops'
-import { noteSlashCommands } from '../lib/slashCommands'
+import { noteCommandDetails, noteSlashCommands, type CommandDetail } from '../lib/slashCommands'
 import { noteModelId, noteModelVersion, noteOfferedModels } from '../store/modelVersions'
 import type { OfferedModel } from '../lib/models'
 import { openFileInPanel } from '../lib/openFile'
@@ -90,6 +90,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'session_reset'; reason: string }
   | { type: 'ai_title'; title: string }
   | { type: 'models'; models: OfferedModel[] }
+  | { type: 'commands'; commands: CommandDetail[] }
   | { type: 'auth_required'; message: string }
 )
 
@@ -635,6 +636,13 @@ export default function Chat(): React.JSX.Element {
       // than per chat: it is the same account whichever chat asked.
       if (event.type === 'models') {
         noteOfferedModels(event.models)
+        return
+      }
+
+      // The same answer's command list, which is the only place the CLI says
+      // what each command takes. Global for the same reason.
+      if (event.type === 'commands') {
+        noteCommandDetails(event.commands)
         return
       }
 
@@ -1533,20 +1541,37 @@ export default function Chat(): React.JSX.Element {
   }, [activeSessionId, sendMessage])
 
   /** Scroll back to the first message you missed. */
-  const handleRecapJump = useCallback(
-    (messageId: string) => {
-      const index = virtualItems.findIndex(
+  const recapIndexOf = useCallback(
+    (messageId: string) =>
+      virtualItems.findIndex(
         (item) =>
           (item.kind === 'message' && item.msg.id === messageId) ||
           (item.kind === 'tool_group' && item.firstId === messageId) ||
           (item.kind === 'memory' && item.firstId === messageId)
-      )
+      ),
+    [virtualItems]
+  )
+  const handleRecapJump = useCallback(
+    (messageId: string) => {
+      const index = recapIndexOf(messageId)
       if (index < 0) return
       stuckToBottomRef.current = false
       virtualizer.scrollToIndex(index, { align: 'start', behavior: 'smooth' })
     },
-    [virtualItems, virtualizer]
+    [recapIndexOf, virtualizer]
   )
+  // Read every render rather than memoised: the visible range moves on scroll,
+  // and the virtualizer re-renders this component when it does.
+  const recapRange = virtualizer.range
+  const recapOnScreen = (messageId: string): boolean => {
+    const index = recapIndexOf(messageId)
+    return (
+      index >= 0 &&
+      recapRange !== null &&
+      index >= recapRange.startIndex &&
+      index <= recapRange.endIndex
+    )
+  }
 
   /**
    * Fold the worktree's branch back into the main one.
@@ -1943,6 +1968,7 @@ export default function Chat(): React.JSX.Element {
           sessionId={activeSessionId}
           onSummarise={handleRecapSummarise}
           onJump={handleRecapJump}
+          isOnScreen={recapOnScreen}
         />
         <ActivityStrip sessionId={activeSessionId} onStop={handleStopTurn} />
         <TaskStrip />

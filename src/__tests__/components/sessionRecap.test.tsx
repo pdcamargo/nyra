@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import SessionRecap from '../../renderer/src/components/SessionRecap'
 import { TooltipProvider } from '../../renderer/src/components/ui/tooltip'
 import { useSessionsStore, type Message, type Session } from '../../renderer/src/store/sessions'
+import { useSettingsStore } from '../../renderer/src/store/settings'
 
 const T0 = 1_700_000_000_000
 
@@ -34,6 +35,7 @@ function draw(props: Partial<React.ComponentProps<typeof SessionRecap>> = {}) {
         sessionId="s1"
         onSummarise={props.onSummarise ?? vi.fn()}
         onJump={props.onJump ?? vi.fn()}
+        isOnScreen={props.isOnScreen ?? (() => false)}
       />
     </TooltipProvider>
   )
@@ -42,6 +44,7 @@ function draw(props: Partial<React.ComponentProps<typeof SessionRecap>> = {}) {
 describe('SessionRecap', () => {
   beforeEach(() => {
     useSessionsStore.setState({ sessions: [], activeSessionId: null })
+    useSettingsStore.setState({ awayRecap: true })
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(T0 + 12 * 60_000)
   })
@@ -134,8 +137,35 @@ describe('SessionRecap', () => {
       ]
     })
     draw({ onJump })
-    await user.click(screen.getByText('Jump to where it stopped'))
+    await user.click(screen.getByText('Jump to where you left off'))
     expect(onJump).toHaveBeenCalledWith('missed')
+  })
+
+  it('offers no jump when the first missed message is already in view', () => {
+    seed({
+      away: { since: T0 + 5, turnsAtLeave: 0 },
+      turns: 1,
+      messages: [msg('seen', T0), msg('missed', T0 + 10)],
+      tasks: [
+        { taskId: '1', subject: 'x', description: '', status: 'completed', createdByToolId: 't' }
+      ]
+    })
+    draw({ isOnScreen: (id) => id === 'missed' })
+    expect(screen.queryByText('Jump to where you left off')).toBeNull()
+  })
+
+  it('draws nothing when the recap is switched off in Settings', () => {
+    useSettingsStore.setState({ awayRecap: false })
+    seed({
+      away: { since: T0, turnsAtLeave: 0 },
+      turns: 1,
+      messages: [msg('a', T0 + 10)],
+      tasks: [
+        { taskId: '1', subject: 'x', description: '', status: 'completed', createdByToolId: 't' }
+      ]
+    })
+    const { container } = draw()
+    expect(container).toBeEmptyDOMElement()
   })
 
   it('reports a partly-done checklist as partly done', () => {

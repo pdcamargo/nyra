@@ -230,6 +230,7 @@ pub fn run() {
             commands::git_worktree_merge,
             commands::git_worktree_remove,
             commands::mcp_list,
+            commands::mcp_health,
             commands::mcp_inspect,
             commands::mcp_set_enabled,
             commands::plugins_catalog,

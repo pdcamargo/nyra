@@ -13,7 +13,9 @@ import {
 } from 'lucide-react'
 import { useSessionsStore, type McpServerInfo } from '../store/sessions'
 import { isSessionRunning, useRunningStore } from '../store/running'
-import type { McpEntry, McpInspection, McpToggleResult } from '../lib/api-types'
+import { useMcpHealthStore } from '../store/mcpHealth'
+import { homedir } from '../lib/homedir'
+import type { McpEntry, McpHealthEntry, McpInspection, McpToggleResult } from '../lib/api-types'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 /**
@@ -32,6 +34,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 /** Stable empty array — a fresh one per call re-renders forever. */
 const EMPTY_MCP: McpServerInfo[] = []
+const EMPTY_HEALTH: McpHealthEntry[] = []
 
 type McpToolInfo = Extract<McpInspection, { ok: true }>['tools'][number]
 
@@ -54,6 +57,11 @@ type Row = McpEntry & {
   tools: string[]
   /** A status from Claude's init event, rather than an unopened config row. */
   liveStatus?: boolean
+  /** A status from `claude mcp list` instead — what a chat here would get,
+   *  asked before any chat started one. The chat's own report replaces it. */
+  checked?: boolean
+  /** Why a checked server is not connected, in the CLI's words. */
+  detail?: string
   /**
    * True for a server the session has that no config file names — a server a
    * plugin ships, a claude.ai connector, or Nyra's own browser and app tools.
@@ -76,7 +84,16 @@ export default function McpExplorer({
     const session = state.sessions.find((entry) => entry.id === state.activeSessionId)
     return session?.mcpServers ?? EMPTY_MCP
   })
-  const configuredAt = cwd ?? activeCwd
+  // Outside a chat, the global scope: what a chat in no project would reach.
+  const configuredAt = cwd ?? (activeCwd || homedir())
+  const health = useMcpHealthStore((state) => state.byCwd[configuredAt])
+  const checkedServers = health?.servers ?? EMPTY_HEALTH
+  const checking = health?.loading === true
+
+  // Opening the list is the moment a stale check is worth redoing.
+  useEffect(() => {
+    useMcpHealthStore.getState().warm(configuredAt)
+  }, [configuredAt])
 
   const [entries, setEntries] = useState<McpEntry[]>([])
   const [selected, setSelected] = useState<string | null>(null)
@@ -118,13 +135,17 @@ export default function McpExplorer({
    */
   const rows: Row[] = useMemo(() => {
     const statusByName = new Map(liveServers.map((server) => [server.name, server]))
+    const checkedByName = new Map(checkedServers.map((server) => [server.name, server]))
     const out: Row[] = entries.map((entry) => {
       const live = statusByName.get(entry.name)
+      const checked = live ? undefined : checkedByName.get(entry.name)
       return {
         ...entry,
-        status: entry.disabled ? 'pending' : (live?.status ?? 'pending'),
+        status: entry.disabled ? 'pending' : (live?.status ?? checked?.status ?? 'pending'),
         tools: live?.tools ?? [],
-        liveStatus: Boolean(live)
+        liveStatus: Boolean(live),
+        checked: Boolean(checked),
+        detail: checked?.detail
       }
     })
     const known = new Set(out.map((row) => row.name))
@@ -142,9 +163,29 @@ export default function McpExplorer({
         liveStatus: true,
         sessionOnly: true
       })
+      known.add(live.name)
+    }
+    // Servers the check found that no config file here names: claude.ai
+    // connectors and plugin servers. Once a chat reports, it names them itself.
+    for (const checked of checkedServers) {
+      if (known.has(checked.name)) continue
+      out.push({
+        name: checked.name,
+        scope: 'global',
+        source: checked.name.startsWith('claude.ai ')
+          ? 'claude.ai connector'
+          : checked.name.startsWith('plugin:')
+            ? 'Plugin'
+            : undefined,
+        status: checked.status,
+        tools: [],
+        checked: true,
+        detail: checked.detail,
+        sessionOnly: true
+      })
     }
     return out
-  }, [entries, liveServers])
+  }, [entries, liveServers, checkedServers])
 
   const connected = rows.filter((row) => row.status === 'connected').length
   const failed = rows.filter((row) => row.status === 'failed').length
@@ -179,13 +220,15 @@ export default function McpExplorer({
           {connected > 0 && <span className="text-success">{connected} connected</span>}
           {connected > 0 && failed > 0 && <span> · </span>}
           {failed > 0 && <span className="text-danger">{failed} failed</span>}
-          {connected === 0 && failed === 0 && <span>not connected yet</span>}
+          {connected === 0 && failed === 0 && !checking && <span>not connected yet</span>}
+          {checking && <span>{connected > 0 || failed > 0 ? ' · checking…' : 'checking…'}</span>}
         </span>
         <span className="flex-1" />
         <ReconnectButton
           notify={setNote}
           scope="every server in this chat"
           hasStarted={liveServers.length > 0}
+          cwd={configuredAt}
         />
         {onClose && (
           <Tooltip>
@@ -206,8 +249,10 @@ export default function McpExplorer({
 
       <div className={`min-h-0 flex-1 overflow-y-auto ${compact ? 'px-1.5 pb-1.5' : 'px-2 pb-2'}`}>
         {note && <p className="px-1 pb-1 text-c-sm text-muted-foreground">{note}</p>}
-        {loading && rows.length === 0 ? (
-          <p className="px-1 py-2 text-c-sm text-muted-foreground">Reading configuration…</p>
+        {(loading || checking) && rows.length === 0 ? (
+          <p className="px-1 py-2 text-c-sm text-muted-foreground">
+            {loading ? 'Reading configuration…' : 'Checking servers…'}
+          </p>
         ) : rows.length === 0 ? (
           <p className="px-1 py-2 text-c-sm text-muted-foreground">
             No MCP servers are configured for this project.
@@ -216,7 +261,11 @@ export default function McpExplorer({
           <ul className="flex flex-col">
             {rows.map((row) => (
               <li key={row.name}>
-                <ServerRow row={row} onSelect={() => setSelected(row.name)} />
+                <ServerRow
+                  row={row}
+                  checking={checking}
+                  onSelect={() => setSelected(row.name)}
+                />
               </li>
             ))}
           </ul>
@@ -236,18 +285,25 @@ export default function McpExplorer({
  * doing is not a reconnect. And it does not dispose a session that is mid-turn:
  * that would kill a running agent to fix a status dot, so it says so instead
  * and waits for a turn boundary.
+ *
+ * With no chat open, or one whose servers have not started, there is no process
+ * to restart — what is on screen came from `claude mcp list`, so the button runs
+ * that again instead.
  */
 function ReconnectButton({
   label = 'Reconnect',
   notify,
   scope,
-  hasStarted
+  hasStarted,
+  cwd
 }: {
   label?: string
   notify: (message: string) => void
   /** What the control acts on, said out loud — "every server in this chat". */
   scope: string
   hasStarted: boolean
+  /** Where the ahead-of-time check runs, when there is no chat to restart. */
+  cwd: string
 }): React.JSX.Element {
   const activeSessionId = useSessionsStore((state) => state.activeSessionId)
   // Subscribed, not read once: the spinner lives in the running store, and a
@@ -255,19 +311,17 @@ function ReconnectButton({
   const running = useRunningStore((state) =>
     activeSessionId ? state.running[activeSessionId] === true : false
   )
+  const checking = useMcpHealthStore((state) => state.byCwd[cwd]?.loading === true)
+  const recheck = !activeSessionId || !hasStarted
 
   const reconnect = useCallback(async () => {
     const sessionId = useSessionsStore.getState().activeSessionId
-    if (!sessionId) {
-      notify('Open a chat first.')
+    if (!sessionId || !hasStarted) {
+      useMcpHealthStore.getState().warm(cwd, 0)
       return
     }
     if (isSessionRunning(sessionId)) {
       notify('This chat is mid-turn. Stop it, then reconnect.')
-      return
-    }
-    if (!hasStarted) {
-      notify('Claude has not started these servers yet. They connect when you send a message.')
       return
     }
     try {
@@ -276,7 +330,7 @@ function ReconnectButton({
     } catch (error) {
       notify(`Could not restart this chat: ${String(error)}`)
     }
-  }, [hasStarted, notify, scope])
+  }, [cwd, hasStarted, notify, scope])
 
   return (
     <Tooltip>
@@ -284,15 +338,17 @@ function ReconnectButton({
         <button
           type="button"
           onClick={() => void reconnect()}
-          disabled={running}
+          disabled={recheck ? checking : running}
           className="flex items-center gap-1 rounded px-1.5 py-0.5 text-c-sm text-info transition-colors hover:bg-info/10 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent"
         >
-          <RotateCw className="size-3" />
-          {label}
+          <RotateCw className={`size-3 ${recheck && checking ? 'animate-spin' : ''}`} />
+          {recheck ? 'Check again' : label}
         </button>
       </TooltipTrigger>
       <TooltipContent>
-        {running
+        {recheck
+          ? 'Ask Claude Code again which of these servers connect. A chat starts its own when you send a message.'
+          : running
           ? 'This chat is working. Stop the turn before restarting its servers.'
           : `Restart this chat's Claude process so ${scope} reconnect. The conversation is kept.`}
       </TooltipContent>
@@ -306,7 +362,30 @@ function statusColour(status: McpServerInfo['status']): string {
   return 'bg-warning'
 }
 
-function ServerRow({ row, onSelect }: { row: Row; onSelect: () => void }): React.JSX.Element {
+/** The second line of a row: what state it is in, or where it comes from. */
+function rowCaption(row: Row, checking: boolean): string {
+  if (row.disabled) return 'Disabled in this project'
+  if (row.status === 'needs-auth') return 'Needs authentication'
+  if (row.status === 'failed' && row.detail) return row.detail
+  if (row.liveStatus && row.status === 'pending') return 'Waiting to connect'
+  // Mid-check, a row with no answer yet says where it is from, like any other.
+  // The header already says a check is running; saying it again on every row
+  // was a column of the same word.
+  if (!row.liveStatus && !row.checked && !checking) {
+    return 'Not started · connects with the next message'
+  }
+  return row.source || row.scope || 'Configured'
+}
+
+function ServerRow({
+  row,
+  checking,
+  onSelect
+}: {
+  row: Row
+  checking: boolean
+  onSelect: () => void
+}): React.JSX.Element {
   const toolCount = row.tools.length
   return (
     <button
@@ -314,17 +393,15 @@ function ServerRow({ row, onSelect }: { row: Row; onSelect: () => void }): React
       onClick={onSelect}
       className="flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-accent/60"
     >
-      <span className={`size-1.5 shrink-0 rounded-full ${statusColour(row.status)}`} />
+      <span
+        className={`size-1.5 shrink-0 rounded-full ${
+          checking && !row.liveStatus && !row.checked ? 'bg-muted-foreground' : statusColour(row.status)
+        }`}
+      />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-c-md text-foreground/90">{row.name}</span>
         <span className="block truncate text-c-sm text-muted-foreground">
-          {row.disabled
-            ? 'Disabled in this project'
-            : !row.liveStatus
-              ? 'Not started · connects with the next message'
-              : row.status === 'pending'
-                ? 'Waiting to connect'
-                : row.source || row.scope || 'Configured'}
+          {rowCaption(row, checking)}
         </span>
       </span>
       {toolCount > 0 && (
@@ -435,18 +512,32 @@ function ServerDetail({
       <div className={`min-h-0 flex-1 overflow-y-auto ${compact ? 'px-2 pb-2' : 'px-3 pb-3'}`}>
         <div className="border-b border-separator pb-2">
           <MetaRow label="Source">
-            {server.source || (sessionOnly ? 'Provided to this chat' : 'Not configured here')}
+            {server.source ||
+              (sessionOnly
+                ? server.liveStatus
+                  ? 'Provided to this chat'
+                  : 'A connector or plugin'
+                : 'Not configured here')}
           </MetaRow>
-          <MetaRow icon={<Plug className="size-3" />} label="Transport">
-            <span className="font-mono text-c-sm text-foreground/80">
-              {server.transport ?? 'stdio'}
-            </span>
-            {projectScoped && (
-              <span className="ml-1.5 text-c-sm text-muted-foreground">
-                · disable applies to this project
+          {server.detail && (
+            <MetaRow icon={<AlertCircle className="size-3" />} label="Status">
+              <span className="text-c-sm text-foreground/80">{server.detail}</span>
+            </MetaRow>
+          )}
+          {/* A row only the check knows about has no config to say how it
+              connects, and guessing stdio would be wrong for every connector. */}
+          {!(sessionOnly && !server.liveStatus) && (
+            <MetaRow icon={<Plug className="size-3" />} label="Transport">
+              <span className="font-mono text-c-sm text-foreground/80">
+                {server.transport ?? 'stdio'}
               </span>
-            )}
-          </MetaRow>
+              {projectScoped && (
+                <span className="ml-1.5 text-c-sm text-muted-foreground">
+                  · disable applies to this project
+                </span>
+              )}
+            </MetaRow>
+          )}
           {command && (
             <MetaRow icon={<Terminal className="size-3" />} label="Command">
               <span className="font-mono text-c-sm text-foreground/80" title={command}>
@@ -488,6 +579,7 @@ function ServerDetail({
             notify={setNote}
             scope="every server in this chat"
             hasStarted={server.liveStatus === true}
+            cwd={cwd}
           />
         </div>
 
@@ -593,6 +685,8 @@ function StatusChip({
       ? ['Connected', 'bg-success/15 text-success']
       : status === 'failed'
         ? ['Failed', 'bg-danger/15 text-danger']
+      : status === 'needs-auth'
+        ? ['Needs auth', 'bg-warning/15 text-warning']
       : [liveStatus ? 'Waiting' : 'Not started', 'bg-warning/15 text-warning']
   return (
     <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-c-xs font-medium ${tone}`}>

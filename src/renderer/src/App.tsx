@@ -18,6 +18,7 @@ import { applyZoom } from './lib/zoom'
 import { useSettingsStore } from './store/settings'
 import { useSessionsStore } from './store/sessions'
 import { loadModelCatalog } from './store/modelVersions'
+import { useMcpHealthStore } from './store/mcpHealth'
 import { attachWorktreeSessions } from './store/attachWorktrees'
 import { primeHomedir } from './lib/homedir'
 import { migrateSessionsDb } from './lib/legacy-storage'
@@ -74,6 +75,20 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     void loadModelCatalog()
   }, [])
+
+  // MCP status before any chat has started a server: the global scope as soon
+  // as the home directory is known, then each chat's directory the first time
+  // it is opened. Only if never checked — opening the list is what refreshes
+  // a stale one.
+  const activeCwd = useSessionsStore(
+    (s) => s.sessions.find((x) => x.id === s.activeSessionId)?.cwd ?? ''
+  )
+  useEffect(() => {
+    void primeHomedir().then((home) => useMcpHealthStore.getState().warm(home, Infinity))
+  }, [])
+  useEffect(() => {
+    useMcpHealthStore.getState().warm(activeCwd, Infinity)
+  }, [activeCwd])
 
   // Alt-tab and minimise count as time away for the recap, the same as looking
   // at another chat. Focus rather than visibility alone: an alt-tabbed window

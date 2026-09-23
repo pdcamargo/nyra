@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react'
 import {
   useSessionsStore,
   activeProject,
@@ -576,6 +576,7 @@ function SessionsList(): React.JSX.Element {
   const { setActiveSession, deleteSession, renameSession, toggleFavorite, reorderFavorites } =
     useSessionsStore()
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  const renameFromMenu = useRef(false)
   const [renameValue, setRenameValue] = useState('')
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
@@ -762,7 +763,9 @@ function SessionsList(): React.JSX.Element {
                   both a PR and an unread dot keeps them together at the end. */}
               <span className="ml-auto flex shrink-0 items-center gap-1.5">
                 <ChatRowPrChip sessionId={session.id} />
-                {!waiting && unread > 0 && (
+                {/* Held back until the turn ends: a dot on a running chat
+                    invites a click that lands on half a thought. */}
+                {!waiting && !isRunning && unread > 0 && (
                   <span
                     title={`${unread} new message${unread === 1 ? '' : 's'}`}
                     className="size-1.5 shrink-0 rounded-full bg-info"
@@ -807,7 +810,24 @@ function SessionsList(): React.JSX.Element {
           </Tooltip>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent
+        // Rename focuses an input; handing focus back to the row would blur it
+        // and commit the rename before anything was typed.
+        onCloseAutoFocus={(e) => {
+          if (renameFromMenu.current) e.preventDefault()
+          renameFromMenu.current = false
+        }}
+      >
+        <ContextMenuItem
+          onSelect={() => {
+            renameFromMenu.current = true
+            setRenamingId(session.id)
+            setRenameValue(session.title)
+          }}
+        >
+          <Pencil />
+          Rename chat
+        </ContextMenuItem>
         <ContextMenuItem onSelect={() => requestArchive(session)}>
           <Archive />
           Archive chat

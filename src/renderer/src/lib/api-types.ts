@@ -130,6 +130,18 @@ export type McpInspection =
     }
   | { ok: false; error: string }
 
+/** One server's status from `claude mcp list`: name and status, never the
+ *  command line it runs. */
+export type McpHealthEntry = {
+  name: string
+  status: 'connected' | 'failed' | 'needs-auth' | 'pending'
+  detail?: string
+}
+
+export type McpHealthResult =
+  | { ok: true; servers: McpHealthEntry[] }
+  | { ok: false; error: string }
+
 export type McpToggleResult =
   | { ok: true; name: string; enabled: boolean }
   | { ok: false; error: string }

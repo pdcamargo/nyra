@@ -30,6 +30,17 @@ export type SlashCommand = {
   description: string
   /** What the popup tags it as. A skill is loaded, a command is run. */
   kind: 'command' | 'skill'
+  /** What it takes after its name, as the CLI puts it — `<model>`. Absent for
+   *  a command that declares nothing, which is not the same as taking nothing:
+   *  a skill gets whatever follows its name whether it says so or not. */
+  argumentHint?: string
+}
+
+/** What the CLI says about one command, from its answer to `initialize`. */
+export type CommandDetail = {
+  name: string
+  description?: string | null
+  argumentHint?: string | null
 }
 
 /** Bare name — `loop`, not `/loop stop` — to what the curated list calls it. */
@@ -39,6 +50,27 @@ const CURATED = new Map(
 
 /** Names the running CLI reported, or null before any session has started. */
 let reported: string[] | null = null
+
+/**
+ * The CLI's own description and argument hint per bare name.
+ *
+ * Kept across launches, because the CLI only answers once a chat has started a
+ * process — and the composer is used before that, too. A command that has since
+ * been removed keeps a stale entry until the next answer replaces the lot,
+ * which costs a hint on a name nothing will complete.
+ */
+const DETAILS_KEY = 'nyra-command-details'
+let details = new Map<string, CommandDetail>(readDetails())
+
+function readDetails(): [string, CommandDetail][] {
+  try {
+    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(DETAILS_KEY)
+    const list = raw ? (JSON.parse(raw) as CommandDetail[]) : []
+    return Array.isArray(list) ? list.map((d) => [d.name, d]) : []
+  } catch {
+    return []
+  }
+}
 
 /** Skills on disk, whatever Claude would load for this project. */
 let skills: SlashCommand[] = []
@@ -53,6 +85,23 @@ const pluginCommands = new Map<string, SlashCommand[]>()
 /** Record what `system/init` said this CLI supports. */
 export function noteSlashCommands(names: string[]): void {
   reported = names.filter((n) => typeof n === 'string' && n.length > 0)
+}
+
+/** Record what the CLI's `initialize` answer said about each of its commands. */
+export function noteCommandDetails(list: CommandDetail[]): void {
+  const valid = list.filter((d) => typeof d?.name === 'string' && d.name.length > 0)
+  if (valid.length === 0) return
+  details = new Map(valid.map((d) => [d.name, d]))
+  try {
+    localStorage.setItem(DETAILS_KEY, JSON.stringify(valid))
+  } catch {
+    // Storage full or unavailable: the hints still work for this launch.
+  }
+}
+
+/** What `/name` takes, if the CLI said. */
+export function argumentHint(name: string): string | undefined {
+  return details.get(name)?.argumentHint || undefined
 }
 
 /**
@@ -105,6 +154,7 @@ export function notePluginCommands(
 /** Only for tests: forget what any previous session or disk read reported. */
 export function resetSlashCommands(): void {
   reported = null
+  details = new Map()
   skills = []
   customCommands = []
   pluginCommands.clear()
@@ -125,11 +175,19 @@ export function resetSlashCommands(): void {
 export function slashCommands(): SlashCommand[] {
   const out: SlashCommand[] = []
   const seen = new Set<string>()
+  // The curated wording wins where there is one: it was written for a popup,
+  // and the CLI's was written for the model. The CLI fills in the rest, and is
+  // the only source for what a command takes.
   const push = (command: SlashCommand): void => {
     const bare = command.name.slice(1)
     if (seen.has(bare)) return
     seen.add(bare)
-    out.push(command)
+    const detail = details.get(bare)
+    out.push({
+      ...command,
+      description: command.description || detail?.description || '',
+      argumentHint: detail?.argumentHint || undefined
+    })
   }
 
   for (const skill of skills) push(skill)
@@ -139,6 +197,13 @@ export function slashCommands(): SlashCommand[] {
   }
   for (const command of BUILT_IN_COMMANDS) push({ ...command, kind: 'command' })
   for (const name of reported ?? []) {
+    push({ name: `/${name}`, description: CURATED.get(name) ?? '', kind: 'command' })
+  }
+  // The same CLI's fuller list, remembered from the last process that started.
+  // It names what `system/init` names — the CLI's bundled skills among them,
+  // `/claude-api` for one — and it is there at launch, before any chat has
+  // started a process to report them.
+  for (const name of details.keys()) {
     push({ name: `/${name}`, description: CURATED.get(name) ?? '', kind: 'command' })
   }
   return out
@@ -152,5 +217,5 @@ export function isKnownCommand(name: string): boolean {
   for (const commands of pluginCommands.values()) {
     if (commands.some((c) => c.name.slice(1) === name)) return true
   }
-  return reported?.includes(name) ?? false
+  return (reported?.includes(name) ?? false) || details.has(name)
 }

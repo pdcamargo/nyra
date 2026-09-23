@@ -128,7 +128,7 @@ export function buildRecap(session: Session, now: number): Recap | null {
   if (stats.length === 0 && files.length === 0) return null
 
   return {
-    awayMs: Math.max(0, now - away.since),
+    awayMs: away.ms ?? Math.max(0, now - away.since),
     turns,
     stats,
     files,

@@ -528,12 +528,137 @@ pub async fn inspect(cwd: &str, name: &str) -> Value {
     }
 }
 
+/// One server's health, as `claude mcp list` reported it.
+///
+/// Name and status only. The CLI prints each server's command line or URL too,
+/// and a command line is where an API key passed as an argument lives, so that
+/// half of the line is dropped here rather than handed to the renderer.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct McpHealth {
+    pub name: String,
+    /// `connected`, `failed`, `needs-auth`, or `pending` for anything else.
+    pub status: &'static str,
+    /// The CLI's reason, for a server that is not connected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Ask the CLI which servers `cwd` can reach and whether each one connects.
+///
+/// This is what Claude would start for a chat there, without starting a chat:
+/// the CLI resolves every scope, plugin servers and claude.ai connectors
+/// included, and connects to each once. Slow — several seconds with a dozen
+/// servers — which is why the renderer runs it once and caches it.
+pub async fn health(cwd: &str) -> Result<Vec<McpHealth>, String> {
+    let binary = crate::claude::resolve_claude_binary(&util::settings().claude_binary_path);
+    let mut command = Command::new(&binary);
+    command
+        .args(["mcp", "list"])
+        .env_clear()
+        .envs(util::clean_child_env())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    if !cwd.is_empty() && Path::new(cwd).is_dir() {
+        command.current_dir(cwd);
+    }
+    let child = command
+        .spawn()
+        .map_err(|e| format!("Could not run `{binary}`: {e}"))?;
+    let output = tokio::time::timeout(Duration::from_secs(90), child.wait_with_output())
+        .await
+        .map_err(|_| "`claude mcp list` did not finish in 90s.".to_string())?
+        .map_err(|e| format!("`{binary}` could not be read: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(stderr.lines().last().unwrap_or("`claude mcp list` failed.").to_string());
+    }
+    Ok(parse_health(&String::from_utf8_lossy(&output.stdout)))
+}
+
+/// `name: target - ✔ Connected`, one per line, after a "Checking…" banner.
+///
+/// The name is everything before the first `": "` — names carry colons of their
+/// own (`plugin:vercel:vercel`) but never a colon and a space. The status is
+/// after the last `" - "` that is followed by a status glyph, since a target
+/// can contain a dash and a failure reason an em dash.
+fn parse_health(stdout: &str) -> Vec<McpHealth> {
+    const GLYPHS: [char; 5] = ['✔', '✘', '!', '⏸', '…'];
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let (name, rest) = line.split_once(": ")?;
+            let at = rest
+                .match_indices(" - ")
+                .map(|(i, _)| i)
+                .filter(|&i| rest[i + 3..].starts_with(GLYPHS))
+                .last()?;
+            let tail = rest[at + 3..].trim();
+            let text = tail
+                .trim_start_matches(GLYPHS)
+                .trim()
+                .to_string();
+            let status = if tail.starts_with('✔') {
+                "connected"
+            } else if tail.starts_with('✘') {
+                "failed"
+            } else if text.to_lowercase().contains("auth") {
+                "needs-auth"
+            } else {
+                "pending"
+            };
+            let detail = match status {
+                "connected" => None,
+                // "Failed to connect — CONNECTION_CLOSED: …": the reason is the
+                // part after the dash; the status already says it failed.
+                _ => Some(
+                    text.split_once(" — ")
+                        .map(|(_, reason)| reason.to_string())
+                        .unwrap_or(text),
+                ),
+            };
+            Some(McpHealth { name: name.trim().to_string(), status, detail })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn servers(raw: &str) -> Map<String, Value> {
         servers_of(raw).expect("mcpServers")
+    }
+
+    #[test]
+    fn health_keeps_name_and_status_and_drops_the_command_line() {
+        let out = "Checking MCP server health…\n\n\
+claude.ai Claude Docs: https://api.anthropic.com/v1/pages/mcp - ✔ Connected\n\
+plugin:vercel:vercel: https://mcp.vercel.com (HTTP) - ! Needs authentication\n\
+retro-studio: bun /x/cli.ts --token s3cret-value - ✘ Failed to connect — CONNECTION_CLOSED: Connection closed\n\
+pdf-mcp: pdf-mcp  - ✔ Connected\n\
+dashy: npx some-mcp - with-dash - ✔ Connected\n";
+        let got = parse_health(out);
+        assert_eq!(
+            got,
+            vec![
+                McpHealth { name: "claude.ai Claude Docs".into(), status: "connected", detail: None },
+                McpHealth {
+                    name: "plugin:vercel:vercel".into(),
+                    status: "needs-auth",
+                    detail: Some("Needs authentication".into())
+                },
+                McpHealth {
+                    name: "retro-studio".into(),
+                    status: "failed",
+                    detail: Some("CONNECTION_CLOSED: Connection closed".into())
+                },
+                McpHealth { name: "pdf-mcp".into(), status: "connected", detail: None },
+                McpHealth { name: "dashy".into(), status: "connected", detail: None },
+            ]
+        );
+        assert!(!format!("{got:?}").contains("s3cret"));
     }
 
     #[test]

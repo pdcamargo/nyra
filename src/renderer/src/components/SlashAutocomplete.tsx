@@ -5,6 +5,7 @@ export type AutocompleteItem = {
   name: string
   description: string
   type: 'skill' | 'command'
+  argumentHint?: string
 }
 
 /** Reads one scope of a scoped list, or nothing when the backend is not up. */
@@ -69,7 +70,8 @@ export function useSlashItems(query: string, cwd: string): AutocompleteItem[] {
     .map((c) => ({
       name: c.name.slice(1),
       description: c.description,
-      type: c.kind
+      type: c.kind,
+      argumentHint: c.argumentHint
     }))
 }
 
@@ -112,6 +114,11 @@ export default function SlashAutocomplete({ items, selectedIndex, onSelect, onHo
             }`}
           >
             <span className="text-xs text-foreground font-medium shrink-0">/{item.name}</span>
+            {item.argumentHint && (
+              <span className="max-w-[40%] shrink-0 truncate font-mono text-[11px] text-muted-foreground">
+                {item.argumentHint}
+              </span>
+            )}
             <span
               className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
                 item.type === 'skill'

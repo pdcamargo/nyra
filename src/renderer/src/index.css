@@ -1124,6 +1124,14 @@ mark.nyra-search-highlight-active {
   font-weight: 600;
   font-family: var(--font-mono);
 }
+/* Muted, not faded: an alpha on the muted token reads as damage. Mono, to sit
+   with the command it follows. */
+.nyra-command-hint {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  pointer-events: none;
+  user-select: none;
+}
 .nyra-command-icon {
   display: inline-block;
   width: 0.95em;

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  argumentHint,
   isKnownCommand,
+  noteCommandDetails,
   noteCustomCommands,
   notePluginCommands,
   noteSkills,
@@ -162,5 +164,54 @@ describe('isKnownCommand', () => {
   it('knows a plugin’s namespaced command', () => {
     notePluginCommands('claude-api', [{ name: 'review', description: '' }])
     expect(isKnownCommand('claude-api:review')).toBe(true)
+  })
+})
+
+describe('what a command takes', () => {
+  it('carries the CLI hint onto the command, and keeps the curated description', () => {
+    noteCommandDetails([
+      { name: 'model', description: 'Set the AI model for Claude Code', argumentHint: '<model>' },
+      { name: 'effort', description: 'Set effort level', argumentHint: '<low|medium|high>' }
+    ])
+    const model = slashCommands().find((c) => c.name === '/model')
+    expect(model?.argumentHint).toBe('<model>')
+    expect(model?.description).toBe('Switch Claude model')
+    expect(argumentHint('effort')).toBe('<low|medium|high>')
+  })
+
+  it('fills a missing description from the CLI', () => {
+    noteSlashCommands(['security-review'])
+    noteCommandDetails([{ name: 'security-review', description: 'Review the pending changes' }])
+    const command = slashCommands().find((c) => c.name === '/security-review')
+    expect(command?.description).toBe('Review the pending changes')
+    expect(command?.argumentHint).toBeUndefined()
+  })
+
+  it('treats an empty hint as none', () => {
+    noteCommandDetails([{ name: 'init', argumentHint: '' }])
+    expect(argumentHint('init')).toBeUndefined()
+  })
+
+  it('remembers the hints for the next launch', () => {
+    noteCommandDetails([{ name: 'model', argumentHint: '<model>' }])
+    expect(JSON.parse(localStorage.getItem('nyra-command-details') ?? '[]')).toEqual([
+      { name: 'model', argumentHint: '<model>' }
+    ])
+  })
+
+  // A bundled skill is not on disk, so before this list only a running chat's
+  // init event could name it — and the popup had nothing for it at launch.
+  it('completes what the remembered list names, before any chat has started', () => {
+    noteCommandDetails([{ name: 'claude-api', description: 'Reference for the Claude API' }])
+    expect(isKnownCommand('claude-api')).toBe(true)
+    expect(slashCommands().find((c) => c.name === '/claude-api')?.description).toBe(
+      'Reference for the Claude API'
+    )
+  })
+
+  it('ignores an empty answer rather than forgetting what it knew', () => {
+    noteCommandDetails([{ name: 'model', argumentHint: '<model>' }])
+    noteCommandDetails([])
+    expect(argumentHint('model')).toBe('<model>')
   })
 })

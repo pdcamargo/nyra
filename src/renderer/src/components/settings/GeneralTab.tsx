@@ -28,6 +28,20 @@ export default function GeneralTab(): React.JSX.Element {
         />
       </SettingRow>
 
+      <SectionLabel>Chats</SectionLabel>
+      <SettingRow label="While you were away" hint="a recap when a chat worked without you">
+        <Toggle checked={settings.awayRecap} onChange={(v) => update({ awayRecap: v })} />
+      </SettingRow>
+      {settings.awayRecap && (
+        <SettingRow label="Only after" hint="minutes of work you did not see">
+          <NumberField
+            value={settings.awayRecapMinutes}
+            max={1440}
+            onChange={(awayRecapMinutes) => update({ awayRecapMinutes })}
+          />
+        </SettingRow>
+      )}
+
       <SectionLabel>Browser</SectionLabel>
       <SettingRow label="Browser tools for Claude">
         <Toggle checked={settings.browserTools} onChange={(v) => update({ browserTools: v })} />

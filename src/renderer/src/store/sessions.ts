@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { createIdbStorage } from './idbStorage'
 import { useRunningStore } from './running'
+import { useSettingsStore } from './settings'
 import { useBrowserStore } from './browser'
 import { useWorkspaceStore } from './workspace'
 import { backfillProjects, nameForPath } from './projects-migration'
@@ -92,7 +93,7 @@ export type Agent = {
 
 export type McpServerInfo = {
   name: string
-  status: 'connected' | 'failed' | 'pending'
+  status: 'connected' | 'failed' | 'needs-auth' | 'pending'
   tools: string[]
   command?: string
   args?: string[]
@@ -236,8 +237,10 @@ export type Session = {
   turns?: number
   /** The window you missed, snapshotted when you open a chat that ran without
    *  you — `unread` is cleared on that same open, so the recap cannot be derived
-   *  from it afterwards. Null once the recap is dismissed. */
-  away?: { since: number; turnsAtLeave: number } | null
+   *  from it afterwards. Null once the recap is dismissed, or once you leave
+   *  the chat again. `ms` is how long it worked without you; a window pinned
+   *  before it was recorded has none. */
+  away?: { since: number; turnsAtLeave: number; ms?: number } | null
   /** `turns` as of the last time you looked away from this chat. */
   turnsSeen?: number
   /** When you last stopped seeing this chat — switched to another, or the
@@ -360,10 +363,12 @@ type SessionsStore = {
   clearPendingAction: () => void
 }
 
-/** How long a chat has to be out of sight before coming back to it earns a
- *  "While you were away" recap. Under this you only switched to look at
- *  something, and a card summarising the last few seconds is noise. */
-export const AWAY_MIN_MS = 2 * 60 * 1000
+/** The threshold from Settings, in ms, or null when the recap is switched off. */
+function awayThresholdMs(): number | null {
+  const { awayRecap, awayRecapMinutes } = useSettingsStore.getState()
+  if (!awayRecap) return null
+  return Math.max(1, awayRecapMinutes) * 60 * 1000
+}
 
 /** Stop seeing a chat. Remembers how many turns you had actually seen, so the
  *  recap can say what ran after you stopped watching rather than counting the
@@ -372,25 +377,28 @@ function leave(s: Session): Session {
   return { ...s, turnsSeen: s.turns ?? 0, leftAt: Date.now() }
 }
 
-/** See a chat again, and open the away window if it ran without you for long
- *  enough to be worth one. */
+/** See a chat again, and open the away window if it worked without you for long
+ *  enough to be worth one.
+ *
+ *  What is measured is the work you missed, not the time you were gone: the
+ *  clock runs from when you left until the turn finished, or until now if it
+ *  is still going. A chat that wrapped up a few seconds after you switched away
+ *  has nothing to recap however long you stay away — its last message is right
+ *  there at the bottom. */
 function cameBack(s: Session): Session {
-  if (!s.unread) return s.leftAt === undefined ? s : { ...s, leftAt: undefined }
-  // A glance elsewhere is not being away. What arrived in the meantime is read
-  // now, and there is nothing to recap.
-  if (s.leftAt !== undefined && Date.now() - s.leftAt < AWAY_MIN_MS) {
-    return { ...s, unread: 0, leftAt: undefined }
-  }
+  const seen = { ...s, unread: 0, leftAt: undefined }
+  if (!s.unread) return s.leftAt === undefined ? s : seen
+  const threshold = awayThresholdMs()
   // `unread` is about to be cleared, so the window it describes has to be
   // pinned down now or it is gone: the first message you have not seen is
   // `unread` from the end.
   const first = s.messages[s.messages.length - s.unread]
-  return {
-    ...s,
-    unread: 0,
-    leftAt: undefined,
-    away: { since: first?.timestamp ?? 0, turnsAtLeave: s.turnsSeen ?? 0 }
-  }
+  const since = first?.timestamp ?? 0
+  const running = useRunningStore.getState().running[s.id] === true
+  const until = running ? Date.now() : (s.messages[s.messages.length - 1]?.timestamp ?? since)
+  const ms = Math.max(0, until - (s.leftAt ?? since))
+  if (threshold === null || ms < threshold) return seen
+  return { ...seen, away: { since, turnsAtLeave: s.turnsSeen ?? 0, ms } }
 }
 
 export const useSessionsStore = create<SessionsStore>()(
@@ -502,8 +510,10 @@ export const useSessionsStore = create<SessionsStore>()(
           activeSessionId: id,
           sessions: state.sessions.map((s) => {
             // Already out of sight with the window, so it left then, not now.
+            // Leaving also puts away a recap you had on screen: it was read, and
+            // the next time back is judged on its own.
             if (s.id === state.activeSessionId && s.id !== id) {
-              return state.windowAway ? s : leave(s)
+              return state.windowAway ? { ...s, away: null } : { ...leave(s), away: null }
             }
             return s.id === id && s.id !== state.activeSessionId ? cameBack(s) : s
           })

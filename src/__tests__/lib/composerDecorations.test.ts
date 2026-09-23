@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { isDesignPath } from '@renderer/lib/openFile'
 import {
+  noteCommandDetails,
   noteCustomCommands,
   noteSkills,
   resetSlashCommands
 } from '@renderer/lib/slashCommands'
 import {
+  commandHintAt,
   findCommand,
   findFileMentions,
   findUltrathink,
@@ -247,5 +249,26 @@ describe('a design mention is a design chip', () => {
     const [mention] = findFileMentions('@/a/b.nyui.json#settings-protocol')
     expect(mention.path).toBe('/a/b.nyui.json#settings-protocol')
     expect(mention.to - mention.from).toBe('@/a/b.nyui.json#settings-protocol'.length)
+  })
+})
+
+describe('commandHintAt', () => {
+  afterEach(() => resetSlashCommands())
+
+  it('shows what a command takes while nothing has been typed after it', () => {
+    noteCommandDetails([{ name: 'model', argumentHint: '<model>' }])
+    expect(commandHintAt('/model', 6)).toEqual({ at: 6, hint: '<model>' })
+    expect(commandHintAt('/model ', 7)).toEqual({ at: 7, hint: '<model>' })
+  })
+
+  it('goes once the argument is started, or the caret is elsewhere', () => {
+    noteCommandDetails([{ name: 'model', argumentHint: '<model>' }])
+    expect(commandHintAt('/model op', 9)).toBeNull()
+    expect(commandHintAt('/model', 3)).toBeNull()
+  })
+
+  it('says nothing for a command that declares no argument', () => {
+    noteCommandDetails([{ name: 'model', argumentHint: '<model>' }])
+    expect(commandHintAt('/clear', 6)).toBeNull()
   })
 })

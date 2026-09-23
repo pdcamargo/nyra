@@ -35,6 +35,12 @@ export type NyraSettings = {
    * Renderer-only, like `browserDevice`: nothing Rust-side reads it.
    */
   showChatMemory: boolean
+  /** Offer a "While you were away" recap on coming back to a chat that kept
+   *  working without you. Renderer-only. */
+  awayRecap: boolean
+  /** How long, in minutes, a chat has to have worked without you before the
+   *  recap is offered. Counted until the turn finished, not until you returned. */
+  awayRecapMinutes: number
   /**
    * Where device mode goes when it is switched back on.
    *
@@ -157,6 +163,8 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   appTools: true,
   browserPip: true,
   showChatMemory: false,
+  awayRecap: true,
+  awayRecapMinutes: 30,
   browserDevice: 'iphone-16-pro',
   zoom: 1,
   uiFont: '',

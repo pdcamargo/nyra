@@ -33,6 +33,7 @@ import type {
   FileEntry,
   FileStamp,
   McpEntry,
+  McpHealthResult,
   McpInspection,
   McpToggleResult,
   PluginCatalog,
@@ -449,6 +450,7 @@ export const api = {
 
   mcp: {
     list: (cwd: string) => call<McpEntry[]>('mcp_list', { cwd }),
+    health: (cwd: string) => call<McpHealthResult>('mcp_health', { cwd }),
     inspect: (cwd: string, name: string) =>
       call<McpInspection>('mcp_inspect', { cwd, name }),
     setEnabled: (cwd: string, name: string, enabled: boolean) =>

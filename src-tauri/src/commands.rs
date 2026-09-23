@@ -530,6 +530,15 @@ pub async fn mcp_list(cwd: String) -> Value {
     json!(mcp::list(&cwd).await)
 }
 
+/// Every server `cwd` can reach and whether it connects, from `claude mcp list`.
+#[tauri::command]
+pub async fn mcp_health(cwd: String) -> Value {
+    match mcp::health(&cwd).await {
+        Ok(servers) => json!({ "ok": true, "servers": servers }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn mcp_inspect(cwd: String, name: String) -> Value {
     mcp::inspect(&cwd, &name).await
