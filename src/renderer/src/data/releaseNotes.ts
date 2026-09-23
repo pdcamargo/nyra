@@ -8,7 +8,10 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Fixed the model picker capped by a stale Claude CLI install',
+      'Settings → Advanced lists every Claude CLI install Nyra finds, with versions'
+    ]
   },
   {
     version: '0.3.4',
