@@ -55,4 +55,11 @@ describe('modelVersions', () => {
     noteModelId('some-internal-build')
     expect(families()).toEqual({})
   })
+
+  it('does not let an older id relabel a family', () => {
+    // A subagent pinned to 4.6 says 4.6 exists, not that Opus means 4.6.
+    noteModelVersion('opus', 'claude-opus-5-5')
+    noteModelId('claude-opus-4-6')
+    expect(families().opus).toBe('claude-opus-5-5')
+  })
 })

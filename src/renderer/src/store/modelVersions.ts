@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { KNOWN_MODELS, modelFamily, type ModelVersions } from '../lib/models'
+import {
+  KNOWN_MODELS,
+  isNewerModel,
+  modelFamily,
+  type ModelVersions,
+  type OfferedModel
+} from '../lib/models'
 import { api } from '../lib/tauri-api'
 
 /**
@@ -30,7 +36,10 @@ type ModelVersionsStore = {
   families: Record<string, string>
   /** Family → what the CLI's own catalog says that alias currently means. */
   catalog: Record<string, string>
+  /** The models this account is offered, as the CLI's `/model` lists them. */
+  offered: OfferedModel[]
   setCatalog: (catalog: Record<string, string>) => void
+  setOffered: (offered: OfferedModel[]) => void
   note: (requested: string, resolved: string) => void
   /** Any resolved id, however it was come by — a subagent's, say. */
   noteId: (id: string) => void
@@ -45,12 +54,25 @@ type ModelVersionsStore = {
 const isLearnable = (requested: string): boolean =>
   requested === '' || (KNOWN_MODELS as readonly string[]).includes(requested)
 
+/**
+ * Whether `next` should replace what a family has on file.
+ *
+ * Only when it is at least as new. A subagent pinned to `claude-opus-4-6` is
+ * evidence that 4.6 exists, not that it is what Opus means now, and filing it
+ * last-write-wins put 4.6 on the Opus row over the 5.5 the alias really ran.
+ */
+const keepsNewest = (current: string | undefined, next: string): boolean =>
+  current !== next && (!current || !isNewerModel(current, next))
+
 export const useModelVersionsStore = create<ModelVersionsStore>()(
   persist(
     (set) => ({
       resolved: {},
       families: {},
       catalog: {},
+      offered: [],
+      setOffered: (offered) =>
+        set((state) => (offered.length === 0 ? state : { offered })),
       setCatalog: (catalog) =>
         set((state) => {
           // An empty scan means "this build did not tell us", which must not
@@ -65,7 +87,7 @@ export const useModelVersionsStore = create<ModelVersionsStore>()(
           const next: Partial<ModelVersionsStore> = {}
           // Evidence about the family regardless of what was asked for, which
           // is how a model nobody has selected still gets a number.
-          if (family && state.families[family] !== resolved) {
+          if (family && keepsNewest(state.families[family], resolved)) {
             next.families = { ...state.families, [family]: resolved }
           }
           if (isLearnable(requested) && state.resolved[requested] !== resolved) {
@@ -76,13 +98,18 @@ export const useModelVersionsStore = create<ModelVersionsStore>()(
       noteId: (id) =>
         set((state) => {
           const family = modelFamily(id)
-          if (!family || state.families[family] === id) return state
+          if (!family || !keepsNewest(state.families[family], id)) return state
           return { families: { ...state.families, [family]: id } }
         })
     }),
     {
       name: 'nyra-model-versions',
-      partialize: (s) => ({ resolved: s.resolved, families: s.families, catalog: s.catalog })
+      partialize: (s) => ({
+        resolved: s.resolved,
+        families: s.families,
+        catalog: s.catalog,
+        offered: s.offered
+      })
     }
   )
 )
@@ -90,6 +117,11 @@ export const useModelVersionsStore = create<ModelVersionsStore>()(
 /** Record what `system/init` said an alias resolved to, for labelling the picker. */
 export function noteModelVersion(requested: string, resolved: string | undefined | null): void {
   if (resolved) useModelVersionsStore.getState().note(requested, resolved)
+}
+
+/** Record the account's model list, from the CLI's answer to `initialize`. */
+export function noteOfferedModels(models: OfferedModel[] | undefined | null): void {
+  if (models?.length) useModelVersionsStore.getState().setOffered(models)
 }
 
 /** Record a resolved id seen somewhere other than our own spawn — a subagent's. */
@@ -118,5 +150,6 @@ export function useModelVersions(): ModelVersions {
   const resolved = useModelVersionsStore((s) => s.resolved)
   const families = useModelVersionsStore((s) => s.families)
   const catalog = useModelVersionsStore((s) => s.catalog)
-  return { resolved, families, catalog }
+  const offered = useModelVersionsStore((s) => s.offered)
+  return { resolved, families, catalog, offered }
 }

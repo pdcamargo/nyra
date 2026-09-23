@@ -38,7 +38,7 @@ import DictationButton from './DictationButton'
 import { ComposerPrPills } from './PullRequestChips'
 import { ComposerPortPills } from './PortChips'
 import { ComposerMonitorPills } from './MonitorChips'
-import { KNOWN_MODELS as MODELS, MODEL_BLURB, chatModelLabel, modelLabel } from '../lib/models'
+import { chatModelLabel, modelChoices, selectedChoice } from '../lib/models'
 import { useModelVersions } from '../store/modelVersions'
 import { runCommand } from '../commands/registry'
 import { CommandKbd } from './ui/kbd'
@@ -291,6 +291,8 @@ function ModelEffort(): React.JSX.Element {
   // `model || 'opus'` while the session it described was running on the older
   // one, which is the whole reason any of this is on screen.
   const shownModel = chatModelLabel(model, running, versions)
+  const choices = modelChoices(versions)
+  const selected = selectedChoice(model, choices, versions)
   const shownEffort = effort || 'high'
   const effortIndex = Math.max(0, EFFORTS.findIndex((e) => e.value === shownEffort))
   const isDefault = !model && !effort
@@ -385,29 +387,37 @@ function ModelEffort(): React.JSX.Element {
               </button>
               <span className="text-xs text-muted-foreground">Select model</span>
             </div>
-            {MODELS.map((m) => {
-              const active = model === m
-              return (
-                <button
-                  key={m}
-                  onClick={() => {
-                    // The alias, not ''. Picking opus used to store "no
-                    // --model", which hands the choice to the CLI's own default
-                    // — a pinned older Opus — so the one row that claimed to
-                    // select the latest was the only one that could not.
-                    update({ model: m })
-                    setPage('effort')
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-foreground/[0.07]"
-                >
-                  {/* A name now rather than an identifier — "Opus 5.5", not
-                      `opus` — so it is set proportional like one. */}
-                  <span className="text-foreground">{modelLabel(m, versions)}</span>
-                  <span className="text-muted-foreground">{MODEL_BLURB[m]}</span>
-                  {active && <Check className="ml-auto size-3.5 text-foreground" />}
-                </button>
-              )
-            })}
+            {/* The account's own list once a chat has reported it — every
+                Opus it is offered, not only whichever one `opus` resolves to.
+                Scrolls, because that list runs to a dozen rows. */}
+            <div className="max-h-72 overflow-y-auto">
+              {choices.map((c) => {
+                const active = selected === c.value
+                return (
+                  <button
+                    key={c.value}
+                    onClick={() => {
+                      // The value, not ''. Picking opus used to store "no
+                      // --model", which hands the choice to the CLI's own
+                      // default — a pinned older Opus — so the one row that
+                      // claimed to select the latest was the only one that
+                      // could not.
+                      update({ model: c.value })
+                      setPage('effort')
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-foreground/[0.07]"
+                  >
+                    {/* A name now rather than an identifier — "Opus 5.5", not
+                        `opus` — so it is set proportional like one. */}
+                    <span className="shrink-0 text-foreground">{c.label}</span>
+                    <span className="min-w-0 truncate text-muted-foreground" title={c.blurb}>
+                      {c.blurb}
+                    </span>
+                    {active && <Check className="ml-auto size-3.5 shrink-0 text-foreground" />}
+                  </button>
+                )
+              })}
+            </div>
             {/* Anything else the CLI will take: another alias, or a pinned full
                 name like claude-fable-5-1 when "latest" is not what you want. */}
             <form

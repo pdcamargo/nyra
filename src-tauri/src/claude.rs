@@ -696,6 +696,13 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
         }
     }
 
+    if event_type == "control_response" {
+        if let Some(models) = offered_models(raw) {
+            emit_event(nyra_session_id, json!({ "type": "models", "models": models }));
+        }
+        return;
+    }
+
     if event_type == "system" {
         match raw.get("subtype").and_then(Value::as_str) {
             Some("init") => emit_event(
@@ -1287,7 +1294,13 @@ async fn spawn_session(
         .spawn()
         .map_err(|e| format!("Failed to spawn {claude_bin}: {e}"))?;
 
-    let stdin = child.stdin.take().ok_or("no stdin")?;
+    let mut stdin = child.stdin.take().ok_or("no stdin")?;
+    // Ask which models this account is offered before anything else goes in.
+    // Best effort: a build that refuses it answers with an error, which the
+    // event loop ignores, and the picker keeps the aliases it had.
+    if let Err(err) = stdin.write_all(INITIALIZE_REQUEST.as_bytes()).await {
+        crate::logf!("Initialize request failed for [{}]: {err}", util::short(nyra_session_id));
+    }
     let stdout = child.stdout.take().ok_or("no stdout")?;
     let stderr = child.stderr.take().ok_or("no stderr")?;
     let pid = child.id();
@@ -1412,6 +1425,40 @@ async fn consume_stdout(sess: &Arc<Session>, nyra_session_id: &str, data: &str) 
             }
         }
     }
+}
+
+/// The control request the Agent SDK opens every session with.
+///
+/// Sent for one part of its answer: `models`, the list the CLI's own `/model`
+/// picker shows. It is per account, not per build — one account is offered
+/// Opus 5.5, 5 and 4.6, another only what its provider serves — and nothing
+/// else on this machine can say which. Four hardcoded aliases were the whole
+/// picker before this, and on an account where `opus` resolves to an older
+/// model that left no way to reach a newer one.
+const INITIALIZE_REQUEST: &str =
+    "{\"type\":\"control_request\",\"request_id\":\"nyra-initialize\",\"request\":{\"subtype\":\"initialize\"}}\n";
+
+/// `models` from the answer to [`INITIALIZE_REQUEST`], trimmed to what the
+/// picker reads. None for any other control response, or one that carried none.
+fn offered_models(raw: &Value) -> Option<Value> {
+    let response = raw.get("response")?;
+    if response.get("request_id").and_then(Value::as_str) != Some("nyra-initialize") {
+        return None;
+    }
+    let models = response.get("response")?.get("models")?.as_array()?;
+    let trimmed: Vec<Value> = models
+        .iter()
+        .filter_map(|m| {
+            let value = m.get("value").and_then(Value::as_str)?;
+            Some(json!({
+                "value": value,
+                "resolvedModel": m.get("resolvedModel").cloned().unwrap_or(Value::Null),
+                "displayName": m.get("displayName").cloned().unwrap_or(Value::Null),
+                "description": m.get("description").cloned().unwrap_or(Value::Null),
+            }))
+        })
+        .collect();
+    (!trimmed.is_empty()).then_some(Value::Array(trimmed))
 }
 
 /// What the CLI prints when `--resume` names a conversation it does not have.
@@ -1927,6 +1974,46 @@ async fn on_child_exit(sess: &Arc<Session>, nyra_session_id: &str, exit_code: Op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_offered_models_out_of_the_initialize_answer() {
+        let raw = json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": "nyra-initialize",
+                "response": {
+                    "commands": [],
+                    "models": [
+                        { "value": "opus", "resolvedModel": "claude-opus-4-6", "displayName": "Opus 4.6", "description": "Most capable", "supportsEffort": true },
+                        { "value": "claude-opus-5-5", "resolvedModel": "claude-opus-5-5", "displayName": "Opus 5.5" },
+                        { "displayName": "no value, so not a row" }
+                    ]
+                }
+            }
+        });
+        let models = offered_models(&raw).unwrap();
+        let models = models.as_array().unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[1]["value"], "claude-opus-5-5");
+        assert_eq!(models[0]["resolvedModel"], "claude-opus-4-6");
+        // Only what the picker reads crosses to the renderer.
+        assert!(models[0].get("supportsEffort").is_none());
+    }
+
+    #[test]
+    fn ignores_a_control_response_nyra_did_not_ask_for() {
+        let raw = json!({
+            "type": "control_response",
+            "response": { "subtype": "success", "request_id": "other", "response": { "models": [{ "value": "opus" }] } }
+        });
+        assert!(offered_models(&raw).is_none());
+        let refused = json!({
+            "type": "control_response",
+            "response": { "subtype": "error", "request_id": "nyra-initialize", "error": "unknown subtype" }
+        });
+        assert!(offered_models(&refused).is_none());
+    }
 
     fn approved(tools: &[&str]) -> Vec<String> {
         tools.iter().map(|t| t.to_string()).collect()

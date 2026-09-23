@@ -5,7 +5,10 @@ import {
   chatModelLabel,
   modelFamily,
   modelLabel,
+  modelChoices,
   modelOptions,
+  isNewerModel,
+  selectedChoice,
   shortModelLabel
 } from '../../renderer/src/lib/models'
 
@@ -195,5 +198,49 @@ describe('chatModelLabel', () => {
   it('falls back when the id is one it cannot name', () => {
     const running = { requested: 'opus', id: 'some-internal-build' }
     expect(chatModelLabel('opus', running, versions)).toBe('Opus 5.5')
+  })
+
+  describe("the account's own list", () => {
+    // An account where `opus` still resolves to 4.6 but newer ones are offered
+    // by name — the case where four aliases left no way to reach Opus 5.5.
+    const offered = [
+      { value: 'default', resolvedModel: 'claude-opus-4-6', displayName: 'Default (recommended)' },
+      { value: 'opus', resolvedModel: 'claude-opus-4-6', displayName: 'Opus 4.6', description: 'Most capable' },
+      { value: 'claude-opus-5-5', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5' },
+      { value: 'claude-opus-5', resolvedModel: 'claude-opus-5', displayName: 'Opus 5' },
+      { value: 'claude-fable-5-1', resolvedModel: 'claude-fable-5-1', displayName: 'Fable 5.1' }
+    ]
+
+    it('lists every model it is offered, not only the aliases', () => {
+      const labels = modelChoices({ offered }).map((c) => c.label)
+      expect(labels).toEqual(['Opus 4.6', 'Opus 5.5', 'Opus 5', 'Fable 5.1'])
+    })
+
+    it('falls back to the aliases before any chat has answered', () => {
+      expect(modelChoices({}).map((c) => c.value)).toEqual([...KNOWN_MODELS])
+    })
+
+    it('names a pinned id from the list rather than showing it raw', () => {
+      expect(modelLabel('claude-opus-5-5', { offered })).toBe('Opus 5.5')
+    })
+
+    it('puts the default row under its own Default label', () => {
+      const options = modelOptions('', { offered })
+      expect(options[0]).toEqual({ value: '', label: 'Default (Opus 4.6)' })
+      expect(options.filter((o) => o.value === 'default')).toEqual([])
+    })
+
+    it('checks the row an older alias setting resolves to', () => {
+      // Stored `fable` from before the list; the list names the full id.
+      const versions = { offered, resolved: { fable: 'claude-fable-5-1' } }
+      expect(selectedChoice('fable', modelChoices(versions), versions)).toBe('claude-fable-5-1')
+      expect(selectedChoice('claude-opus-5', modelChoices(versions), versions)).toBe('claude-opus-5')
+    })
+  })
+
+  it('orders versions numerically', () => {
+    expect(isNewerModel('claude-opus-5-5', 'claude-opus-4-6')).toBe(true)
+    expect(isNewerModel('claude-opus-4-6', 'claude-opus-5')).toBe(false)
+    expect(isNewerModel('claude-opus-5', 'claude-opus-5')).toBe(false)
   })
 })

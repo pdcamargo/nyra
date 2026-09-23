@@ -54,7 +54,8 @@ import { useUiStore } from '../store/ui'
 import { useLoopsStore } from '../store/loops'
 import { BUILT_IN_COMMANDS } from '../data/commands'
 import { noteSlashCommands } from '../lib/slashCommands'
-import { noteModelId, noteModelVersion } from '../store/modelVersions'
+import { noteModelId, noteModelVersion, noteOfferedModels } from '../store/modelVersions'
+import type { OfferedModel } from '../lib/models'
 import { openFileInPanel } from '../lib/openFile'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
@@ -89,6 +90,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'plan_ready'; tool_id: string; path: string; plan: string }
   | { type: 'session_reset'; reason: string }
   | { type: 'ai_title'; title: string }
+  | { type: 'models'; models: OfferedModel[] }
   | { type: 'auth_required'; message: string }
 )
 
@@ -629,6 +631,13 @@ export default function Chat(): React.JSX.Element {
       // Route events to the session identified by nyraSessionId tag
       const sid = event.nyraSessionId ?? useSessionsStore.getState().activeSessionId
       if (!sid) return
+
+      // The account's own model list, answered once per process. Global rather
+      // than per chat: it is the same account whichever chat asked.
+      if (event.type === 'models') {
+        noteOfferedModels(event.models)
+        return
+      }
 
       if (event.type === 'ai_title') {
         useSessionsStore.getState().applyAiTitle(sid, event.title)
