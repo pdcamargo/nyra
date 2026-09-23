@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.3.4',
+    date: '2026-09-23',
     notes: [
       'Model picker now lists every model your account is offered',
       'Fixed a stale model label that could overwrite the current one'
