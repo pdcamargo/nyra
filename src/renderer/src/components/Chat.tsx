@@ -443,6 +443,26 @@ export default function Chat(): React.JSX.Element {
 
   /** False once the user scrolls up — their position is theirs until they come back. */
   const stuckToBottomRef = useRef(true)
+  /**
+   * The user asked to go up, by wheel, touch or key, and has not come back to
+   * the very bottom since.
+   *
+   * Distance alone cannot say that. The first 200px of a scroll up still read as
+   * "at the bottom", and in that window every row that scrolls into view is
+   * measured against its 80px estimate, the total height moves, and following
+   * pulled the view back down — the nudge the wrong way. Intent is known the
+   * moment the wheel turns, so it is taken from there.
+   */
+  const heldAwayRef = useRef(false)
+
+  /** Follow to the bottom, once. A plain write rather than `scrollToIndex`: the
+   *  library's version keeps re-asserting its target every frame for up to five
+   *  seconds, and nothing cancels that when the user starts scrolling. Callers
+   *  re-run on every height change, so the re-assertion is not needed. */
+  const pinToBottom = useCallback((): void => {
+    const el = messagesRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [])
 
   /**
    * Start the list from nothing when the conversation changes.
@@ -461,6 +481,7 @@ export default function Chat(): React.JSX.Element {
 
   useEffect(() => {
     stuckToBottomRef.current = true
+    heldAwayRef.current = false
     virtualizer.measure()
     if (virtualItems.length > 0) {
       virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end' })
@@ -482,7 +503,7 @@ export default function Chat(): React.JSX.Element {
   const totalSize = virtualizer.getTotalSize()
   useEffect(() => {
     if (!stuckToBottomRef.current || virtualItems.length === 0) return
-    virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end' })
+    pinToBottom()
   }, [virtualItems.length, totalSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
@@ -499,7 +520,7 @@ export default function Chat(): React.JSX.Element {
     if (!el || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(() => {
       if (!stuckToBottomRef.current || virtualItems.length === 0) return
-      virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end' })
+      pinToBottom()
     })
     observer.observe(el)
     return () => observer.disconnect()
@@ -512,13 +533,37 @@ export default function Chat(): React.JSX.Element {
     const onScroll = (): void => {
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
       setShowJumpBottom(distanceFromBottom > 300)
+      // Back at the very bottom, so following is theirs to resume.
+      if (heldAwayRef.current && distanceFromBottom <= 2) heldAwayRef.current = false
       // Read once here rather than at each new message: by then the scroll has
       // already been re-asserted and every position looks like the bottom.
-      stuckToBottomRef.current = distanceFromBottom < 200
+      stuckToBottomRef.current = !heldAwayRef.current && distanceFromBottom < 200
+    }
+    const holdAway = (): void => {
+      heldAwayRef.current = true
+      stuckToBottomRef.current = false
+      // A `scrollToIndex` still settling — opening the chat, the jump button —
+      // would otherwise go on writing `scrollTop` under the hand for seconds.
+      // Private in the types, so reached around them.
+      ;(virtualizer as unknown as { scrollState: unknown }).scrollState = null
+    }
+    const onWheel = (event: WheelEvent): void => {
+      if (event.deltaY < 0) holdAway()
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'PageUp' || event.key === 'Home' || event.key === 'ArrowUp') holdAway()
     }
     el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [])
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('touchmove', holdAway, { passive: true })
+    el.addEventListener('keydown', onKey)
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchmove', holdAway)
+      el.removeEventListener('keydown', onKey)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // In-session search: toggle, close on session switch, highlight matches
   useEffect(() => {
@@ -1873,6 +1918,7 @@ export default function Chat(): React.JSX.Element {
         <button
           onClick={() => {
             stuckToBottomRef.current = true
+            heldAwayRef.current = false
             virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end', behavior: 'smooth' })
           }}
           style={
