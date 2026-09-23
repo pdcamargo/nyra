@@ -58,7 +58,7 @@ const unsub = (): (() => void) => () => {}
 Object.defineProperty(globalThis, 'api', {
   writable: true,
   value: {
-    claude: { dispose: noop, query: noop, abort: noop, respondPermission: noop },
+    claude: { dispose: noop, query: noop, abort: noop, respondPermission: noop, checkBinary: noop },
     git: {
       branch: () => Promise.resolve(''),
       isRepo: () => Promise.resolve(false),

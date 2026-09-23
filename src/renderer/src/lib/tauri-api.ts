@@ -221,7 +221,13 @@ export const api = {
       call<string | null>('claude_save_temp_file', { base64, name }),
 
     checkBinary: (customPath?: string) =>
-      call<{ found: boolean; path: string; version?: string }>('claude_check_binary', {
+      call<{
+        found: boolean
+        path: string
+        version?: string
+        /** Every install in the usual places, so a stale second copy is visible. */
+        installs?: { path: string; version: string | null }[]
+      }>('claude_check_binary', {
         customPath: customPath ?? null
       }),
 

@@ -16,7 +16,7 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -40,24 +40,132 @@ const MAX_EVENT_BUFFER: usize = 500;
 
 // ---- binary resolution ----
 
-/// macOS GUI apps don't inherit the shell `PATH`, so a bare `claude` often fails
-/// to resolve in a packaged build. Probe the usual install locations first.
-pub fn resolve_claude_binary(configured: &str) -> String {
-    if configured.starts_with('/') {
-        return configured.to_string();
-    }
+/// Where the CLI's installers put it. macOS GUI apps don't inherit the shell
+/// `PATH`, so a bare `claude` often fails to resolve in a packaged build.
+fn install_candidates() -> Vec<PathBuf> {
     let home = util::home_dir();
-    let candidates: [PathBuf; 4] = [
+    vec![
         home.join(".local/bin/claude"),
         home.join(".npm-global/bin/claude"),
         PathBuf::from("/usr/local/bin/claude"),
         PathBuf::from("/opt/homebrew/bin/claude"),
-    ];
-    for candidate in candidates {
-        if candidate.exists() {
-            crate::logf!("Resolved claude binary: {}", candidate.display());
-            return candidate.to_string_lossy().to_string();
+    ]
+}
+
+/// `--version` per install, keyed by (path, len, mtime). An update rewrites the
+/// binary or repoints the symlink, which moves the key, so this reruns then.
+type VersionKey = (PathBuf, u64, i64);
+static VERSIONS: Lazy<Mutex<HashMap<VersionKey, Option<String>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn version_key(path: &Path) -> Option<VersionKey> {
+    // Follows the symlink, so the stamp is the versioned binary's own.
+    let meta = std::fs::metadata(path).ok()?;
+    let stamp = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_default();
+    Some((path.to_path_buf(), meta.len(), stamp))
+}
+
+/// What `--version` prints, trimmed. None if it will not run. Blocking, but only on a cache miss, and a real
+/// `--version` returns in tens of milliseconds.
+fn binary_version(path: &Path) -> Option<String> {
+    let key = version_key(path)?;
+    if let Some(found) = VERSIONS.lock().get(&key) {
+        return found.clone();
+    }
+    let found = run_version(path);
+    VERSIONS.lock().insert(key, found.clone());
+    found
+}
+
+fn run_version(path: &Path) -> Option<String> {
+    let mut child = std::process::Command::new(path)
+        .arg("--version")
+        .env_clear()
+        .envs(util::clean_child_env())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    // A wedged binary must not hang a spawn, so it gets five seconds.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) | Err(_) => return None,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
         }
+    }
+    let mut out = String::new();
+    std::io::Read::read_to_string(&mut child.stdout.take()?, &mut out).ok()?;
+    Some(out.trim().to_string())
+}
+
+/// `2.1.280 (Claude Code)` → [2, 1, 280], so `2.1.99` sorts below it rather
+/// than above. Empty for output it cannot read, which then never wins.
+fn version_parts(version: &str) -> Vec<u64> {
+    let token = version.split_whitespace().next().unwrap_or_default();
+    let parts: Option<Vec<u64>> = token.split('.').map(|p| p.parse().ok()).collect();
+    parts.unwrap_or_default()
+}
+
+/// Of these installs, the one to run: the newest that reports a version.
+///
+/// Newest rather than first. The order used to decide, and someone with an old
+/// native install in `~/.local/bin` who updated through Homebrew kept running the
+/// old one. It had never heard of the models the new one offers, so the picker
+/// sat on Opus 4.8 however many times she updated. Ties keep the earlier path.
+/// None when no install reports a version, so the caller falls back to order.
+fn newest_install(installs: &[(PathBuf, Option<String>)]) -> Option<&PathBuf> {
+    let mut best: Option<(&PathBuf, Vec<u64>)> = None;
+    for (path, version) in installs {
+        let parts = version.as_deref().map(version_parts).unwrap_or_default();
+        if parts.is_empty() {
+            continue;
+        }
+        if best.as_ref().is_none_or(|(_, b)| parts > *b) {
+            best = Some((path, parts));
+        }
+    }
+    best.map(|(path, _)| path)
+}
+
+/// Every install that exists on this machine, with the version it reports.
+fn installs() -> Vec<(PathBuf, Option<String>)> {
+    install_candidates()
+        .into_iter()
+        .filter(|p| p.exists())
+        .map(|p| {
+            let version = binary_version(&p);
+            (p, version)
+        })
+        .collect()
+}
+
+/// The CLI to run. An absolute path in Settings is taken as given; otherwise
+/// the newest install found, then the first one, then whatever `PATH` says.
+pub fn resolve_claude_binary(configured: &str) -> String {
+    if configured.starts_with('/') {
+        return configured.to_string();
+    }
+    let found = installs();
+    let chosen = newest_install(&found).or_else(|| found.first().map(|(p, _)| p));
+    if let Some(path) = chosen {
+        crate::logf!(
+            "Resolved claude binary: {} (of {} install(s))",
+            path.display(),
+            found.len()
+        );
+        return path.to_string_lossy().to_string();
     }
     if configured.is_empty() {
         "claude".to_string()
@@ -70,21 +178,32 @@ pub async fn check_binary(custom_path: Option<String>) -> Value {
     let configured = custom_path
         .filter(|p| !p.is_empty())
         .unwrap_or_else(|| util::settings().claude_binary_path);
-    let binary = resolve_claude_binary(&configured);
 
-    let run = tokio::time::timeout(
-        Duration::from_secs(5),
-        Command::new(&binary).arg("--version").output(),
-    )
+    // Both of these run `--version`, so off the async runtime. `installs` is
+    // listed too because it is what shows a stale second copy in Settings.
+    let resolved = tokio::task::spawn_blocking(move || {
+        let binary = resolve_claude_binary(&configured);
+        let version = binary_version(Path::new(&binary)).or_else(|| {
+            // A bare name that PATH resolves: no file to stamp, so run it direct.
+            (!binary.starts_with('/')).then(|| run_version(Path::new(&binary))).flatten()
+        });
+        let others: Vec<Value> = installs()
+            .into_iter()
+            .map(|(path, version)| json!({ "path": path.to_string_lossy(), "version": version }))
+            .collect();
+        (binary, version, others)
+    })
     .await;
 
-    match run {
-        Ok(Ok(out)) if out.status.success() => json!({
+    match resolved {
+        Ok((binary, Some(version), installs)) => json!({
             "found": true,
             "path": binary,
-            "version": String::from_utf8_lossy(&out.stdout).trim(),
+            "version": version,
+            "installs": installs,
         }),
-        _ => json!({ "found": false, "path": binary }),
+        Ok((binary, None, installs)) => json!({ "found": false, "path": binary, "installs": installs }),
+        Err(_) => json!({ "found": false, "path": "" }),
     }
 }
 
@@ -1974,6 +2093,39 @@ async fn on_child_exit(sess: &Arc<Session>, nyra_session_id: &str, exit_code: Op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_newest_install_wins_over_the_first() {
+        // An old native install ahead of an updated Homebrew one in the order.
+        let installs = vec![
+            (PathBuf::from("/a/.local/bin/claude"), Some("2.1.99 (Claude Code)".into())),
+            (PathBuf::from("/opt/homebrew/bin/claude"), Some("2.1.280 (Claude Code)".into())),
+            (PathBuf::from("/usr/local/bin/claude"), None),
+        ];
+        assert_eq!(
+            newest_install(&installs),
+            Some(&PathBuf::from("/opt/homebrew/bin/claude"))
+        );
+    }
+
+    #[test]
+    fn a_tie_keeps_the_earlier_install() {
+        let installs = vec![
+            (PathBuf::from("/first"), Some("2.1.280 (Claude Code)".into())),
+            (PathBuf::from("/second"), Some("2.1.280".into())),
+        ];
+        assert_eq!(newest_install(&installs), Some(&PathBuf::from("/first")));
+    }
+
+    #[test]
+    fn no_readable_version_picks_nothing() {
+        let installs = vec![
+            (PathBuf::from("/a"), None),
+            (PathBuf::from("/b"), Some("claude, some future format".into())),
+        ];
+        assert_eq!(newest_install(&installs), None);
+        assert_eq!(version_parts("2.1.280 (Claude Code)"), vec![2, 1, 280]);
+    }
 
     #[test]
     fn reads_the_offered_models_out_of_the_initialize_answer() {
