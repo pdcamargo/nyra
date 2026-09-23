@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.3.3',
+    date: '2026-09-23',
     notes: [
       'Scrolling up in the transcript no longer snaps to the bottom on new messages',
       'Browser panel resizing now tracks your drag instead of lagging or stuttering',
