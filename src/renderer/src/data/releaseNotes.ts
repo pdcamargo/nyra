@@ -8,7 +8,13 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Scrolling up in the transcript no longer snaps to the bottom on new messages',
+      'Browser panel resizing now tracks your drag instead of lagging or stuttering',
+      'Paste images and files while editing a sent message; attachments now survive',
+      'The "While you were away" recap now waits for two minutes, not a quick switch',
+      "A script node's timeout in Flows now survives save instead of reverting to 120s"
+    ]
   },
   {
     version: '0.3.2',
