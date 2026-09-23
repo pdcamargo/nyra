@@ -21,6 +21,13 @@ import { buttonName, keyEventOf, modifiersOf, pageFromCanvas } from '../../lib/b
  *
  * It does not choose what the page renders at — the sidecar does. See the
  * ownership note in `screencast.ts`.
+ *
+ * `actualSize` is responsive mode's other half. There the page is resized on
+ * every step of a panel drag, but a resized frame arrives a round trip later —
+ * so a canvas stretched to fill its box spends each step showing the last frame
+ * squashed to the new shape. Sized from the frame instead, and pinned top-left
+ * inside a box that clips, the canvas never scales: the panel moves at display
+ * rate and the page fills in behind it, the way a native window looks mid-drag.
  */
 export default function BrowserCanvas({
   targetId,
@@ -28,6 +35,7 @@ export default function BrowserCanvas({
   everyNthFrame = 1,
   interactive = false,
   preview = false,
+  actualSize = false,
   onUserInput,
   className = ''
 }: {
@@ -40,6 +48,9 @@ export default function BrowserCanvas({
   interactive?: boolean
   /** A miniature: cheaper frames, and never worth a sharpening screenshot. */
   preview?: boolean
+  /** Draw at the page's own CSS size, top-left, rather than filling the box.
+   *  The parent clips. */
+  actualSize?: boolean
   /** The person touched the page. Whoever is drawing an agent on the wheel
    *  should stop — they have taken it back. */
   onUserInput?: () => void
@@ -60,6 +71,12 @@ export default function BrowserCanvas({
     (s) => (targetId ? s.viewportByTarget[targetId]?.height : undefined) ?? s.viewport.height
   )
   const viewport = useMemo(() => ({ width: vpWidth, height: vpHeight }), [vpWidth, vpHeight])
+  /** The CSS size the frame on screen depicts. In `actualSize` mode that is the
+   *  canvas's own size, and so the one clicks have to be mapped against — the
+   *  store's viewport lags a drag by a broadcast. */
+  const frameSizeRef = useRef<{ width: number; height: number } | null>(null)
+  const actualSizeRef = useRef(actualSize)
+  actualSizeRef.current = actualSize
   // Quantised to two decimals inside the hook, so this is stable across
   // re-layouts and only moves when the display or the app's zoom does.
   const pixelRatio = useElementDpr(canvasRef)
@@ -82,7 +99,7 @@ export default function BrowserCanvas({
     void browserHub(cdpUrl)
       .then(async ({ conn, hub }) => {
         if (cancelled) return
-        subRef.current = hub.subscribe(targetId, wantRef.current, (bitmap) => {
+        subRef.current = hub.subscribe(targetId, wantRef.current, (bitmap, meta) => {
           const canvas = canvasRef.current
           if (!canvas) return
           if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
@@ -90,6 +107,16 @@ export default function BrowserCanvas({
             canvas.height = bitmap.height
           }
           canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
+          // Imperative, not state: sixty re-renders a second for a number that
+          // only the canvas's own style needs.
+          if (actualSizeRef.current && meta.deviceWidth > 0 && meta.deviceHeight > 0) {
+            const prev = frameSizeRef.current
+            if (prev?.width !== meta.deviceWidth || prev.height !== meta.deviceHeight) {
+              canvas.style.width = `${meta.deviceWidth}px`
+              canvas.style.height = `${meta.deviceHeight}px`
+            }
+            frameSizeRef.current = { width: meta.deviceWidth, height: meta.deviceHeight }
+          }
         })
         if (!interactive) return
         const sessionId = await hub.session(targetId)
@@ -116,6 +143,27 @@ export default function BrowserCanvas({
     subRef.current?.update(want)
   }, [want])
 
+  // Until a frame says otherwise, the page is the size the sidecar last
+  // reported. A new target starts over.
+  useEffect(() => {
+    frameSizeRef.current = null
+  }, [targetId])
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    if (!actualSize) {
+      // Leaving responsive mode. Inline sizes would outrank the classes that
+      // make a pinned device fill its box.
+      canvas.style.width = ''
+      canvas.style.height = ''
+      frameSizeRef.current = null
+      return
+    }
+    if (frameSizeRef.current) return
+    canvas.style.width = `${viewport.width}px`
+    canvas.style.height = `${viewport.height}px`
+  }, [actualSize, targetId, viewport])
+
   /** Fire and forget. CDP preserves order per session, so a press and its
    *  release cannot cross, and awaiting each round trip would put the socket's
    *  whole latency between a click and its effect. */
@@ -129,9 +177,10 @@ export default function BrowserCanvas({
     (clientX: number, clientY: number) => {
       const canvas = canvasRef.current
       if (!canvas) return { x: 0, y: 0 }
-      return pageFromCanvas({ x: clientX, y: clientY }, canvas.getBoundingClientRect(), viewport)
+      const page = (actualSize && frameSizeRef.current) || viewport
+      return pageFromCanvas({ x: clientX, y: clientY }, canvas.getBoundingClientRect(), page)
     },
-    [viewport]
+    [actualSize, viewport]
   )
 
   const mouse = useCallback(
@@ -205,7 +254,8 @@ export default function BrowserCanvas({
       ref={canvasRef}
       // Until the first frame lands the element has no intrinsic size, so the
       // aspect ratio keeps the box from collapsing and the layout from jumping.
-      style={{ aspectRatio: `${viewport.width} / ${viewport.height}` }}
+      // Not in `actualSize` mode, whose size is set directly from each frame.
+      style={actualSize ? undefined : { aspectRatio: `${viewport.width} / ${viewport.height}` }}
       tabIndex={interactive ? 0 : undefined}
       aria-label={interactive ? 'Browser page' : undefined}
       onMouseDown={
@@ -243,7 +293,7 @@ export default function BrowserCanvas({
       // device change lands before the new stream does — and without this the
       // canvas stretches it to fit, which reads as the page distorting. Letting
       // it letterbox instead makes a stale frame look merely stale.
-      className={`block bg-background object-contain ${
+      className={`block bg-background ${actualSize ? '' : 'object-contain'} ${
         interactive ? 'cursor-default outline-none focus-visible:ring-1 focus-visible:ring-ring' : ''
       } ${className}`}
     />

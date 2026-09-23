@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { connectCdp, type CdpConnection } from '../../renderer/src/lib/browser/cdp'
 import { buttonName, keyEventOf, pageFromCanvas } from '../../renderer/src/lib/browser/input'
 import { createScreencastHub, type ScreencastHub } from '../../renderer/src/lib/browser/screencast'
+import type { EmulatedViewport } from '../../renderer/src/lib/browser/viewport'
 
 const ENABLED = Boolean(process.env.NYRA_BROWSER_TESTS)
 const VIEWPORT = { width: 1280, height: 800, deviceScaleFactor: 2 }
@@ -71,6 +72,8 @@ describe.skipIf(!ENABLED)('renderer CDP against a real Chromium', () => {
   let conn: CdpConnection
   let hub: ScreencastHub
   let targetId: string
+  /** What the `tabs` broadcast would have told the store, for tabs a test resizes. */
+  const resizedTo = new Map<string, EmulatedViewport>()
   let nextId = 0
   const pending = new Map<number, (v: Record<string, unknown>) => void>()
 
@@ -107,7 +110,17 @@ describe.skipIf(!ENABLED)('renderer CDP against a real Chromium', () => {
     })
 
     conn = await connectCdp(opened.cdpUrl as string)
-    hub = createScreencastHub(conn, { viewportFor: () => VIEWPORT, fallback: VIEWPORT })
+    hub = createScreencastHub(conn, {
+      viewportFor: (target) => resizedTo.get(target) ?? VIEWPORT,
+      fallback: VIEWPORT,
+      // What the app routes through Rust: the sidecar's own session, unclipped.
+      stillFor: async (target) =>
+        (await rpc('target.screenshot', { targetId: target })) as {
+          data: string
+          width: number
+          height: number
+        }
+    })
     targetId = (created.tab as { targetId: string }).targetId
   }, 120_000)
 
@@ -238,7 +251,8 @@ describe.skipIf(!ENABLED)('renderer CDP against a real Chromium', () => {
     await settle(2000)
     sub.stop()
     expect(widths.length).toBeGreaterThan(0)
-    expect(Math.max(...widths)).toBeLessThanOrEqual(640)
+    // Its first frame after a start may be a 1x still — never the full raster.
+    expect(Math.max(...widths)).toBeLessThanOrEqual(VIEWPORT.width)
   }, 30_000)
 
   it('resizes without restarting the stream once per pixel', async () => {
@@ -272,6 +286,133 @@ describe.skipIf(!ENABLED)('renderer CDP against a real Chromium', () => {
     expect(afterFirst).toBe(1)
     // Twenty resizes inside one 64px step must cost nothing.
     expect(starts.length).toBe(1)
+  }, 30_000)
+
+  it('follows a responsive drag on a static page, without restarting the stream', async () => {
+    // The two measured facts the pacing rests on. A static page sends no stream
+    // frame for a resize, so without the screenshot in `resized` these sizes
+    // never land. And a stream whose limits were tied to the viewport's size
+    // restarted on every one of them.
+    const still = await rpc('tab.create', {
+      chatId: 'test',
+      url:
+        'data:text/html,' +
+        encodeURIComponent(`<body style="margin:0;font:16px system-ui">${'words '.repeat(600)}</body>`)
+    })
+    const { tabId, targetId: target } = still.tab as { tabId: string; targetId: string }
+    const resize = async (width: number): Promise<void> => {
+      await rpc('tab.setViewport', { chatId: 'test', tabId, id: 'responsive', width, height: 700 })
+      resizedTo.set(target, { width, height: 700, deviceScaleFactor: VIEWPORT.deviceScaleFactor })
+      hub.invalidate(target)
+    }
+    await resize(600)
+
+    const starts: number[] = []
+    const realSend = conn.send.bind(conn)
+    ;(conn as unknown as { send: typeof conn.send }).send = ((
+      method: string,
+      params?: Record<string, unknown>,
+      sessionId?: string
+    ) => {
+      if (method === 'Page.startScreencast') starts.push(Date.now())
+      return realSend(method, params as never, sessionId)
+    }) as typeof conn.send
+
+    const drawn: string[] = []
+    const sub = hub.subscribe(target, { width: 600, devicePixels: 1200 }, (_, meta) => {
+      drawn.push(`${meta.deviceWidth}x${meta.deviceHeight}`)
+    })
+    await settle(800)
+    const startsBefore = starts.length
+
+    const STEPS = 15
+    const began = Date.now()
+    for (let i = 1; i <= STEPS; i += 1) {
+      const width = 600 + i * 13
+      await resize(width)
+      await Promise.race([
+        hub.resized(target, { width, height: 700 }),
+        settle(1000).then(() => {
+          throw new Error(`${width}x700 never reached the canvas`)
+        })
+      ])
+    }
+    const perStep = (Date.now() - began) / STEPS
+    sub.stop()
+    ;(conn as unknown as { send: typeof conn.send }).send = realSend
+
+    expect(startsBefore).toBe(1)
+    expect(starts.length).toBe(startsBefore)
+    expect(drawn).toContain(`${600 + STEPS * 13}x700`)
+    // Reported, not only asserted: this is the number the feature is for.
+    process.stderr.write(`responsive drag: ${perStep.toFixed(1)} ms per step, ${(1000 / perStep).toFixed(0)}/s\n`)
+    expect(perStep).toBeLessThan(120)
+  }, 30_000)
+
+  it('keeps the page at its pixel ratio through an idle sharpen', async () => {
+    // The sharpen used to clip from this session, and a clipped capture restores
+    // the metrics it found — the page's devicePixelRatio came back as 1, and the
+    // stream reported frames at twice their CSS size, so the panel jumped about.
+    const page = await rpc('tab.create', {
+      chatId: 'test',
+      url: 'data:text/html,' + encodeURIComponent('<body style="margin:0">ratio</body>')
+    })
+    const { targetId: target } = page.tab as { targetId: string }
+    const sessionId = await hub.session(target)
+    const seen: string[] = []
+    const sub = hub.subscribe(target, { width: 1280, devicePixels: 2560 }, (bitmap, meta) => {
+      seen.push(`${meta.deviceWidth}x${meta.deviceHeight}@${bitmap.width}`)
+    })
+    await settle(1500)
+    sub.stop()
+    const dpr = await conn.send<{ result: { value: number } }>(
+      'Runtime.evaluate',
+      { expression: 'devicePixelRatio', returnByValue: true },
+      sessionId
+    )
+    expect(dpr.result.value).toBe(VIEWPORT.deviceScaleFactor)
+    // No frame claims the page is twice its CSS size. Chromium reports a frame
+    // composited just after a screenshot in device pixels, and the hub has to
+    // read it back; a stray early frame at some other size is fine, a doubled
+    // one is the bug. And the sharpened still carries the full raster.
+    const doubled = `${VIEWPORT.width * 2}x${VIEWPORT.height * 2}@`
+    expect(seen.filter((s) => s.startsWith(doubled))).toEqual([])
+    expect(seen).toContain(`${VIEWPORT.width}x${VIEWPORT.height}@${VIEWPORT.width * 2}`)
+  }, 30_000)
+
+  it('keeps a device switch that a clipped screenshot overlapped', async () => {
+    // A clipped capture emulates metrics of its own and restores the ones it
+    // found when it finishes, so one in flight across a resize puts the old size
+    // back — a phone switch mid-sharpen left the page laid out at the old width,
+    // cropped. The per-resize shot no longer clips; the sharpen still must, so
+    // the sidecar re-asserts after every change, and this is that repair.
+    const page = await rpc('tab.create', {
+      chatId: 'test',
+      url: 'data:text/html,' + encodeURIComponent('<body style="margin:0">race</body>')
+    })
+    const { tabId, targetId: target } = page.tab as { tabId: string; targetId: string }
+    const sessionId = await hub.session(target)
+    const innerWidth = async (): Promise<number> => {
+      const res = await conn.send<{ result: { value: number } }>(
+        'Runtime.evaluate',
+        { expression: 'innerWidth', returnByValue: true },
+        sessionId
+      )
+      return res.result.value
+    }
+    await rpc('tab.setViewport', { chatId: 'test', tabId, id: 'responsive', width: 985, height: 900 })
+    await settle(400)
+
+    const shot = conn.send(
+      'Page.captureScreenshot',
+      { format: 'jpeg', clip: { x: 0, y: 0, width: 985, height: 900, scale: 2 } },
+      sessionId
+    )
+    await rpc('tab.setViewport', { chatId: 'test', tabId, id: 'iphone-16' })
+    await shot.catch(() => {})
+    await settle(1800)
+
+    expect(await innerWidth()).toBe(393)
   }, 30_000)
 
   it('stops streaming once the last surface goes away', async () => {

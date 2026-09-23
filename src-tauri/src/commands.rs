@@ -1040,6 +1040,11 @@ pub async fn browser_tab_set_viewport(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+pub async fn browser_target_screenshot(target_id: String) -> Value {
+    browser::target_screenshot(&target_id).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
 pub async fn browser_tab_history(chat_id: String, tab_id: String, action: String) -> Value {
     browser::tab_history(&chat_id, &tab_id, &action).await
 }

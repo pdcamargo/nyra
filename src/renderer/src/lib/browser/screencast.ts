@@ -20,6 +20,7 @@
  */
 import type { CdpConnection } from './cdp'
 import {
+  MAX_CAPTURE_WIDTH,
   captureCeiling,
   captureHeight,
   captureQuality,
@@ -31,9 +32,7 @@ import {
 /** What Chromium says about the frame it just sent. Because the emulated
  *  viewport is owned rather than observed, `pageScaleFactor` and `offsetTop`
  *  are the identity, which is the whole reason the coordinate mapping is a
- *  single scale factor instead of DevTools' four-term formula. The scroll
- *  offsets are not decoration: a sharpening screenshot clips in document
- *  coordinates and needs them. */
+ *  single scale factor instead of DevTools' four-term formula. */
 export type FrameMetadata = {
   offsetTop: number
   pageScaleFactor: number
@@ -75,7 +74,9 @@ type Entry = {
   sessionId: string
   targetId: string
   subs: Map<symbol, Want & { onFrame: FrameSink }>
-  running: { px: number; everyNthFrame: number; vp: string } | null
+  /** Exactly what the running stream was started with, so a restart happens
+   *  only when one of these would actually change. */
+  running: { maxWidth: number; maxHeight: number; everyNthFrame: number; quality: number } | null
   /** Decode is async, and frames arrive faster than a slow frame decodes. Only
    *  the newest one is worth drawing, so a frame that lands mid-decode replaces
    *  whatever was waiting rather than queueing behind it. */
@@ -88,6 +89,14 @@ type Entry = {
   lastMeta: FrameMetadata | null
   sharpenTimer: ReturnType<typeof setTimeout> | null
   sharpening: boolean
+  /** Callers waiting for a frame at a size — see `resized`. */
+  landing: Array<{ width: number; height: number; resolve: () => void }>
+  /** Bumped per `resized`, so a screenshot of a size the page has since left
+   *  is thrown away rather than drawn over the newer one. */
+  resizeSeq: number
+  /** The last size `resized` was told the page is at. Ahead of the store's,
+   *  which waits for a broadcast. */
+  resizedTo: { width: number; height: number } | null
 }
 
 /**
@@ -106,16 +115,37 @@ type Entry = {
 const SHARPEN_IDLE_MS = 250
 
 /**
- * Lossy on purpose, for now.
+ * How a resized page reaches the canvas when the stream will not carry it.
  *
- * At the same pixel count PNG is visibly cleaner on text — JPEG's chroma
- * subsampling leaves a coloured halo around links and highlighting, which is
- * most of why a 1:1 still still reads as slightly soft. Measured on a 480x800
- * at dsf 2: PNG 68 ms and 210 KB against 51 ms and 139 KB here. Worth revisiting
- * if the softness ever becomes the thing that bothers someone; it needs the
- * integration test's image shim to learn PNG at the same time.
+ * Measured against headless Chromium: a page that is painting anyway has the
+ * new size in its stream about 33 ms after the override, but a static page
+ * sends *no* screencast frame for a resize at all — not for a relayout, and not
+ * for anything else tried without touching its DOM (an overlay rect, a
+ * background override, a requestAnimationFrame from an isolated world). A
+ * screenshot is the only thing that shows it, at about 36 ms.
+ *
+ * At 1x and live quality, because it stands in for a stream frame; the idle
+ * sharpen replaces it with the full raster once the drag stops.
+ *
+ * And unclipped, which is not a detail. A clipped screenshot emulates metrics
+ * of its own for the capture and then *restores the ones it found* — so one
+ * that is still in flight when the sidecar resizes the page puts the old size
+ * back. Measured: switching to a 393-wide phone mid-shot left the page at 985.
+ * An unclipped shot from this session comes back at exactly the CSS viewport,
+ * 1x, which is what this wants anyway.
  */
-const SHARPEN_QUALITY = 80
+const RESIZE_SHOT_QUALITY = 72
+
+/** Metadata for a frame that did not come from the stream and has no live
+ *  frame to borrow from. The emulated viewport is owned, so identity is right. */
+const IDENTITY_META: FrameMetadata = {
+  offsetTop: 0,
+  pageScaleFactor: 1,
+  deviceWidth: 0,
+  deviceHeight: 0,
+  scrollOffsetX: 0,
+  scrollOffsetY: 0
+}
 
 function base64ToBlob(base64: string): Blob {
   const binary = atob(base64)
@@ -147,6 +177,16 @@ export type ScreencastHub = {
   /** That target's emulated size changed, so the stream has to be restarted at
    *  the new aspect. Cheap when nothing actually moved. */
   invalidate: (targetId: string) => void
+  /**
+   * The sidecar has just put the page at this CSS size. Gets it drawn — from
+   * the stream if the page is painting, from a screenshot if it is not — and
+   * resolves once a frame at that size has reached the surfaces.
+   *
+   * Resolves at once when nobody is drawing the target. It can also never
+   * resolve, if the page never produces the size, so a caller that paces on it
+   * needs its own timeout.
+   */
+  resized: (targetId: string, size: { width: number; height: number }) => Promise<void>
   dispose: () => void
 }
 
@@ -163,6 +203,11 @@ export type HubDeps = {
   viewportFor: (targetId: string) => EmulatedViewport | undefined
   /** What to assume before the first `tabs` broadcast lands. */
   fallback: EmulatedViewport
+  /**
+   * A still of the target at its full emulated resolution, from the sidecar.
+   * Without it the idle sharpen is skipped, and the stream is what you get.
+   */
+  stillFor?: (targetId: string) => Promise<{ data: string; width: number; height: number } | null>
 }
 
 export function createScreencastHub(conn: CdpConnection, deps: HubDeps): ScreencastHub {
@@ -174,14 +219,30 @@ export function createScreencastHub(conn: CdpConnection, deps: HubDeps): Screenc
    *  for each one would allocate an array per frame for no reason. */
   const bySession = new Map<string, Entry>()
 
+  /** Hand a frame to every surface, and to anybody waiting for its size. */
+  const publish = (entry: Entry, bitmap: ImageBitmap, metadata: FrameMetadata): void => {
+    for (const sub of entry.subs.values()) sub.onFrame(bitmap, metadata)
+    // Every sink draws from the same bitmap, so it can only be closed once
+    // they have all had it.
+    bitmap.close()
+    if (entry.landing.length === 0) return
+    entry.landing = entry.landing.filter((wait) => {
+      if (wait.width !== metadata.deviceWidth || wait.height !== metadata.deviceHeight) return true
+      wait.resolve()
+      return false
+    })
+  }
+
+  /** Nobody is drawing any more, so nobody should be left waiting for a frame. */
+  const releaseLanding = (entry: Entry): void => {
+    for (const wait of entry.landing) wait.resolve()
+    entry.landing = []
+  }
+
   const draw = async (entry: Entry, data: string, metadata: FrameMetadata): Promise<void> => {
     entry.decoding = true
     try {
-      const bitmap = await createImageBitmap(base64ToBlob(data))
-      for (const sub of entry.subs.values()) sub.onFrame(bitmap, metadata)
-      // Every sink draws from the same bitmap, so it can only be closed once
-      // they have all had it.
-      bitmap.close()
+      publish(entry, await createImageBitmap(base64ToBlob(data)), metadata)
     } catch {
       // A truncated or superseded frame is not worth a log line sixty times a
       // second; the next one will be along.
@@ -207,7 +268,7 @@ export function createScreencastHub(conn: CdpConnection, deps: HubDeps): Screenc
       .catch(() => {})
 
     const data = params.data as string
-    const metadata = params.metadata as FrameMetadata
+    const metadata = cssSized(entry, params.metadata as FrameMetadata)
     entry.frameSeq += 1
     entry.lastMeta = metadata
     armSharpen(entry)
@@ -218,6 +279,36 @@ export function createScreencastHub(conn: CdpConnection, deps: HubDeps): Screenc
     }
     void draw(entry, data, metadata)
   })
+
+  /**
+   * Frame metadata with the page's size in CSS pixels, always.
+   *
+   * Usually it already is. But a frame composited just after a screenshot —
+   * anybody's, even the sidecar's unclipped one — comes through at the device
+   * pixel ratio, and its `deviceWidth` and `deviceHeight` report *that*: 2560 x
+   * 1600 for a 1280 x 800 page at 2x, with nothing else in the metadata to tell
+   * it apart. The canvas sizes itself from these numbers in responsive mode, so
+   * passed through, the panel jumped to twice its size and back. Measured, not
+   * guessed: two such frames per six screenshots.
+   *
+   * So a size that is exactly a size the page is known to be at, times the
+   * pixel ratio, is read as that size.
+   */
+  const cssSized = (entry: Entry, meta: FrameMetadata): FrameMetadata => {
+    const metrics = metricsFor(entry.targetId)
+    const dsf = metrics.deviceScaleFactor
+    if (!(dsf > 1)) return meta
+    for (const known of [entry.resizedTo, metrics]) {
+      if (!known) continue
+      if (
+        Math.round(known.width * dsf) === meta.deviceWidth &&
+        Math.round(known.height * dsf) === meta.deviceHeight
+      ) {
+        return { ...meta, deviceWidth: known.width, deviceHeight: known.height }
+      }
+    }
+    return meta
+  }
 
   const cancelSharpen = (entry: Entry): void => {
     if (!entry.sharpenTimer) return
@@ -246,55 +337,63 @@ export function createScreencastHub(conn: CdpConnection, deps: HubDeps): Screenc
     if (entry.subs.size === 0 || !entry.running) return
     // One already going — usually the forced one from a restart, which the new
     // stream's first frame then overtakes. Come back rather than give up: on a
-    // page that has settled, nothing else will ever ask again.
-    if (entry.sharpening) {
+    // page that has settled, nothing else will ever ask again. Likewise while a
+    // resize is waiting to land: a still of the size being left would be drawn
+    // over the one arriving.
+    if (entry.sharpening || entry.landing.length > 0) {
       armSharpen(entry)
       return
     }
 
     const metrics = metricsFor(entry.targetId)
     // A thumbnail is not worth a quarter of a megabyte and fifty milliseconds —
-    // but it still needs a first frame after a resize, like anything else.
-    if (!force && [...entry.subs.values()].every((s) => s.preview === true)) return
+    // but it still needs a first frame after a restart, like anything else.
+    const preview = [...entry.subs.values()].every((s) => s.preview === true)
+    if (!force && preview) return
     // Nothing sharper exists: the stream is already carrying the whole raster.
-    if (!force && Math.round(metrics.width * metrics.deviceScaleFactor) <= entry.running.px) return
+    // It never carries more than the CSS viewport, whatever it was asked for.
+    const streamWidth = Math.min(entry.running.maxWidth, metrics.width)
+    const sharper = Math.round(metrics.width * metrics.deviceScaleFactor) > streamWidth
+    if (!force && (!sharper || !deps.stillFor)) return
 
     entry.sharpening = true
     const stamp = entry.frameSeq
     try {
-      // `clip.scale`, not the session's emulation. Emulation overrides are per
-      // CDP session and the one that matters belongs to the sidecar, so a plain
-      // screenshot from this session comes back at 1x and is no sharper than
-      // the stream it was meant to improve. The clip's origin is in document
-      // coordinates, which is exactly what the screencast metadata's scroll
-      // offset is for.
-      const shot = await conn.send<{ data: string }>(
-        'Page.captureScreenshot',
-        {
-          format: 'jpeg',
-          quality: SHARPEN_QUALITY,
-          clip: {
-            x: entry.lastMeta?.scrollOffsetX ?? 0,
-            y: entry.lastMeta?.scrollOffsetY ?? 0,
+      // Forced means "any frame, now", so it is this session's own unclipped
+      // capture: 1x, quick, and free of side effects. The full raster comes from
+      // the sidecar, whose session owns the metrics and so captures at the pixel
+      // ratio unclipped. From here it would take a clip, and a clipped capture
+      // restores the metrics it found when it finishes — measured dropping the
+      // page's devicePixelRatio to 1 and reporting stream frames at twice their
+      // CSS size, which made the panel's size jump about.
+      const shot = force
+        ? {
+            ...(await conn.send<{ data: string }>(
+              'Page.captureScreenshot',
+              { format: 'jpeg', quality: RESIZE_SHOT_QUALITY },
+              entry.sessionId
+            )),
             width: metrics.width,
-            height: metrics.height,
-            scale: metrics.deviceScaleFactor
+            height: metrics.height
           }
-        },
-        entry.sessionId
-      )
+        : await deps.stillFor!(entry.targetId)
       // The page moved while the shot was being taken, so a live frame is newer
       // than this and drawing it would be a visible step backwards.
-      if (entry.frameSeq !== stamp || entry.subs.size === 0) return
+      if (!shot || entry.frameSeq !== stamp || entry.subs.size === 0) return
       const bitmap = await createImageBitmap(base64ToBlob(shot.data))
       if (entry.frameSeq !== stamp) {
         bitmap.close()
         return
       }
-      for (const sub of entry.subs.values()) {
-        if (entry.lastMeta) sub.onFrame(bitmap, entry.lastMeta)
-      }
-      bitmap.close()
+      // Sized as what was shot, not as the last live frame: after a resize the
+      // two differ, and the canvas lays itself out from these numbers.
+      publish(entry, bitmap, {
+        ...(entry.lastMeta ?? IDENTITY_META),
+        deviceWidth: shot.width || metrics.width,
+        deviceHeight: shot.height || metrics.height
+      })
+      // A forced frame is only 1x; a page that now holds still earns the rest.
+      if (force && !preview && sharper) armSharpen(entry)
     } catch {
       // A screenshot of a page mid-navigation is not worth a log line.
     } finally {
@@ -312,6 +411,7 @@ export function createScreencastHub(conn: CdpConnection, deps: HubDeps): Screenc
 
     if (entry.subs.size === 0) {
       cancelSharpen(entry)
+      releaseLanding(entry)
       if (entry.running) {
         entry.running = null
         await conn.send('Page.stopScreencast', {}, entry.sessionId).catch(() => {})
@@ -320,10 +420,10 @@ export function createScreencastHub(conn: CdpConnection, deps: HubDeps): Screenc
     }
 
     const metrics = metricsFor(targetId)
-    const vp = `${metrics.width}x${metrics.height}`
     const subs = [...entry.subs.values()]
     // A target shared by the panel and a miniature is the panel's to serve.
     const preview = subs.every((s) => s.preview === true)
+    const quality = captureQuality(preview)
     const everyNthFrame = Math.min(...subs.map((s) => s.everyNthFrame ?? 1))
     // The largest box anybody draws into, counted in the pixels that box really
     // has, then held against the running size so dragging the panel does not
@@ -334,29 +434,42 @@ export function createScreencastHub(conn: CdpConnection, deps: HubDeps): Screenc
     // page cannot produce — recording a size the stream was never running at.
     const ceiling = captureCeiling(metrics)
     const wanted = Math.min(Math.max(...subs.map((s) => s.devicePixels)), ceiling)
-    const px = Math.min(holdCapture(stepCapture(wanted, metrics), entry.running?.px ?? null), ceiling)
+
+    // Somebody wants the whole CSS viewport, which is all a stream can ever
+    // carry. Then the size to ask for is "no limit", not the viewport: a limit
+    // tied to the viewport's size and aspect changes every time the page is
+    // resized, and each change is a stop and a start. Responsive mode resizes
+    // the page on every step of a panel drag, so that was a restart per step.
+    // `ceiling === metrics.width` keeps the pixel budget: a viewport too big
+    // for it still gets a downscaled stream below.
+    const full = wanted >= metrics.width && ceiling === metrics.width
+    let maxWidth: number
+    let maxHeight: number
+    if (full) {
+      maxWidth = MAX_CAPTURE_WIDTH
+      maxHeight = MAX_CAPTURE_WIDTH
+    } else {
+      const held = entry.running && entry.running.maxWidth <= ceiling ? entry.running.maxWidth : null
+      maxWidth = Math.min(holdCapture(stepCapture(wanted, metrics), held), ceiling)
+      maxHeight = captureHeight(maxWidth, metrics)
+    }
     if (
-      entry.running?.px === px &&
+      entry.running?.maxWidth === maxWidth &&
+      entry.running.maxHeight === maxHeight &&
       entry.running.everyNthFrame === everyNthFrame &&
-      entry.running.vp === vp
+      entry.running.quality === quality
     ) {
       return
     }
 
-    entry.running = { px, everyNthFrame, vp }
+    entry.running = { maxWidth, maxHeight, everyNthFrame, quality }
     // Restarting is the only way to change the size; Chromium has no "resize
     // the screencast" call.
     await conn.send('Page.stopScreencast', {}, entry.sessionId).catch(() => {})
     await conn
       .send(
         'Page.startScreencast',
-        {
-          format: 'jpeg',
-          quality: captureQuality(preview),
-          maxWidth: px,
-          maxHeight: captureHeight(px, metrics),
-          everyNthFrame
-        },
+        { format: 'jpeg', quality, maxWidth, maxHeight, everyNthFrame },
         entry.sessionId
       )
       .catch(() => {})
@@ -395,7 +508,10 @@ export function createScreencastHub(conn: CdpConnection, deps: HubDeps): Screenc
         frameSeq: 0,
         lastMeta: null,
         sharpenTimer: null,
-        sharpening: false
+        sharpening: false,
+        landing: [],
+        resizeSeq: 0,
+        resizedTo: null
       }
       entries.set(targetId, entry)
       bySession.set(sessionId, entry)
@@ -406,10 +522,56 @@ export function createScreencastHub(conn: CdpConnection, deps: HubDeps): Screenc
     return promise
   }
 
+  /** A 1x still at a size the page has just been put at. See `RESIZE_SHOT_QUALITY`. */
+  const shootResize = async (entry: Entry, width: number, height: number): Promise<void> => {
+    const seq = entry.resizeSeq
+    try {
+      const shot = await conn.send<{ data: string }>(
+        'Page.captureScreenshot',
+        { format: 'jpeg', quality: RESIZE_SHOT_QUALITY },
+        entry.sessionId
+      )
+      // Superseded by a newer size, or the stream already showed this one.
+      const landed = !entry.landing.some((w) => w.width === width && w.height === height)
+      if (entry.resizeSeq !== seq || landed || entry.subs.size === 0) return
+      const bitmap = await createImageBitmap(base64ToBlob(shot.data))
+      if (entry.resizeSeq !== seq) {
+        bitmap.close()
+        return
+      }
+      publish(entry, bitmap, {
+        ...(entry.lastMeta ?? IDENTITY_META),
+        deviceWidth: width,
+        deviceHeight: height
+      })
+      // A static page sends no stream frame to arm this, and the still above
+      // is only 1x.
+      armSharpen(entry)
+    } catch {
+      // Mid-navigation, or the target went away. The caller's timeout covers it.
+    }
+  }
+
   return {
     session,
     invalidate: (targetId) => {
       void reconcile(targetId)
+    },
+    resized: (targetId, { width, height }) => {
+      const entry = entries.get(targetId)
+      if (!entry || entry.subs.size === 0) return Promise.resolve()
+      entry.resizeSeq += 1
+      entry.resizedTo = { width, height }
+      // Anybody still waiting on an older size has been overtaken by this one.
+      releaseLanding(entry)
+      const landed = new Promise<void>((resolve) => {
+        entry.landing.push({ width, height, resolve })
+      })
+      // Fired now rather than after waiting to see whether the stream shows it:
+      // waiting costs a static page — most pages, most of the time — a whole
+      // extra frame per step, and the loser is simply discarded.
+      void shootResize(entry, width, height)
+      return landed
     },
     subscribe: (targetId, want, onFrame) => {
       const key = Symbol('screencast-subscriber')
@@ -447,6 +609,7 @@ export function createScreencastHub(conn: CdpConnection, deps: HubDeps): Screenc
       offFrame()
       for (const [targetId, entry] of entries) {
         cancelSharpen(entry)
+        releaseLanding(entry)
         void conn.send('Page.stopScreencast', {}, entry.sessionId).catch(() => {})
         void conn.detach(entry.sessionId)
         entries.delete(targetId)

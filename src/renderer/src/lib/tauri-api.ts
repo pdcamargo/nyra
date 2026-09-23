@@ -586,6 +586,13 @@ export const api = {
         tabId,
         ...spec
       }),
+    /** A full-resolution still, taken from the sidecar's session — see
+     *  `browser::target_screenshot` for why not the renderer's. */
+    targetScreenshot: (targetId: string) =>
+      call<BrowserReply<{ data: string; width: number; height: number }>>(
+        'browser_target_screenshot',
+        { targetId }
+      ),
     tabHistory: (chatId: string, tabId: string, action: 'back' | 'forward' | 'reload') =>
       call<BrowserReply<{ url: string | null }>>('browser_tab_history', { chatId, tabId, action }),
     tabList: (chatId: string) => call<BrowserReply<{ tabs: BrowserTab[] }>>('browser_tab_list', { chatId }),

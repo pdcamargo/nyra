@@ -375,6 +375,17 @@ pub async fn tab_history(chat_id: &str, tab_id: &str, action: &str) -> Value {
     settle(call(method, json!({ "chatId": chat_id, "tabId": tab_id })).await)
 }
 
+/// A full-resolution still of a target, for the panel's idle sharpen.
+///
+/// Taken by the sidecar because only its session can take one safely. The
+/// renderer's session has no metrics override, so a full-resolution shot from
+/// there needs a clip, and a clipped capture emulates metrics for itself and
+/// then restores what it found — which knocked the page's devicePixelRatio to 1
+/// and put back sizes the sidecar had since changed.
+pub async fn target_screenshot(target_id: &str) -> Value {
+    settle(call("target.screenshot", json!({ "targetId": target_id })).await)
+}
+
 // ---------------------------------------------------------------------------
 // The agent's half
 // ---------------------------------------------------------------------------

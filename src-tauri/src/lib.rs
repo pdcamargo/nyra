@@ -280,6 +280,7 @@ pub fn run() {
             commands::browser_tab_navigate,
             commands::browser_tab_set_viewport,
             commands::browser_tab_history,
+            commands::browser_target_screenshot,
             commands::browser_tab_list,
             commands::update_check,
             commands::update_install,

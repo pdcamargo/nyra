@@ -202,7 +202,11 @@ export async function browserHub(url: string): Promise<Live> {
     const conn = await connectCdp(url)
     const hub = createScreencastHub(conn, {
       viewportFor: (targetId) => useBrowserStore.getState().viewportByTarget[targetId],
-      fallback: { ...useBrowserStore.getState().viewport, deviceScaleFactor: 1 }
+      fallback: { ...useBrowserStore.getState().viewport, deviceScaleFactor: 1 },
+      stillFor: async (targetId) => {
+        const reply = await window.api.browser.targetScreenshot(targetId)
+        return reply.ok ? { data: reply.data, width: reply.width, height: reply.height } : null
+      }
     })
     live = { url, conn, hub }
     connecting = null
@@ -220,6 +224,15 @@ export async function browserHub(url: string): Promise<Live> {
  *  the new aspect. Chromium has no resize call, so this is a stop and a start. */
 export function notifyViewportChanged(targetId: string): void {
   live?.hub.invalidate(targetId)
+}
+
+/** The sidecar has put a target at a new size; resolves once it is on screen.
+ *  Immediately when nothing is connected — there is nothing to wait for. */
+export function targetResized(
+  targetId: string,
+  size: { width: number; height: number }
+): Promise<void> {
+  return live?.hub.resized(targetId, size) ?? Promise.resolve()
 }
 
 /** Drop the socket — the browser went away, or Nyra is closing. */

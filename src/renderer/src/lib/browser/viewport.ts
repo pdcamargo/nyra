@@ -36,11 +36,6 @@ export const MAX_CAPTURE_PIXELS = 2_000_000
  *  screencast, so every distinct value costs a stop and a start. */
 export const CAPTURE_STEP = 64
 
-/** Responsive sizes move in steps too, for the same reason at a different
- *  scale: each distinct one relayouts the page. Smaller than the capture step
- *  because this one is a size the user can see. */
-export const QUANTISE_STEP = 8
-
 /** Under this, a box has not been laid out yet. Sending it would be worse than
  *  skipping — Chromium reads a width of 0 as "clear the override". */
 export const MIN_RESPONSIVE_DIMENSION = 200

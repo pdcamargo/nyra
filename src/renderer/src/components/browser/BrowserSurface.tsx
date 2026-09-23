@@ -83,13 +83,13 @@ export default function BrowserSurface({
   }, [sessionId, tabId])
 
   // Responsive mode's whole behaviour: the box is the viewport, so tell the
-  // sidecar whenever it moves. Throttled in the controller, and never from a
+  // sidecar whenever it moves. Paced in the controller, and never from a
   // preview — a miniature pushing its own 300px would re-emulate the tab the
   // agent is working in.
   useEffect(() => {
-    if (!tabId || !responsive) return
-    requestResponsiveViewport(sessionId, tabId, box.width, box.height, deviceRef.current)
-  }, [sessionId, tabId, responsive, box.width, box.height])
+    if (!tabId || !targetId || !responsive) return
+    requestResponsiveViewport(sessionId, tabId, targetId, box.width, box.height, deviceRef.current)
+  }, [sessionId, tabId, targetId, responsive, box.width, box.height])
 
   // Having the wheel is a state, and it ends when the turn does. Deriving it
   // here rather than storing a third flag means a turn that dies without a
@@ -118,9 +118,19 @@ export default function BrowserSurface({
     [sessionId, tabId]
   )
 
+  // Responsive mode draws into the box itself, measured this frame, rather than
+  // into the viewport the sidecar last confirmed: that lags a drag by a round
+  // trip, and a wrapper sized from it is the panel visibly trailing the hand.
+  const laidOut = box.width > 0 && box.height > 0
   const scale = responsive ? 1 : zoom === 'fit' ? fitScale(box, viewport) : zoom
-  const drawWidth = Math.max(1, Math.round(viewport.width * scale))
-  const drawHeight = Math.max(1, Math.round(viewport.height * scale))
+  const drawWidth = Math.max(
+    1,
+    responsive && laidOut ? Math.floor(box.width) : Math.round(viewport.width * scale)
+  )
+  const drawHeight = Math.max(
+    1,
+    responsive && laidOut ? Math.floor(box.height) : Math.round(viewport.height * scale)
+  )
 
   const run = useCallback(async (work: () => Promise<unknown>) => {
     setBusy(true)
@@ -171,16 +181,29 @@ export default function BrowserSurface({
           responsive ? 'overflow-hidden' : 'overflow-auto'
         }`}
       >
-        {/* Sized explicitly, and the canvas fills it exactly. That invariant is
-            what keeps `pageFromCanvas` a single multiply under any scale, and
-            what lets AgentCursor go on positioning in percentages. */}
-        <div className="relative" style={{ width: drawWidth, height: drawHeight }}>
+        {/* Sized explicitly. A pinned device's canvas fills it exactly, which
+            is what keeps `pageFromCanvas` a single multiply under any scale and
+            lets AgentCursor go on positioning in percentages. A responsive
+            canvas is the frame's own size, pinned top-left, and this clips it;
+            once a drag settles the two sizes agree again. The ring is outside
+            the box, so it takes no pixels from the page. */}
+        <div
+          className={`relative ${
+            responsive ? 'overflow-hidden rounded-md bg-background ring-1 ring-border/55' : ''
+          }`}
+          style={{ width: drawWidth, height: drawHeight }}
+        >
           <BrowserCanvas
             targetId={tab.targetId}
             width={drawWidth}
             interactive
+            actualSize={responsive}
             onUserInput={() => useBrowserStore.getState().releaseDriving(sessionId)}
-            className="absolute inset-0 h-full w-full rounded-md border border-border/55"
+            className={
+              responsive
+                ? 'absolute left-0 top-0'
+                : 'absolute inset-0 h-full w-full rounded-md border border-border/55'
+            }
           />
           <AgentCursor
             cursor={chat.cursor}

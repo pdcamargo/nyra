@@ -396,6 +396,69 @@ async function applyDevice(tab, device) {
   tab.device = device
 }
 
+/**
+ * How long after a size change to put it back, in case something took it away.
+ *
+ * Two things can. Playwright's cached size is left stale by `resizeOnly`, and a
+ * cross-process navigation re-sends it. And any clipped `Page.captureScreenshot`
+ * from another session makes Chromium emulate metrics for the capture and then
+ * restore the ones it found — so one that overlapped this change puts the old
+ * size back when it finishes. Measured: a phone switch mid-shot left the page at
+ * 985 wide. Nyra's own renderer no longer clips (see `target.screenshot`), but
+ * anything else attached over CDP still can. A shot takes well under this, and
+ * re-sending an override the page already has does nothing.
+ *
+ * Long enough to span the gap between two paced drag steps, too, which is one
+ * frame's round trip — about 35 ms, and up to the renderer's 250 ms give-up.
+ */
+const RESIZE_SYNC_MS = 300
+
+/** A capture can run long under load, and one that ends after the first
+ *  re-assert still restores the old size. A second pass catches it. */
+const RESIZE_RESYNC_MS = 1500
+
+/** Re-assert a tab's size once it has stopped changing, and once more later.
+ *  See `RESIZE_SYNC_MS`. */
+function settleDevice(tab, reassert) {
+  clearTimeout(tab.syncTimer)
+  tab.syncTimer = setTimeout(() => {
+    void reassert()
+    tab.syncTimer = setTimeout(() => void reassert(), RESIZE_RESYNC_MS - RESIZE_SYNC_MS)
+  }, RESIZE_SYNC_MS)
+}
+
+/** Same responsive shape, new size: the panel being dragged. */
+function onlyResizes(current, next) {
+  return (
+    current?.id === 'responsive' &&
+    next.id === 'responsive' &&
+    current.deviceScaleFactor === next.deviceScaleFactor &&
+    current.mobile === next.mobile &&
+    current.hasTouch === next.hasTouch
+  )
+}
+
+/**
+ * One CDP call instead of `applyDevice`'s five.
+ *
+ * `setViewportSize` sends its own metrics override, at the context's pixel
+ * ratio, so going through it during a drag relayouts the page twice per step —
+ * and the touch calls change nothing when only the size moved.
+ */
+async function resizeOnly(tab, device) {
+  await tab.cdp
+    .send('Emulation.setDeviceMetricsOverride', {
+      width: device.width,
+      height: device.height,
+      deviceScaleFactor: device.deviceScaleFactor,
+      mobile: device.mobile,
+      screenWidth: device.width,
+      screenHeight: device.height
+    })
+    .catch(() => {})
+  tab.device = device
+}
+
 /** Only the parts Playwright takes from context options can be stomped, so only
  *  those are worth a round trip on every navigation. */
 function divergesFromContext(device, entry) {
@@ -449,6 +512,7 @@ async function doAdoptPage(chatId, entry, page) {
   page.on('load', () => mark(false))
   page.on('domcontentloaded', () => broadcastTabs(chatId))
   page.on('close', () => {
+    clearTimeout(tab.syncTimer)
     entry.tabs.delete(tabId)
     broadcastTabs(chatId)
   })
@@ -483,6 +547,7 @@ function localToolsFor(chatId) {
         if (!tab) throw new Error('This chat has no open browser tab to size.')
         const device = resolveDevice({ id, width, height, hostDpr: entry.hostDpr, by: 'agent' })
         await applyDevice(tab, device)
+        settleDevice(tab, () => resizeOnly(tab, tab.device))
         broadcastTabs(chatId)
         const touch = device.mobile ? ', mobile layout with touch' : ''
         return (
@@ -797,9 +862,38 @@ const methods = {
     const tab = entry.tabs.get(tabId)
     if (!tab) throw new Error(`no tab ${tabId}`)
     const device = resolveDevice({ id, width, height, hostDpr: entry.hostDpr, by: by ?? 'user' })
-    await applyDevice(tab, device)
+    if (onlyResizes(tab.device, device)) {
+      await resizeOnly(tab, device)
+      // Playwright's cached size catches up once the drag stops. Until then a
+      // cross-process navigation would re-send the old size — a beat's worth of
+      // wrong layout, against two relayouts per step for the whole drag.
+      settleDevice(tab, () => applyDevice(tab, tab.device))
+    } else {
+      await applyDevice(tab, device)
+      settleDevice(tab, () => resizeOnly(tab, tab.device))
+    }
     broadcastTabs(chatId)
     return { device }
+  },
+
+  /**
+   * A still of a target at its full emulated resolution, for the panel's idle
+   * sharpen. From this session, and unclipped, on purpose: this session owns the
+   * metrics override, so a plain capture comes back at the device pixel ratio
+   * with no emulation of its own. The renderer's session would have to clip to
+   * get the same pixels, and a clipped capture restores the metrics it found
+   * when it finishes — which dropped the page's devicePixelRatio to 1 and put
+   * back sizes changed while it ran.
+   */
+  async 'target.screenshot'({ targetId }) {
+    for (const entry of chats.values()) {
+      for (const tab of entry.tabs.values()) {
+        if (tab.targetId !== targetId) continue
+        const shot = await tab.cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 80 })
+        return { data: shot.data, width: tab.device?.width ?? 0, height: tab.device?.height ?? 0 }
+      }
+    }
+    throw new Error(`no tab for target ${targetId}`)
   },
 
   async 'tab.close'({ chatId, tabId }) {
