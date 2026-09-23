@@ -75,6 +75,23 @@ export default function App(): React.JSX.Element {
     void loadModelCatalog()
   }, [])
 
+  // Alt-tab and minimise count as time away for the recap, the same as looking
+  // at another chat. Focus rather than visibility alone: an alt-tabbed window
+  // is still "visible" to the page, and nobody is reading it.
+  useEffect(() => {
+    const sync = (): void => {
+      useSessionsStore.getState().setWindowAway(document.hidden || !document.hasFocus())
+    }
+    window.addEventListener('focus', sync)
+    window.addEventListener('blur', sync)
+    document.addEventListener('visibilitychange', sync)
+    return () => {
+      window.removeEventListener('focus', sync)
+      window.removeEventListener('blur', sync)
+      document.removeEventListener('visibilitychange', sync)
+    }
+  }, [])
+
   // Claude asking this window to do something, or telling it a check it ran
   // found a new version. Subscribed here rather than in a panel for the same
   // reason the browser events are: the question can arrive whatever is mounted.

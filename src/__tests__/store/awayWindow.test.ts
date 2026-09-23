@@ -1,5 +1,10 @@
-import { describe, expect, it, beforeEach } from 'vitest'
-import { useSessionsStore, type Message, type Session } from '../../renderer/src/store/sessions'
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest'
+import {
+  AWAY_MIN_MS,
+  useSessionsStore,
+  type Message,
+  type Session
+} from '../../renderer/src/store/sessions'
 
 const T0 = 1_700_000_000_000
 
@@ -26,7 +31,7 @@ const get = (id: string): Session =>
 
 describe('the away window', () => {
   beforeEach(() => {
-    useSessionsStore.setState({ sessions: [], activeSessionId: null })
+    useSessionsStore.setState({ sessions: [], activeSessionId: null, windowAway: false })
   })
 
   it('pins the window before unread is cleared', () => {
@@ -92,5 +97,89 @@ describe('the away window', () => {
     })
     useSessionsStore.getState().setActiveSession('a')
     expect(get('a').away).toEqual({ since: T0 + 50, turnsAtLeave: 0 })
+  })
+
+  describe('a minimum time away', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** Leave `a` for `b`, let a message land in `a`, come back after `ms`. */
+    const awayFor = (ms: number): Session => {
+      vi.useFakeTimers({ now: T0 })
+      useSessionsStore.setState({
+        sessions: [base('a', { turns: 1, messages: [msg('m1', T0 - 10)] }), base('b')],
+        activeSessionId: 'a'
+      })
+      useSessionsStore.getState().setActiveSession('b')
+      useSessionsStore.getState().addMessage('a', msg('m2', T0 + 1000))
+      vi.setSystemTime(T0 + ms)
+      useSessionsStore.getState().setActiveSession('a')
+      return get('a')
+    }
+
+    it('opens no window for a quick look at another chat', () => {
+      const s = awayFor(20_000)
+      expect(s.unread).toBe(0)
+      expect(s.away).toBeUndefined()
+    })
+
+    it('opens one once you were gone long enough', () => {
+      const s = awayFor(AWAY_MIN_MS)
+      expect(s.unread).toBe(0)
+      expect(s.away).toEqual({ since: T0 + 1000, turnsAtLeave: 1 })
+    })
+  })
+
+  describe('the window out of focus', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('counts minimising towards the time away from the chat on screen', () => {
+      vi.useFakeTimers({ now: T0 })
+      useSessionsStore.setState({
+        sessions: [base('a', { turns: 3, messages: [msg('m1', T0 - 10)] })],
+        activeSessionId: 'a'
+      })
+      useSessionsStore.getState().setWindowAway(true)
+      // On screen, but nobody is looking: it is news.
+      useSessionsStore.getState().addMessage('a', msg('m2', T0 + 1000))
+      expect(get('a').unread).toBe(1)
+
+      vi.setSystemTime(T0 + AWAY_MIN_MS)
+      useSessionsStore.getState().setWindowAway(false)
+      const s = get('a')
+      expect(s.unread).toBe(0)
+      expect(s.away).toEqual({ since: T0 + 1000, turnsAtLeave: 3 })
+      expect(s.leftAt).toBeUndefined()
+    })
+
+    it('treats a quick alt-tab as nothing', () => {
+      vi.useFakeTimers({ now: T0 })
+      useSessionsStore.setState({ sessions: [base('a')], activeSessionId: 'a' })
+      useSessionsStore.getState().setWindowAway(true)
+      useSessionsStore.getState().addMessage('a', msg('m1', T0 + 500))
+      vi.setSystemTime(T0 + 10_000)
+      useSessionsStore.getState().setWindowAway(false)
+      expect(get('a').unread).toBe(0)
+      expect(get('a').away).toBeUndefined()
+    })
+
+    it('adds a minute in another chat to a minute minimised', () => {
+      vi.useFakeTimers({ now: T0 })
+      useSessionsStore.setState({
+        sessions: [base('a', { turns: 1 }), base('b')],
+        activeSessionId: 'a'
+      })
+      useSessionsStore.getState().setActiveSession('b')
+      useSessionsStore.getState().addMessage('a', msg('m1', T0 + 1000))
+      vi.setSystemTime(T0 + 60_000)
+      useSessionsStore.getState().setWindowAway(true)
+      vi.setSystemTime(T0 + 120_000)
+      useSessionsStore.getState().setWindowAway(false)
+      useSessionsStore.getState().setActiveSession('a')
+      expect(get('a').away).toEqual({ since: T0 + 1000, turnsAtLeave: 1 })
+    })
   })
 })

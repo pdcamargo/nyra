@@ -228,6 +228,10 @@ export type Session = {
   away?: { since: number; turnsAtLeave: number } | null
   /** `turns` as of the last time you looked away from this chat. */
   turnsSeen?: number
+  /** When you last stopped seeing this chat — switched to another, or the
+   *  window lost focus while it was on screen. Unset while you are looking at
+   *  it, and for one never opened. */
+  leftAt?: number
   /** A question Claude asked that nobody has answered yet, so the chat list can
    *  say so without walking every message of every session on each render. */
   needsAnswer?: boolean
@@ -264,6 +268,9 @@ type SessionsStore = {
   sessions: Session[]
   projects: Project[]
   activeSessionId: string | null
+  /** The window is minimised or another app has focus, so even the active
+   *  chat is not being watched. Not persisted: a launch starts in front. */
+  windowAway: boolean
   pendingAction: PendingAction | null
   createSession: (cwd: string, projectId?: string | null) => string
   createProject: (path: string, name?: string) => string
@@ -274,6 +281,9 @@ type SessionsStore = {
   reorderProjects: (orderedIds: string[]) => void
   setSessionProject: (sessionId: string, projectId: string | null) => void
   setActiveSession: (id: string) => void
+  /** The window lost focus (alt-tab, minimise) or got it back. Counted towards
+   *  the recap's time away exactly like switching to another chat. */
+  setWindowAway: (away: boolean) => void
   addMessage: (sessionId: string, message: Message) => void
   updateToolResult: (sessionId: string, toolId: string, content: string) => void
   updateToolInput: (sessionId: string, toolId: string, input: Record<string, unknown>) => void
@@ -330,12 +340,46 @@ type SessionsStore = {
   clearPendingAction: () => void
 }
 
+/** How long a chat has to be out of sight before coming back to it earns a
+ *  "While you were away" recap. Under this you only switched to look at
+ *  something, and a card summarising the last few seconds is noise. */
+export const AWAY_MIN_MS = 2 * 60 * 1000
+
+/** Stop seeing a chat. Remembers how many turns you had actually seen, so the
+ *  recap can say what ran after you stopped watching rather than counting the
+ *  whole conversation. */
+function leave(s: Session): Session {
+  return { ...s, turnsSeen: s.turns ?? 0, leftAt: Date.now() }
+}
+
+/** See a chat again, and open the away window if it ran without you for long
+ *  enough to be worth one. */
+function cameBack(s: Session): Session {
+  if (!s.unread) return s.leftAt === undefined ? s : { ...s, leftAt: undefined }
+  // A glance elsewhere is not being away. What arrived in the meantime is read
+  // now, and there is nothing to recap.
+  if (s.leftAt !== undefined && Date.now() - s.leftAt < AWAY_MIN_MS) {
+    return { ...s, unread: 0, leftAt: undefined }
+  }
+  // `unread` is about to be cleared, so the window it describes has to be
+  // pinned down now or it is gone: the first message you have not seen is
+  // `unread` from the end.
+  const first = s.messages[s.messages.length - s.unread]
+  return {
+    ...s,
+    unread: 0,
+    leftAt: undefined,
+    away: { since: first?.timestamp ?? 0, turnsAtLeave: s.turnsSeen ?? 0 }
+  }
+}
+
 export const useSessionsStore = create<SessionsStore>()(
   persist(
     (set, get) => ({
       sessions: [],
       projects: [],
       activeSessionId: null,
+      windowAway: false,
       pendingAction: null,
 
       createSession: (cwd: string, projectId: string | null = null) => {
@@ -437,25 +481,28 @@ export const useSessionsStore = create<SessionsStore>()(
         set((state) => ({
           activeSessionId: id,
           sessions: state.sessions.map((s) => {
-            // Leaving: remember how many turns you had actually seen, so the
-            // recap can say what ran after you stopped watching rather than
-            // counting the whole conversation.
+            // Already out of sight with the window, so it left then, not now.
             if (s.id === state.activeSessionId && s.id !== id) {
-              return { ...s, turnsSeen: s.turns ?? 0 }
+              return state.windowAway ? s : leave(s)
             }
-            if (s.id !== id || !s.unread) return s
-            // Opening a chat that ran without you. `unread` is about to be
-            // cleared, so the window it describes has to be pinned down now or
-            // it is gone: the first message you have not seen is `unread` from
-            // the end.
-            const first = s.messages[s.messages.length - s.unread]
-            return {
-              ...s,
-              unread: 0,
-              away: { since: first?.timestamp ?? 0, turnsAtLeave: s.turnsSeen ?? 0 }
-            }
+            return s.id === id && s.id !== state.activeSessionId ? cameBack(s) : s
           })
         }))
+      },
+
+      setWindowAway: (away: boolean) => {
+        set((state) => {
+          if (state.windowAway === away) return state
+          return {
+            windowAway: away,
+            // Only the chat on screen changes: every other one is already out
+            // of sight, and keeps the time it left at. A minute in another chat
+            // and a minute minimised are two minutes away from the first.
+            sessions: state.sessions.map((s) =>
+              s.id !== state.activeSessionId ? s : away ? leave(s) : cameBack(s)
+            )
+          }
+        })
       },
 
       noteTurn: (sessionId: string) => {
@@ -493,11 +540,10 @@ export const useSessionsStore = create<SessionsStore>()(
                 ? (unique as TextMessage).text.slice(0, 40)
                 : s.title
             // Your own messages are not news, and neither is anything in the chat
-            // you are looking at — it is on screen as it arrives.
-            const unread =
-              unique.role === 'user' || state.activeSessionId === sessionId
-                ? s.unread
-                : (s.unread ?? 0) + 1
+            // you are looking at — it is on screen as it arrives. The active chat
+            // behind a minimised window is not being looked at.
+            const onScreen = state.activeSessionId === sessionId && !state.windowAway
+            const unread = unique.role === 'user' || onScreen ? s.unread : (s.unread ?? 0) + 1
             return { ...s, messages, title, unread }
           })
         }))
