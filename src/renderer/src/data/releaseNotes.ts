@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.3.5',
+    date: '2026-09-23',
     notes: [
       'Archive chats, browse plugins, and inspect MCP servers',
       'Fixed the model picker capped by a stale Claude CLI install',
