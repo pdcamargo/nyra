@@ -473,7 +473,9 @@ const nodeTypes: NodeTypes = {
 
 // --- Converters between WorkflowDefinition and React Flow format ---
 
-function toFlowNodes(
+/** Exported for the round-trip test, which is the only guard against a field
+ *  that one direction forgets. */
+export function toFlowNodes(
   wfNodes: WorkflowNode[],
   nodeStates: Record<string, WorkflowNodeRunState>,
   workflowsById?: Map<string, string>,
@@ -529,7 +531,10 @@ function toFlowNodes(
         setVars: d.setVars
       }
     } else if (d.type === 'condition') extra = { expression: d.expression }
-    else if (d.type === 'script') extra = { command: d.command }
+    // `timeoutMs` too: save, drag and export all rebuild the flow from these
+    // canvas nodes, so a field left out here is dropped on the next save — and
+    // the inspector, which reads the store, goes on showing the value it lost.
+    else if (d.type === 'script') extra = { command: d.command, timeoutMs: d.timeoutMs }
     else if (d.type === 'join') extra = { separator: d.separator }
     else if (d.type === 'loop') extra = { condition: d.condition, maxIterations: d.maxIterations }
     else if (d.type === 'humanReview') extra = { message: d.message }
@@ -606,7 +611,7 @@ function withRunState(
   })
 }
 
-function fromFlowNodes(nodes: Node[]): WorkflowNode[] {
+export function fromFlowNodes(nodes: Node[]): WorkflowNode[] {
   return nodes.map((n) => {
     const t = n.type as string
     let data: WorkflowNodeData
