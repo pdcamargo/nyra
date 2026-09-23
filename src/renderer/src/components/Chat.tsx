@@ -1376,7 +1376,12 @@ export default function Chat(): React.JSX.Element {
     return true
   }, [])
 
-  const editAndResend = useCallback(async (messageId: string, newText: string): Promise<void> => {
+  const editAndResend = useCallback(async (
+    messageId: string,
+    newText: string,
+    images: ImageAttachment[],
+    files: FileAttachment[]
+  ): Promise<void> => {
     const sid = useSessionsStore.getState().activeSessionId
     if (!sid) return
 
@@ -1400,19 +1405,13 @@ export default function Chat(): React.JSX.Element {
       contextPrefix = `[Previous conversation]\n${contextParts.join('\n')}\n\n`
     }
 
-    // Preserve images from the original message
-    const originalMsg = session.messages[msgIndex] as TextMessage
-    const images = originalMsg.images ?? []
-
     // Truncate messages from the edited one onward
     useSessionsStore.getState().truncateAtMessage(sid, messageId)
 
-    // Build prompt with context + edited text + images
-    let prompt = contextPrefix + newText
-    if (images.length > 0) {
-      const imagePaths = images.map((img) => `[Image: ${img.path}]`).join('\n')
-      prompt = `${prompt}\n\n${imagePaths}`
-    }
+    // The edit box starts from the original's attachments and can add to them,
+    // so these are the whole set — through the same fold `sendMessage` uses. It
+    // used to re-append the original's images by hand and drop its files.
+    const prompt = withAttachments(contextPrefix + newText, images, files)
 
     // Add user message and send
     useRunningStore.getState().startRun(sid)
@@ -1422,7 +1421,8 @@ export default function Chat(): React.JSX.Element {
       id: newMessageId(),
       role: 'user',
       text: newText,
-      ...(images.length > 0 ? { images } : {})
+      ...(images.length > 0 ? { images } : {}),
+      ...(files.length > 0 ? { files: files.map(({ extractedText: _, ...f }) => f) } : {})
     }
     useSessionsStore.getState().addMessage(sid, userMessage)
 
@@ -1873,9 +1873,10 @@ export default function Chat(): React.JSX.Element {
                         <EditMessageBox
                           value={editText}
                           images={textMsg.images}
+                          files={textMsg.files}
                           onChange={setEditText}
                           onCancel={() => { setEditingMessageId(null); setEditText('') }}
-                          onSave={() => { const mid = editingMessageId!; const text = editText; setEditingMessageId(null); setEditText(''); editAndResend(mid, text) }}
+                          onSave={(images, files) => { const mid = editingMessageId!; const text = editText; setEditingMessageId(null); setEditText(''); editAndResend(mid, text, images, files) }}
                         />
                       </div>
                     </div>
