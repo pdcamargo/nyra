@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.3.6',
+    date: '2026-09-24',
     notes: [
       "Edited and forked messages keep Claude's memory instead of a pasted recap",
       'Large attachments no longer get resent and re-billed every turn',
