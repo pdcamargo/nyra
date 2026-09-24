@@ -8,7 +8,13 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      "Edited and forked messages keep Claude's memory instead of a pasted recap",
+      'Large attachments no longer get resent and re-billed every turn',
+      "Context meter now tracks your model's real limit, not a flat 1M-token guess",
+      "Claude's replies now quote just the relevant part of long output",
+      'Resuming a chat no longer triggers an unwanted re-title'
+    ]
   },
   {
     version: '0.3.5',
