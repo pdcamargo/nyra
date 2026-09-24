@@ -24,7 +24,8 @@ export type FileAttachment = {
   /** `binary` is anything with no text extractor — a video, a font, a db.
    *  It travels as a path and is never read into memory. */
   category: 'image' | 'document' | 'text' | 'binary'
-  extractedText?: string
+  /** A document's extracted text, as a file beside it. */
+  textPath?: string
   dataUrl?: string // only for images (preview)
 }
 
@@ -39,7 +40,14 @@ export type TextMessage = {
    *  than re-queried, so scrolling back shows what changed *then* — see
    *  `changeBlocks.ts` for why that matters. */
   changes?: ChangeBlock
+  /** On a user message: the reply it followed, in the CLI's own terms. Editing
+   *  the message forks the conversation there, so Claude forgets what came
+   *  after instead of being handed a copy of what it already has. */
+  resumeAt?: Anchor | null
 }
+
+/** A point in a CLI conversation — its session and one assistant line's uuid. */
+export type Anchor = { sessionId: string; uuid: string }
 
 export type ToolCallMessage = {
   id: string
@@ -201,6 +209,21 @@ export type Session = {
   queuedMessage?: QueuedMessage | null
   autoCompacted?: boolean
   pendingAutoCompact?: boolean
+  /** The last main-thread reply this conversation produced — what the next
+   *  user message records as its `resumeAt`. */
+  anchor?: Anchor | null
+  /** What the latest call held: its input, cached or not, plus its output.
+   *  Unlike `usage`, which sums every call and so says what the chat has spent. */
+  contextTokens?: number
+  /** The window the model reports on each result. */
+  contextWindow?: number
+  /** Where a fork's first message picks the conversation up: its source's
+   *  transcript, at the reply before the cut. Cleared once this chat has a
+   *  conversation of its own. */
+  resumeFrom?: Anchor | null
+  /** A fork with no anchor to resume from — its history predates them — so the
+   *  first message carries a recap of it instead. */
+  needsRecap?: boolean
   forkOf?: { sessionId: string; messageId: string; title: string }
   /** The title was chosen deliberately — renamed by hand, or derived for a fork
    *  — so the one Claude generates must not take it away again. */
@@ -322,6 +345,8 @@ type SessionsStore = {
   updateSessionCwd: (sessionId: string, cwd: string) => void
   clearMessages: (sessionId: string) => void
   restartSession: (sessionId: string) => void
+  setAnchor: (sessionId: string, anchor: Anchor | null) => void
+  setContext: (sessionId: string, context: { contextTokens?: number; contextWindow?: number }) => void
   renameSession: (sessionId: string, title: string) => void
   applyAiTitle: (sessionId: string, title: string) => void
   toggleFavorite: (sessionId: string) => void
@@ -688,7 +713,9 @@ export const useSessionsStore = create<SessionsStore>()(
       updateClaudeSessionId: (sessionId: string, claudeSessionId: string | null) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === sessionId ? { ...s, claudeSessionId } : s
+            s.id === sessionId
+              ? { ...s, claudeSessionId, ...(claudeSessionId ? { resumeFrom: null, needsRecap: false } : {}) }
+              : s
           )
         }))
       },
@@ -704,7 +731,7 @@ export const useSessionsStore = create<SessionsStore>()(
       clearMessages: (sessionId: string) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === sessionId ? { ...s, messages: [], tasks: [], agents: [], usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }, title: 'New session', titleManual: false, autoCompacted: false, pendingAutoCompact: false } : s
+            s.id === sessionId ? { ...s, messages: [], tasks: [], agents: [], usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }, anchor: null, contextTokens: undefined, title: 'New session', titleManual: false, autoCompacted: false, pendingAutoCompact: false } : s
           )
         }))
       },
@@ -712,8 +739,20 @@ export const useSessionsStore = create<SessionsStore>()(
       restartSession: (sessionId: string) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === sessionId ? { ...s, claudeSessionId: null, autoCompacted: false, pendingAutoCompact: false } : s
+            s.id === sessionId ? { ...s, claudeSessionId: null, anchor: null, contextTokens: undefined, autoCompacted: false, pendingAutoCompact: false } : s
           )
+        }))
+      },
+
+      setAnchor: (sessionId: string, anchor: Anchor | null) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, anchor } : s))
+        }))
+      },
+
+      setContext: (sessionId, context) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, ...context } : s))
         }))
       },
 
@@ -1085,6 +1124,14 @@ export const useSessionsStore = create<SessionsStore>()(
 
           const lastMsgId = messages.length > 0 ? source.messages[sliceEnd - 1]?.id ?? '' : ''
 
+          // Where Claude picks up. A cut drops the user message it was made at,
+          // so the point is the reply that message followed; forking the whole
+          // chat continues from its latest reply.
+          const resumeFrom = sliceEnd < source.messages.length
+            ? (source.messages[sliceEnd] as TextMessage).resumeAt ?? null
+            : source.anchor ?? null
+          const hasHistory = messages.some((m) => m.role === 'user' || m.role === 'assistant')
+
           newId = crypto.randomUUID()
           const forked: Session = {
             id: newId,
@@ -1106,7 +1153,11 @@ export const useSessionsStore = create<SessionsStore>()(
             worktree: null,
             usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
             mcpServers: source.mcpServers ? [...source.mcpServers] : undefined,
-            forkOf: { sessionId: sourceSessionId, messageId: lastMsgId, title: source.title }
+            forkOf: { sessionId: sourceSessionId, messageId: lastMsgId, title: source.title },
+            resumeFrom,
+            // The fork's first message records this as the reply it followed.
+            anchor: resumeFrom,
+            needsRecap: !resumeFrom && hasHistory
           }
           return {
             sessions: [forked, ...state.sessions],
@@ -1126,6 +1177,7 @@ export const useSessionsStore = create<SessionsStore>()(
               ...s,
               messages: s.messages.slice(0, idx),
               claudeSessionId: null,
+              contextTokens: undefined,
               tasks: [],
               agents: [],
               usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }

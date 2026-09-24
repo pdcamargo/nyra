@@ -184,7 +184,9 @@ export const api = {
       sessionId: string | null,
       nyraSessionId: string,
       worktreeName?: string,
-      settings?: SpawnSettings
+      settings?: SpawnSettings,
+      /** Rewind `sessionId` to this assistant line and fork from there. */
+      resumeAt?: string
     ) =>
       call<{ sessionId: string | null } | { error: string }>('claude_query', {
         prompt,
@@ -194,7 +196,8 @@ export const api = {
         worktreeName: worktreeName ?? null,
         // Omitted means "use whatever settings_sync last pushed" — the backend
         // falls back to the global so workflow and trigger runs keep working.
-        settings: settings ?? null
+        settings: settings ?? null,
+        resumeAt: resumeAt ?? null
       }),
 
     onEvent: (callback: (event: unknown) => void) => on('claude:event', callback),

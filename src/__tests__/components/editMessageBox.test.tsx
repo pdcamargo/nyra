@@ -92,8 +92,7 @@ describe('editing a message', () => {
       id: 'f1',
       name: '123-notes.txt',
       path: '/tmp/nyra-files/123-notes.txt',
-      category: 'text',
-      extractedText: 'hello'
+      category: 'text'
     }))
     const onSave = vi.fn()
     const { content, onChange } = open('see this', { onSave })

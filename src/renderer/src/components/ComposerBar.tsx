@@ -43,6 +43,7 @@ import { useModelVersions } from '../store/modelVersions'
 import { runCommand } from '../commands/registry'
 import { CommandKbd } from './ui/kbd'
 import { useSessionsStore, activeSession as activeSessionSelector } from '../store/sessions'
+import { contextFill } from '../lib/contextFill'
 
 const EFFORTS = [
   { value: 'low', label: 'Low' },
@@ -133,9 +134,6 @@ function AddMenu({
   )
 }
 
-/** The context window this conversation is billed against. */
-const CONTEXT_LIMIT = 1_000_000
-
 /**
  * How full the context is, once that starts to matter.
  *
@@ -147,11 +145,10 @@ const CONTEXT_LIMIT = 1_000_000
  */
 function ContextWarning(): React.JSX.Element | null {
   const session = useSessionsStore(activeSessionSelector)
-  const usage = session?.usage
-  if (!usage) return null
+  const fill = contextFill(session)
+  if (!fill) return null
 
-  const total = usage.inputTokens + usage.outputTokens
-  const pct = Math.min(100, (total / CONTEXT_LIMIT) * 100)
+  const { tokens: total, window, pct } = fill
   if (pct < 70) return null
 
   const fmt = (n: number): string => (n >= 1000 ? Math.round(n / 1000) + 'k' : String(n))
@@ -167,7 +164,7 @@ function ContextWarning(): React.JSX.Element | null {
         }`}
       >
         <TriangleAlert className="size-3" />
-        {fmt(total)}/{fmt(CONTEXT_LIMIT)}
+        {fmt(total)}/{fmt(window)}
       </TooltipTrigger>
       <TooltipContent>{`Context ${Math.round(pct)}% full`}</TooltipContent>
     </Tooltip>

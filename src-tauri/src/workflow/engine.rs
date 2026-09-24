@@ -300,6 +300,7 @@ async fn execute_prompt_node(
         resolved,
         exec.cwd.clone(),
         None,
+        None,
         nyra_session_id.clone(),
         node_settings.spawn(),
         None,

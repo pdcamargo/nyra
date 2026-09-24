@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -316,9 +316,15 @@ struct SessionInner {
     /// Held only between a write being announced and its result arriving, which
     /// is the point the file is actually on disk and can be read back.
     plan_writes: HashMap<String, String>,
-    /// Whether this process has been asked for the conversation's title. Once
-    /// per process: the CLI answers from what it already has after that.
+    /// Whether this conversation still needs a title asked for. Once per
+    /// conversation, not per process: a respawn resumes a chat that already has
+    /// one, and asking again spends a model call to rename it.
     title_requested: bool,
+    /// API message ids whose usage has already been reported this turn. The CLI
+    /// splits one response into an `assistant` line per content block and each
+    /// line repeats the whole response's usage, so counting lines counts a
+    /// text-plus-tool reply two or three times over.
+    counted_messages: HashSet<String>,
 }
 
 /// What answering one queued prompt did to the permission gate.
@@ -351,6 +357,7 @@ impl SessionInner {
             retry_in_flight: false,
             plan_writes: HashMap::new(),
             title_requested: false,
+            counted_messages: HashSet::new(),
         }
     }
 
@@ -1133,8 +1140,8 @@ fn compose_system_prompt(
     let mut parts: Vec<&str> = vec![
         "You are running inside Nyra, a desktop GUI for Claude Code.",
         "Tool call results are NOT shown inline — they are hidden inside collapsible cards the user may not open.",
-        "You MUST always include relevant output (file contents, command results, directory listings, etc.) directly in your text response.",
-        "Never say \"here it is\" or \"see above\" without actually showing the content in your message.",
+        "So when a result is part of the answer, put the part that matters in your reply — the relevant lines, the figures, the error — and summarize the rest rather than pasting whole files or long output.",
+        "Never say \"here it is\" or \"see above\" without actually showing it in your message.",
     ];
     let cwd_line = format!(
         "The current working directory is: {cwd}. When the user says \"your directory\" or \"this directory\", they mean this path."
@@ -1164,6 +1171,7 @@ fn build_spawn_args(
     settings: &SpawnSettings,
     worktree_name: Option<&str>,
     resume_session_id: Option<&str>,
+    resume_at: Option<&str>,
     nyra_session_id: Option<&str>,
 ) -> (Vec<String>, String) {
     let mut args: Vec<String> = vec![
@@ -1231,6 +1239,15 @@ fn build_spawn_args(
     if let Some(id) = resume_session_id {
         args.push("--resume".into());
         args.push(id.to_string());
+
+        // Editing a message rewinds to the reply before it. `--fork-session`
+        // leaves the original transcript alone, which is what keeps every other
+        // message's anchor into it valid.
+        if let Some(at) = resume_at {
+            args.push("--resume-session-at".into());
+            args.push(at.to_string());
+            args.push("--fork-session".into());
+        }
     }
 
     // The chat's browser, on the same terms as --resume and for the same
@@ -1287,6 +1304,7 @@ async fn send_prompt_to_session(
         inner.pending_permissions.clear();
         inner.waiting_for_permission = false;
         inner.pending_event_buffer.clear();
+        inner.counted_messages.clear();
         inner.current_turn = Some(tx);
         inner.turn_prompt = prompt.to_string();
     }
@@ -1360,6 +1378,7 @@ pub async fn run_claude(
     prompt: String,
     cwd: String,
     resume_session_id: Option<String>,
+    resume_at: Option<String>,
     nyra_session_id: String,
     settings: SpawnSettings,
     worktree_name: Option<String>,
@@ -1370,12 +1389,13 @@ pub async fn run_claude(
     }
 
     let (_, fingerprint) =
-        build_spawn_args(&cwd, &settings, worktree_name.as_deref(), None, None);
+        build_spawn_args(&cwd, &settings, worktree_name.as_deref(), None, None, None);
 
     // Reuse the live process when nothing spawn-relevant changed; otherwise tear
-    // down and start fresh.
+    // down and start fresh. A rewind never reuses: the live process holds the
+    // turns it is being asked to forget.
     let existing = get_session(&nyra_session_id);
-    let reusable = existing.as_ref().is_some_and(|s| {
+    let reusable = resume_at.is_none() && existing.as_ref().is_some_and(|s| {
         let inner = s.inner.lock();
         inner.alive && inner.spawn_fingerprint == fingerprint
     });
@@ -1389,6 +1409,7 @@ pub async fn run_claude(
         match spawn_session(
             &cwd,
             resume_session_id,
+            resume_at.as_deref(),
             &nyra_session_id,
             &settings,
             worktree_name.as_deref(),
@@ -1422,6 +1443,7 @@ pub async fn run_claude(
 async fn spawn_session(
     cwd: &str,
     resume_session_id: Option<String>,
+    resume_at: Option<&str>,
     nyra_session_id: &str,
     settings: &SpawnSettings,
     worktree_name: Option<&str>,
@@ -1433,6 +1455,7 @@ async fn spawn_session(
         settings,
         worktree_name,
         resume_session_id.as_deref(),
+        resume_at,
         Some(nyra_session_id),
     );
 
@@ -1466,6 +1489,7 @@ async fn spawn_session(
     let stderr = child.stderr.take().ok_or("no stderr")?;
     let pid = child.id();
 
+    let resumed = resume_session_id.is_some();
     let sess = Arc::new(Session {
         inner: Mutex::new(SessionInner {
             alive: true,
@@ -1484,7 +1508,9 @@ async fn spawn_session(
             stale_resume_detected: false,
             retry_in_flight: false,
             plan_writes: HashMap::new(),
-            title_requested: false,
+            // A resumed conversation was titled when it began.
+            title_requested: resumed,
+            counted_messages: HashSet::new(),
         }),
         stdin: AsyncMutex::new(Some(stdin)),
     });
@@ -1703,6 +1729,17 @@ fn requested_title(raw: &Value) -> Option<String> {
     (!title.is_empty()).then(|| title.to_string())
 }
 
+/// The context window the turn ran against, from the result's `modelUsage`.
+/// The largest one listed: a title or a subagent can add a smaller model to the
+/// map, and the conversation itself runs on the biggest.
+fn context_window(raw: &Value) -> Option<u64> {
+    raw.get("modelUsage")?
+        .as_object()?
+        .values()
+        .filter_map(|m| m.get("contextWindow").and_then(Value::as_u64))
+        .max()
+}
+
 /// What the CLI prints when `--resume` names a conversation it does not have.
 const STALE_RESUME_MARKER: &str = "No conversation found with session ID";
 
@@ -1766,11 +1803,42 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
         crate::ai_title::turn_ended(nyra_session_id);
     }
 
+    if event_type == "result" {
+        if let Some(window) = context_window(&raw) {
+            emit_event(nyra_session_id, json!({ "type": "context_window", "tokens": window }));
+        }
+    }
+
     if event_type == "assistant" {
+        let main_thread = raw.get("parent_tool_use_id").is_none_or(Value::is_null);
+
+        // Where an edit of the *next* message rewinds to. Only the main thread's:
+        // a subagent's lines are not turns of this conversation.
+        if main_thread {
+            if let (Some(uuid), Some(claude_session_id)) = (
+                raw.get("uuid").and_then(Value::as_str),
+                raw.get("session_id").and_then(Value::as_str),
+            ) {
+                emit_event(
+                    nyra_session_id,
+                    json!({ "type": "anchor", "uuid": uuid, "session_id": claude_session_id }),
+                );
+            }
+        }
+
+        let first_sighting = match raw
+            .get("message")
+            .and_then(|m| m.get("id"))
+            .and_then(Value::as_str)
+        {
+            Some(id) => sess.inner.lock().counted_messages.insert(id.to_string()),
+            None => true,
+        };
         if let Some(usage) = raw
             .get("message")
             .and_then(|m| m.get("usage"))
             .and_then(Value::as_object)
+            .filter(|_| first_sighting)
         {
             let num = |k: &str| usage.get(k).and_then(Value::as_i64).unwrap_or(0);
             let normalized = Usage {
@@ -1779,16 +1847,25 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
                 cache_creation_input_tokens: num("cache_creation_input_tokens"),
                 cache_read_input_tokens: num("cache_read_input_tokens"),
             };
-            emit_event(
-                nyra_session_id,
-                json!({
-                    "type": "usage",
-                    "input_tokens": normalized.input_tokens,
-                    "output_tokens": normalized.output_tokens,
-                    "cache_creation_input_tokens": normalized.cache_creation_input_tokens,
-                    "cache_read_input_tokens": normalized.cache_read_input_tokens,
-                }),
-            );
+            let mut event = json!({
+                "type": "usage",
+                "input_tokens": normalized.input_tokens,
+                "output_tokens": normalized.output_tokens,
+                "cache_creation_input_tokens": normalized.cache_creation_input_tokens,
+                "cache_read_input_tokens": normalized.cache_read_input_tokens,
+            });
+            // How full the context is: everything this one call read, plus what
+            // it wrote, which the next call reads back. A sum across calls says
+            // what the chat has spent, not what it is holding.
+            if main_thread {
+                event["context_tokens"] = json!(
+                    normalized.input_tokens
+                        + normalized.cache_read_input_tokens
+                        + normalized.cache_creation_input_tokens
+                        + normalized.output_tokens
+                );
+            }
+            emit_event(nyra_session_id, event);
             let cb = USAGE_CALLBACKS.lock().get(nyra_session_id).cloned();
             if let Some(cb) = cb {
                 cb(normalized);
@@ -2122,7 +2199,7 @@ fn retry_without_resume(sess: &Arc<Session>, nyra_session_id: &str) {
     if let Some(turn) = saved_turn {
         let session_id = nyra_session_id.to_string();
         tauri::async_runtime::spawn(async move {
-            let result = run_claude(prompt, cwd, None, session_id, settings, worktree).await;
+            let result = run_claude(prompt, cwd, None, None, session_id, settings, worktree).await;
             let _ = turn.send(result);
         });
     }
@@ -2543,7 +2620,7 @@ mod tests {
             plan_mode: true,
             ..SpawnSettings::default()
         };
-        let (args, fp) = build_spawn_args("/tmp/x", &s, None, None, None);
+        let (args, fp) = build_spawn_args("/tmp/x", &s, None, None, None, None);
         assert!(args.windows(2).any(|w| w == ["--model", "opus"]));
         assert!(args.windows(2).any(|w| w == ["--permission-mode", "plan"]));
         assert!(fp.contains("/tmp/x"));
@@ -2677,19 +2754,75 @@ mod tests {
         // *caused* by it — two spawns that differ only in resume id are the
         // same process shape and must reuse the live child.
         let s = SpawnSettings::default();
-        let (args, fp) = build_spawn_args("/tmp/x", &s, None, Some("abc-123"), None);
+        let (args, fp) = build_spawn_args("/tmp/x", &s, None, Some("abc-123"), None, None);
         assert!(args.windows(2).any(|w| w == ["--resume", "abc-123"]));
 
-        let (bare, bare_fp) = build_spawn_args("/tmp/x", &s, None, None, None);
+        let (bare, bare_fp) = build_spawn_args("/tmp/x", &s, None, None, None, None);
         assert!(!bare.iter().any(|a| a == "--resume"));
         assert_eq!(fp, bare_fp);
     }
 
     #[test]
+    fn a_rewind_forks_at_the_anchor_and_leaves_the_original_alone() {
+        let s = SpawnSettings::default();
+        let (args, fp) =
+            build_spawn_args("/tmp/x", &s, None, Some("abc-123"), Some("uuid-7"), None);
+        assert!(args.windows(2).any(|w| w == ["--resume", "abc-123"]));
+        assert!(args.windows(2).any(|w| w == ["--resume-session-at", "uuid-7"]));
+        assert!(args.iter().any(|a| a == "--fork-session"));
+
+        // Nothing to rewind into without a conversation to resume.
+        let (orphan, orphan_fp) = build_spawn_args("/tmp/x", &s, None, None, Some("uuid-7"), None);
+        assert!(!orphan.iter().any(|a| a == "--resume-session-at" || a == "--fork-session"));
+        assert_eq!(fp, orphan_fp);
+    }
+
+    #[test]
+    fn reads_the_largest_context_window_off_the_result() {
+        let raw = json!({
+            "type": "result",
+            "modelUsage": {
+                "claude-haiku-4-5": { "contextWindow": 200000 },
+                "claude-opus-5-5[1m]": { "contextWindow": 1000000 }
+            }
+        });
+        assert_eq!(context_window(&raw), Some(1_000_000));
+        assert_eq!(context_window(&json!({ "type": "result" })), None);
+    }
+
+    #[tokio::test]
+    async fn a_response_split_across_lines_is_counted_once() {
+        let sess = test_session(false);
+        let seen = Arc::new(Mutex::new(Vec::<i64>::new()));
+        {
+            let seen = seen.clone();
+            on_claude_usage("usage-once", Arc::new(move |u: Usage| seen.lock().push(u.output_tokens)));
+        }
+        let line = |id: &str, block: Value| {
+            json!({
+                "type": "assistant",
+                "parent_tool_use_id": null,
+                "message": {
+                    "id": id,
+                    "content": [block],
+                    "usage": { "input_tokens": 3, "output_tokens": 40 }
+                }
+            })
+        };
+        // One response, text then a tool call: two lines, one usage.
+        dispatch_line(&sess, "usage-once", line("msg_1", json!({ "type": "text", "text": "Reading" }))).await;
+        dispatch_line(&sess, "usage-once", line("msg_1", json!({ "type": "thinking", "thinking": "" }))).await;
+        dispatch_line(&sess, "usage-once", line("msg_2", json!({ "type": "text", "text": "Done" }))).await;
+        off_claude_usage("usage-once");
+
+        assert_eq!(*seen.lock(), vec![40, 40]);
+    }
+
+    #[test]
     fn fingerprint_ignores_prompt_but_tracks_worktree() {
         let s = SpawnSettings::default();
-        let (_, a) = build_spawn_args("/tmp/x", &s, None, None, None);
-        let (_, b) = build_spawn_args("/tmp/x", &s, Some("feat"), None, None);
+        let (_, a) = build_spawn_args("/tmp/x", &s, None, None, None, None);
+        let (_, b) = build_spawn_args("/tmp/x", &s, Some("feat"), None, None, None);
         assert_ne!(a, b);
     }
 
@@ -2699,8 +2832,8 @@ mod tests {
         // model must not reuse the live process.
         let a = SpawnSettings { model: "opus".into(), ..SpawnSettings::default() };
         let b = SpawnSettings { model: "haiku".into(), ..SpawnSettings::default() };
-        let (_, fa) = build_spawn_args("/tmp/x", &a, None, None, None);
-        let (_, fb) = build_spawn_args("/tmp/x", &b, None, None, None);
+        let (_, fa) = build_spawn_args("/tmp/x", &a, None, None, None, None);
+        let (_, fb) = build_spawn_args("/tmp/x", &b, None, None, None, None);
         assert_ne!(fa, fb);
     }
 

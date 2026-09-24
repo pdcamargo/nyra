@@ -17,6 +17,8 @@ import {
 } from '../store/subagentTranscripts'
 import { outputFileFromReceipt } from '../lib/agentReport'
 import { withAttachments } from '../lib/promptAttachments'
+import { contextFill } from '../lib/contextFill'
+import { historyText } from '../lib/historyText'
 import { extractAskBlocks } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
 import { foldChecklistIntoTranscript, foldTasksAtTurnEnd } from '../lib/taskFold'
@@ -66,7 +68,9 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'tool_input'; tool_id: string; tool_name?: string; input: Record<string, unknown>; originalContent?: string | null }
   | { type: 'tool_result'; tool_id: string; content: string }
   | { type: 'tool_denied'; tool_id: string; tool_name: string; input: Record<string, unknown>; originalContent?: string | null }
-  | { type: 'usage'; input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number }
+  | { type: 'usage'; input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; context_tokens?: number }
+  | { type: 'context_window'; tokens: number }
+  | { type: 'anchor'; uuid: string; session_id: string }
   | { type: 'result'; result: string; session_id: string; is_error: boolean }
   | { type: 'error'; result: string }
   | { type: 'thinking'; thinking: string }
@@ -679,14 +683,23 @@ export default function Chat(): React.JSX.Element {
           cacheReadTokens: event.cache_read_input_tokens
         })
 
-        // Auto-compaction check
+        // Subagent calls carry no reading: they are not this conversation's context.
+        if (event.context_tokens === undefined) return
+        useSessionsStore.getState().setContext(sid, { contextTokens: event.context_tokens })
+
+        // Auto-compaction check. Only against a window the CLI has reported: a
+        // guessed one either compacts a chat that had room — a full summarising
+        // pass for nothing — or never fires at all.
         const { autoCompact, autoCompactThreshold } = useSettingsStore.getState()
-        if (autoCompact) {
-          const sess = useSessionsStore.getState().sessions.find((s) => s.id === sid)
+        const sess = useSessionsStore.getState().sessions.find((s) => s.id === sid)
+        const fill = contextFill(sess)
+        if (sess && fill?.measured && fill.pct < autoCompactThreshold && sess.autoCompacted) {
+          // A compaction worked, or the chat was rewound: arm it again.
+          useSessionsStore.getState().setAutoCompacted(sid, false)
+        }
+        if (autoCompact && fill?.measured) {
           if (sess && sess.claudeSessionId && !sess.autoCompacted) {
-            const total = sess.usage.inputTokens + sess.usage.outputTokens
-            const pct = (total / 1_000_000) * 100
-            if (pct >= autoCompactThreshold) {
+            if (fill.pct >= autoCompactThreshold) {
               const isBusy = isSessionRunning(sid)
               if (isBusy) {
                 useSessionsStore.getState().setPendingAutoCompact(sid, true)
@@ -698,6 +711,16 @@ export default function Chat(): React.JSX.Element {
             }
           }
         }
+        return
+      }
+
+      if (event.type === 'context_window') {
+        useSessionsStore.getState().setContext(sid, { contextWindow: event.tokens })
+        return
+      }
+
+      if (event.type === 'anchor') {
+        useSessionsStore.getState().setAnchor(sid, { sessionId: event.session_id, uuid: event.uuid })
         return
       }
 
@@ -1283,15 +1306,22 @@ export default function Chat(): React.JSX.Element {
     const imgs = images ?? []
     const fls = files ?? []
 
+    // A fork whose history predates anchors has nothing to resume, so its first
+    // message carries the history as text — read before this one is added.
+    const before = useSessionsStore.getState().sessions.find((s) => s.id === sid)
+    const recap = before?.needsRecap ? historyText(before.messages) : ''
+
     // Build the full prompt with attachment data for Claude CLI.
-    prompt = withAttachments(prompt, imgs, fls)
+    prompt = withAttachments(recap + prompt, imgs, fls)
 
     const userMessage: TextMessage = {
       id: newMessageId(),
       role: 'user',
       text: text.trim(),
       ...(imgs.length > 0 ? { images: imgs } : {}),
-      ...(fls.length > 0 ? { files: fls.map(({ extractedText: _, ...f }) => f) } : {})
+      ...(fls.length > 0 ? { files: fls } : {}),
+      // Taken before the turn starts, so it names the reply this message follows.
+      resumeAt: useSessionsStore.getState().sessions.find((s) => s.id === sid)?.anchor ?? null
     }
     useSessionsStore.getState().addMessage(sid, userMessage)
 
@@ -1313,13 +1343,16 @@ export default function Chat(): React.JSX.Element {
     const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)!
 
     try {
+      // A fork's first message forks its source's conversation at the cut.
+      const fork = session.claudeSessionId ? null : session.resumeFrom
       await window.api.claude.query(
         prompt,
         session.cwd,
-        session.claudeSessionId,
+        fork?.sessionId ?? session.claudeSessionId,
         sid,
         session.worktree?.name,
-        spawnSettingsForSession(sid)
+        spawnSettingsForSession(sid),
+        fork?.uuid
       )
     } catch (err) {
       useSessionsStore
@@ -1365,7 +1398,7 @@ export default function Chat(): React.JSX.Element {
       text,
       ...(msg.images && msg.images.length > 0 ? { images: msg.images } : {}),
       ...(msg.files && msg.files.length > 0
-        ? { files: msg.files.map(({ extractedText: _, ...f }) => f) }
+        ? { files: msg.files }
         : {})
     })
     // Whatever was asked, saying something is an answer to it.
@@ -1385,25 +1418,22 @@ export default function Chat(): React.JSX.Element {
     const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)
     if (!session) return
 
-    // Collect prior conversation context (messages before the edited one)
     const msgIndex = session.messages.findIndex((m) => m.id === messageId)
     const priorMessages = session.messages.slice(0, msgIndex)
+    const anchor = (session.messages[msgIndex] as TextMessage | undefined)?.resumeAt ?? null
 
-    let contextPrefix = ''
-    const contextParts: string[] = []
-    for (const m of priorMessages) {
-      if (m.role === 'user') {
-        contextParts.push(`User: ${(m as TextMessage).text}`)
-      } else if (m.role === 'assistant') {
-        contextParts.push(`Assistant: ${(m as TextMessage).text}`)
-      }
-    }
-    if (contextParts.length > 0) {
-      contextPrefix = `[Previous conversation]\n${contextParts.join('\n')}\n\n`
-    }
+    // Rewind rather than recap. The live process still holds everything after
+    // the edited message, and pasting the history on top of that sent the whole
+    // conversation twice while forgetting none of what was edited away. With an
+    // anchor the CLI forks at the reply the message followed. Without one — a
+    // message from before anchors were recorded — a fresh process gets the
+    // recap, and then it is the only copy it has.
+    const contextPrefix = anchor ? '' : historyText(priorMessages)
 
     // Truncate messages from the edited one onward
     useSessionsStore.getState().truncateAtMessage(sid, messageId)
+    useSessionsStore.getState().setAnchor(sid, anchor)
+    await window.api.claude.dispose(sid).catch(() => {})
 
     // The edit box starts from the original's attachments and can add to them,
     // so these are the whole set — through the same fold `sendMessage` uses. It
@@ -1419,21 +1449,23 @@ export default function Chat(): React.JSX.Element {
       role: 'user',
       text: newText,
       ...(images.length > 0 ? { images } : {}),
-      ...(files.length > 0 ? { files: files.map(({ extractedText: _, ...f }) => f) } : {})
+      ...(files.length > 0 ? { files } : {}),
+      resumeAt: anchor
     }
     useSessionsStore.getState().addMessage(sid, userMessage)
 
     const updatedSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)!
     try {
-      // The worktree name has to match what `sendMessage` passes or the spawn
-      // fingerprint flips and every edit-and-resend respawns the child.
+      // The worktree name has to match what `sendMessage` passes, or the next
+      // ordinary message after an edit respawns the child all over again.
       await window.api.claude.query(
         prompt,
         updatedSession.cwd,
-        updatedSession.claudeSessionId,
+        anchor?.sessionId ?? null,
         sid,
         updatedSession.worktree?.name,
-        spawnSettingsForSession(sid)
+        spawnSettingsForSession(sid),
+        anchor?.uuid
       )
     } catch (err) {
       useSessionsStore.getState().addMessage(sid, { id: newMessageId(), role: 'error', text: String(err) })
@@ -1652,7 +1684,7 @@ export default function Chat(): React.JSX.Element {
       useSessionsStore.getState().addMessage(newId, {
         id: newMessageId(),
         role: 'assistant',
-        text: `⑂ Forked from **"${forkInfo?.title ?? 'previous session'}"**. History copied up to this point.\n\nOriginal session is unchanged. The next message starts a fresh Claude session.`
+        text: `⑂ Forked from **"${forkInfo?.title ?? 'previous session'}"**. History copied up to this point.\n\nOriginal session is unchanged. Claude picks up from here, remembering everything above.`
       })
     }
   }, [])

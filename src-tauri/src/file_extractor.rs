@@ -1,5 +1,12 @@
 //! Text extraction for prompt attachments.
 //!
+//! Nothing here is inlined into a prompt any more. Every attachment travels as
+//! a path Claude opens with `Read`, reading only as much as it needs — an
+//! inlined file was paid for on every later turn of the conversation, up to
+//! 500k characters of it. What extraction still buys is a readable copy of the
+//! formats `Read` cannot open well: a docx or a spreadsheet it cannot open at
+//! all, and a PDF it would otherwise take in as page images.
+//!
 //! Replaces the Node stack (pdf-parse, mammoth, xlsx, jszip) with pure-Rust
 //! equivalents, which also drops the DOMMatrix/ImageData shims pdfjs needed and
 //! the ~28 MB per-arch native canvas module that came with them.
@@ -17,10 +24,9 @@ use crate::util;
 /// This used to be `MAX_FILE_SIZE`, a cap on what you were allowed to *attach*,
 /// which is a different and much less useful question — it meant an mp4 was
 /// refused for being an mp4-sized thing. Attaching is now unbounded; what the cap
-/// governs is extraction and inlining. Past it we still take the file, we just
-/// hand Claude the path and let its own `Read` open it.
+/// governs is extraction. Past it we still take the file, we just hand Claude
+/// the path and let its own `Read` open it.
 const MAX_EXTRACT_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
-const MAX_TEXT_LENGTH: usize = 500_000;
 
 const TEXT_EXTENSIONS: &[&str] = &[
     "txt", "md", "json", "yaml", "yml", "xml", "html", "htm", "csv", "tsv", "log", "env", "toml",
@@ -48,35 +54,13 @@ pub struct FileResult {
     pub path: String,
     pub size: u64,
     pub category: &'static str,
+    /// A document's text, written beside the copy of the document itself.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub extracted_text: Option<String>,
+    pub text_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base64: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
-}
-
-fn group_digits(n: usize) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
-fn truncate_text(text: &str, max_len: usize) -> String {
-    if text.chars().count() <= max_len {
-        return text.to_string();
-    }
-    let head: String = text.chars().take(max_len).collect();
-    format!(
-        "{head}\n\n[... truncated at {} characters]",
-        group_digits(max_len)
-    )
 }
 
 // ---- format-specific extractors ----
@@ -291,26 +275,21 @@ pub async fn process_file(file_path: &str) -> Result<FileResult, String> {
             path: temp_path_str,
             size,
             category: "image",
-            extracted_text: None,
+            text_path: None,
             base64: Some(base64::engine::general_purpose::STANDARD.encode(&bytes)),
             media_type: Some(media_type.to_string()),
         });
     }
 
     if TEXT_EXTENSIONS.contains(&ext.as_str()) || ext.is_empty() || name.starts_with('.') {
-        if !extractable {
-            return Ok(binary_result(id, name, temp_path_str, size));
-        }
-        let content = tokio::fs::read_to_string(path)
-            .await
-            .map_err(|e| e.to_string())?;
+        // Already readable as it is: the copy's path is the whole attachment.
         return Ok(FileResult {
             id,
             name,
             path: temp_path_str,
             size,
             category: "text",
-            extracted_text: Some(truncate_text(&content, MAX_TEXT_LENGTH)),
+            text_path: None,
             base64: None,
             media_type: None,
         });
@@ -350,13 +329,18 @@ pub async fn process_file(file_path: &str) -> Result<FileResult, String> {
             _ => return Ok(binary_result(id, name, temp_path_str, size)),
         };
 
+        let text_path = format!("{temp_path_str}.txt");
+        tokio::fs::write(&text_path, extracted)
+            .await
+            .map_err(|e| e.to_string())?;
+
         return Ok(FileResult {
             id,
             name,
             path: temp_path_str,
             size,
             category: "document",
-            extracted_text: Some(truncate_text(&extracted, MAX_TEXT_LENGTH)),
+            text_path: Some(text_path),
             base64: None,
             media_type: None,
         });
@@ -383,7 +367,7 @@ pub async fn process_file(file_path: &str) -> Result<FileResult, String> {
                     path: temp_path_str,
                     size,
                     category: "text",
-                    extracted_text: Some(truncate_text(&content, MAX_TEXT_LENGTH)),
+                    text_path: None,
                     base64: None,
                     media_type: None,
                 });
@@ -406,7 +390,7 @@ fn binary_result(id: String, name: String, path: String, size: u64) -> FileResul
         path,
         size,
         category: "binary",
-        extracted_text: None,
+        text_path: None,
         base64: None,
         media_type: None,
     }
@@ -436,7 +420,7 @@ mod tests {
             .expect("a binary file should attach, not error");
         assert_eq!(result.category, "binary");
         assert_eq!(result.name, "clip.mp4");
-        assert!(result.extracted_text.is_none());
+        assert!(result.text_path.is_none());
         assert!(result.base64.is_none());
         // The path is our own copy, so it survives the original being moved.
         assert!(result.path.contains("clip.mp4"));
@@ -453,38 +437,19 @@ mod tests {
 
     // An extension we have never heard of is usually just text.
     #[tokio::test]
-    async fn an_unknown_extension_that_is_text_still_extracts() {
+    async fn an_unknown_extension_that_is_text_is_still_text() {
         let result = process_temp("notes.frobnicate", b"hello there")
             .await
             .unwrap();
         assert_eq!(result.category, "text");
-        assert_eq!(result.extracted_text.as_deref(), Some("hello there"));
+        assert!(result.text_path.is_none(), "a text file is its own readable copy");
     }
 
     #[tokio::test]
-    async fn a_known_text_extension_extracts() {
+    async fn a_known_text_extension_travels_as_its_copy() {
         let result = process_temp("a.rs", b"fn main() {}").await.unwrap();
         assert_eq!(result.category, "text");
-        assert_eq!(result.extracted_text.as_deref(), Some("fn main() {}"));
-    }
-
-    #[test]
-    fn leaves_short_text_alone() {
-        assert_eq!(truncate_text("hello", 100), "hello");
-    }
-
-    #[test]
-    fn appends_a_truncation_marker() {
-        let out = truncate_text(&"a".repeat(20), 10);
-        assert!(out.starts_with(&"a".repeat(10)));
-        assert!(out.ends_with("[... truncated at 10 characters]"));
-    }
-
-    #[test]
-    fn groups_digits_like_tolocalestring() {
-        assert_eq!(group_digits(500_000), "500,000");
-        assert_eq!(group_digits(999), "999");
-        assert_eq!(group_digits(1_234_567), "1,234,567");
+        assert_eq!(std::fs::read_to_string(&result.path).unwrap(), "fn main() {}");
     }
 
     #[test]

@@ -398,7 +398,7 @@ export default function ChatInput({
           useSessionsStore.getState().addMessage(newId, {
             id: newMessageId(),
             role: 'assistant',
-            text: `⑂ Forked from **"${forkInfo?.title ?? 'previous session'}"**. History copied up to this point.\n\nOriginal session is unchanged. The next message starts a fresh Claude session.`
+            text: `⑂ Forked from **"${forkInfo?.title ?? 'previous session'}"**. History copied up to this point.\n\nOriginal session is unchanged. Claude picks up from here, remembering everything above.`
           })
         }
         break

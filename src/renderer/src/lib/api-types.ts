@@ -242,7 +242,8 @@ export type ProcessedFile = {
   path: string
   size: number
   category: 'image' | 'document' | 'text'
-  extractedText?: string
+  /** A document's extracted text, as a file beside it. */
+  textPath?: string
   base64?: string
   mediaType?: string
 }

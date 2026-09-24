@@ -9,9 +9,9 @@ import {
 } from './ui/dropdown-menu'
 import { dropExpired, useRateLimitStore } from '../store/rateLimit'
 import { useSessionsStore, activeSession as activeSessionSelector } from '../store/sessions'
+import { contextFill } from '../lib/contextFill'
 
 /** The context window the app bills a conversation against. */
-const CONTEXT_LIMIT = 1_000_000
 
 const WINDOWS: { type: string; label: string }[] = [
   { type: 'five_hour', label: 'Session · 5 hours' },
@@ -124,9 +124,8 @@ export default function UsageMenu(): React.JSX.Element {
   const headline = five?.utilization !== undefined ? `${pct(five.utilization)}%` : null
   const throttled = Object.values(windows).some((w) => w.status === 'throttled')
 
-  const usage = session?.usage ?? null
-  const contextTokens = usage ? usage.inputTokens + usage.outputTokens : null
-  const contextPct = contextTokens === null ? null : pct(contextTokens / CONTEXT_LIMIT)
+  const fill = contextFill(session)
+  const contextPct = fill ? pct(fill.tokens / fill.window) : null
 
   // Only when there is a reading to stamp. With nothing to say, each window
   // already says "Nothing reported yet" — a second line explaining the same
@@ -202,9 +201,9 @@ export default function UsageMenu(): React.JSX.Element {
           used={contextPct}
           tone={contextPct !== null && contextPct >= 90 ? 'danger' : contextPct !== null && contextPct >= 70 ? 'warning' : 'normal'}
           detail={
-            contextTokens === null
+            fill === null
               ? 'Nothing sent yet'
-              : `${contextTokens.toLocaleString()} of ${CONTEXT_LIMIT.toLocaleString()} tokens`
+              : `${fill.tokens.toLocaleString()} of ${fill.window.toLocaleString()} tokens`
           }
         />
       </DropdownMenuContent>

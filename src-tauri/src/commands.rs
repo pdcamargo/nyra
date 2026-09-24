@@ -30,6 +30,7 @@ pub async fn claude_query(
     nyra_session_id: String,
     worktree_name: Option<String>,
     settings: Option<SpawnSettings>,
+    resume_at: Option<String>,
 ) -> Value {
     // The renderer owns this now, so a session in one project can run a different
     // model from one in another. Falling back to the global keeps every caller
@@ -39,6 +40,7 @@ pub async fn claude_query(
         prompt,
         cwd,
         session_id,
+        resume_at,
         nyra_session_id,
         settings,
         worktree_name,

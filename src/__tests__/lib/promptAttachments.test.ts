@@ -37,17 +37,17 @@ describe('withAttachments', () => {
     expect(out).toBe('[Image: /tmp/a.png] and the other\n\n[Image: /tmp/b.png]')
   })
 
-  it('wraps extracted file text and marks image files as images', () => {
+  it('hands over a text file by path and marks image files as images', () => {
     const out = withAttachments(
       'read these',
       [],
       [
         file({ path: '/tmp/c.png', category: 'image' }),
-        file({ path: '/tmp/notes.md', extractedText: 'body text' })
+        file({ path: '/tmp/notes.md', category: 'text' })
       ]
     )
     expect(out).toBe(
-      'read these\n\n[Image: /tmp/c.png]\n\n<attached_file name="notes.md">\nbody text\n</attached_file>'
+      'read these\n\n[Image: /tmp/c.png]\n\n<attached_file name="notes.md" path="/tmp/notes.md" />'
     )
   })
 
@@ -77,10 +77,11 @@ describe('withAttachments — files with nothing to inline', () => {
     )
   })
 
-  it('still inlines the text of a file that had some', () => {
-    const doc = file({ path: '/tmp/r.pdf', category: 'document', extractedText: 'hello' })
+  // Never inlined: a document's text was paid for on every turn after it.
+  it('points at a document and at the text extracted beside it', () => {
+    const doc = file({ path: '/tmp/r.pdf', category: 'document', textPath: '/tmp/r.pdf.txt' })
     expect(withAttachments('read this', undefined, [doc])).toBe(
-      'read this\n\n<attached_file name="r.pdf">\nhello\n</attached_file>'
+      'read this\n\n<attached_file name="r.pdf" path="/tmp/r.pdf" text="/tmp/r.pdf.txt" />'
     )
   })
 

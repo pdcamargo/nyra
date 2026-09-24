@@ -40,26 +40,27 @@ export function withAttachments(
       const imgPaths = imageFiles.map((f) => `[Image: ${f.path}]`).join('\n')
       prompt = `${prompt}${sep()}${imgPaths}`
     }
-    const fileParts = fls
-      .filter((f) => f.category !== 'image' && f.extractedText)
-      .map((f) => `<attached_file name="${f.name}">\n${f.extractedText}\n</attached_file>`)
-    if (fileParts.length > 0) {
-      prompt = `${prompt}${sep()}${fileParts.join('\n\n')}`
-    }
-
-    // Anything with no text to inline — a video, a font, a database, a PDF of
-    // scans — travels as its path, because we have not looked at the bytes and
-    // will not. Claude's own `Read` opens it.
+    // Every other file travels as its path. Inlining one put the whole of it
+    // into the conversation, to be paid for again on every turn after; a path
+    // lets Claude's own `Read` take the part it needs, when it needs it.
+    //
+    // A document also gets its extracted text beside it: `Read` cannot open a
+    // docx or a spreadsheet at all, and takes a PDF in as page images, which
+    // costs far more than the text does.
     //
     // Self-describing rather than a bare `[File: …]` marker. The composer writes
     // its chip as `[File: <name>]` — the name is what belongs in the sentence —
     // and a name alone is not something Claude can open. This says both, and says
     // which is which, instead of leaving two similar-looking markers to be told
     // apart by whether the string happens to have slashes in it.
-    const opaque = fls.filter((f) => f.category !== 'image' && !f.extractedText)
-    if (opaque.length > 0) {
-      const refs = opaque
-        .map((f) => `<attached_file name="${f.name}" path="${f.path}" />`)
+    const others = fls.filter((f) => f.category !== 'image')
+    if (others.length > 0) {
+      const refs = others
+        .map((f) =>
+          f.textPath
+            ? `<attached_file name="${f.name}" path="${f.path}" text="${f.textPath}" />`
+            : `<attached_file name="${f.name}" path="${f.path}" />`
+        )
         .join('\n')
       prompt = `${prompt}${sep()}${refs}`
     }

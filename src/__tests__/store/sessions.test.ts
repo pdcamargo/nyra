@@ -350,6 +350,44 @@ describe('Sessions Store', () => {
       expect(forked.messages).toHaveLength(1)
       expect((forked.messages[0] as { text: string }).text).toBe('First')
     })
+
+    // A fork used to start Claude blank while the screen showed the history.
+    it('resumes the source at the reply the cut message followed', () => {
+      const id = createTestSession()
+      const at = { sessionId: 'cli-1', uuid: 'reply-1' }
+      useSessionsStore.getState().addMessage(id, { id: 'msg-1', role: 'user', text: 'First' })
+      useSessionsStore.getState().addMessage(id, { id: 'msg-2', role: 'assistant', text: 'Response' })
+      useSessionsStore.getState().addMessage(id, { id: 'msg-3', role: 'user', text: 'Second', resumeAt: at })
+
+      const forkId = useSessionsStore.getState().forkSession(id, 'msg-3')
+      const forked = useSessionsStore.getState().sessions.find((s) => s.id === forkId)!
+      expect(forked.resumeFrom).toEqual(at)
+      expect(forked.anchor).toEqual(at)
+      expect(forked.needsRecap).toBe(false)
+
+      // Once the fork has a conversation of its own, it stops resuming the source's.
+      useSessionsStore.getState().updateClaudeSessionId(forkId, 'cli-2')
+      expect(session(forkId).resumeFrom).toBeNull()
+    })
+
+    it('continues a whole-chat fork from the latest reply', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().addMessage(id, { id: 'msg-1', role: 'user', text: 'Hello' })
+      useSessionsStore.getState().setAnchor(id, { sessionId: 'cli-1', uuid: 'last' })
+
+      const forkId = useSessionsStore.getState().forkSession(id)
+      expect(session(forkId).resumeFrom).toEqual({ sessionId: 'cli-1', uuid: 'last' })
+    })
+
+    it('falls back to a recap for history recorded before anchors', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().addMessage(id, { id: 'msg-1', role: 'user', text: 'Old' })
+      useSessionsStore.getState().addMessage(id, { id: 'msg-2', role: 'assistant', text: 'Reply' })
+
+      const forkId = useSessionsStore.getState().forkSession(id)
+      expect(session(forkId).resumeFrom).toBeNull()
+      expect(session(forkId).needsRecap).toBe(true)
+    })
   })
 
   describe('deleteSession', () => {
