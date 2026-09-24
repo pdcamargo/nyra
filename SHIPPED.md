@@ -21,6 +21,17 @@ Versions in parentheses are where the work landed.
 - Voice dictation — speak into the composer, with a transcript you can edit before sending; transcribed entirely on this Mac (v0.3.0)
 - A running indicator that names what Claude is doing — a shimmering line with cat eyes and a verb (v0.2.3)
 - Continuous spell-check in the composer, underlining typos as you type (v0.2.3)
+- Session recap — come back to a chat and see what ran while you were in another one, built from what is already on disk (v0.3.1)
+- Image lightbox — click any image in the chat to view it full-size (v0.3.1)
+- Attach any file, of any size or type, instead of 10 MB of text (v0.3.1)
+- Watching pills — monitors Claude leaves running sit next to shells and ports (v0.3.1)
+- An unfinished checklist stays above the composer across turns, and a finished one folds into the transcript (v0.3.1)
+- `/goal` leaves a chip in the transcript naming what the turn was aimed at (v0.3.1)
+- Archive chats, restore them from an Archived view, or delete them (v0.3.5)
+- Prompt history — Up and Down recall a prompt you've already sent (v0.3.5)
+- Edits and forks rewind at the CLI, so Claude keeps its memory instead of reading a pasted recap (v0.3.6)
+- Large attachments are sent once, not resent and re-billed every turn (v0.3.6)
+- A context meter that tracks your model's real limit (v0.3.6)
 
 ## Parity with the Claude Code CLI (shipped)
 
@@ -29,12 +40,17 @@ Versions in parentheses are where the work landed.
 - Live MCP server status and rate-limit countdown (v0.0.1)
 - Per-chat model, effort and plan mode, instead of one global setting (v0.0.3)
 - A hook editor, a skill editor and an MCP settings panel — GUI surfaces the CLI has no equivalent for (v0.0.1)
-- Plugins and marketplaces — discover, install, update and manage plugins from a dedicated page (next)
+- Plugins and marketplaces — discover, install, update and manage plugins from a dedicated page (v0.3.5)
 - Subagents you can watch — click one to follow its work in a tab of its own (v0.0.10)
 - In-session transcript search (v0.0.3)
 - Rebindable keyboard shortcuts, every one listed and searchable (v0.0.3)
 - Skills, Commands and Memory as full pages instead of cramped rail lists, with your own custom slash commands scanned from disk (v0.2.3)
 - Usage in the rail footer, with real quota numbers (v0.2.3)
+- Slash-command autocomplete built from what the running CLI reports, with each command's expected arguments (v0.3.1, v0.3.5)
+- A model picker that lists every model your account is offered, labelled with its version (v0.3.2, v0.3.4)
+- Inspect an MCP server's tools, and see server status at launch before any chat is open (v0.3.5)
+- `/status` opens a live session panel in the composer (v0.3.5)
+- Settings → Advanced lists every Claude CLI install Nyra finds, with versions (v0.3.5)
 
 ## Side panel and files (shipped)
 
@@ -44,6 +60,9 @@ Versions in parentheses are where the work landed.
 - Breadcrumbs that list the files beside the current one, so you can switch without the tree (v0.0.4)
 - Right-click a file to open it in your editor, reveal it in Finder, copy its path, or add it to the chat (v0.0.4)
 - File paths in the conversation open in the panel instead of a modal (v0.0.4)
+- Quick Open on Cmd P — fuzzy-find any project file and jump to it (v0.3.1)
+- Previews render images and markdown, not just plain text (v0.3.5)
+- A reusable preview tab — click a file to peek, double-click to keep it open (v0.3.5)
 
 ## Changes and diffs (shipped)
 
@@ -107,3 +126,4 @@ Versions in parentheses are where the work landed.
 - Script nodes find npm, node and gh when Nyra is started from Finder (v0.1.0)
 - Image compression before send (v0.0.1)
 - macOS permission grants survive an app update, instead of resetting with every rebuild (v0.2.3)
+- Chat RAM — an opt-in memory readout in the Pinned Summary (v0.3.5)

@@ -29,7 +29,6 @@ Items move from `## Roadmap` here into `SHIPPED.md` via `/ship-feature`.
 
 - [ ] Output styles — the built-in Concise style plus custom ones, picked per chat from the model settings
 - [ ] The model settings the CLI grew — max effort level, ordered fallback models, which models the picker lists, and the default model for new chats
-- [ ] Session recap — what happened in a chat while you were looking at another one
 - [ ] Goal mode — keep a chat working across turns until a completion condition holds
 - [ ] Cross-session messaging — let chats message each other by name, so a finding moves without being re-explained
 - [ ] Custom themes — shippable colour palettes beyond light and dark
@@ -47,6 +46,5 @@ Items move from `## Roadmap` here into `SHIPPED.md` via `/ship-feature`.
 ### From Codex
 
 - [ ] Non-blocking inline questions — answer a clarifying question without stalling the turn
-- [ ] Prune the chat rail — hide, archive and delete chats, and show which worktree each one owns
 - [ ] Best-of-N attempts — run a task several ways in parallel worktrees and keep the diff you like
 - [ ] Touch ID for tool approval — confirm a sensitive MCP or tool call with the fingerprint reader
