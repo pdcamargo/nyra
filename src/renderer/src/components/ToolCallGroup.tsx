@@ -53,7 +53,9 @@ export function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.
         <span
           // The label is a summary of a Bash call; the command itself is one hover away.
           title={message.tool_name === 'Bash' ? String(message.input.command ?? '') : undefined}
-          className={`text-c-sm font-mono truncate min-w-0 ${denied ? 'text-danger' : 'text-muted-foreground'}`}
+          // The whole line shimmers while it runs, not just the tool's name —
+          // "Bash" alone moving is too little to notice beside a still command.
+          className={`text-c-sm font-mono truncate min-w-0 ${denied ? 'text-danger' : done ? 'text-muted-foreground' : 'nyra-shimmer'}`}
         >
           {label.replace(/^\S+\s*/, '')}
         </span>

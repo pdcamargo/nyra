@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
-import { useSessionsStore, activeCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
+import { useSessionsStore, activeCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type Agent, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
@@ -98,6 +98,39 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'commands'; commands: CommandDetail[] }
   | { type: 'auth_required'; message: string }
 )
+
+/**
+ * A subagent's end, as its own line where it happened.
+ *
+ * The spawn line used to change its verb to "finished" in place — up where the
+ * agent was launched, which after a few minutes of other work is off screen,
+ * so the moment it came back went unannounced. Codex writes the end as a new
+ * line at the bottom, and this does the same. A synthetic tool call, like
+ * GoalSet, so it sits in the transcript's order and persists with it.
+ *
+ * Deduplicated on agent and outcome: the background roster can report the same
+ * agent gone more than once.
+ */
+function announceAgentEnd(sid: string, agent: Agent, status: 'done' | 'failed'): void {
+  const store = useSessionsStore.getState()
+  const session = store.sessions.find((s) => s.id === sid)
+  const already = session?.messages.some(
+    (m) =>
+      m.role === 'tool_call' &&
+      m.tool_name === 'SubagentEnded' &&
+      m.input.agentToolId === agent.toolId &&
+      m.input.status === status
+  )
+  if (already) return
+  store.addMessage(sid, {
+    id: newMessageId(),
+    role: 'tool_call',
+    tool_id: `ended-${agent.toolId}`,
+    tool_name: 'SubagentEnded',
+    input: { agentToolId: agent.toolId, name: agent.name, status },
+    result: ''
+  })
+}
 
 /** Tool calls that are a card to answer, not a line in a trace. */
 const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet', 'Skill'])
@@ -304,7 +337,7 @@ export default function Chat(): React.JSX.Element {
     | { kind: 'message'; msg: Message; idx: number }
     | { kind: 'tool_group'; messages: ToolCallMessage[]; firstId: string }
     | { kind: 'memory'; writes: MemoryWrite[]; calls: ToolCallMessage[]; firstId: string }
-    | { kind: 'agents'; messages: ToolCallMessage[]; firstId: string }
+    | { kind: 'agents'; messages: ToolCallMessage[]; ended: boolean; firstId: string }
     | { kind: 'loading' }
 
   const virtualItems = useMemo((): VirtualItem[] => {
@@ -364,10 +397,19 @@ export default function Chat(): React.JSX.Element {
         }
         // A spawned subagent is news in its own right, not "1 other tool".
         // Parallel spawns arrive back to back and share one line.
-        if (tc.tool_name === 'Agent' || tc.tool_name === 'Task') {
+        if (tc.tool_name === 'Agent' || tc.tool_name === 'Task' || tc.tool_name === 'SubagentEnded') {
+          const ended = tc.tool_name === 'SubagentEnded'
           const last = items[items.length - 1]
-          if (last?.kind === 'agents') last.messages.push(tc)
-          else items.push({ kind: 'agents', messages: [tc], firstId: tc.id })
+          // Ends share a line only when they ended the same way.
+          if (
+            last?.kind === 'agents' &&
+            last.ended === ended &&
+            (!ended || last.messages[0].input.status === tc.input.status)
+          ) {
+            last.messages.push(tc)
+          } else {
+            items.push({ kind: 'agents', messages: [tc], ended, firstId: tc.id })
+          }
           continue
         }
         // Anything the user has to read or answer stands alone. Folded into a
@@ -925,6 +967,8 @@ export default function Chat(): React.JSX.Element {
           const outputFile = outputFileFromReceipt(event.content)
           if (outputFile) updates.outputFile = outputFile
           updateAgent(sid, event.tool_id, updates)
+          // A receipt means it was only launched; the roster reports its end.
+          if (!outputFile) announceAgentEnd(sid, agent, 'done')
         }
       }
 
@@ -951,6 +995,7 @@ export default function Chat(): React.JSX.Element {
           if (stillOut && agent.status !== 'running') updateAgent(sid, agent.toolId, { status: 'running' })
           if (!stillOut && agent.status === 'running') {
             updateAgent(sid, agent.toolId, { status: 'done', durationMs: Date.now() - agent.startedAt })
+            announceAgentEnd(sid, agent, 'done')
           }
         }
         return
@@ -1187,6 +1232,7 @@ export default function Chat(): React.JSX.Element {
         const errSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         errSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
           updateAgent(sid, a.toolId, { status: 'failed' })
+          announceAgentEnd(sid, a, 'failed')
         })
       }
 
@@ -1213,6 +1259,7 @@ export default function Chat(): React.JSX.Element {
         endSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
           if (stillOut.has(a.name)) return
           updateAgent(sid, a.toolId, { status: 'failed' })
+          announceAgentEnd(sid, a, 'failed')
         })
       }
     })
@@ -1942,7 +1989,7 @@ export default function Chat(): React.JSX.Element {
                     ref={virtualizer.measureElement}
                     style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
                   >
-                    <SubagentChip messages={item.messages} />
+                    <SubagentChip messages={item.messages} ended={item.ended} />
                   </div>
                 )
               }

@@ -12,7 +12,7 @@ import type { ToolCallMessage } from '../store/sessions'
 import { useSessionsStore } from '../store/sessions'
 import { openSubagentsInPanel } from '../lib/openFile'
 
-/** Warm first, so a lone subagent gets the Claude clay. */
+/** Warm first, so the first subagent gets the Claude clay. */
 const SPARK_TINTS = ['#D97757', '#6A9BCC', '#788C5D', '#C46686', '#CC9B4A']
 
 /**
@@ -41,27 +41,45 @@ export function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
-export default function SubagentChip({ messages }: { messages: ToolCallMessage[] }): React.JSX.Element | null {
+export default function SubagentChip({
+  messages,
+  ended = false
+}: {
+  messages: ToolCallMessage[]
+  /** A run of `SubagentEnded` lines rather than spawns. */
+  ended?: boolean
+}): React.JSX.Element | null {
   const agents = useSessionsStore((s) => {
     const session = s.sessions.find((x) => x.id === s.activeSessionId)
     return session?.agents
   })
   if (messages.length === 0) return null
 
-  // The session's agent list is the truth about status — a background agent's
-  // tool call returns the moment it is launched, long before it is finished.
   const rows = messages.map((m) => {
-    const agent = agents?.find((a) => a.toolId === m.tool_id)
-    const name = agent?.name ?? String(m.input.description ?? 'Subagent')
-    const status = agent?.status ?? (m.result === undefined ? 'running' : 'done')
-    return { toolId: m.tool_id, name, status }
+    const toolId = ended ? String(m.input.agentToolId ?? '') : m.tool_id
+    const at = agents?.findIndex((a) => a.toolId === toolId) ?? -1
+    const agent = at === -1 ? undefined : agents![at]
+    const name = agent?.name ?? String(m.input.name ?? m.input.description ?? 'Subagent')
+    // An end line reports how it ended, fixed. A spawn line asks the session's
+    // agent list — a background agent's tool call returns the moment it is
+    // launched, long before it is finished.
+    const status = ended
+      ? String(m.input.status)
+      : (agent?.status ?? (m.result === undefined ? 'running' : 'done'))
+    // Tinted by the agent's place in the session, so its end line wears the
+    // same colour as its spawn line.
+    const tint = SPARK_TINTS[Math.max(at, 0) % SPARK_TINTS.length]
+    return { key: m.id, toolId, name, status, tint }
   })
 
-  const running = rows.some((r) => r.status === 'running')
-  const allFailed = rows.every((r) => r.status === 'failed')
+  const running = !ended && rows.some((r) => r.status === 'running')
   const names = joinNames(rows.map((r) => r.name))
-  const verb = running ? 'started working' : allFailed ? 'failed' : 'finished'
-  const textClass = running ? 'nyra-shimmer' : allFailed ? 'text-danger' : 'text-muted-foreground'
+  const verb = !ended
+    ? 'started working'
+    : rows[0].status === 'failed'
+      ? rows.length > 1 ? 'were interrupted' : 'was interrupted'
+      : 'finished'
+  const textClass = running ? 'nyra-shimmer' : 'text-muted-foreground'
 
   return (
     <div className="py-1">
@@ -72,11 +90,11 @@ export default function SubagentChip({ messages }: { messages: ToolCallMessage[]
         className="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-2 rounded-sm px-1 py-1 text-left transition-colors hover:bg-muted/40"
       >
         <span className="flex shrink-0 items-center gap-0.5">
-          {rows.slice(0, 3).map((r, i) => (
+          {rows.slice(0, 3).map((r) => (
             <Spark
-              key={r.toolId}
-              color={SPARK_TINTS[i % SPARK_TINTS.length]}
-              className={`size-3.5 ${r.status === 'running' ? 'nyra-breathe' : ''}`}
+              key={r.key}
+              color={r.tint}
+              className={`size-3.5 ${!ended && r.status === 'running' ? 'nyra-breathe' : ''}`}
             />
           ))}
         </span>
