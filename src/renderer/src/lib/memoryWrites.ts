@@ -21,6 +21,8 @@ export type MemoryWrite = {
   isIndex: boolean
   /** The file did not exist before this write. Unknown reads as "updated". */
   created: boolean
+  /** Removed rather than written — an `rm` from Bash, since no tool deletes. */
+  deleted: boolean
   /** How the memory tab would name it, so both surfaces say the same thing. */
   displayName: string
   description?: string
@@ -44,15 +46,59 @@ export function memoryFilePath(
 ): string | null {
   if (!WRITE_TOOLS.has(toolName)) return null
   const path = String(input.file_path ?? input.path ?? '')
-  if (!path.endsWith('.md')) return null
-  if (!path.includes('/.claude/projects/') || !path.includes('/memory/')) return null
-  return path
+  return isMemoryPath(path) ? path : null
+}
+
+/**
+ * A look at memory rather than a change to it — `cat MEMORY.md` before adding a
+ * line, a Read of the file about to be edited.
+ *
+ * On its own that is ordinary recall and stays an ordinary tool line. Next to a
+ * memory write it is the write's own bookkeeping, and shown as a Bash line
+ * between two memory chips it split one save into three rows.
+ */
+export function isMemoryPeek(message: ToolCallMessage): boolean {
+  if (message.denied || WRITE_TOOLS.has(message.tool_name)) return false
+  const input = message.input
+  const target = String(input.command ?? input.file_path ?? input.path ?? input.pattern ?? '')
+  return target.includes('/.claude/projects/') && target.includes('/memory')
+}
+
+function isMemoryPath(path: string): boolean {
+  return path.endsWith('.md') && path.includes('/.claude/projects/') && path.includes('/memory/')
+}
+
+/**
+ * The memory files a Bash command deletes.
+ *
+ * There is no delete tool, so forgetting something is `rm` on the file. Every
+ * `rm` in the command counts — `rm a.md b.md`, or one chained after a `cd` — but
+ * only for paths that are memories, so tidying up a scratch file stays a Bash
+ * line.
+ */
+export function memoryDeletedPaths(toolName: string, input: Record<string, unknown>): string[] {
+  if (toolName !== 'Bash') return []
+  const command = String(input.command ?? '')
+  const paths: string[] = []
+  for (const segment of command.split(/&&|\|\||;|\n/)) {
+    const tokens = segment.trim().split(/\s+/)
+    if (tokens[0] !== 'rm') continue
+    for (const token of tokens.slice(1)) {
+      if (token.startsWith('-')) continue
+      const path = token.replace(/^["']|["']$/g, '')
+      if (isMemoryPath(path)) paths.push(path)
+    }
+  }
+  return paths
 }
 
 /** A denied write recorded nothing, so it stays an ordinary tool line. */
 export function isMemoryWrite(message: ToolCallMessage): boolean {
   if (message.denied) return false
-  return memoryFilePath(message.tool_name, message.input) !== null
+  return (
+    memoryFilePath(message.tool_name, message.input) !== null ||
+    memoryDeletedPaths(message.tool_name, message.input).length > 0
+  )
 }
 
 /** `project_nyra_tauri_port.md` → `nyra tauri port`, matching the memory tab. */
@@ -134,6 +180,33 @@ function failed(result: string): boolean {
   return /^(error|<tool_use_error>)/i.test(result.trim())
 }
 
+/** Every memory a tool call changed — several when one `rm` deletes several. */
+export function memoryWritesFrom(message: ToolCallMessage): MemoryWrite[] {
+  if (message.denied) return []
+  const deleted = memoryDeletedPaths(message.tool_name, message.input)
+  if (deleted.length === 0) {
+    const write = memoryWriteFrom(message)
+    return write ? [write] : []
+  }
+  const status = statusOf(message)
+  return deleted.map((filePath) => {
+    const fileName = filePath.split('/').pop() ?? filePath
+    return {
+      toolId: `${message.tool_id}:${filePath}`,
+      filePath,
+      isIndex: fileName === 'MEMORY.md',
+      created: false,
+      deleted: true,
+      displayName: memoryDisplayName(fileName),
+      status
+    }
+  })
+}
+
+function statusOf(message: ToolCallMessage): MemoryWrite['status'] {
+  return message.result === undefined ? 'pending' : failed(message.result) ? 'failed' : 'done'
+}
+
 /** The memory a tool call recorded, or null if it recorded none. */
 export function memoryWriteFrom(message: ToolCallMessage): MemoryWrite | null {
   const filePath = memoryFilePath(message.tool_name, message.input)
@@ -150,11 +223,11 @@ export function memoryWriteFrom(message: ToolCallMessage): MemoryWrite | null {
     // `null` is the backend saying it looked and found no file. An absent field
     // is a call from before that was recorded, which reads as an update.
     created: message.tool_name === 'Write' && message.originalContent === null,
+    deleted: false,
     displayName: front.name ?? memoryDisplayName(fileName),
     description: front.description,
     type: front.type,
-    status:
-      message.result === undefined ? 'pending' : failed(message.result) ? 'failed' : 'done'
+    status: statusOf(message)
   }
 }
 
@@ -167,13 +240,18 @@ export function memoryWriteFrom(message: ToolCallMessage): MemoryWrite | null {
  */
 export function summarizeMemoryWrites(writes: MemoryWrite[]): string {
   const entries = writes.filter((w) => !w.isIndex)
-  if (writes.some((w) => w.status === 'pending')) return 'Saving to memory…'
+  if (writes.some((w) => w.status === 'pending')) {
+    return entries.length > 0 && entries.every((w) => w.deleted)
+      ? 'Deleting from memory…'
+      : 'Saving to memory…'
+  }
   if (writes.every((w) => w.status === 'failed')) return 'Memory could not be saved'
 
   if (entries.length === 0) return 'Memory index updated'
   if (entries.length === 1) {
+    if (entries[0].deleted) return 'Project memory deleted'
     return entries[0].created ? 'Project memory saved' : 'Project memory updated'
   }
   // No count: the names follow the headline, and they carry it better.
-  return 'Project memories updated'
+  return entries.every((w) => w.deleted) ? 'Project memories deleted' : 'Project memories updated'
 }

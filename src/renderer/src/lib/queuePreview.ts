@@ -1,4 +1,5 @@
 import type { QueuedMessage } from '../store/sessions'
+import { findAttachmentRefs } from './composerDecorations'
 
 /**
  * A queued message, as the one line the tray has room for.
@@ -30,7 +31,11 @@ export type QueuePreview = {
 }
 
 export function queuePreview(queued: QueuedMessage): QueuePreview {
-  const images: QueuedImage[] = (queued.images ?? []).map((i) => ({ dataUrl: i.dataUrl }))
+  // An image the text already names with an `[Image: …]` marker is drawn as
+  // that marker's chip; a thumbnail as well would show it twice.
+  const images: QueuedImage[] = (queued.images ?? [])
+    .filter((i) => !(queued.text ?? '').includes(`[Image: ${i.path}]`))
+    .map((i) => ({ dataUrl: i.dataUrl }))
 
   const text = (queued.text ?? '')
     .replace(IMAGE_MD, (_match, _alt: string, src: string) => {
@@ -45,4 +50,25 @@ export function queuePreview(queued: QueuedMessage): QueuePreview {
     .trim()
 
   return { text, images }
+}
+
+export type PreviewPart =
+  | { kind: 'text'; text: string }
+  | { kind: 'Image' | 'File'; target: string }
+
+/**
+ * The preview's text, with each `[Image: /var/folders/…/shot.png]` marker split
+ * out so the row can draw it as the composer does — a chip with the file's name
+ * — rather than as a path that fills the row before the message even starts.
+ */
+export function previewParts(text: string): PreviewPart[] {
+  const parts: PreviewPart[] = []
+  let at = 0
+  for (const ref of findAttachmentRefs(text)) {
+    if (ref.from > at) parts.push({ kind: 'text', text: text.slice(at, ref.from) })
+    parts.push({ kind: ref.kind, target: ref.target })
+    at = ref.to
+  }
+  if (at < text.length) parts.push({ kind: 'text', text: text.slice(at) })
+  return parts
 }

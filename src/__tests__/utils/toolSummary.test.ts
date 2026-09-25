@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { inlineLabel, buildGroupSummary, formatToolName } from '../../renderer/src/utils/toolSummary'
+import { bashDetail, inlineLabel, buildGroupSummary, formatToolName } from '../../renderer/src/utils/toolSummary'
 import type { ToolCallMessage } from '../../renderer/src/store/sessions'
 
 function makeTool(name: string, input: Record<string, unknown>, result?: string): ToolCallMessage {
@@ -128,5 +128,25 @@ describe('buildGroupSummary', () => {
       makeTool('TodoWrite', {}, 'ok')
     ]
     expect(buildGroupSummary(msgs)).toContain('updated todo list')
+  })
+})
+
+describe('bashDetail', () => {
+  it('prefers the description the model wrote', () => {
+    expect(bashDetail({ command: 'npm test', description: 'Run the test suite' })).toBe('Run the test suite')
+  })
+
+  it('drops the leading cd', () => {
+    expect(bashDetail({ command: 'cd /a/b && cd c; npm test' })).toBe('npm test')
+  })
+
+  it('names an inline script for the files it touches, not its heredoc', () => {
+    const command = "cd /repo/src; python3 - <<'EOF'\np='components/Chat.tsx'\ns=open('lib/a.ts').read()\nEOF"
+    expect(bashDetail({ command })).toBe('python3 script · Chat.tsx, a.ts')
+    expect(bashDetail({ command: "python3 - <<'EOF'\nprint(1)\nEOF" })).toBe('python3 script')
+  })
+
+  it('names a cat heredoc for the file it writes', () => {
+    expect(bashDetail({ command: "cat > src/x/SkillChip.tsx <<'EOF'\nhi\nEOF" })).toBe('write src/x/SkillChip.tsx')
   })
 })

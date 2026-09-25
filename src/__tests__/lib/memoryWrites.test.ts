@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
+  isMemoryPeek,
   isMemoryWrite,
+  memoryDeletedPaths,
+  memoryWritesFrom,
   memoryFilePath,
   memoryWriteFrom,
   parseMemoryFrontmatter,
@@ -146,6 +149,7 @@ describe('summarizeMemoryWrites', () => {
     filePath: MEM,
     isIndex: false,
     created: false,
+    deleted: false,
     displayName: 'a-fact',
     status: 'done',
     ...over
@@ -174,5 +178,55 @@ describe('summarizeMemoryWrites', () => {
 
   it('names an index-only edit for what it is', () => {
     expect(summarizeMemoryWrites([write({ isIndex: true })])).toBe('Memory index updated')
+  })
+})
+
+describe('isMemoryPeek', () => {
+  const INDEX = '/Users/x/.claude/projects/-Users-x-repo/memory/MEMORY.md'
+
+  it('recognises a cat of the index and a Read of a memory', () => {
+    expect(isMemoryPeek(call({ tool_name: 'Bash', input: { command: `cat ${INDEX}` } }))).toBe(true)
+    expect(isMemoryPeek(call({ tool_name: 'Read', input: { file_path: MEM } }))).toBe(true)
+  })
+
+  it('leaves writes to isMemoryWrite, and ignores the rest of .claude', () => {
+    expect(isMemoryPeek(call())).toBe(false)
+    expect(isMemoryPeek(call({ tool_name: 'Read', input: { file_path: '/Users/x/.claude/settings.json' } }))).toBe(false)
+    expect(isMemoryPeek(call({ tool_name: 'Bash', input: { command: 'ls' } }))).toBe(false)
+  })
+
+  it('does not swallow a denied call', () => {
+    expect(isMemoryPeek(call({ tool_name: 'Read', input: { file_path: MEM }, denied: true }))).toBe(false)
+  })
+})
+
+describe('memory deletes', () => {
+  const B = '/Users/x/.claude/projects/-Users-x-repo/memory/b-fact.md'
+  const rm = (command: string, over: Partial<ToolCallMessage> = {}): ToolCallMessage =>
+    call({ tool_name: 'Bash', input: { command }, ...over })
+
+  it('reads every memory an rm removes, flags and quotes aside', () => {
+    expect(memoryDeletedPaths('Bash', { command: `rm -f "${MEM}" ${B}` })).toEqual([MEM, B])
+    expect(memoryDeletedPaths('Bash', { command: `cd /tmp && rm ${MEM}` })).toEqual([MEM])
+  })
+
+  it('ignores rm of anything that is not a memory, and non-rm commands', () => {
+    expect(memoryDeletedPaths('Bash', { command: 'rm /tmp/scratch.md' })).toEqual([])
+    expect(memoryDeletedPaths('Bash', { command: `cat ${MEM}` })).toEqual([])
+    expect(isMemoryWrite(rm(`cat ${MEM}`))).toBe(false)
+  })
+
+  it('turns an rm into a deleted memory with its own headline', () => {
+    const writes = memoryWritesFrom(rm(`rm ${MEM}`, { result: '' }))
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({ deleted: true, displayName: 'a-fact', status: 'done' })
+    expect(summarizeMemoryWrites(writes)).toBe('Project memory deleted')
+    expect(summarizeMemoryWrites(memoryWritesFrom(rm(`rm ${MEM} ${B}`, { result: '' })))).toBe(
+      'Project memories deleted'
+    )
+  })
+
+  it('says it is deleting while the rm runs', () => {
+    expect(summarizeMemoryWrites(memoryWritesFrom(rm(`rm ${MEM}`)))).toBe('Deleting from memory…')
   })
 })

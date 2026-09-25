@@ -13,6 +13,7 @@ const write = (over: Partial<MemoryWrite> = {}): MemoryWrite => ({
   filePath: MEM,
   isIndex: false,
   created: false,
+  deleted: false,
   displayName: 'a-fact',
   description: 'Something worth keeping',
   type: 'project',

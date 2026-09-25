@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { queuePreview } from '@renderer/lib/queuePreview'
+import { previewParts, queuePreview } from '@renderer/lib/queuePreview'
 import type { QueuedMessage } from '@renderer/store/sessions'
 
 const queued = (over: Partial<QueuedMessage> = {}): QueuedMessage => ({ text: '', ...over })
@@ -69,5 +69,27 @@ describe('queuePreview', () => {
   it('leaves a link alone — only images come out', () => {
     const text = 'see [the docs](/tmp/a.md)'
     expect(queuePreview(queued({ text }))).toEqual({ text, images: [] })
+  })
+})
+
+describe('previewParts', () => {
+  it('splits attachment markers out of the text so they draw as chips', () => {
+    expect(previewParts('see [Image: /var/x/shot.png] and [File: /a/b.txt]')).toEqual([
+      { kind: 'text', text: 'see ' },
+      { kind: 'Image', target: '/var/x/shot.png' },
+      { kind: 'text', text: ' and ' },
+      { kind: 'File', target: '/a/b.txt' }
+    ])
+  })
+
+  it('does not show a staged image twice when the text already names it', () => {
+    const result = queuePreview(
+      queued({
+        text: '[Image: /tmp/a.png] look',
+        images: [{ path: '/tmp/a.png', mediaType: 'image/png', dataUrl: 'data:x' }]
+      })
+    )
+    expect(result.images).toEqual([])
+    expect(result.text).toBe('[Image: /tmp/a.png] look')
   })
 })

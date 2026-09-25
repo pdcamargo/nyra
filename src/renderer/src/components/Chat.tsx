@@ -26,11 +26,12 @@ import { extractChangeBlocks } from '../lib/changeBlocks'
 import { findCreatedPr, isPrCreatingCall } from '../lib/pullRequests'
 import { backfillPrs, syncPrState, syncStalePrs } from '../lib/prSync'
 import ChangesCard from './ChangesCard'
-import { isMemoryWrite, memoryWriteFrom, type MemoryWrite } from '../lib/memoryWrites'
+import { isMemoryPeek, memoryWritesFrom, type MemoryWrite } from '../lib/memoryWrites'
 import MemoryChip from './MemoryChip'
 import { formatMessageTime } from '../lib/messageTime'
 import { extractPlan } from '../utils/permission'
 import ToolCallGroup from './ToolCallGroup'
+import SubagentChip from './SubagentChip'
 import PermissionDialog, { type PermissionRequest } from './PermissionDialog'
 import ChatInput from './ChatInput'
 import EditMessageBox from './EditMessageBox'
@@ -99,7 +100,7 @@ type ClaudeEvent = ClaudeEventBase & (
 )
 
 /** Tool calls that are a card to answer, not a line in a trace. */
-const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet'])
+const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet', 'Skill'])
 
 
 /** What "auto-accept edits" actually waives — file writes, nothing else. */
@@ -302,7 +303,8 @@ export default function Chat(): React.JSX.Element {
     | { kind: 'separator'; label: string }
     | { kind: 'message'; msg: Message; idx: number }
     | { kind: 'tool_group'; messages: ToolCallMessage[]; firstId: string }
-    | { kind: 'memory'; writes: MemoryWrite[]; firstId: string }
+    | { kind: 'memory'; writes: MemoryWrite[]; calls: ToolCallMessage[]; firstId: string }
+    | { kind: 'agents'; messages: ToolCallMessage[]; firstId: string }
     | { kind: 'loading' }
 
   const virtualItems = useMemo((): VirtualItem[] => {
@@ -331,11 +333,41 @@ export default function Chat(): React.JSX.Element {
         // Writing a memory is one event even though it is two writes — the
         // memory, then its pointer line in MEMORY.md — so consecutive ones
         // collect into a single card rather than announcing the bookkeeping.
-        const memory = isMemoryWrite(tc) ? memoryWriteFrom(tc) : null
-        if (memory) {
+        const memory = memoryWritesFrom(tc)
+        if (memory.length > 0) {
           const last = items[items.length - 1]
-          if (last?.kind === 'memory') last.writes.push(memory)
-          else items.push({ kind: 'memory', writes: [memory], firstId: tc.id })
+          if (last?.kind === 'memory') {
+            last.writes.push(...memory)
+            last.calls.push(tc)
+            continue
+          }
+          // Looks at memory just before the write belong to it, not to the run
+          // of tool calls they happened to land in.
+          const peeked: ToolCallMessage[] = []
+          if (last?.kind === 'tool_group') {
+            while (last.messages.length > 0 && isMemoryPeek(last.messages[last.messages.length - 1])) {
+              peeked.unshift(last.messages.pop()!)
+            }
+            if (last.messages.length === 0) items.pop()
+          }
+          const calls = [...peeked, tc]
+          items.push({ kind: 'memory', writes: memory, calls, firstId: calls[0].id })
+          continue
+        }
+        // ...and so do the ones after it, like reading MEMORY.md back.
+        if (isMemoryPeek(tc)) {
+          const last = items[items.length - 1]
+          if (last?.kind === 'memory') {
+            last.calls.push(tc)
+            continue
+          }
+        }
+        // A spawned subagent is news in its own right, not "1 other tool".
+        // Parallel spawns arrive back to back and share one line.
+        if (tc.tool_name === 'Agent' || tc.tool_name === 'Task') {
+          const last = items[items.length - 1]
+          if (last?.kind === 'agents') last.messages.push(tc)
+          else items.push({ kind: 'agents', messages: [tc], firstId: tc.id })
           continue
         }
         // Anything the user has to read or answer stands alone. Folded into a
@@ -362,6 +394,27 @@ export default function Chat(): React.JSX.Element {
     return items
   }, [messages, isLoading])
 
+  /**
+   * The assistant message that closes each turn — the last one before the next
+   * user message. Only it carries Copy and the timestamp. Every narration line
+   * mid-turn used to reserve that row too, invisible until hovered, and it was
+   * most of the gap under "I will load the skill" before the chip it announced.
+   * The turn still running has no end yet.
+   */
+  const turnEnds = useMemo(() => {
+    const ends = new Set<string>()
+    let found = isLoading
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role === 'user') found = false
+      else if (m.role === 'assistant' && !found) {
+        ends.add(m.id)
+        found = true
+      }
+    }
+    return ends
+  }, [messages, isLoading])
+
   // Virtualizer setup
   const virtualizer = useVirtualizer({
     count: virtualItems.length,
@@ -378,6 +431,7 @@ export default function Chat(): React.JSX.Element {
       if (item.kind === 'loading') return 'loading'
       if (item.kind === 'tool_group') return `tg-${item.firstId}`
       if (item.kind === 'memory') return `mem-${item.firstId}`
+      if (item.kind === 'agents') return `ag-${item.firstId}`
       return item.msg.id
     },
   })
@@ -1579,7 +1633,8 @@ export default function Chat(): React.JSX.Element {
         (item) =>
           (item.kind === 'message' && item.msg.id === messageId) ||
           (item.kind === 'tool_group' && item.firstId === messageId) ||
-          (item.kind === 'memory' && item.firstId === messageId)
+          (item.kind === 'memory' && item.firstId === messageId) ||
+          (item.kind === 'agents' && item.firstId === messageId)
       ),
     [virtualItems]
   )
@@ -1874,7 +1929,20 @@ export default function Chat(): React.JSX.Element {
                     ref={virtualizer.measureElement}
                     style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
                   >
-                    <MemoryChip writes={item.writes} />
+                    <MemoryChip writes={item.writes} calls={item.calls} />
+                  </div>
+                )
+              }
+
+              if (item.kind === 'agents') {
+                return (
+                  <div
+                    key={vItem.key}
+                    data-index={vItem.index}
+                    ref={virtualizer.measureElement}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                  >
+                    <SubagentChip messages={item.messages} />
                   </div>
                 )
               }
@@ -1941,6 +2009,7 @@ export default function Chat(): React.JSX.Element {
                     <MessageRow
                       message={msg}
                       isLoading={isLoading}
+                      showActions={turnEnds.has(msg.id)}
                       onEdit={msg.role === 'user' && !isLoading ? handleStartEdit : undefined}
                       onFork={msg.role === 'user' && !isLoading ? handleForkFromMessage : undefined}
                       onPlanAnswer={handlePlanAnswer}
@@ -2110,7 +2179,7 @@ function ThinkingIndicator({ startTime }: { startTime?: number }): React.JSX.Ele
   )
 }
 
-const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, onFork, onPlanAnswer, onQuestionAnswer }: { message: Message; isLoading?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (id: string) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
+const MessageRow = React.memo(function MessageRow({ message, isLoading, showActions, onEdit, onFork, onPlanAnswer, onQuestionAnswer }: { message: Message; isLoading?: boolean; showActions?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (id: string) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
 
@@ -2242,6 +2311,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
       {message.changes && <ChangesCard block={message.changes} />}
       {/* Actions sit under the reply, not floating beside its first line — a long
           answer's controls belong where you finish reading it. */}
+      {showActions && (
       <div className="mt-1 flex opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -2264,6 +2334,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, onEdit, 
           </span>
         )}
       </div>
+      )}
     </div>
   )
 })

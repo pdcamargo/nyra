@@ -68,7 +68,7 @@ function presentTense(name: string): string {
 
 function toolDetail(name: string, input: Record<string, unknown>): string {
   switch (name) {
-    case 'Bash': return String(input.command ?? '').split('\n')[0].slice(0, 72)
+    case 'Bash': return bashDetail(input)
     case 'Read':
     case 'Write':
     case 'Edit': return shortenPath(String(input.file_path ?? input.path ?? ''))
@@ -105,6 +105,56 @@ function toolDetail(name: string, input: Record<string, unknown>): string {
       return ''
     }
   }
+}
+
+const INTERPRETERS = /^(python3?|node|ruby|perl|bash|sh|zsh|deno|bun)\b/
+
+/**
+ * What a Bash call did, in the few words a trace line has.
+ *
+ * The command's first line was the whole label, and for a heredoc that line is
+ * the least informative one: `cd /Users/…/src; python3 - <<'EOF'` says where
+ * and in what language, and nothing about what. So, in order: the description
+ * the model gives every Bash call when it bothers to, which is the only place
+ * the *why* is written down; then the command with its leading `cd` dropped,
+ * a heredoc named for what it does — the file `cat >` writes, or the files an
+ * inline script touches — rather than for the syntax that opened it.
+ */
+export function bashDetail(input: Record<string, unknown>): string {
+  const description = String(input.description ?? '').trim()
+  if (description) return description.slice(0, 72)
+
+  const command = String(input.command ?? '')
+  const [head, ...body] = command.split('\n')
+  // `cd somewhere && …` or `cd somewhere; …`, as many as it chains.
+  const line = head.replace(/^(\s*cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*)+/, '').trim()
+
+  const heredoc = line.match(/<<-?\s*['"]?(\w+)['"]?/)
+  if (heredoc) {
+    const written = line.match(/^cat\s+>>?\s*(\S+)/)
+    if (written) return `write ${shortenPath(written[1])}`
+
+    const interpreter = line.match(INTERPRETERS)
+    if (interpreter) {
+      const end = body.indexOf(heredoc[1])
+      const script = (end === -1 ? body : body.slice(0, end)).join('\n')
+      const files = scriptFiles(script)
+      const name = `${interpreter[1]} script`
+      return (files.length ? `${name} · ${files.join(', ')}` : name).slice(0, 72)
+    }
+  }
+  return (line || head).slice(0, 72)
+}
+
+/** File names quoted inside an inline script — `open('lib/a.ts')`, `p='b.tsx'`. */
+function scriptFiles(script: string): string[] {
+  const seen = new Set<string>()
+  for (const hit of script.matchAll(/['"]([\w./~-]+\.[a-z]{1,5})['"]/gi)) {
+    const base = hit[1].split('/').pop()!
+    if (!base.startsWith('.')) seen.add(base)
+    if (seen.size === 3) break
+  }
+  return [...seen]
 }
 
 function shortenPath(p: string): string {

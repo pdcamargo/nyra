@@ -28,7 +28,8 @@ import QuestionDock from './QuestionDock'
 import PlanCard, { type PlanAnswer } from './PlanCard'
 import { useQuestionAnswerStore } from '../store/questionAnswer'
 import { composerIntent } from '../lib/composerIntent'
-import { queuePreview, type QueuedImage } from '../lib/queuePreview'
+import { previewParts, queuePreview, type QueuedImage } from '../lib/queuePreview'
+import { mentionLabel } from '../lib/composerDecorations'
 import { cachedImage, loadImage } from '../lib/imageCache'
 import { showResource } from '../lib/resourceCommands'
 import { useResourceDockStore } from '../store/resourceDock'
@@ -1056,7 +1057,23 @@ function QueuedPreview({ queued }: { queued: QueuedMessage }): React.JSX.Element
       ))}
       {/* Only where there is something left to say. An image on its own is a
           queued message with no text, and an empty span should not take a gap. */}
-      {text && <span className="min-w-0 flex-1 truncate text-foreground/80">{text}</span>}
+      {text && (
+        <span className="min-w-0 flex-1 truncate text-foreground/80">
+          {previewParts(text).map((part, i) =>
+            part.kind === 'text' ? (
+              <React.Fragment key={i}>{part.text}</React.Fragment>
+            ) : (
+              <span key={i} className="nyra-attach-chip" title={part.target}>
+                <span
+                  aria-hidden
+                  className={`nyra-attach-chip-icon nyra-attach-chip-icon-${part.kind.toLowerCase()}`}
+                />
+                {mentionLabel(part.target)}
+              </span>
+            )
+          )}
+        </span>
+      )}
     </span>
   )
 }

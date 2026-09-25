@@ -8,10 +8,11 @@ import AskUserQuestionCard from './AskUserQuestionCard'
 import PlanCard, { type PlanAnswer } from './PlanCard'
 import FinishedChecklist from './FinishedChecklist'
 import GoalChip from './GoalChip'
+import SkillChip from './SkillChip'
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write'])
 
-function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.Element {
+export function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.Element {
   const done = message.result !== undefined
   const denied = message.denied === true
   const hasError = done && !denied && message.result && (
@@ -19,13 +20,13 @@ function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.Element
     message.result.includes('ENOENT') || message.result.includes('exit code')
   )
 
-  const dotClass = denied
-    ? 'bg-danger/50'
-    : hasError
-      ? 'bg-danger/60'
-      : done
-        ? 'bg-success/40'
-        : 'bg-warning/60 animate-pulse'
+  // No status dot: the row lines up with the prose around it, so the state
+  // rides on the name — shimmering while it runs, red when it failed.
+  const nameClass = denied || hasError
+    ? 'text-danger'
+    : done
+      ? 'text-muted-foreground'
+      : 'nyra-shimmer'
 
   const label = inlineLabel(message.tool_name, message.input, done)
   const filePath = FILE_TOOLS.has(message.tool_name)
@@ -33,11 +34,10 @@ function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.Element
     : null
 
   return (
-    <div className="w-full flex items-center gap-2 px-1 py-1">
-      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
+    <div className="w-full flex items-center gap-2 py-1">
       <span
         title={message.tool_name}
-        className={`font-mono text-c-sm w-[120px] shrink-0 truncate ${denied ? 'text-danger' : 'text-muted-foreground'}`}
+        className={`font-mono text-c-sm w-[120px] shrink-0 truncate ${nameClass}`}
       >
         {formatToolName(message.tool_name)}
       </span>
@@ -50,7 +50,11 @@ function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.Element
           {filePath.split('/').slice(-3).join('/')}
         </button>
       ) : (
-        <span className={`text-c-sm font-mono truncate min-w-0 ${denied ? 'text-danger' : 'text-muted-foreground'}`}>
+        <span
+          // The label is a summary of a Bash call; the command itself is one hover away.
+          title={message.tool_name === 'Bash' ? String(message.input.command ?? '') : undefined}
+          className={`text-c-sm font-mono truncate min-w-0 ${denied ? 'text-danger' : 'text-muted-foreground'}`}
+        >
           {label.replace(/^\S+\s*/, '')}
         </span>
       )}
@@ -91,8 +95,11 @@ export default function ToolCallGroup({
     if (only.tool_name === 'GoalSet') {
       return <GoalChip message={only} />
     }
+    if (only.tool_name === 'Skill') {
+      return <SkillChip message={only} />
+    }
     return (
-      <div className="py-2">
+      <div className="py-1">
         <TraceLine message={only} />
       </div>
     )
@@ -100,16 +107,17 @@ export default function ToolCallGroup({
 
   // Group of tool calls
   const summary = buildGroupSummary(messages)
-  const dotClass = anyDenied ? 'bg-danger' : allDone ? 'bg-success' : 'bg-warning nyra-breathe'
+  const summaryClass = anyDenied ? 'text-danger' : allDone ? 'text-muted-foreground' : 'nyra-shimmer'
 
   return (
-    <div className="py-2">
+    <div className="py-1">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-2 rounded-sm px-1 py-1 text-left transition-colors hover:bg-muted/40"
+        // -mx-1 px-1: the hover fill keeps its breathing room while the text
+        // itself starts on the same edge as the prose above and below it.
+        className="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-2 rounded-sm px-1 py-1 text-left transition-colors hover:bg-muted/40"
       >
-        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
-        <span className={`text-c-sm font-mono ${anyDenied ? 'text-danger' : 'text-muted-foreground'}`}>
+        <span className={`text-c-sm font-mono ${summaryClass}`}>
           {summary}
         </span>
         <ChevronRight
