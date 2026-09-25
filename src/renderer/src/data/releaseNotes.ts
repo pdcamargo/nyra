@@ -8,7 +8,10 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Fixed chat history getting wiped while a large one was loading',
+      'Saving no longer stalls once your chat history grows large'
+    ]
   },
   {
     version: '0.3.6',
