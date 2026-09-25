@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { createIdbStorage } from './idbStorage'
+import { createSessionsStorage } from './idbStorage'
 import { useRunningStore } from './running'
 import { useSettingsStore } from './settings'
 import { useBrowserStore } from './browser'
@@ -1212,9 +1212,9 @@ export const useSessionsStore = create<SessionsStore>()(
     }),
     {
       name: 'nyra-sessions',
-      // Async IndexedDB backend with coalesced writes — avoids localStorage's
-      // synchronous writes and ~5–10 MB quota (which silently dropped sessions).
-      storage: createIdbStorage<PersistedState>(),
+      // IndexedDB, one record per chat, coalesced writes that only touch the chats
+      // that changed. Nothing is written until the history has been read back.
+      storage: createSessionsStorage<PersistedState>(),
       partialize: (state) => ({
         sessions: state.sessions,
         projects: state.projects,

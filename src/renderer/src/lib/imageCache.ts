@@ -1,10 +1,10 @@
 /**
  * Bytes for images Claude referenced in a reply, keyed by absolute path.
  *
- * Deliberately outside the sessions store. `createIdbStorage` re-serialises the
- * whole `{sessions, projects, activeSessionId}` blob on every debounced write and
- * reads all of it back at boot, so a few megabytes of base64 riding along on a
- * message would be paid for on every keystroke and every launch.
+ * Deliberately outside the sessions store. `createSessionsStorage` re-serialises a
+ * chat's whole record whenever that chat changes, and reads every chat back at
+ * boot, so a few megabytes of base64 riding along on a message would be paid for
+ * on every streamed token and every launch.
  *
  * It is not only an optimisation, either: the transcript is virtualised, so an
  * image row unmounts and remounts every time it scrolls past. Without this the
