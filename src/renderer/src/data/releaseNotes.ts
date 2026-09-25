@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.4.1',
+    date: '2026-09-25',
     notes: [
       'Subagents now show a line in the chat as they start and finish',
       'Loading a skill now shows a status line instead of a raw tool label',
