@@ -11,7 +11,7 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     notes: [
       'Subagents now show a line in the chat as they start and finish',
       'Loading a skill now shows a status line instead of a raw tool label',
-      'Deleting a memory now gets its own line, not a raw shell command',
+      'Deleting a memory now gets its own line, instead of a raw shell command',
       'Memory saves fold nearby file lookups into one expandable line',
       'Bash steps now show a description of what ran, not the raw command',
       'Tool call and memory lines are more compact, with no status dot',
