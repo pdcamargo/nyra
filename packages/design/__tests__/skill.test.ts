@@ -18,6 +18,8 @@ describe('the skill is generated from the registry', () => {
    * possible." This is the assertion that makes that true — add a record
    * without regenerating and the build goes red.
    */
+  // Spawns vite-node, which takes a second or two alone and several times that
+  // while the rest of the suite competes for the CPU — past the 5s default.
   it('is current with the registry', () => {
     const out = join(mkdtempSync(join(tmpdir(), 'nyra-skill-')), 'SKILL.md')
     execFileSync('npx', ['vite-node', 'scripts/generate-skill.mts', out], {
@@ -25,7 +27,7 @@ describe('the skill is generated from the registry', () => {
       stdio: 'pipe'
     })
     expect(readFileSync(out, 'utf8')).toBe(text)
-  })
+  }, 30_000)
 
   it.each(Object.keys(PROPS) as PropName[])('teaches %s', (name) => {
     expect(text).toContain(`\`${name}\``)
