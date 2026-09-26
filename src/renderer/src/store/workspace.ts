@@ -399,6 +399,9 @@ type WorkspaceStore = {
   setTreeOpen: (sessionId: string, open: boolean) => void
   setTreeWidth: (sessionId: string, px: number | null) => void
   toggleTreeDir: (sessionId: string, dirPath: string) => void
+  /** Open these folders, leaving any already open alone. Revealing a file,
+   *  where a toggle would close a folder the reader had open. */
+  expandTreeDirs: (sessionId: string, dirPaths: string[]) => void
   forget: (sessionId: string) => void
   /** Drop what belongs to chats that no longer exist. Once, after hydration. */
   prune: (knownSessionIds: string[]) => void
@@ -761,6 +764,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ? ws.treeExpanded.filter((d) => d !== dirPath)
               : [...ws.treeExpanded, dirPath]
           }))
+        ),
+
+      expandTreeDirs: (sessionId, dirPaths) =>
+        set((s) =>
+          patch(s, sessionId, (ws) => {
+            const missing = dirPaths.filter((d) => !ws.treeExpanded.includes(d))
+            return missing.length === 0
+              ? ws
+              : { ...ws, treeExpanded: [...ws.treeExpanded, ...missing] }
+          })
         ),
 
       forget: (sessionId) =>

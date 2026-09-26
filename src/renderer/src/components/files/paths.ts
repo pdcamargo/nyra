@@ -14,6 +14,24 @@ export function relativeTo(root: string, absolute: string): string {
   return absolute.startsWith(`${base}/`) ? absolute.slice(base.length + 1) : absolute
 }
 
+/**
+ * The folders between the root and a file, outermost first — the ones the tree
+ * has to open to show it. Empty for a file directly under the root, and for one
+ * outside it, which this tree cannot reach.
+ */
+export function ancestorsWithin(root: string, absolute: string): string[] {
+  const base = root.replace(/\/$/, '')
+  if (!absolute.startsWith(`${base}/`)) return []
+  const segments = absolute.slice(base.length + 1).split('/').filter(Boolean)
+  const dirs: string[] = []
+  let acc = base
+  for (const segment of segments.slice(0, -1)) {
+    acc = `${acc}/${segment}`
+    dirs.push(acc)
+  }
+  return dirs
+}
+
 export function dirnameOf(path: string): string {
   const at = path.lastIndexOf('/')
   return at <= 0 ? '/' : path.slice(0, at)

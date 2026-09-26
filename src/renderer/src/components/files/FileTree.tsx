@@ -6,9 +6,9 @@
  * thousands of paths in a monorepo. Expanding a folder is a click, and a click
  * can afford a round trip.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronRight, Folder, FolderOpen, RefreshCw, Search } from 'lucide-react'
-import { joinPath, relativeTo } from './paths'
+import { ancestorsWithin, joinPath, relativeTo } from './paths'
 import { useWorkspaceStore } from '../../store/workspace'
 import FileRowMenu from './FileRowMenu'
 import { basenameOf } from './paths'
@@ -81,6 +81,36 @@ export default function FileTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, root, load])
 
+  // Follow the open file: whatever opened it — a path in the chat, quick open,
+  // a breadcrumb — the tree opens the folders down to it and brings its row
+  // into view. Only on a change of file, so a folder the reader collapses
+  // afterwards stays collapsed.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const revealRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedPath || !root) return
+    useWorkspaceStore.getState().expandTreeDirs(sessionId, ancestorsWithin(root, selectedPath))
+    revealRef.current = selectedPath
+  }, [selectedPath, root, sessionId])
+
+  // The row exists only once every folder above it has been listed, which is
+  // a round trip per level — so this runs on each listing until it lands.
+  useEffect(() => {
+    const target = revealRef.current
+    if (!target || searching) return
+    const row = [...(scrollRef.current?.querySelectorAll<HTMLElement>('[data-path]') ?? [])].find(
+      (el) => el.dataset.path === target
+    )
+    if (!row) return
+    revealRef.current = null
+    // A row already on screen — the one just clicked — stays put. One that is
+    // not comes to the middle, rather than pinned against an edge.
+    const box = scrollRef.current?.getBoundingClientRect()
+    const at = row.getBoundingClientRect()
+    if (box && at.top >= box.top && at.bottom <= box.bottom) return
+    row.scrollIntoView?.({ block: 'center' })
+  }, [listings, expanded, selectedPath, searching])
+
   const toggle = (dir: string): void => {
     useWorkspaceStore.getState().toggleTreeDir(sessionId, dir)
   }
@@ -132,7 +162,7 @@ export default function FileTree({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto pb-2">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto pb-2">
         {searching ? (
           <SearchResults
             root={root}
@@ -244,6 +274,7 @@ function Row({
       <button
         type="button"
         title={relativeTo(root, path)}
+        data-path={path}
         aria-expanded={isDir ? isOpen : undefined}
         onClick={() => (isDir ? onToggle(path) : onOpen(path))}
         // Double click keeps a tab of its own, the way every editor's file

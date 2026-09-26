@@ -256,6 +256,17 @@ describe('the store', () => {
     store.setTreeWidth(SID, 240)
     expect(ws().treeWidth).toBe(240)
   })
+
+  it('expands folders for a reveal without closing any already open', () => {
+    const store = useWorkspaceStore.getState()
+    store.toggleTreeDir(SID, 'src')
+    store.expandTreeDirs(SID, ['src', 'src/lib'])
+    expect(ws().treeExpanded).toEqual(['src', 'src/lib'])
+
+    const before = ws()
+    store.expandTreeDirs(SID, ['src/lib'])
+    expect(ws()).toBe(before)
+  })
 })
 
 describe('the preview slot', () => {

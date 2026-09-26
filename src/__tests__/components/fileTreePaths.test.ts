@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ancestorsWithin,
   basenameOf,
   breadcrumbs,
   dirnameOf,
@@ -15,6 +16,15 @@ import {
 } from '@renderer/components/files/treeWidth'
 
 describe('path arithmetic', () => {
+  it('lists the folders between the root and a file, outermost first', () => {
+    expect(ancestorsWithin('/repo', '/repo/src/lib/a.ts')).toEqual(['/repo/src', '/repo/src/lib'])
+    expect(ancestorsWithin('/repo/', '/repo/src/a.ts')).toEqual(['/repo/src'])
+    expect(ancestorsWithin('/repo', '/repo/a.ts')).toEqual([])
+    // Outside the tree, and a sibling that merely shares the prefix.
+    expect(ancestorsWithin('/repo', '/elsewhere/a.ts')).toEqual([])
+    expect(ancestorsWithin('/repo', '/repo-two/src/a.ts')).toEqual([])
+  })
+
   it('joins without doubling the separator', () => {
     expect(joinPath('/repo', 'src/a.ts')).toBe('/repo/src/a.ts')
     expect(joinPath('/repo/', 'src')).toBe('/repo/src')
