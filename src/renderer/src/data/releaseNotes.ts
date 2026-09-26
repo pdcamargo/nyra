@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.4.2',
+    date: '2026-09-26',
     notes: [
       'Opening a file expands the file tree to it and scrolls it into view',
       "Fixed markdown file previews so scrollbars stay pinned to the panel's edge",
