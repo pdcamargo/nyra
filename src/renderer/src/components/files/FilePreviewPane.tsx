@@ -15,10 +15,13 @@ import type { ReadImageResult, ReadTextOutcome } from '../../lib/api-types'
 const MonacoPreview = React.lazy(() => import('./MonacoPreview'))
 const MarkdownPreview = React.lazy(() => import('./MarkdownPreview'))
 
-/** What came back for this path: text, or the bytes of a picture. */
-type Loaded =
+/** What came back for a path: text, or the bytes of a picture. The path rides
+ *  along because the pane keeps showing the last file until the next one is
+ *  read, and the viewer has to know which file it is actually holding. */
+type Loaded = { path: string } & (
   | { kind: 'text'; outcome: ReadTextOutcome }
   | { kind: 'image'; result: ReadImageResult }
+)
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -39,7 +42,6 @@ export default function FilePreviewPane({
   const [loading, setLoading] = useState(false)
   const stamp = useFileStamp(path)
   const image = path !== null && isImagePath(path)
-  const markdown = path !== null && isMarkdownPath(path)
 
   useEffect(() => {
     if (!path) {
@@ -52,8 +54,8 @@ export default function FilePreviewPane({
     // for every one of them, and showing a placeholder for a screenshot the
     // agent just took is the one thing the preview should never do.
     const read: Promise<Loaded> = image
-      ? window.api.fs.readImage(path).then((result) => ({ kind: 'image', result }))
-      : window.api.fs.readTextFile(path).then((outcome) => ({ kind: 'text', outcome }))
+      ? window.api.fs.readImage(path).then((result) => ({ path, kind: 'image', result }))
+      : window.api.fs.readTextFile(path).then((outcome) => ({ path, kind: 'text', outcome }))
     void read
       .then((next) => {
         if (cancelled) return
@@ -61,7 +63,7 @@ export default function FilePreviewPane({
       })
       .catch((err: Error) => {
         if (!cancelled) {
-          setLoaded({ kind: 'text', outcome: { kind: 'error', message: err.message } })
+          setLoaded({ path, kind: 'text', outcome: { kind: 'error', message: err.message } })
         }
       })
       .finally(() => {
@@ -129,12 +131,16 @@ export default function FilePreviewPane({
         <div className="flex h-full min-h-0 flex-col">
           <div className="min-h-0 flex-1">
             <Suspense fallback={<Empty>Loading viewer…</Empty>}>
-              {markdown ? (
-                <MarkdownPreview value={outcome.content} wrap={wrap} />
+              {/* Keyed on the file the content came from: a different file
+                  starts at the top instead of wherever the last one was left,
+                  while the same file re-read after an edit keeps its place. */}
+              {isMarkdownPath(loaded.path) ? (
+                <MarkdownPreview key={loaded.path} value={outcome.content} wrap={wrap} />
               ) : (
                 <MonacoPreview
+                  key={loaded.path}
                   value={outcome.content}
-                  language={detectLanguage(path)}
+                  language={detectLanguage(loaded.path)}
                   wrap={wrap}
                 />
               )}

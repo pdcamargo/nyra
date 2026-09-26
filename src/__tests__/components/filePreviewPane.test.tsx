@@ -61,4 +61,20 @@ describe('FilePreviewPane', () => {
     await waitFor(() => expect(container.querySelector('.cm-content')).not.toBeNull())
     expect(container.querySelector('.cm-content')?.textContent).toContain('Title')
   })
+
+  // The viewer used to be reused across files, so opening a new one left it
+  // scrolled to wherever the last one was. A fresh editor starts at the top.
+  it('opens a different file in a fresh viewer', async () => {
+    vi.spyOn(window.api.fs, 'readTextFile').mockImplementation(async (path) =>
+      text(path.endsWith('a.md') ? '# First\n' : '# Second\n')
+    )
+
+    const { container, rerender } = render(<FilePreviewPane path="/repo/a.md" wrap />)
+    await waitFor(() => expect(container.querySelector('.cm-content')?.textContent).toContain('First'))
+    const first = container.querySelector('.cm-editor')
+
+    rerender(<FilePreviewPane path="/repo/b.md" wrap />)
+    await waitFor(() => expect(container.querySelector('.cm-content')?.textContent).toContain('Second'))
+    expect(container.querySelector('.cm-editor')).not.toBe(first)
+  })
 })
