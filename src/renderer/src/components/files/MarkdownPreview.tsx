@@ -21,15 +21,16 @@ export default function MarkdownPreview({
   wrap: boolean
 }): React.JSX.Element {
   return (
-    <div className="h-full min-h-0 overflow-hidden px-3 py-2">
+    <div className="h-full min-h-0 overflow-hidden">
       <MarkdownEditor
         value={value}
         onChange={() => {}}
         readOnly
         wrap={wrap}
-        // The whole panel, rather than the composer's 300px cap: the scroll
-        // belongs to the document, not to a textarea inside it.
-        maxHeight={1_000_000}
+        // The panel's height, not the composer's grow-to-300px: the editor's
+        // own scroller is the document's, so both scrollbars sit at the
+        // panel's edges.
+        fill
       />
     </div>
   )

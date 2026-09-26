@@ -60,6 +60,14 @@ const highlightStyle = HighlightStyle.define([
   { tag: t.contentSeparator, color: 'var(--foreground)' }
 ])
 
+/** Grow to fit up to a cap, or fill the parent and scroll inside it. */
+function sizeTheme(maxHeight: number, fill: boolean): Extension {
+  return fill
+    ? // The margin lives inside the scroller, so the scrollbars reach its edges.
+      EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { padding: '8px 12px' } })
+    : EditorView.theme({ '.cm-scroller': { maxHeight: `${maxHeight}px` } })
+}
+
 const theme = EditorView.theme({
   // The same three variables the message list reads: what you type should look
   // like what it becomes. It was a hardcoded 14px against the list's 15px.
@@ -126,6 +134,7 @@ export default function MarkdownEditor({
   ghost,
   ghostSettling = false,
   maxHeight = 300,
+  fill = false,
   readOnly = false,
   wrap = true
 }: {
@@ -141,6 +150,11 @@ export default function MarkdownEditor({
   /** Shimmer it: the words are final but the model is still deciding. */
   ghostSettling?: boolean
   maxHeight?: number
+  /** Take the parent's height and scroll inside it, instead of growing to fit
+   *  the text up to `maxHeight`. The file viewer: grown to a whole document,
+   *  a line too long for the panel put its horizontal scrollbar under the
+   *  last line rather than at the bottom of the panel. */
+  fill?: boolean
   /** Somebody else's markdown: the file viewer. It renders exactly like the
    *  composer — markers hidden until the cursor lands on the line — with the
    *  editing taken out: no caret to put anywhere, no history, no chips, and the
@@ -215,7 +229,7 @@ export default function MarkdownEditor({
             })
           ]),
       theme,
-      maxHeightComp.of(EditorView.theme({ '.cm-scroller': { maxHeight: `${maxHeight}px` } })),
+      maxHeightComp.of(sizeTheme(maxHeight, fill)),
       // Highest precedence, or the default keymap gets Enter first and inserts a
       // newline before the composer ever sees it — Enter then both broke the line
       // and sent the message.
@@ -271,11 +285,9 @@ export default function MarkdownEditor({
 
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: maxHeightComp.reconfigure(
-        EditorView.theme({ '.cm-scroller': { maxHeight: `${maxHeight}px` } })
-      )
+      effects: maxHeightComp.reconfigure(sizeTheme(maxHeight, fill))
     })
-  }, [maxHeight, maxHeightComp])
+  }, [maxHeight, fill, maxHeightComp])
 
   useEffect(() => {
     viewRef.current?.dispatch({
@@ -327,5 +339,5 @@ export default function MarkdownEditor({
     []
   )
 
-  return <div ref={hostRef} className="w-full" />
+  return <div ref={hostRef} className={fill ? 'h-full w-full' : 'w-full'} />
 }
