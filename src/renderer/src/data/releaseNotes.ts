@@ -10,7 +10,8 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     date: '',
     notes: [
       'Opening a file expands the file tree to it and scrolls it into view',
-      "Fixed markdown file previews so scrollbars stay pinned to the panel's edge"
+      "Fixed markdown file previews so scrollbars stay pinned to the panel's edge",
+      "Fixed the file preview reusing the last file's scroll position"
     ]
   },
   {
