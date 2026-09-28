@@ -169,6 +169,14 @@ pub fn canonical_dir(path: &Path) -> Option<PathBuf> {
     dunce::canonicalize(path).ok()
 }
 
+/// `\\?\C:\…` → `C:\…`, when that names the same file. Tauri hands back
+/// verbatim paths for its own directories, and Node cannot load an ES module
+/// from one — the browser sidecar died on start, and every browser tool call
+/// came back a 500. Any path of ours that a child is given goes through this.
+pub fn simplified(path: &Path) -> PathBuf {
+    dunce::simplified(path).to_path_buf()
+}
+
 // ---- PATH ----
 
 /// None: a Windows GUI app is started with the full user and system PATH out

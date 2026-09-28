@@ -29,8 +29,8 @@ use windows as imp;
 
 pub use imp::{
     canonical_dir, default_shell, executable_names, file_id, force_kill, is_alive, log_dir,
-    login_shell_path, on_shutdown_signal, private_open_options, restrict_to_owner, terminate,
-    CLAUDE_INSTALLS, FALLBACK_BINS,
+    login_shell_path, on_shutdown_signal, private_open_options, restrict_to_owner, simplified,
+    terminate, CLAUDE_INSTALLS, FALLBACK_BINS,
 };
 
 // ---------------------------------------------------------------------------
@@ -213,6 +213,12 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_
         assert_eq!(which_in("tool", &path), Some(file));
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn simplified_drops_the_verbatim_prefix_node_cannot_read() {
+        assert_eq!(simplified(Path::new(r"\\?\C:\a\b")), PathBuf::from(r"C:\a\b"));
     }
 
     #[test]

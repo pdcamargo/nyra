@@ -20,7 +20,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
-use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::util;
@@ -374,25 +373,9 @@ pub async fn set_enabled(cwd: &str, name: &str, enabled: bool) -> Value {
 /// panel offers a retry instead of a spinner that never resolves.
 const INSPECT_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// The sidecar's node script, from the same two locations the browser sidecar
-/// resolves: packaged beside the app, and the repo in development.
+/// The sidecar's node script, from wherever the browser sidecar's comes from.
 fn script_path() -> Option<PathBuf> {
-    if let Some(handle) = util::app_handle() {
-        if let Ok(dir) = handle
-            .path()
-            .resolve("sidecar", tauri::path::BaseDirectory::Resource)
-        {
-            let candidate = dir.join("mcp-inspect.mjs");
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()?
-        .join("sidecar")
-        .join("mcp-inspect.mjs");
-    dev.is_file().then_some(dev)
+    crate::browser::sidecar_file("mcp-inspect.mjs")
 }
 
 /// Never let a configured secret reach a log, a toast, or the renderer.

@@ -52,23 +52,24 @@ static START_GATE: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mute
 // Locating the pieces
 // ---------------------------------------------------------------------------
 
-/// Packaged, the sidecar rides along in Resources. In development it is the
-/// checkout this binary was built from.
-fn sidecar_dir() -> Option<PathBuf> {
-    let has_entry = |dir: &PathBuf| dir.join("index.mjs").is_file();
-
-    if let Some(app) = util::app_handle() {
-        if let Ok(dir) = app
-            .path()
+/// One of the sidecar's scripts. Packaged, the sidecar rides along in
+/// Resources; in development it is the checkout this binary was built from.
+/// Simplified, because Node is handed this path and Tauri's is verbatim on
+/// Windows.
+pub(crate) fn sidecar_file(file: &str) -> Option<PathBuf> {
+    let packaged = util::app_handle().and_then(|app| {
+        app.path()
             .resolve("sidecar", tauri::path::BaseDirectory::Resource)
-        {
-            if has_entry(&dir) {
-                return Some(dir);
-            }
-        }
-    }
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent()?.join("sidecar");
-    has_entry(&dev).then_some(dev)
+            .ok()
+    });
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(|root| root.join("sidecar"));
+    [packaged, dev]
+        .into_iter()
+        .flatten()
+        .map(|dir| crate::platform::simplified(&dir.join(file)))
+        .find(|candidate| candidate.is_file())
 }
 
 // ---------------------------------------------------------------------------
@@ -104,11 +105,13 @@ fn drain_pending(reason: &str) {
 async fn start() -> Result<Arc<Sidecar>, String> {
     let node = crate::platform::which("node")
         .ok_or_else(|| "Node.js is not installed, or not on the PATH Nyra can see.".to_string())?;
-    let dir = sidecar_dir().ok_or_else(|| "The browser sidecar is missing.".to_string())?;
+    let entry = sidecar_file("index.mjs")
+        .ok_or_else(|| "The browser sidecar is missing.".to_string())?;
+    let dir = entry.parent().ok_or("The browser sidecar is missing.")?;
 
     let mut child = crate::platform::command(&node)
-        .arg(dir.join("index.mjs"))
-        .current_dir(&dir)
+        .arg(&entry)
+        .current_dir(dir)
         .env_clear()
         .envs(util::clean_child_env())
         .stdin(Stdio::piped())
@@ -425,9 +428,9 @@ mod tests {
     fn the_sidecar_ships_with_the_checkout() {
         // Packaging-bug insurance: if this moves, the panel dies in release
         // builds only, which is the worst time to find out.
-        let dir = sidecar_dir().expect("sidecar directory");
-        assert!(dir.join("index.mjs").is_file());
-        assert!(dir.join("package.json").is_file());
+        let entry = sidecar_file("index.mjs").expect("sidecar entry");
+        assert!(entry.with_file_name("package.json").is_file());
+        assert!(sidecar_file("mcp-inspect.mjs").is_some());
     }
 
     #[test]

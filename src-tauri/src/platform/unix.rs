@@ -78,6 +78,10 @@ pub fn canonical_dir(path: &Path) -> Option<PathBuf> {
     std::fs::canonicalize(path).ok()
 }
 
+pub fn simplified(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
 // ---- PATH ----
 
 /// Long enough for an interactive rc file that does real work, short enough
