@@ -79,7 +79,14 @@ Object.defineProperty(globalThis, 'api', {
       saveFile: () => Promise.resolve(null)
     },
     system: { homedir: () => Promise.resolve('/home/test') },
-    appWindow: { startDragging: noop, toggleMaximize: noop },
+    appWindow: {
+      startDragging: noop,
+      toggleMaximize: noop,
+      minimize: noop,
+      close: noop,
+      isMaximized: () => Promise.resolve(false),
+      onResized: () => Promise.resolve(() => {})
+    },
     terminal: { spawn: noop, write: noop, resize: noop, kill: noop, onData: unsub, onExit: unsub },
     browser: {
       // A test machine has no Chromium, and saying so is the honest default —

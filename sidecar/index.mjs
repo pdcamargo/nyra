@@ -204,6 +204,24 @@ async function ensureBrowser() {
 }
 
 /**
+ * Where the Chrome the user installed lives, per OS. A platform missing here
+ * just skips to Playwright's own Chromium.
+ */
+const inEnvDir = (key, rest) => (process.env[key] ? `${process.env[key]}\\${rest}` : null)
+const SYSTEM_CHROME_BY_PLATFORM = {
+  darwin: [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    `${process.env.HOME}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
+  ],
+  win32: [
+    inEnvDir('ProgramFiles', 'Google\\Chrome\\Application\\chrome.exe'),
+    inEnvDir('ProgramFiles(x86)', 'Google\\Chrome\\Application\\chrome.exe'),
+    inEnvDir('LOCALAPPDATA', 'Google\\Chrome\\Application\\chrome.exe')
+  ].filter(Boolean),
+  linux: ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/opt/google/chrome/chrome']
+}
+
+/**
  * Is a usable Chromium on disk? Playwright throws a long "Executable doesn't
  * exist" message rather than exposing a predicate, so this is the predicate.
  */
@@ -224,10 +242,7 @@ async function probeExecutable() {
   // `executablePath({ channel: 'chrome' })` answers with Playwright's own build
   // either way — it reports the registry, not what a launch would pick. So
   // Chrome gets located the honest way.
-  const SYSTEM_CHROME = [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    `${process.env.HOME}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
-  ]
+  const SYSTEM_CHROME = SYSTEM_CHROME_BY_PLATFORM[process.platform] ?? []
 
   const usable = async (channel) => {
     if (channel === 'chrome') {

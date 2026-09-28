@@ -2,12 +2,11 @@
 
 use serde_json::{json, Value};
 use std::time::Duration;
-use tokio::process::Command;
 
 async fn git(cwd: &str, args: &[&str], timeout_ms: u64) -> Result<std::process::Output, String> {
     tokio::time::timeout(
         Duration::from_millis(timeout_ms),
-        Command::new("git").args(args).current_dir(cwd).output(),
+        crate::platform::command("git").args(args).current_dir(cwd).output(),
     )
     .await
     .map_err(|_| "git timed out".to_string())?

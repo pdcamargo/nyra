@@ -45,7 +45,8 @@ mod imp {
     /// continuous checking back off in the case where registering it worked.
     ///
     /// Must run on the main thread; `with_webview` guarantees that.
-    pub fn sync_view(webview: *mut std::ffi::c_void) {
+    pub fn sync_view(webview: &tauri::webview::PlatformWebview) {
+        let webview = webview.inner();
         if webview.is_null() {
             return;
         }
@@ -95,7 +96,7 @@ mod imp {
 mod imp {
     /// Windows and Linux webviews spell-check from the element attribute alone.
     pub fn register_default() {}
-    pub fn sync_view(_webview: *mut std::ffi::c_void) {}
+    pub fn sync_view(_webview: &tauri::webview::PlatformWebview) {}
 }
 
 pub use imp::{register_default, sync_view};

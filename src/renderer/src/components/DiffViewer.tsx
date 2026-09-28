@@ -18,6 +18,7 @@ import { DiffView, DiffFile, DiffModeEnum } from '@git-diff-view/react'
 import '@git-diff-view/react/styles/diff-view.css'
 import { detectLanguage } from '../utils/diff'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
+import { basename } from '../lib/paths'
 
 export type DiffViewerProps = {
   filePath: string
@@ -35,7 +36,7 @@ export default function DiffViewer({
   renderSideBySide = true
 }: DiffViewerProps): React.JSX.Element {
   const theme = useResolvedTheme()
-  const fileName = filePath.split('/').pop() ?? filePath
+  const fileName = basename(filePath) || filePath
   const language = detectLanguage(filePath)
 
   const diffFile = React.useMemo(() => {

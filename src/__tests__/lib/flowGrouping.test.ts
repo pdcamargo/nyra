@@ -7,6 +7,7 @@ import {
   flowComposition
 } from '../../renderer/src/lib/flowGrouping'
 import type { WorkflowDefinition } from '../../shared/workflow-types'
+import { setPlatformForTest } from '@renderer/lib/platform'
 
 const wf = (over: Partial<WorkflowDefinition> = {}): WorkflowDefinition => ({
   id: 'w',
@@ -97,6 +98,20 @@ describe('shortPath', () => {
 
   it('leaves a path outside home alone', () => {
     expect(shortPath('/tmp/x', '/Users/me')).toBe('/tmp/x')
+  })
+
+  // It used to: `/Users/me2` became `~2`.
+  it('does not tilde a sibling that merely shares the prefix', () => {
+    expect(shortPath('/Users/me2', '/Users/me')).toBe('/Users/me2')
+  })
+
+  it('tildes a Windows home in its own separator', () => {
+    setPlatformForTest('windows')
+    try {
+      expect(shortPath('C:\\Users\\me\\dev', 'C:\\Users\\me')).toBe('~\\dev')
+    } finally {
+      setPlatformForTest(null)
+    }
   })
 })
 

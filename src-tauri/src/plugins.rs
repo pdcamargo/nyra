@@ -27,7 +27,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
-use tokio::process::Command;
 
 use crate::claude;
 use crate::util;
@@ -360,7 +359,7 @@ fn inventory_on_disk(dir: &Path) -> Components {
 /// question nobody can see.
 async fn run(args: &[String], cwd: Option<&str>, timeout: Duration) -> Result<Outcome, String> {
     let binary = claude::resolve_claude_binary(&util::settings().claude_binary_path);
-    let mut command = Command::new(&binary);
+    let mut command = crate::platform::command(&binary);
     command
         .args(args)
         .env_clear()

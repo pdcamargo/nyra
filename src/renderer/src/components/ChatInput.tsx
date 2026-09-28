@@ -44,6 +44,7 @@ import {
   syncPromptHistory,
   type PromptHistory
 } from '../lib/promptHistory'
+import { basename } from '../lib/paths'
 
 const EMPTY_AGENTS: Agent[] = []
 const EMPTY_QUEUE: QueuedMessage[] = []
@@ -748,7 +749,7 @@ export default function ChatInput({
     if (!paths) return
     const staged = paths.map((filePath) => ({
       id: `pending-${filePath}`,
-      name: filePath.split('/').pop() ?? filePath
+      name: basename(filePath) || filePath
     }))
     setPendingAttachments((prev) => [...prev, ...staged])
     for (const filePath of paths) {
@@ -769,7 +770,7 @@ export default function ChatInput({
         } else {
           setStagedFiles((prev) => [
             ...prev,
-            { ...(result as FileAttachment), name: filePath.split('/').pop() ?? filePath }
+            { ...(result as FileAttachment), name: basename(filePath) || filePath }
           ])
         }
       } catch (err) {

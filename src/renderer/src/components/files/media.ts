@@ -1,3 +1,4 @@
+import { basename } from '../../lib/paths'
 /**
  * Which files the viewer can draw instead of quoting.
  *
@@ -15,7 +16,7 @@
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
 
 export function extensionOf(path: string): string {
-  const base = path.split('/').pop() ?? path
+  const base = basename(path) || path
   const at = base.lastIndexOf('.')
   return at <= 0 ? '' : base.slice(at + 1).toLowerCase()
 }

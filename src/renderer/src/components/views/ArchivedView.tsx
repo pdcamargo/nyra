@@ -21,6 +21,7 @@ import {
   AlertDialogTitle
 } from '../ui/alert-dialog'
 import { EmptyNote, LibrarySearch, ProjectTabs, SectionHeading } from './Library'
+import { segments, separatorOf } from '../../lib/paths'
 
 /** "3d ago", "45m ago" — the same scale the memory list reads on. */
 function archivedAgo(at: number): string {
@@ -38,8 +39,7 @@ function archivedAgo(at: number): string {
 
 /** The whole path is noise; the tail is what names the directory you worked in. */
 function shortPath(path: string): string {
-  const parts = path.split('/').filter(Boolean)
-  return parts.slice(-2).join('/') || path
+  return segments(path).slice(-2).join(separatorOf(path)) || path
 }
 
 /**

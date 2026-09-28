@@ -223,7 +223,7 @@ fn locate(cwd: &str, claude_session_id: &str) -> Option<PathBuf> {
     let projects = crate::util::home_dir().join(".claude").join("projects");
     let file = format!("{claude_session_id}.jsonl");
 
-    let guess = projects.join(cwd.replace('/', "-")).join(&file);
+    let guess = crate::util::claude_project_dir(cwd).join(&file);
     if guess.is_file() {
         return Some(guess);
     }

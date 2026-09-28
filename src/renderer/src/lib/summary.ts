@@ -1,4 +1,5 @@
 import type { FileAttachment, ImageAttachment, TextMessage } from '../store/sessions'
+import { basename } from './paths'
 
 export type Attachment =
   | { kind: 'image'; key: string; name: string }
@@ -18,7 +19,7 @@ export function collectAttachments(messages: TextMessage[]): Attachment[] {
       out.push({
         kind: 'image',
         key: `${msg.id}:${img.path}`,
-        name: img.path.split('/').pop() ?? img.path
+        name: basename(img.path) || img.path
       })
     }
     for (const file of (msg.files ?? []) as FileAttachment[]) {

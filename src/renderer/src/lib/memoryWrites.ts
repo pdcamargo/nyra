@@ -9,6 +9,7 @@
  * recognises folded into "Created 1 file, Edited 2 files".
  */
 import type { ToolCallMessage } from '../store/sessions'
+import { basename } from './paths'
 
 export type MemoryType = 'user' | 'feedback' | 'project' | 'reference'
 
@@ -190,7 +191,7 @@ export function memoryWritesFrom(message: ToolCallMessage): MemoryWrite[] {
   }
   const status = statusOf(message)
   return deleted.map((filePath) => {
-    const fileName = filePath.split('/').pop() ?? filePath
+    const fileName = basename(filePath) || filePath
     return {
       toolId: `${message.tool_id}:${filePath}`,
       filePath,
@@ -212,7 +213,7 @@ export function memoryWriteFrom(message: ToolCallMessage): MemoryWrite | null {
   const filePath = memoryFilePath(message.tool_name, message.input)
   if (!filePath || message.denied) return null
 
-  const fileName = filePath.split('/').pop() ?? filePath
+  const fileName = basename(filePath) || filePath
   const isIndex = fileName === 'MEMORY.md'
   const front = isIndex ? {} : parseMemoryFrontmatter(resultingContent(message))
 

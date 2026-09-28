@@ -102,6 +102,43 @@ must be checked against a real repo — `CHANGES_CONVENTION` originally said
 `git diff --numstat`, which cannot see a file git has never been told about, so a
 turn that added files summarised none of them.
 
+## Platforms
+
+**Nothing outside the platform modules asks which OS it is on.** Nyra targets
+macOS and Windows, and an `if windows` buried in a component is the thing that
+makes a port unmaintainable.
+
+- **Rust:** `src-tauri/src/platform/` holds `unix.rs` and `windows.rs`, and they
+  implement the same items. The `pub use imp::{…}` in `mod.rs` is the
+  contract: if one OS file is missing an item, that OS fails to compile. Stopping
+  a process, finding a binary, picking a shell, file permissions and install
+  locations all go through it. **Every child process starts from
+  `platform::command` / `std_command`**, never `Command::new`. On Windows that
+  is what stops a console window flashing up for each `git` call, and what
+  unwraps an npm `claude.cmd` shim, which cannot carry a multi-line argument.
+  A feature that is entirely different per OS (native spellcheck, WKWebView
+  capture) keeps its own single `mod imp` switch, the way `spellcheck.rs` does.
+- **Renderer:** `lib/platform.ts` is one row of traits per OS (`pathStyle`,
+  `windowControls`, `revealLabel`). Components read a trait; they never compare
+  `os`. A new difference is a new trait, answered for every OS.
+- **Paths:** filesystem paths go through `lib/paths.ts`, never `split('/')`. On
+  Windows the same file arrives as `C:\Users\me` from Nyra, as `C:/Users/me`
+  from `git worktree list`, and in either case. Repo-relative paths that git
+  printed are the exception: git writes `/` on every OS.
+- **Config:** `tauri.windows.conf.json` is merged over `tauri.conf.json` as a
+  JSON merge patch, and arrays are replaced rather than merged. A change to the
+  `main` window entry has to be made in both files.
+
+What is still untested on real Windows, and how to test it, is in
+`docs/windows-port.md`.
+
+Check the Windows side from a Mac with `cargo xwin check --all-targets --target
+x86_64-pc-windows-msvc --target-dir target/xwin`. It needs `cargo install
+cargo-xwin`, the `x86_64-pc-windows-msvc` rustup target, and `brew install llvm
+lld ninja`, with `/opt/homebrew/opt/llvm/bin` on PATH. A cross *link* also fails
+on `ggml-blas`: whisper-rs-sys decides that with a host `cfg!`. That is an
+upstream cross-compile bug, and a native Windows build does not hit it.
+
 ## macOS permissions
 
 **Never read another app's preference domain or container from a shell here.**

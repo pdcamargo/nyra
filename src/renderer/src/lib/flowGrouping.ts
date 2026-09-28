@@ -7,6 +7,7 @@
  * on purpose rather than waiting to be filed.
  */
 import type { WorkflowDefinition } from '../../../shared/workflow-types'
+import { relativeTo, separatorOf, shortenPath } from './paths'
 
 export type GroupedFlows = {
   /** Project id to its flows, in the order the backend returned them. */
@@ -49,9 +50,9 @@ export function triggerSummary(wf: WorkflowDefinition): string | null {
 
 /** An absolute path cut down to something a 240px rail can hold. */
 export function shortPath(path: string, home: string): string {
-  const tilde = home && path.startsWith(home) ? `~${path.slice(home.length)}` : path
-  const parts = tilde.split('/').filter(Boolean)
-  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : tilde
+  const inside = home ? relativeTo(home, path) : path
+  const tilde = inside === path ? path : inside ? `~${separatorOf(path)}${inside}` : '~'
+  return shortenPath(tilde, 2)
 }
 
 /**

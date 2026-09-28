@@ -5,6 +5,7 @@ import type { NewTabKind } from './tabs'
 import { tabKey, type WorkspaceTab } from '../../store/workspace'
 import type { BrowserPhase } from '../../store/browser'
 import type { BrowserTab } from '../../lib/api-types'
+import { basename as basenameOf } from '../../lib/paths'
 
 /**
  * The tab strip Codex's browser does not have.
@@ -235,5 +236,5 @@ export function hostOf(url: string): string {
 /** The label a file tab wears. Null until a file is picked. */
 export function basename(path: string | null): string | null {
   if (!path) return null
-  return path.split('/').filter(Boolean).pop() ?? null
+  return basenameOf(path) || null
 }

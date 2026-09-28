@@ -12,12 +12,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { useUiStore } from '../store/ui'
 import { useChordLabel } from './ui/kbd'
 import { useSessionsStore, activeSession as activeSessionSelector } from '../store/sessions'
+import { platform, type PlatformTraits } from '../lib/platform'
+import WindowControls from './WindowControls'
 
 /**
  * The window's own title bar.
  *
- * The window is `titleBarStyle: "Overlay"` with `hiddenTitle`, so the traffic
- * lights float over the web content and this strip has to leave room for them.
+ * On macOS the window is `titleBarStyle: "Overlay"` with `hiddenTitle`, so the
+ * traffic lights float over the web content and this strip has to leave room
+ * for them. On Windows the window is undecorated and this strip draws the
+ * caption buttons itself. Which one applies is `platform().windowControls`.
  * It replaces the old fixed `.drag-region` overlay and the three independent
  * `pt-[46px]` offsets that Sidebar, Chat and RightPanel each hardcoded to clear
  * it — the same magic number written down in three places.
@@ -27,6 +31,13 @@ import { useSessionsStore, activeSession as activeSessionSelector } from '../sto
  * nothing here — the bar asks the window to move instead, and ignores presses
  * that landed on a control.
  */
+
+/** Room to leave on the left: the traffic lights are 78px of it on macOS. */
+const LEADING_INSET: Record<PlatformTraits['windowControls'], string> = {
+  'traffic-lights': 'pl-[78px]',
+  drawn: 'pl-2',
+  system: 'pl-2'
+}
 
 /** "Search" on its own when the command is unbound, "Search (⌘K)" when it is not. */
 function withKeys(label: string, keys: string): string {
@@ -87,6 +98,7 @@ export default function TitleBar(): React.JSX.Element {
   const projectsKeys = useChordLabel('panel.left')
   const openPalette = useUiStore((s) => s.openPalette)
   const session = useSessionsStore(activeSessionSelector)
+  const controls = platform().windowControls
 
   return (
     <header
@@ -98,7 +110,9 @@ export default function TitleBar(): React.JSX.Element {
         if (!isBareTitleBar(e.target)) return
         void window.api.appWindow.toggleMaximize()
       }}
-      className="flex h-[38px] shrink-0 select-none items-center gap-1 border-b border-border/55 bg-sidebar pr-2 pl-[78px]"
+      className={`flex h-[38px] shrink-0 select-none items-center gap-1 border-b border-border/55 bg-sidebar ${
+        LEADING_INSET[controls]
+      } ${controls === 'drawn' ? 'pr-0' : 'pr-2'}`}
       data-testid="title-bar"
     >
       <TitleBarButton
@@ -139,6 +153,8 @@ export default function TitleBar(): React.JSX.Element {
           <Settings className="size-4" />
         </TitleBarButton>
       </div>
+
+      {controls === 'drawn' && <WindowControls />}
     </header>
   )
 }

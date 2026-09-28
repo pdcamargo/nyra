@@ -21,12 +21,13 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{ChildStdin, Command};
+use tokio::process::ChildStdin;
 use tokio::sync::oneshot;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::ai_title;
 use crate::notify_user::notify;
+use crate::platform;
 use crate::processes;
 use crate::settings::SpawnSettings;
 use crate::subagents;
@@ -40,16 +41,14 @@ const MAX_EVENT_BUFFER: usize = 500;
 
 // ---- binary resolution ----
 
-/// Where the CLI's installers put it. macOS GUI apps don't inherit the shell
-/// `PATH`, so a bare `claude` often fails to resolve in a packaged build.
+/// Where the CLI's installers put it, per `platform::CLAUDE_INSTALLS`. macOS
+/// GUI apps don't inherit the shell `PATH`, so a bare `claude` often fails to
+/// resolve in a packaged build.
 fn install_candidates() -> Vec<PathBuf> {
-    let home = util::home_dir();
-    vec![
-        home.join(".local/bin/claude"),
-        home.join(".npm-global/bin/claude"),
-        PathBuf::from("/usr/local/bin/claude"),
-        PathBuf::from("/opt/homebrew/bin/claude"),
-    ]
+    platform::CLAUDE_INSTALLS
+        .iter()
+        .map(|entry| PathBuf::from(util::expand_home(entry)))
+        .collect()
 }
 
 /// `--version` per install, keyed by (path, len, mtime). An update rewrites the
@@ -83,7 +82,7 @@ fn binary_version(path: &Path) -> Option<String> {
 }
 
 fn run_version(path: &Path) -> Option<String> {
-    let mut child = std::process::Command::new(path)
+    let mut child = platform::std_command(path)
         .arg("--version")
         .env_clear()
         .envs(util::clean_child_env())
@@ -154,7 +153,7 @@ fn installs() -> Vec<(PathBuf, Option<String>)> {
 /// The CLI to run. An absolute path in Settings is taken as given; otherwise
 /// the newest install found, then the first one, then whatever `PATH` says.
 pub fn resolve_claude_binary(configured: &str) -> String {
-    if configured.starts_with('/') {
+    if Path::new(configured).is_absolute() {
         return configured.to_string();
     }
     let found = installs();
@@ -167,11 +166,12 @@ pub fn resolve_claude_binary(configured: &str) -> String {
         );
         return path.to_string_lossy().to_string();
     }
-    if configured.is_empty() {
-        "claude".to_string()
-    } else {
-        configured.to_string()
-    }
+    let name = if configured.is_empty() { "claude" } else { configured };
+    // Looked up here rather than left to the spawn, which on Windows finds only
+    // an `.exe` — an npm install is `claude.cmd`.
+    platform::which(name)
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|| name.to_string())
 }
 
 pub async fn check_binary(custom_path: Option<String>) -> Value {
@@ -185,7 +185,7 @@ pub async fn check_binary(custom_path: Option<String>) -> Value {
         let binary = resolve_claude_binary(&configured);
         let version = binary_version(Path::new(&binary)).or_else(|| {
             // A bare name that PATH resolves: no file to stamp, so run it direct.
-            (!binary.starts_with('/')).then(|| run_version(Path::new(&binary))).flatten()
+            (!Path::new(&binary).is_absolute()).then(|| run_version(Path::new(&binary))).flatten()
         });
         let others: Vec<Value> = installs()
             .into_iter()
@@ -429,17 +429,18 @@ fn kill_session_pty(sess: &Arc<Session>) {
         inner.pid
     };
     let Some(pid) = pid else { return };
-    #[cfg(unix)]
-    {
-        unsafe { libc::kill(pid as i32, libc::SIGTERM) };
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-        });
-    }
+    let _ = platform::terminate_then_kill(pid, Duration::from_millis(500));
 }
 
-/// SIGINT asks Claude to stop the current turn but stay alive for the next one.
+/// Stop the current turn and keep the process for the next one.
+///
+/// Over stdin rather than SIGINT. As of 2.1.281 SIGINT does not stop a turn,
+/// it ends the process — verified 2026-09-28, it exits a couple of seconds
+/// after the signal — so every Stop threw away a warm process and the next
+/// message paid a cold start. Windows has no SIGINT to send a child that shares
+/// no console with us at all. The control request is what the Agent SDK's
+/// `interrupt()` sends: the CLI acknowledges it, ends the turn with the same
+/// `error_during_execution` result SIGINT produced, and stays up.
 pub fn abort_claude(nyra_session_id: Option<&str>) {
     let targets: Vec<(String, Arc<Session>)> = {
         let sessions = SESSIONS.lock();
@@ -453,14 +454,24 @@ pub fn abort_claude(nyra_session_id: Option<&str>) {
     };
 
     for (id, sess) in targets {
-        let (pid, turn) = {
+        let (alive, turn) = {
             let mut inner = sess.inner.lock();
-            let pid = if inner.alive { inner.pid } else { None };
-            (pid, inner.current_turn.take())
+            (inner.alive, inner.current_turn.take())
         };
-        #[cfg(unix)]
-        if let Some(pid) = pid {
-            unsafe { libc::kill(pid as i32, libc::SIGINT) };
+        if alive {
+            let sess = sess.clone();
+            let id = id.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut guard = sess.stdin.lock().await;
+                let Some(stdin) = guard.as_mut() else { return };
+                let wrote = stdin
+                    .write_all(INTERRUPT_REQUEST.as_bytes())
+                    .await
+                    .and(stdin.flush().await);
+                if let Err(err) = wrote {
+                    crate::logf!("Interrupt failed for [{}]: {err}", util::short(&id));
+                }
+            });
         }
         if let Some(turn) = turn {
             let _ = turn.send(Err("Aborted by user".into()));
@@ -488,23 +499,15 @@ pub async fn dispose_session_and_wait(nyra_session_id: &str) -> Result<(), Strin
     let pid = get_session(nyra_session_id).and_then(|session| session.inner.lock().pid);
     dispose_session(nyra_session_id);
 
-    #[cfg(unix)]
     if let Some(pid) = pid {
         for _ in 0..40 {
-            let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
-            if !alive {
-                let error = std::io::Error::last_os_error();
-                if error.raw_os_error() == Some(libc::ESRCH) {
-                    return Ok(());
-                }
+            if !platform::is_alive(pid) {
+                return Ok(());
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         return Err("Claude did not stop before the archive snapshot".into());
     }
-
-    #[cfg(not(unix))]
-    let _ = pid;
     Ok(())
 }
 
@@ -854,6 +857,9 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
     }
 
     if event_type == "control_response" {
+        if let Some(error) = interrupt_error(raw) {
+            crate::logf!("Interrupt refused [{}]: {error}", util::short(nyra_session_id));
+        }
         if let Some(models) = offered_models(raw) {
             emit_event(nyra_session_id, json!({ "type": "models", "models": models }));
         }
@@ -1466,7 +1472,7 @@ async fn spawn_session(
     );
     crate::logf!("CWD: {cwd}");
 
-    let mut child = Command::new(&claude_bin)
+    let mut child = platform::command(&claude_bin)
         .args(&args)
         .current_dir(cwd)
         .env_clear()
@@ -1625,6 +1631,25 @@ async fn consume_stdout(sess: &Arc<Session>, nyra_session_id: &str, data: &str) 
 /// model that left no way to reach a newer one.
 const INITIALIZE_REQUEST: &str =
     "{\"type\":\"control_request\",\"request_id\":\"nyra-initialize\",\"request\":{\"subtype\":\"initialize\"}}\n";
+
+/// See [`abort_claude`]. Answered with `still_queued`, which Nyra does not use:
+/// it keeps its own queue and never writes a prompt into a busy turn except to
+/// steer it.
+const INTERRUPT_REQUEST: &str =
+    "{\"type\":\"control_request\",\"request_id\":\"nyra-interrupt\",\"request\":{\"subtype\":\"interrupt\"}}\n";
+
+/// Why the CLI refused an [`INTERRUPT_REQUEST`], for the log. A refusal leaves
+/// the turn running while the UI shows it stopped, so it has to be findable.
+fn interrupt_error(raw: &Value) -> Option<String> {
+    let response = raw.get("response")?;
+    if response.get("request_id").and_then(Value::as_str) != Some("nyra-interrupt")
+        || response.get("subtype").and_then(Value::as_str) != Some("error")
+    {
+        return None;
+    }
+    let error = response.get("error").and_then(Value::as_str).unwrap_or("no reason given");
+    Some(error.to_string())
+}
 
 /// `models` from the answer to [`INITIALIZE_REQUEST`], trimmed to what the
 /// picker reads. None for any other control response, or one that carried none.
@@ -2416,6 +2441,29 @@ mod tests {
             "response": { "subtype": "error", "request_id": TITLE_REQUEST_ID, "error": "unknown subtype" }
         });
         assert_eq!(requested_title(&refused), None);
+    }
+
+    #[test]
+    fn the_interrupt_request_is_one_control_request_line() {
+        assert!(INTERRUPT_REQUEST.ends_with('\n'));
+        let value: Value = serde_json::from_str(INTERRUPT_REQUEST.trim_end()).unwrap();
+        assert_eq!(value["type"], "control_request");
+        assert_eq!(value["request"]["subtype"], "interrupt");
+    }
+
+    #[test]
+    fn a_refused_interrupt_is_reported_and_an_accepted_one_is_not() {
+        let refused = json!({
+            "type": "control_response",
+            "response": { "subtype": "error", "request_id": "nyra-interrupt", "error": "no turn" }
+        });
+        assert_eq!(interrupt_error(&refused).as_deref(), Some("no turn"));
+
+        let accepted = json!({
+            "type": "control_response",
+            "response": { "subtype": "success", "request_id": "nyra-interrupt", "response": { "still_queued": [] } }
+        });
+        assert_eq!(interrupt_error(&accepted), None);
     }
 
     #[test]

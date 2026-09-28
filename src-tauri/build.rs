@@ -15,9 +15,16 @@ fn main() {
 ///
 /// The path is asked of clang rather than hardcoded, so this keeps working
 /// across Xcode upgrades and on a machine with only the Command Line Tools.
-#[cfg(target_os = "macos")]
+///
+/// Asked of Cargo's environment rather than `#[cfg]`: a build script's `cfg` is
+/// the machine *running* it, so cross-compiling Windows from a Mac would link
+/// the macOS runtime into a Windows binary.
 fn link_clang_runtime() {
     use std::process::Command;
+
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        return;
+    }
 
     let output = Command::new("xcrun")
         .args(["clang", "-print-resource-dir"])
@@ -42,6 +49,3 @@ fn link_clang_runtime() {
     println!("cargo:rustc-link-search=native={}", darwin.display());
     println!("cargo:rustc-link-lib=static=clang_rt.osx");
 }
-
-#[cfg(not(target_os = "macos"))]
-fn link_clang_runtime() {}

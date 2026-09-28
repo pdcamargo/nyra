@@ -27,6 +27,7 @@ mod notify_user;
 mod open_with;
 mod plugins;
 mod plugin_logos;
+mod platform;
 mod processes;
 mod settings;
 mod skills;
@@ -73,21 +74,12 @@ fn shutdown() {
 /// entirely, and everything `shutdown` is responsible for is then left running:
 /// terminals, Claude processes, the webhook listener, and the browser sidecar,
 /// which is how four of those came to be found spinning on a core each.
-#[cfg(unix)]
 fn install_signal_handlers() {
-    use tokio::signal::unix::{signal, SignalKind};
-    for kind in [SignalKind::terminate(), SignalKind::interrupt(), SignalKind::hangup()] {
-        tauri::async_runtime::spawn(async move {
-            let Ok(mut stream) = signal(kind) else { return };
-            stream.recv().await;
-            shutdown();
-            std::process::exit(0);
-        });
-    }
+    platform::on_shutdown_signal(|| {
+        shutdown();
+        std::process::exit(0);
+    });
 }
-
-#[cfg(not(unix))]
-fn install_signal_handlers() {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -122,7 +114,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 // The other half of the spell-checking switch, now that there is
                 // a WKWebView to ask.
-                let _ = window.with_webview(|webview| spellcheck::sync_view(webview.inner()));
+                let _ = window.with_webview(|webview| spellcheck::sync_view(&webview));
 
                 // The window is configured hidden so the first paint is the app rather
                 // than a blank rectangle; the frontend calls show() once React mounts.

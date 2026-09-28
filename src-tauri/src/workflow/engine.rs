@@ -352,9 +352,8 @@ async fn execute_script_node(
 
     let output = tokio::time::timeout(
         limit,
-        tokio::process::Command::new("sh")
-            .arg("-c")
-            .arg(&cmd)
+        // `sh -c` where there is one; Git Bash, then cmd, on Windows.
+        crate::platform::script_command(&cmd)
             .current_dir(&exec.cwd)
             // The same environment every other spawn site gets. Without it this
             // was the one place in the codebase inheriting launchd's bare PATH,

@@ -269,7 +269,12 @@ export const api = {
    */
   appWindow: {
     startDragging: () => getCurrentWindow().startDragging(),
-    toggleMaximize: () => getCurrentWindow().toggleMaximize()
+    toggleMaximize: () => getCurrentWindow().toggleMaximize(),
+    // For the window buttons Nyra draws itself where the OS draws none.
+    minimize: () => getCurrentWindow().minimize(),
+    close: () => getCurrentWindow().close(),
+    isMaximized: () => getCurrentWindow().isMaximized(),
+    onResized: (cb: () => void) => getCurrentWindow().onResized(cb)
   },
 
   dialog: {

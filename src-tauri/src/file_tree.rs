@@ -124,7 +124,7 @@ async fn ignored_names(dir: &str, names: &[String]) -> (HashSet<String>, bool) {
         payload.push(0);
     }
 
-    let spawned = tokio::process::Command::new("git")
+    let spawned = crate::platform::command("git")
         .args(["check-ignore", "--stdin", "-z"])
         .current_dir(dir)
         .stdin(std::process::Stdio::piped())
@@ -284,7 +284,7 @@ fn match_score(path: &str, needle_lower: &str) -> Option<u32> {
 async fn git_listed_files(cwd: &str) -> Option<Vec<u8>> {
     match tokio::time::timeout(
         GIT_TIMEOUT,
-        tokio::process::Command::new("git")
+        crate::platform::command("git")
             .args(["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
             .current_dir(cwd)
             .output(),

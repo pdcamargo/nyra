@@ -16,6 +16,7 @@ import {
   matches,
   useScopedLibrary
 } from './views/Library'
+import { basename } from '../lib/paths'
 
 const TYPE_TONE: Record<NonNullable<MemoryType>, { fg: string; bg: string }> = {
   project: { fg: 'text-info/80', bg: 'bg-info/15' },
@@ -79,7 +80,7 @@ export default function MemoryTab(): React.JSX.Element {
       consumePendingFile()
     } else if (everything.length > 0) {
       // Not in the list yet — synthesize a placeholder so the editor still opens.
-      const name = pendingFilePath.split('/').pop() ?? pendingFilePath
+      const name = basename(pendingFilePath) || pendingFilePath
       setSelected({ filePath: pendingFilePath, source: 'subagent-claude', name, exists: true })
       consumePendingFile()
     }

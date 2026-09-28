@@ -13,6 +13,7 @@ import { useUiStore } from '../store/ui'
 import { useSessionsStore, activeCwd, activeProjectCwd } from '../store/sessions'
 import { openFileInPanel } from '../lib/openFile'
 import { fuzzyFilter, highlightSegments } from '../lib/fuzzy'
+import { basename } from '../lib/paths'
 
 /**
  * Go to a file by typing part of its name.
@@ -36,7 +37,7 @@ const MAX_ROWS = 50
 
 /** The filename, bolded where the query hit; the directory stays quiet behind it. */
 function Row({ path, positions }: { path: string; positions: number[] }): React.JSX.Element {
-  const cut = path.lastIndexOf('/') + 1
+  const cut = path.length - basename(path).length
   const dir = path.slice(0, cut)
   const name = path.slice(cut)
 

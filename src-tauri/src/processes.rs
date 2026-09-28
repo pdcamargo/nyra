@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::time::Duration;
 
+use crate::platform;
 use crate::util;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -443,27 +444,12 @@ pub fn map_claude_status(s: &str) -> ProcStatus {
 // ---- killing ----
 
 pub fn kill_by_pid(pid: i32) -> Result<(), String> {
-    if pid < 1 {
-        return Err("invalid pid".into());
-    }
-    #[cfg(unix)]
-    {
-        if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
-            return Err(std::io::Error::last_os_error().to_string());
-        }
-        // Escalate if it's still around in 3 s.
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            if is_alive(pid) {
-                unsafe { libc::kill(pid, libc::SIGKILL) };
-            }
-        });
-        Ok(())
-    }
-    #[cfg(not(unix))]
-    {
-        Err("unsupported platform".into())
-    }
+    let pid = u32::try_from(pid)
+        .ok()
+        .filter(|p| *p >= 1)
+        .ok_or_else(|| "invalid pid".to_string())?;
+    // Escalate if it's still around in 3 s.
+    platform::terminate_then_kill(pid, Duration::from_secs(3)).map_err(|e| e.to_string())
 }
 
 pub fn kill_shell(nyra_session_id: &str, shell_id: &str) -> Result<(), String> {
@@ -615,14 +601,7 @@ async fn poll_once() {
 }
 
 pub fn is_alive(pid: i32) -> bool {
-    #[cfg(unix)]
-    {
-        unsafe { libc::kill(pid, 0) == 0 }
-    }
-    #[cfg(not(unix))]
-    {
-        false
-    }
+    u32::try_from(pid).is_ok_and(platform::is_alive)
 }
 
 // ---- memory ----
@@ -842,7 +821,7 @@ fn mark_untracked(nyra_session_id: &str, shell_id: &str) {
 }
 
 async fn find_recent_by_command(snippet: &str, our_start: i64) -> Option<i32> {
-    let out = tokio::process::Command::new("pgrep")
+    let out = platform::command("pgrep")
         .args(["-f", snippet])
         .output()
         .await
@@ -880,7 +859,7 @@ async fn find_recent_by_command(snippet: &str, our_start: i64) -> Option<i32> {
 
 async fn read_start_time_ms(pid: i32) -> Option<i64> {
     // macOS and most Linux distros: `ps -o lstart=` → "Thu May  1 19:14:32 2026".
-    let out = tokio::process::Command::new("ps")
+    let out = platform::command("ps")
         .args(["-o", "lstart=", "-p", &pid.to_string()])
         .output()
         .await
@@ -1042,7 +1021,7 @@ pub fn roll_up_ports(
 async fn run_capture(program: &str, args: &[&str]) -> Option<String> {
     let out = tokio::time::timeout(
         Duration::from_secs(5),
-        tokio::process::Command::new(program).args(args).output(),
+        platform::command(program).args(args).output(),
     )
     .await
     .ok()?

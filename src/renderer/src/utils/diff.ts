@@ -1,3 +1,5 @@
+import { basename } from '../lib/paths'
+
 export type DiffData = {
   filePath: string
   original: string
@@ -70,7 +72,7 @@ const EXT_TO_LANG: Record<string, string> = {
 }
 
 export function detectLanguage(filePath: string): string {
-  const name = filePath.split('/').pop()?.toLowerCase() ?? ''
+  const name = basename(filePath).toLowerCase()
   if (name === 'dockerfile') return 'dockerfile'
   if (name === 'makefile') return 'makefile'
   const ext = name.split('.').pop() ?? ''

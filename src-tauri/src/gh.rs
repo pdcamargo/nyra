@@ -12,7 +12,6 @@
 
 use serde_json::{json, Value};
 use std::time::Duration;
-use tokio::process::Command;
 
 use crate::util;
 
@@ -32,7 +31,7 @@ pub async fn pr_state(url: &str) -> Value {
         return json!({ "error": "not a URL" });
     }
 
-    let run = Command::new("gh")
+    let run = crate::platform::command("gh")
         .args([
             "pr",
             "view",

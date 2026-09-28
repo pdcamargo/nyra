@@ -1,4 +1,5 @@
 import type { ToolCallMessage } from '../store/sessions'
+import { basename, isAbsolute, segments, separatorOf } from '../lib/paths'
 
 /** Compact display name. mcp__<server>__<function> → <server>:<function> */
 export function formatToolName(name: string): string {
@@ -150,7 +151,7 @@ export function bashDetail(input: Record<string, unknown>): string {
 function scriptFiles(script: string): string[] {
   const seen = new Set<string>()
   for (const hit of script.matchAll(/['"]([\w./~-]+\.[a-z]{1,5})['"]/gi)) {
-    const base = hit[1].split('/').pop()!
+    const base = basename(hit[1])
     if (!base.startsWith('.')) seen.add(base)
     if (seen.size === 3) break
   }
@@ -158,10 +159,11 @@ function scriptFiles(script: string): string[] {
 }
 
 function shortenPath(p: string): string {
-  // Show last 3 segments for readability
-  const parts = p.split('/')
-  if (parts.length <= 3) return p
-  return '…/' + parts.slice(-3).join('/')
+  // Show last 3 segments for readability. An absolute path's root counts as
+  // one of them, so `/a/b/c.ts` is still marked as cut.
+  const parts = segments(p)
+  if (parts.length + (isAbsolute(p) ? 1 : 0) <= 3) return p
+  return `…${separatorOf(p)}${parts.slice(-3).join(separatorOf(p))}`
 }
 
 /** Build a grouped summary like "Read 3 files, Edited 2 files" */

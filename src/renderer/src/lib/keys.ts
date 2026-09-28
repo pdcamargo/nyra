@@ -10,22 +10,20 @@
  * `navigator` inside the matcher. That is what makes both platforms testable.
  */
 
+import { platform, setPlatformForTest } from './platform'
+
 /** Normalized: lowercase, `+`-joined, modifiers in a fixed order. */
 export type Chord = string
 export type Platform = 'mac' | 'other'
 
-let cachedPlatform: Platform | null = null
-
+/** For chords the only question is whether ⌘ exists; `lib/platform` knows the rest. */
 export function currentPlatform(): Platform {
-  if (cachedPlatform) return cachedPlatform
-  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
-  cachedPlatform = /Mac|iPhone|iPad|iPod/.test(ua) ? 'mac' : 'other'
-  return cachedPlatform
+  return platform().os === 'mac' ? 'mac' : 'other'
 }
 
 /** Test seam. */
 export function resetPlatformCache(): void {
-  cachedPlatform = null
+  setPlatformForTest(null)
 }
 
 /**

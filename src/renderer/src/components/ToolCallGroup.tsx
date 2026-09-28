@@ -9,6 +9,7 @@ import PlanCard, { type PlanAnswer } from './PlanCard'
 import FinishedChecklist from './FinishedChecklist'
 import GoalChip from './GoalChip'
 import SkillChip from './SkillChip'
+import { tail } from '../lib/paths'
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write'])
 
@@ -47,7 +48,7 @@ export function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.
           className="text-c-sm text-info hover:underline font-mono truncate min-w-0 transition-colors text-left"
           onClick={() => openFileInPanel(filePath)}
         >
-          {filePath.split('/').slice(-3).join('/')}
+          {tail(filePath, 3)}
         </button>
       ) : (
         <span

@@ -60,10 +60,14 @@ if (!updaterKey) {
   console.warn('no ~/.tauri/nyra-updater.key — the updater artifact will not be signed.')
 }
 
-const tauri = join(root, 'node_modules', '.bin', 'tauri')
+// On Windows `.bin/tauri` is a shell script; `tauri.cmd` beside it is what runs,
+// and only through a shell.
+const windows = process.platform === 'win32'
+const tauri = join(root, 'node_modules', '.bin', windows ? 'tauri.cmd' : 'tauri')
 const result = spawnSync(existsSync(tauri) ? tauri : 'tauri', ['build', ...process.argv.slice(2)], {
   stdio: 'inherit',
   cwd: root,
+  shell: windows,
   env: {
     ...process.env,
     // `-` is codesign's own spelling of ad-hoc, and the config used to say it.

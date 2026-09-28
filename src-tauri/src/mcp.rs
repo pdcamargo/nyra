@@ -22,7 +22,6 @@ use std::process::Stdio;
 use std::time::Duration;
 use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 
 use crate::util;
 
@@ -396,14 +395,6 @@ fn script_path() -> Option<PathBuf> {
     dev.is_file().then_some(dev)
 }
 
-/// `which`, against the PATH the app resolved rather than the one it inherited.
-fn which(name: &str) -> Option<PathBuf> {
-    util::child_path().split(':').find_map(|dir| {
-        let candidate = PathBuf::from(dir).join(name);
-        candidate.is_file().then_some(candidate)
-    })
-}
-
 /// Never let a configured secret reach a log, a toast, or the renderer.
 ///
 /// An `env` value or a header value is the only secret in this flow, and both
@@ -431,7 +422,7 @@ pub async fn inspect(cwd: &str, name: &str) -> Value {
     let Some(script) = script_path() else {
         return json!({ "ok": false, "error": "The MCP inspector script is missing from this build." });
     };
-    let Some(node) = which("node") else {
+    let Some(node) = crate::platform::which("node") else {
         return json!({
             "ok": false,
             "error": "Node.js is not installed, or not on the PATH Nyra can see."
@@ -449,7 +440,7 @@ pub async fn inspect(cwd: &str, name: &str) -> Value {
         "timeoutMs": INSPECT_TIMEOUT.as_millis() as u64,
     });
 
-    let mut child = match Command::new(&node)
+    let mut child = match crate::platform::command(&node)
         .arg(&script)
         .current_dir(cwd)
         .env_clear()
@@ -551,7 +542,7 @@ pub struct McpHealth {
 /// servers — which is why the renderer runs it once and caches it.
 pub async fn health(cwd: &str) -> Result<Vec<McpHealth>, String> {
     let binary = crate::claude::resolve_claude_binary(&util::settings().claude_binary_path);
-    let mut command = Command::new(&binary);
+    let mut command = crate::platform::command(&binary);
     command
         .args(["mcp", "list"])
         .env_clear()

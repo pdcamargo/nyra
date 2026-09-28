@@ -50,6 +50,7 @@ import { groupFlowsByProject, triggerSummary, flowMeta, flowComposition } from '
 import { createPermanentWorktree, defaultBranchName } from '../lib/worktrees'
 import { archiveChat, openArchivedChats } from '../lib/archive'
 import type { WorkflowDefinition } from '../../../shared/workflow-types'
+import { basename } from '../lib/paths'
 
 // Lazy so monaco-editor only loads when Memory is opened.
 const MemoryTab = React.lazy(() => import('./MemoryTab'))
@@ -315,7 +316,7 @@ function ChatCard({
   session: Session
   hasBrowser: boolean
 }): React.JSX.Element {
-  const folder = session.cwd?.split('/').pop()
+  const folder = session.cwd ? basename(session.cwd) : undefined
   return (
     <div className="flex min-w-[14rem] flex-col gap-1.5">
       <p className="text-[0.92em] font-medium text-foreground">{session.title}</p>

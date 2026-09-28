@@ -3,7 +3,6 @@
 use serde::Serialize;
 use serde_json::Value;
 use std::time::Duration;
-use tokio::process::Command;
 
 use crate::util;
 
@@ -35,7 +34,7 @@ impl AccountStatus {
 pub async fn read(binary_path: &str) -> AccountStatus {
     let output = tokio::time::timeout(
         Duration::from_secs(8),
-        Command::new(binary_path)
+        crate::platform::command(binary_path)
             .args(["auth", "status", "--json"])
             .env_clear()
             .envs(util::clean_child_env())

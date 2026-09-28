@@ -6,7 +6,7 @@
 
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
 use serde_json::json;
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -44,7 +44,7 @@ pub fn start_login(claude_binary_path: &str) -> Result<u32, String> {
         })
         .map_err(|e| format!("openpty failed: {e}"))?;
 
-    let mut cmd = CommandBuilder::new(&bin);
+    let mut cmd = crate::platform::pty_command(&bin);
     cmd.arg("/login");
     cmd.cwd(util::home_dir());
     for (k, v) in util::clean_child_env() {

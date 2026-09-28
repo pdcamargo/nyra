@@ -9,9 +9,12 @@
 //! ~50 MB dump that takes seconds. A dozen `stat` calls costs nothing and finds
 //! everything installed the normal way.
 
+#[cfg(target_os = "macos")]
 use once_cell::sync::Lazy;
 use serde::Serialize;
+#[cfg(target_os = "macos")]
 use std::sync::Mutex;
+#[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -26,8 +29,10 @@ pub struct EditorApp {
 
 /// Long enough that the probe is free, short enough that installing an editor
 /// mid-session shows up without restarting Nyra.
+#[cfg(target_os = "macos")]
 const CACHE_TTL: Duration = Duration::from_secs(300);
 
+#[cfg(target_os = "macos")]
 static CACHE: Lazy<Mutex<Option<(Instant, Vec<EditorApp>)>>> = Lazy::new(|| Mutex::new(None));
 
 /// Display name to bundle name, in menu order. Editors people actually open a
@@ -103,6 +108,7 @@ pub fn detect_editors() -> Vec<EditorApp> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
     use super::*;
 
     #[cfg(target_os = "macos")]

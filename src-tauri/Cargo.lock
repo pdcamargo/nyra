@@ -3586,6 +3586,7 @@ dependencies = [
  "cpal",
  "croner",
  "dirs 7.0.0",
+ "dunce",
  "fancy-regex",
  "fontdb",
  "futures",
@@ -3621,6 +3622,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "whisper-rs",
+ "windows-sys 0.59.0",
  "zip 8.6.0",
 ]
 

@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{ChildStdin, Command};
+use tokio::process::ChildStdin;
 use tokio::sync::oneshot;
 
 use crate::util;
@@ -52,14 +52,6 @@ static START_GATE: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mute
 // Locating the pieces
 // ---------------------------------------------------------------------------
 
-/// `which`, against the PATH we resolved rather than the one we inherited.
-fn which(name: &str) -> Option<PathBuf> {
-    util::child_path().split(':').find_map(|dir| {
-        let candidate = PathBuf::from(dir).join(name);
-        candidate.is_file().then_some(candidate)
-    })
-}
-
 /// Packaged, the sidecar rides along in Resources. In development it is the
 /// checkout this binary was built from.
 fn sidecar_dir() -> Option<PathBuf> {
@@ -86,7 +78,7 @@ fn sidecar_dir() -> Option<PathBuf> {
 fn live() -> Option<Arc<Sidecar>> {
     let guard = SIDECAR.lock();
     let sidecar = guard.as_ref()?;
-    crate::processes::is_alive(sidecar.pid as i32).then(|| Arc::clone(sidecar))
+    crate::platform::is_alive(sidecar.pid).then(|| Arc::clone(sidecar))
 }
 
 async fn ensure() -> Result<Arc<Sidecar>, String> {
@@ -110,11 +102,11 @@ fn drain_pending(reason: &str) {
 }
 
 async fn start() -> Result<Arc<Sidecar>, String> {
-    let node = which("node")
+    let node = crate::platform::which("node")
         .ok_or_else(|| "Node.js is not installed, or not on the PATH Nyra can see.".to_string())?;
     let dir = sidecar_dir().ok_or_else(|| "The browser sidecar is missing.".to_string())?;
 
-    let mut child = Command::new(&node)
+    let mut child = crate::platform::command(&node)
         .arg(dir.join("index.mjs"))
         .current_dir(&dir)
         .env_clear()
@@ -428,12 +420,6 @@ pub async fn tab_list(chat_id: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn which_finds_a_system_binary() {
-        assert!(which("sh").is_some_and(|p| p.is_file()));
-        assert!(which("definitely-not-a-real-binary-xyz").is_none());
-    }
 
     #[test]
     fn the_sidecar_ships_with_the_checkout() {

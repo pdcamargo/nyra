@@ -20,6 +20,7 @@ import {
   matches,
   useScopedLibrary
 } from './Library'
+import { segments } from '../../lib/paths'
 
 const MemoryTab = React.lazy(() => import('../MemoryTab'))
 const PluginsView = React.lazy(() => import('./PluginsView'))
@@ -77,8 +78,8 @@ function SkillActions(): React.JSX.Element {
     const fm = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
     let name = fm?.[1].match(/^name:\s*(.+)$/m)?.[1].trim() ?? null
     if (!name) {
-      const parts = filePath.split('/')
-      const fileName = parts[parts.length - 1]
+      const parts = segments(filePath)
+      const fileName = parts[parts.length - 1] ?? ''
       name =
         fileName.toLowerCase() === 'skill.md'
           ? (parts[parts.length - 2] ?? 'imported-skill')

@@ -1,18 +1,9 @@
 /** Path arithmetic for the tree. Pure, and separate from the components, because
- *  every one of these is a one-liner that is easy to get subtly wrong. */
+ *  every one of these is a one-liner that is easy to get subtly wrong. The
+ *  per-OS rules underneath are `lib/paths`. */
+import { basename, dirname, joinPath, relativeTo, segments, trimTrailingSep } from '../../lib/paths'
 
-/** Join a root and a repo-relative path. `''` means the root itself. */
-export function joinPath(root: string, relative: string): string {
-  if (!relative) return root
-  return `${root.replace(/\/$/, '')}/${relative}`
-}
-
-/** The path relative to the tree's root, for a breadcrumb or an @-mention. */
-export function relativeTo(root: string, absolute: string): string {
-  const base = root.replace(/\/$/, '')
-  if (absolute === base) return ''
-  return absolute.startsWith(`${base}/`) ? absolute.slice(base.length + 1) : absolute
-}
+export { joinPath, relativeTo }
 
 /**
  * The folders between the root and a file, outermost first — the ones the tree
@@ -20,25 +11,23 @@ export function relativeTo(root: string, absolute: string): string {
  * outside it, which this tree cannot reach.
  */
 export function ancestorsWithin(root: string, absolute: string): string[] {
-  const base = root.replace(/\/$/, '')
-  if (!absolute.startsWith(`${base}/`)) return []
-  const segments = absolute.slice(base.length + 1).split('/').filter(Boolean)
+  const rest = relativeTo(root, absolute)
+  if (!rest || rest === absolute) return []
   const dirs: string[] = []
-  let acc = base
-  for (const segment of segments.slice(0, -1)) {
-    acc = `${acc}/${segment}`
+  let acc = root
+  for (const segment of segments(rest).slice(0, -1)) {
+    acc = joinPath(acc, segment)
     dirs.push(acc)
   }
   return dirs
 }
 
 export function dirnameOf(path: string): string {
-  const at = path.lastIndexOf('/')
-  return at <= 0 ? '/' : path.slice(0, at)
+  return dirname(path)
 }
 
 export function basenameOf(path: string): string {
-  return path.split('/').filter(Boolean).pop() ?? path
+  return basename(path) || path
 }
 
 export type Crumb = { label: string; path: string; isRoot: boolean }
@@ -50,16 +39,15 @@ export type Crumb = { label: string; path: string; isRoot: boolean }
  * not somewhere this tree can go, so offering it would be a dead end.
  */
 export function breadcrumbs(root: string, absolute: string): Crumb[] {
-  const base = root.replace(/\/$/, '')
-  const rootCrumb: Crumb = { label: basenameOf(base) || '/', path: base, isRoot: true }
-  const rest = relativeTo(base, absolute)
+  const rootCrumb: Crumb = { label: basenameOf(root), path: trimTrailingSep(root), isRoot: true }
+  const rest = relativeTo(root, absolute)
   if (!rest || rest === absolute) return [rootCrumb]
 
-  let acc = base
+  let acc = rootCrumb.path
   return [
     rootCrumb,
-    ...rest.split('/').filter(Boolean).map((segment) => {
-      acc = `${acc}/${segment}`
+    ...segments(rest).map((segment) => {
+      acc = joinPath(acc, segment)
       return { label: segment, path: acc, isRoot: false }
     })
   ]

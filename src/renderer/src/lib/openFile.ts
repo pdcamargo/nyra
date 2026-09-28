@@ -15,7 +15,7 @@ import {
   useWorkspaceStore,
   workspaceFor
 } from '../store/workspace'
-import { resolvePath } from '../utils/paths'
+import { basename, resolvePath } from './paths'
 import { absoluteInRepo } from './repoRoot'
 
 /**
@@ -290,7 +290,7 @@ export async function designArtboardName(
  * index has answered, and as the name when adopting a file nothing owns yet.
  */
 export function designNameFromPath(absolute: string): string {
-  const base = absolute.split('/').pop() ?? absolute
+  const base = basename(absolute) || absolute
   const stem = base.slice(0, -DESIGN_EXTENSION.length)
   const withoutId = stem.replace(/-d_[0-9a-f]+$/i, '')
   const words = withoutId.replace(/[-_]+/g, ' ').trim()

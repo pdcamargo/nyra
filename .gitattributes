@@ -1,0 +1,4 @@
+# Text is LF in the repository and in every checkout, Windows included. Without
+# this Git for Windows checks out CRLF, and the first commit from there rewrites
+# every line of every file it touches. Binaries are detected and left alone.
+* text=auto eol=lf

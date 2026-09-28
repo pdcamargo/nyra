@@ -41,16 +41,8 @@ pub struct MemoryListResult {
     pub files: Vec<MemoryFile>,
 }
 
-fn encode_project_dir(cwd: &str) -> String {
-    cwd.replace('/', "-")
-}
-
 pub fn project_memory_dir(cwd: &str) -> PathBuf {
-    util::home_dir()
-        .join(".claude")
-        .join("projects")
-        .join(encode_project_dir(cwd))
-        .join("memory")
+    util::claude_project_dir(cwd).join("memory")
 }
 
 /// Pull `description:` and `type:` out of a memory file's YAML frontmatter.
@@ -227,10 +219,13 @@ fn is_path_allowed(file_path: &str, cwd: &str) -> bool {
         util::home_dir().join(".claude"),
         PathBuf::from(cwd),
     ];
-    allowed.iter().any(|dir| {
-        let dir = dir.to_string_lossy();
-        file_path == dir || file_path.starts_with(&format!("{dir}/"))
-    })
+    // By component, so it holds for either separator, and `..` is refused
+    // outright: `<cwd>/../../etc/passwd` starts with `<cwd>` too.
+    let path = Path::new(file_path);
+    if path.components().any(|c| c == std::path::Component::ParentDir) {
+        return false;
+    }
+    allowed.iter().any(|dir| path.starts_with(dir))
 }
 
 pub async fn read_memory_file(file_path: &str, cwd: &str) -> Result<String, String> {
@@ -311,10 +306,13 @@ mod tests {
         let cwd = "/Users/x/proj";
         assert!(is_path_allowed("/Users/x/proj/CLAUDE.md", cwd));
         assert!(!is_path_allowed("/etc/passwd", cwd));
+        assert!(!is_path_allowed("/Users/x/proj/../../../etc/passwd", cwd));
+        assert!(!is_path_allowed("/Users/x/project-two/a.md", cwd));
     }
 
     #[test]
     fn encodes_the_project_dir_the_way_claude_does() {
-        assert_eq!(encode_project_dir("/Users/x/proj"), "-Users-x-proj");
+        let dir = project_memory_dir("/Users/x/proj");
+        assert!(dir.ends_with(Path::new("-Users-x-proj").join("memory")), "{}", dir.display());
     }
 }

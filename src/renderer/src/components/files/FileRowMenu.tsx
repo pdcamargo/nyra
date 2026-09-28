@@ -21,6 +21,7 @@ import {
 import { relativeTo } from './paths'
 import { useUiStore } from '../../store/ui'
 import type { EditorApp } from '../../lib/api-types'
+import { platform } from '../../lib/platform'
 
 export default function FileRowMenu({
   root,
@@ -71,7 +72,7 @@ export default function FileRowMenu({
 
         <ContextMenuItem onSelect={() => void window.api.fs.reveal(path)}>
           <FolderOpen />
-          Reveal in Finder
+          {platform().revealLabel}
         </ContextMenuItem>
 
         <ContextMenuSeparator />

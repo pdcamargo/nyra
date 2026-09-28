@@ -89,6 +89,7 @@ import type {
   MarketplaceIndex,
   MarketplaceEntry
 } from '../../../shared/workflow-types'
+import { shortenPath } from '../lib/paths'
 
 // --- Constants ---
 const AVAILABLE_TOOLS = [
@@ -2889,8 +2890,7 @@ function RunButton({
   const recents = recentCwds.filter((c) => c !== currentCwd).slice(0, 5)
   const short = (path: string): string => {
     if (!path) return ''
-    const parts = path.split('/').filter(Boolean)
-    return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : path
+    return shortenPath(path, 2)
   }
 
   // Filled with the foreground, not green. Every other colour on this canvas

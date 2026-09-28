@@ -6,8 +6,8 @@
   "type": "module",
   "author": "Patrick Dias <https://github.com/pdcamargo>",
   "scripts": {
-    "dev": "NYRA_DEV_PASSIVE=1 tauri dev",
-    "dev:active": "tauri dev",
+    "dev": "node scripts/dev.mjs",
+    "dev:active": "node scripts/dev.mjs --active",
     "build": "node scripts/prebundle.mjs && node scripts/build-app.mjs",
     "vite:dev": "vite",
     "vite:build": "tsc --noEmit -p tsconfig.web.json && vite build",

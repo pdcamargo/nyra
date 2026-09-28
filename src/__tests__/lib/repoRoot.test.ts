@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { absoluteInRepo, repoRootFor } from '@renderer/lib/repoRoot'
 import { isImagePath, isMarkdownPath } from '@renderer/components/files/media'
+import { setPlatformForTest } from '@renderer/lib/platform'
 
 /**
  * `git diff` prints a path from the top of the tree, always — whether or not it
@@ -15,6 +16,19 @@ const trees = (paths: string[]): void => {
 }
 
 describe('repoRootFor', () => {
+  afterEach(() => setPlatformForTest(null))
+
+  // `git worktree list` on Windows prints forward slashes, and may not share
+  // the cwd's case; the root comes back spelled the way the chat spells it.
+  it('matches a Windows worktree git lists with the other slash', async () => {
+    setPlatformForTest('windows')
+    trees(['C:/Users/me/Repo'])
+    expect(await repoRootFor('C:\\Users\\me\\repo\\apps\\web')).toBe('C:\\Users\\me\\repo')
+    expect(await absoluteInRepo('C:\\Users\\me\\repo\\apps\\web', 'src/a.ts')).toBe(
+      'C:\\Users\\me\\repo\\src\\a.ts'
+    )
+  })
+
   it('finds the repo above a chat opened in a subdirectory', async () => {
     trees(['/repo'])
     expect(await repoRootFor('/repo/apps/foo/internal')).toBe('/repo')

@@ -25,6 +25,7 @@
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::time::Duration;
 
 use crate::util;
@@ -42,6 +43,7 @@ const MAX_SHOTS_KEPT: usize = 40;
 /// The main thread may be the thing that is wedged, so nothing here waits
 /// forever. Generous, because a suspended WebContent process can be slow to
 /// answer before it answers correctly.
+#[cfg(target_os = "macos")]
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Whether this instance answers the debug routes at all.
@@ -166,11 +168,7 @@ pub fn register(port: u16) {
         crate::log!("devtools", "could not create {}: {e}", dir.display());
         return;
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
-    }
+    crate::platform::restrict_to_owner(&dir);
 
     let path = registry_file(port);
     let body = serde_json::json!({ "port": port, "pid": std::process::id(), "token": *TOKEN });
@@ -191,12 +189,9 @@ fn write_private(path: &PathBuf, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let mut opts = std::fs::OpenOptions::new();
     opts.create(true).write(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    opts.open(path)?.write_all(bytes)
+    crate::platform::private_open_options(&mut opts)
+        .open(path)?
+        .write_all(bytes)
 }
 
 /// What `/health` says about us. No token here — the route is unauthenticated,
@@ -211,7 +206,7 @@ pub fn identity(port: u16) -> serde_json::Value {
         "exe": std::env::current_exe()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default(),
-        "logPath": crate::logger::LOG_PATH,
+        "logPath": crate::logger::LOG_PATH.to_string_lossy(),
         "devtools": dev_enabled(),
     })
 }

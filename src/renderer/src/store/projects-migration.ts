@@ -1,14 +1,14 @@
 import type { Project, Session } from './sessions'
+import { basename as pathBasename, segments } from '../lib/paths'
 
 /** `/a/b/repo` → `repo`; tolerates trailing slashes and a bare `/`. */
 export function basename(path: string): string {
-  const parts = path.replace(/\/+$/, '').split('/')
-  return parts[parts.length - 1] || path || 'project'
+  return pathBasename(path) || path || 'project'
 }
 
 /** `/a/b/repo` → `b/repo`, the disambiguator when two projects share a basename. */
 export function qualifiedName(path: string): string {
-  const parts = path.replace(/\/+$/, '').split('/').filter(Boolean)
+  const parts = segments(path)
   if (parts.length < 2) return basename(path)
   return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`
 }

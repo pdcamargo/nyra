@@ -6,7 +6,7 @@
 
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -77,8 +77,9 @@ pub fn spawn_terminal(id: &str, cwd: &str) -> Result<u32, String> {
         })
         .map_err(|e| format!("openpty failed: {e}"))?;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let mut cmd = CommandBuilder::new(&shell);
+    let (shell, shell_args) = crate::platform::default_shell();
+    let mut cmd = crate::platform::pty_command(&shell);
+    cmd.args(shell_args);
     let dir = if cwd.is_empty() {
         util::home_dir()
     } else {
@@ -93,7 +94,7 @@ pub fn spawn_terminal(id: &str, cwd: &str) -> Result<u32, String> {
     let child = pair
         .slave
         .spawn_command(cmd)
-        .map_err(|e| format!("Failed to spawn {shell}: {e}"))?;
+        .map_err(|e| format!("Failed to spawn {}: {e}", shell.to_string_lossy()))?;
     drop(pair.slave);
 
     let pid = child.process_id().unwrap_or(0);

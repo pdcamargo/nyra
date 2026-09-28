@@ -73,10 +73,7 @@ quick-xml = "0.42"
 # keeps audio off the IPC boundary entirely.
 cpal = "0.18"
 rubato = "5"
-# whisper.cpp. `metal` makes build.rs set GGML_METAL_EMBED_LIBRARY=ON, which
-# bakes the shader source into the binary and compiles it at runtime — no
-# .metallib to ship and no metal compiler needed at build time.
-whisper-rs = { version = "0.16", default-features = false, features = ["metal"] }
+# whisper.cpp is per target, below: Metal on macOS, the CPU build elsewhere.
 
 base64 = "0.22"
 rand = "0.10"
@@ -90,6 +87,26 @@ log = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# Process liveness (`OpenProcess`), and canonical paths without the `\\?\`
+# prefix. Both already in the tree through tokio and tauri. See src/platform/.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+dunce = "1"
+
+# `metal` makes build.rs set GGML_METAL_EMBED_LIBRARY=ON, which bakes the
+# shader source into the binary and compiles it at runtime — no .metallib to
+# ship and no metal compiler needed at build time.
+[target.'cfg(target_os = "macos")'.dependencies.whisper-rs]
+version = "0.16"
+default-features = false
+features = ["metal"]
+
+# The CPU build. Fast enough for the base model; a GPU backend (Vulkan, CUDA)
+# is a feature flag here when someone needs one.
+[target.'cfg(not(target_os = "macos"))'.dependencies.whisper-rs]
+version = "0.16"
+default-features = false
 
 # Inspecting our own WKWebView: a screenshot that needs no Screen Recording
 # permission, and JS evaluation that needs no cooperation from the renderer.

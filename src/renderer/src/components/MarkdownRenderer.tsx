@@ -18,7 +18,7 @@ import { Check, Copy, WrapText } from 'lucide-react'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
 import { useSessionsStore, activeCwd } from '../store/sessions'
 import { useResourceDockStore } from '../store/resourceDock'
-import { resolvePath } from '../utils/paths'
+import { isAbsolute, resolvePath } from '../lib/paths'
 import { cachedImage, loadImage, type ImageEntry } from '../lib/imageCache'
 import { remarkPromptDecorations } from '../lib/promptMarkdown'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
@@ -285,7 +285,7 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }): React.JSX.
     // A relative path only means something beside the dir the chat runs in, and
     // MarkdownRenderer also draws plan cards and the memory preview, where there
     // may be no session to resolve against.
-    if (!src.startsWith('/') && !cwd) return null
+    if (!isAbsolute(src) && !cwd) return null
     const full = resolvePath(src, cwd)
     return RENDERABLE_IMAGE_RE.test(full.split(/[?#]/)[0]) ? full : null
   }, [src, cwd])

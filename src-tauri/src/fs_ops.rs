@@ -259,14 +259,8 @@ fn mtime_ms_of(meta: &std::fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
-#[cfg(unix)]
 fn ino_of(meta: &std::fs::Metadata) -> u64 {
-    std::os::unix::fs::MetadataExt::ino(meta)
-}
-
-#[cfg(not(unix))]
-fn ino_of(_meta: &std::fs::Metadata) -> u64 {
-    0
+    crate::platform::file_id(meta)
 }
 
 /// A file's text, for the read-only preview.
@@ -381,11 +375,15 @@ fn browse_split(query: &str) -> Option<(String, String)> {
     if query.is_empty() {
         return None;
     }
-    let absolute = query.starts_with('/') || query.starts_with('~');
-    if !absolute && !query.contains('/') && query != "." && query != ".." {
+    // `is_separator` is `/` here and either slash on Windows, so `@..\api`
+    // browses there the way `@../api` does here.
+    let absolute = query.starts_with(std::path::is_separator)
+        || query.starts_with('~')
+        || Path::new(query).is_absolute();
+    if !absolute && !query.contains(std::path::is_separator) && query != "." && query != ".." {
         return None;
     }
-    let (dir, filter) = match query.rfind('/') {
+    let (dir, filter) = match query.rfind(std::path::is_separator) {
         // A trailing slash names the directory itself: `@../` is "show me what
         // is next door".
         Some(at) if at + 1 == query.len() => (&query[..at], ""),
@@ -400,7 +398,7 @@ fn browse_split(query: &str) -> Option<(String, String)> {
 
 /// Resolve a browse directory against the chat's cwd, expanding `~`.
 fn browse_base(cwd: &str, dir: &str) -> PathBuf {
-    if let Some(rest) = dir.strip_prefix("~/") {
+    if let Some(rest) = dir.strip_prefix('~').and_then(|r| r.strip_prefix(std::path::is_separator)) {
         return util::home_dir().join(rest);
     }
     if dir == "~" {
@@ -472,7 +470,7 @@ pub async fn list_files(cwd: &str, query: &str) -> Vec<FileEntry> {
 async fn fuzzy_list_files(cwd: &str, query: &str) -> Vec<FileEntry> {
     let files: Vec<String> = match tokio::time::timeout(
         Duration::from_secs(5),
-        tokio::process::Command::new("git")
+        crate::platform::command("git")
             .args(["ls-files", "--cached", "--others", "--exclude-standard"])
             .current_dir(cwd)
             .output(),
@@ -616,7 +614,7 @@ fn orphan_dirs(root: &Path, alive: &dyn Fn(i32) -> bool) -> Vec<PathBuf> {
 /// or a crash — strands one. Without this, the fix for the shared-directory bug
 /// would trade it for a slow leak of one directory per unclean exit.
 pub fn sweep_orphan_dirs() {
-    for dir in orphan_dirs(&util::temp_dir(), &|pid| crate::processes::is_alive(pid)) {
+    for dir in orphan_dirs(&util::temp_dir(), &|pid| crate::platform::is_alive(pid as u32)) {
         crate::log!("temp-sweep", "Removing orphaned scratch dir {}", dir.display());
         let _ = std::fs::remove_dir_all(&dir);
     }

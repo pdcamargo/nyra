@@ -16,6 +16,7 @@ import {
   openFileInPanel,
   splitDesignRef
 } from './openFile'
+import { basename } from './paths'
 
 /**
  * Nyra's own composer decorations, on top of plain markdown.
@@ -82,9 +83,7 @@ export function findFileMentions(text: string): FileMention[] {
 
 /** The part of a path worth showing — a chip has no room for the rest. */
 export function mentionLabel(path: string): string {
-  const trimmed = path.replace(/\/+$/, '')
-  const base = trimmed.slice(trimmed.lastIndexOf('/') + 1)
-  return base || trimmed
+  return basename(path) || path
 }
 
 

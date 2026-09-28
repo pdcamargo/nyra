@@ -8,16 +8,17 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// Split by profile, because a dev instance and the installed app run side by
 /// side whenever Nyra is used to develop Nyra — and `init` truncates. On one
 /// shared path, starting dev blanked the installed app's log mid-session, and
 /// from then on both appended to it with no way to tell the two apart.
-#[cfg(debug_assertions)]
-pub const LOG_PATH: &str = "/tmp/nyra-debug-dev.log";
-#[cfg(not(debug_assertions))]
-pub const LOG_PATH: &str = "/tmp/nyra-debug.log";
+const LOG_NAME: &str = if cfg!(debug_assertions) { "nyra-debug-dev.log" } else { "nyra-debug.log" };
+
+/// `/tmp/nyra-debug.log` on macOS and Linux, `%TEMP%\nyra-debug.log` on Windows.
+pub static LOG_PATH: Lazy<PathBuf> = Lazy::new(|| crate::platform::log_dir().join(LOG_NAME));
 
 static BUFFER: Lazy<Mutex<Vec<String>>> = Lazy::new(|| Mutex::new(Vec::new()));
 /// Read once: `log_line` is on the path of every stream-json event.
@@ -37,15 +38,8 @@ fn console_enabled() -> bool {
 /// holds whole conversations — prompts, tool inputs, tool results — and /tmp is
 /// world-readable. The mode only applies when we create the file, so `init`
 /// also fixes one an older build left at 0644.
-#[cfg(unix)]
 fn private(opts: &mut OpenOptions) -> &mut OpenOptions {
-    use std::os::unix::fs::OpenOptionsExt;
-    opts.mode(0o600)
-}
-
-#[cfg(not(unix))]
-fn private(opts: &mut OpenOptions) -> &mut OpenOptions {
-    opts
+    crate::platform::private_open_options(opts)
 }
 
 fn flush() {
@@ -56,7 +50,7 @@ fn flush() {
         }
         std::mem::take(&mut *buf)
     };
-    if let Ok(mut f) = private(OpenOptions::new().create(true).append(true)).open(LOG_PATH) {
+    if let Ok(mut f) = private(OpenOptions::new().create(true).append(true)).open(&*LOG_PATH) {
         let _ = f.write_all(batch.join("\n").as_bytes());
         let _ = f.write_all(b"\n");
     }
@@ -82,13 +76,9 @@ pub fn log_line(msg: impl AsRef<str>) {
 
 /// Truncate the log so each launch starts fresh.
 pub fn init() {
-    let _ = private(OpenOptions::new().create(true).write(true).truncate(true)).open(LOG_PATH);
+    let _ = private(OpenOptions::new().create(true).write(true).truncate(true)).open(&*LOG_PATH);
     // `mode` above only bites on create; an existing 0644 file needs this.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(LOG_PATH, std::fs::Permissions::from_mode(0o600));
-    }
+    crate::platform::restrict_to_owner(&LOG_PATH);
     Lazy::force(&FLUSHER);
 }
 
