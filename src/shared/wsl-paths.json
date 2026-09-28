@@ -1,0 +1,38 @@
+{
+  "$comment": "WSL path translation, one table for both sides. Rust (src-tauri/src/environment) runs every section; the renderer (lib/environment.ts) maps only WSL paths to host paths, so it runs `detect` and `toHost`. Each case names the project's cwd, which is what decides the distro and the share spelling. `/mnt` as the automount root is an assumption on both sides.",
+  "detect": [
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "share": "\\\\wsl.localhost\\", "distro": "Ubuntu", "linux": "/home/me/repo" },
+    { "cwd": "\\\\wsl$\\Ubuntu-22.04\\home\\me\\", "share": "\\\\wsl$\\", "distro": "Ubuntu-22.04", "linux": "/home/me" },
+    { "cwd": "//WSL.LOCALHOST/Ubuntu/home", "share": "\\\\wsl.localhost\\", "distro": "Ubuntu", "linux": "/home" },
+    { "cwd": "\\\\?\\UNC\\wsl.localhost\\Ubuntu\\tmp", "share": "\\\\wsl.localhost\\", "distro": "Ubuntu", "linux": "/tmp" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu", "share": "\\\\wsl.localhost\\", "distro": "Ubuntu", "linux": "/" },
+    { "cwd": "C:\\Users\\me\\repo", "distro": null },
+    { "cwd": "\\\\fileserver\\share\\repo", "distro": null },
+    { "cwd": "/home/me/repo", "distro": null },
+    { "cwd": "\\\\wsl.localhost\\", "distro": null }
+  ],
+  "toHost": [
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "path": "/home/me/repo/src/a.ts", "host": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo\\src\\a.ts" },
+    { "cwd": "\\\\wsl$\\Ubuntu\\home\\me\\repo", "path": "/home/me", "host": "\\\\wsl$\\Ubuntu\\home\\me" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "path": "/tmp/a b/c.txt", "host": "\\\\wsl.localhost\\Ubuntu\\tmp\\a b\\c.txt" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "path": "/mnt/c/Users/me/x.png", "host": "C:\\Users\\me\\x.png" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "path": "/mnt/d", "host": "D:\\" },
+    { "$comment": "/mnt/wsl is WSL's own, not a drive", "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "path": "/mnt/wsl/x", "host": "\\\\wsl.localhost\\Ubuntu\\mnt\\wsl\\x" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "path": "src/a.ts", "host": "src/a.ts" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "path": "C:\\Users\\me\\x.png", "host": "C:\\Users\\me\\x.png" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "path": "\\\\wsl.localhost\\Ubuntu\\home\\me\\a.ts", "host": "\\\\wsl.localhost\\Ubuntu\\home\\me\\a.ts" },
+    { "$comment": "a UNC path with forward slashes is already a host path", "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "path": "//wsl.localhost/Ubuntu/home/me/a.ts", "host": "//wsl.localhost/Ubuntu/home/me/a.ts" },
+    { "$comment": "a host project is left alone", "cwd": "C:\\Users\\me\\repo", "path": "/tmp/x.png", "host": "/tmp/x.png" }
+  ],
+  "toEnv": [
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "host": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "path": "/home/me/repo" },
+    { "cwd": "\\\\wsl$\\ubuntu\\home\\me", "host": "\\\\wsl$\\Ubuntu\\home\\me", "path": "/home/me" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "host": "C:\\Users\\me\\AppData\\Local\\Temp\\nyra-files-123\\a.png", "path": "/mnt/c/Users/me/AppData/Local/Temp/nyra-files-123/a.png" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "host": "D:/data/", "path": "/mnt/d/data" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "host": "C:\\", "path": "/mnt/c" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "host": "\\\\?\\C:\\x", "path": "/mnt/c/x" },
+    { "$comment": "another distro has no name in this one", "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "host": "\\\\wsl.localhost\\Debian\\home", "path": "\\\\wsl.localhost\\Debian\\home" },
+    { "cwd": "\\\\wsl.localhost\\Ubuntu\\home\\me\\repo", "host": "src\\a.ts", "path": "src/a.ts" },
+    { "$comment": "a host project is left alone", "cwd": "C:\\Users\\me\\repo", "host": "C:\\Users\\me\\repo\\a.ts", "path": "C:\\Users\\me\\repo\\a.ts" }
+  ]
+}

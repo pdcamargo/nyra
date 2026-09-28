@@ -22,6 +22,7 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+use crate::environment::Environment;
 use crate::util;
 
 /// One configured server, as the renderer sees it.
@@ -108,10 +109,10 @@ fn transport_of(cfg: &Value) -> String {
 }
 
 /// How a path reads in a one-line source label. The home directory is long and
-/// identical on every row, so it becomes `~`.
-fn display_path(path: &Path) -> String {
-    let home = util::home_dir();
-    match path.strip_prefix(&home) {
+/// identical on every row, so it becomes `~` — the home of the environment the
+/// project runs in, which for a WSL project is the distro's.
+fn display_path(path: &Path, home: &Path) -> String {
+    match path.strip_prefix(home) {
         Ok(rest) => format!("~/{}", rest.display()),
         Err(_) => path.display().to_string(),
     }
@@ -191,8 +192,14 @@ fn servers_of(raw: &str) -> Option<Map<String, Value>> {
 }
 
 /// Every server this project can reach, in Claude Code's own precedence order.
+///
+/// Read from the `~/.claude` of the environment the CLI runs in, whose
+/// `projects` are keyed by the directory as that environment spells it:
+/// `/home/me/repo` for a WSL project, not the share path Nyra holds.
 async fn discover(cwd: &str) -> Vec<RawServer> {
-    let home = util::home_dir();
+    let env = Environment::of(cwd);
+    let home = env.home();
+    let key = env.cwd_in_env(cwd);
     let settings_path = home.join(".claude").join("settings.json");
     let local_path = home.join(".claude.json");
     let project_path = Path::new(cwd).join(".mcp.json");
@@ -208,7 +215,7 @@ async fn discover(cwd: &str) -> Vec<RawServer> {
         .ok()
         .and_then(|raw| serde_json::from_str(raw).ok());
     let disabled = match local_json.as_ref() {
-        Some(root) => project_choices(root, cwd).0,
+        Some(root) => project_choices(root, &key).0,
         None => Vec::new(),
     };
 
@@ -220,7 +227,7 @@ async fn discover(cwd: &str) -> Vec<RawServer> {
                 &mut out,
                 &servers,
                 "global",
-                &display_path(&settings_path),
+                &display_path(&settings_path, &home),
                 &[],
             );
         }
@@ -232,7 +239,7 @@ async fn discover(cwd: &str) -> Vec<RawServer> {
                 &mut out,
                 &servers,
                 "global",
-                &display_path(&local_path),
+                &display_path(&local_path, &home),
                 &[],
             );
         }
@@ -241,7 +248,7 @@ async fn discover(cwd: &str) -> Vec<RawServer> {
     if let Some(root) = local_json.as_ref() {
         if let Some(projects) = root.get("projects").and_then(Value::as_object) {
             for (proj_path, proj_cfg) in projects {
-                if !cwd.starts_with(proj_path.as_str()) {
+                if !key.starts_with(proj_path.as_str()) {
                     continue;
                 }
                 let Some(servers) = proj_cfg.get("mcpServers").and_then(Value::as_object) else {
@@ -251,7 +258,7 @@ async fn discover(cwd: &str) -> Vec<RawServer> {
                 // showing, and the whole path would not fit on a row.
                 let label = format!(
                     "{} · {}",
-                    display_path(&local_path),
+                    display_path(&local_path, &home),
                     Path::new(proj_path)
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
@@ -268,7 +275,7 @@ async fn discover(cwd: &str) -> Vec<RawServer> {
                 &mut out,
                 &servers,
                 "project",
-                &display_path(&project_path),
+                &display_path(&project_path, &home),
                 &disabled,
             );
         }
@@ -331,7 +338,9 @@ fn write_project_list(root: &mut Value, cwd: &str, key: &str, name: &str, presen
 }
 
 pub async fn set_enabled(cwd: &str, name: &str, enabled: bool) -> Value {
-    let path = util::home_dir().join(".claude.json");
+    let env = Environment::of(cwd);
+    let path = env.home().join(".claude.json");
+    let key = env.cwd_in_env(cwd);
     let raw = match tokio::fs::read_to_string(&path).await {
         Ok(raw) => raw,
         Err(e) => {
@@ -347,8 +356,8 @@ pub async fn set_enabled(cwd: &str, name: &str, enabled: bool) -> Value {
 
     // The two lists together are the whole decision, and the enabled one is the
     // answer: a name in both is enabled.
-    write_project_list(&mut root, cwd, "disabledMcpjsonServers", name, !enabled);
-    write_project_list(&mut root, cwd, "enabledMcpjsonServers", name, enabled);
+    write_project_list(&mut root, &key, "disabledMcpjsonServers", name, !enabled);
+    write_project_list(&mut root, &key, "enabledMcpjsonServers", name, enabled);
 
     let Ok(serialized) = serde_json::to_string_pretty(&root) else {
         return json!({ "ok": false, "error": "Could not serialise ~/.claude.json." });
@@ -523,9 +532,25 @@ pub struct McpHealth {
 /// the CLI resolves every scope, plugin servers and claude.ai connectors
 /// included, and connects to each once. Slow — several seconds with a dozen
 /// servers — which is why the renderer runs it once and caches it.
+///
+/// A WSL project asks the distro's own CLI, inside the distro: its servers,
+/// its `~/.claude.json`, its `node`.
 pub async fn health(cwd: &str) -> Result<Vec<McpHealth>, String> {
-    let binary = crate::claude::resolve_claude_binary(&util::settings().claude_binary_path);
-    let mut command = crate::platform::command(&binary);
+    let env = Environment::of(cwd);
+    let (binary, mut command) = match env.own_claude()? {
+        Some(own) => {
+            let command = env.command(&own, cwd);
+            (own, command)
+        }
+        None => {
+            let binary = crate::claude::resolve_claude_binary(&util::settings().claude_binary_path);
+            let mut command = crate::platform::command(&binary);
+            if !cwd.is_empty() && Path::new(cwd).is_dir() {
+                command.current_dir(cwd);
+            }
+            (binary, command)
+        }
+    };
     command
         .args(["mcp", "list"])
         .env_clear()
@@ -534,9 +559,6 @@ pub async fn health(cwd: &str) -> Result<Vec<McpHealth>, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    if !cwd.is_empty() && Path::new(cwd).is_dir() {
-        command.current_dir(cwd);
-    }
     let child = command
         .spawn()
         .map_err(|e| format!("Could not run `{binary}`: {e}"))?;
@@ -600,6 +622,21 @@ fn parse_health(stdout: &str) -> Vec<McpHealth> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Against the real thing: the distro's `~/.claude` is reachable over the
+    /// share, and `claude mcp list` runs inside the distro and parses.
+    /// `cargo test -- --ignored wsl` with `NYRA_TEST_DISTRO` (default `Ubuntu`).
+    #[tokio::test]
+    #[ignore]
+    async fn wsl_real_distro_answers_mcp_health_from_inside() {
+        let distro = std::env::var("NYRA_TEST_DISTRO").unwrap_or_else(|_| "Ubuntu".into());
+        let env = Environment::of(&format!(r"\\wsl.localhost\{distro}\tmp"));
+        let home = env.home();
+        assert!(home.join(".claude").is_dir(), "no ~/.claude at {}", home.display());
+        let cwd = home.to_string_lossy().into_owned();
+        let servers = health(&cwd).await.expect("claude mcp list ran in the distro");
+        eprintln!("{distro}: {} server(s): {servers:?}", servers.len());
+    }
 
     fn servers(raw: &str) -> Map<String, Value> {
         servers_of(raw).expect("mcpServers")

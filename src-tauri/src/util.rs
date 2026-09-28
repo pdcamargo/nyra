@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
+use crate::environment::Environment;
 use crate::platform;
 use crate::settings::NyraSettings;
 
@@ -68,9 +69,15 @@ const PROJECT_DIR_NAME_MAX: usize = 200;
 ///
 /// A name past the cap ends in a hash this does not reproduce, so that case is
 /// found by its prefix among the directories that exist.
+///
+/// In the `~/.claude` of the environment the CLI runs in, and named after the
+/// directory as that environment spells it: a WSL project's transcripts are
+/// under the distro's home, as `-home-me-repo`.
 pub fn claude_project_dir(cwd: &str) -> PathBuf {
-    let projects = home_dir().join(".claude").join("projects");
-    let name: String = cwd
+    let env = Environment::of(cwd);
+    let projects = env.home().join(".claude").join("projects");
+    let name: String = env
+        .cwd_in_env(cwd)
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
@@ -413,6 +420,20 @@ mod tests {
             projects.join("-Users-x--claude-jobs")
         );
         assert_eq!(claude_project_dir(r"C:\Users\x\my_app"), projects.join("C--Users-x-my-app"));
+    }
+
+    #[test]
+    fn a_wsl_project_dir_is_in_the_distros_home_under_its_linux_name() {
+        crate::environment::wsl::set_probe_for_test(
+            "UtilTest",
+            crate::environment::wsl::Probe { home: "/home/me".into(), ..Default::default() },
+        );
+        // Separators normalised: `join` writes this OS's, and the test runs on macOS too.
+        let dir = claude_project_dir(r"\\wsl.localhost\UtilTest\home\me\dev\my.repo");
+        assert_eq!(
+            dir.to_string_lossy().replace('/', r"\"),
+            r"\\wsl.localhost\UtilTest\home\me\.claude\projects\-home-me-dev-my-repo"
+        );
     }
 
     #[test]

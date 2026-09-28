@@ -77,15 +77,14 @@ pub fn spawn_terminal(id: &str, cwd: &str) -> Result<u32, String> {
         })
         .map_err(|e| format!("openpty failed: {e}"))?;
 
-    let (shell, shell_args) = crate::platform::default_shell();
-    let mut cmd = crate::platform::pty_command(&shell);
-    cmd.args(shell_args);
-    let dir = if cwd.is_empty() {
-        util::home_dir()
-    } else {
-        std::path::PathBuf::from(cwd)
-    };
-    cmd.cwd(dir);
+    // The project's own shell: the host's default one, or for a WSL project the
+    // distro's login shell, started in the project directory inside it.
+    let mut cmd = crate::environment::Environment::of(cwd).shell_command(cwd);
+    let shell = cmd
+        .get_argv()
+        .first()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     for (k, v) in util::clean_child_env() {
         cmd.env(k, v);
     }
@@ -94,7 +93,7 @@ pub fn spawn_terminal(id: &str, cwd: &str) -> Result<u32, String> {
     let child = pair
         .slave
         .spawn_command(cmd)
-        .map_err(|e| format!("Failed to spawn {}: {e}", shell.to_string_lossy()))?;
+        .map_err(|e| format!("Failed to spawn {shell}: {e}"))?;
     drop(pair.slave);
 
     let pid = child.process_id().unwrap_or(0);

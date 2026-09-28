@@ -12,7 +12,12 @@ import {
   transcriptFor,
   type SubagentEntry
 } from '../../store/subagentTranscripts'
-import { useSessionsStore, type Agent, type ToolCallMessage } from '../../store/sessions'
+import {
+  cwdForSession,
+  useSessionsStore,
+  type Agent,
+  type ToolCallMessage
+} from '../../store/sessions'
 import type { SubagentsWorkspaceTab } from '../../store/workspace'
 
 /** A stable empty array — a fresh one per call would re-render forever. */
@@ -177,8 +182,11 @@ function AgentStream({
     const path = agent.outputFile
     if (!path) return
     let cancelled = false
+    // The path is the one the session printed, so it is resolved against the
+    // chat's own environment — a WSL chat's transcript lives in the distro.
+    const cwd = cwdForSession(useSessionsStore.getState(), sessionId)
     void window.api.subagents
-      .transcript(path)
+      .transcript(path, cwd || undefined)
       .then((data) => {
         if (cancelled) return
         useSubagentTranscriptsStore

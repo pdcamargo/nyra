@@ -15,6 +15,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { PrRows } from './PullRequestChips'
 import { PortBadges } from './PortChips'
 import { isMonitor, monitorLabel } from './MonitorChips'
+import { useEnvironmentInfo } from '../hooks/useEnvironmentInfo'
+import { tildeInEnv } from '../lib/environment'
 
 type Stat = { filesChanged: number; insertions: number; deletions: number }
 
@@ -109,6 +111,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const [memory, setMemory] = useState<ChatMemory | null>(null)
 
   const cwd = session?.cwd ?? ''
+  const environment = useEnvironmentInfo(cwd)
   const projectPath = project?.path ?? ''
   const isWorktree = !!session?.worktree
   const sessionId = session?.id ?? null
@@ -273,7 +276,15 @@ export default function SummaryPanel(): React.JSX.Element | null {
             }
           />
         )}
-        <p className="mt-1 text-[10px] text-muted-foreground font-mono break-all">{cwd || '—'}</p>
+        {/* A WSL chat's directory the way its own shell writes it — `~/dev/repo`
+            rather than `\\wsl.localhost\Ubuntu\home\me\dev\repo`, which is the
+            share Nyra reaches it through, not where the chat is working. */}
+        <p
+          className="mt-1 text-[10px] text-muted-foreground font-mono break-all"
+          title={environment ? cwd : undefined}
+        >
+          {environment ? tildeInEnv(environment.cwdInEnv, environment.homeInEnv) : cwd || '—'}
+        </p>
       </Section>
 
       {/* Shells and monitors Claude left running. The CLI lists these; Nyra had

@@ -219,8 +219,11 @@ fn pass(nyra_session_id: &str, generation: u64) -> Pass {
 /// writes under the worktree's own path, and the flattening eats more than
 /// slashes. So the guess is checked, and when it misses the file is looked for
 /// by name among the project directories — two dozen `stat` calls, once.
+///
+/// Both under the `~/.claude` of the environment the CLI ran in — for a WSL
+/// chat, the distro's.
 fn locate(cwd: &str, claude_session_id: &str) -> Option<PathBuf> {
-    let projects = crate::util::home_dir().join(".claude").join("projects");
+    let projects = crate::environment::Environment::of(cwd).home().join(".claude").join("projects");
     let file = format!("{claude_session_id}.jsonl");
 
     let guess = crate::util::claude_project_dir(cwd).join(&file);

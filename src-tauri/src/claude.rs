@@ -26,6 +26,7 @@ use tokio::sync::oneshot;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::ai_title;
+use crate::environment::Environment;
 use crate::notify_user::notify;
 use crate::platform;
 use crate::processes;
@@ -521,7 +522,19 @@ pub fn dispose_all() {
 
 // ---- permissions ----
 
-async fn capture_original_content(tool_name: &str, input: &Value) -> Option<String> {
+/// A path the session printed, as one Nyra can open. The CLI names files the
+/// way its own environment does — `/home/me/repo/a.ts` in WSL — so anything
+/// that reads or writes one goes through here first. Identity on the host, and
+/// for a chat that is already gone.
+fn host_path(nyra_session_id: &str, path: &str) -> String {
+    let Some(sess) = get_session(nyra_session_id) else {
+        return path.to_string();
+    };
+    let cwd = sess.inner.lock().cwd.clone();
+    Environment::of(&cwd).to_host(path).to_string_lossy().into_owned()
+}
+
+async fn capture_original_content(env: &Environment, tool_name: &str, input: &Value) -> Option<String> {
     if tool_name != "Edit" && tool_name != "Write" {
         return None;
     }
@@ -535,10 +548,10 @@ async fn capture_original_content(tool_name: &str, input: &Value) -> Option<Stri
     }
     // `None` also covers "file doesn't exist yet", which is what a revert needs
     // to know to delete rather than restore.
-    tokio::fs::read_to_string(file_path).await.ok()
+    tokio::fs::read_to_string(env.to_host(file_path)).await.ok()
 }
 
-async fn revert_file_change(info: &PendingPermission) {
+async fn revert_file_change(env: &Environment, info: &PendingPermission) {
     if info.tool_name != "Edit" && info.tool_name != "Write" {
         return;
     }
@@ -547,11 +560,11 @@ async fn revert_file_change(info: &PendingPermission) {
         .get("file_path")
         .or_else(|| info.input.get("path"))
         .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default();
     if file_path.is_empty() {
         return;
     }
+    let file_path = env.to_host(file_path).to_string_lossy().into_owned();
 
     match &info.original_content {
         Some(original) => match tokio::fs::write(&file_path, original).await {
@@ -656,9 +669,10 @@ pub async fn respond_permission(approved: bool, nyra_session_id: Option<String>)
         inner.pending_permissions.drain(..).collect()
     };
 
-    revert_file_change(&tool_info).await;
+    let env = Environment::of(&sess.inner.lock().cwd);
+    revert_file_change(&env, &tool_info).await;
     for r in &remaining {
-        revert_file_change(r).await;
+        revert_file_change(&env, r).await;
     }
 
     let mut denied = json!({ "type": "tool_denied" });
@@ -756,7 +770,7 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
             // `task_notification` does, and gets here first. Whichever wins, the
             // other is a no-op.
             if let Some(path) = subagents::output_file_from_receipt(&result_content) {
-                subagents::watch(nyra_session_id, tool_id, &path);
+                subagents::watch(nyra_session_id, tool_id, &host_path(nyra_session_id, &path));
             }
             emit_plan_ready(nyra_session_id, tool_id);
         }
@@ -937,7 +951,11 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                     .get("tool_use_id")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                let output_file = raw.get("output_file").and_then(Value::as_str);
+                let output_file = raw
+                    .get("output_file")
+                    .and_then(Value::as_str)
+                    .map(|p| host_path(nyra_session_id, p));
+                let output_file = output_file.as_deref();
                 let status = raw.get("status").and_then(Value::as_str);
                 processes::note_task_notification(
                     nyra_session_id,
@@ -1193,21 +1211,30 @@ fn build_spawn_args(
         args.push(settings.model.clone());
     }
 
+    // Both servers listen on the host's loopback. A WSL distro under NAT
+    // networking has a loopback of its own, so there the tools would be
+    // attached and every call would fail; they are left off instead, and the
+    // renderer says why.
+    let env = Environment::of(cwd);
+    let reachable = env.reaches_host_loopback();
+
     // Resolved once: the same condition decides whether the tools are attached
     // and whether the prompt is allowed to talk about them. Teaching a browser
     // to a session that has none is worse than saying nothing.
     let browser_mcp = nyra_session_id
-        .filter(|_| util::settings().browser_tools)
+        .filter(|_| reachable && util::settings().browser_tools)
         .and_then(crate::browser::mcp_endpoint);
 
     // The same bargain for the app's own tools. A workflow node has no chat id
     // and no window to drive, so it gets neither these nor the browser.
     let app_mcp = nyra_session_id
-        .filter(|_| util::settings().app_tools)
+        .filter(|_| reachable && util::settings().app_tools)
         .and_then(crate::app_mcp::mcp_endpoint);
 
+    // The directory as the session itself sees it — `/home/me/repo` in WSL,
+    // which is what every path it prints will be relative to.
     let full_system_prompt = compose_system_prompt(
-        cwd,
+        &env.cwd_in_env(cwd),
         &settings.system_prompt,
         browser_mcp.is_some(),
         app_mcp.is_some(),
@@ -1292,6 +1319,31 @@ fn build_spawn_args(
     (args, fingerprint)
 }
 
+/// The prompt as the session's environment has to read it.
+///
+/// Attachments are staged in Nyra's own temp dirs and the prompt names them by
+/// host path — `[Image: C:\…\nyra-images-<pid>\a.png]`. Claude in WSL knows that
+/// file as `/mnt/c/…/nyra-images-<pid>/a.png`. Staged names are bare basenames,
+/// so swapping the directory prefix is exact. The host's prompt is untouched.
+fn prompt_in_env(env: &Environment, prompt: &str) -> String {
+    rewrite_staged_dirs(env, prompt, &[&crate::fs_ops::IMAGES_DIR, &crate::fs_ops::FILES_DIR])
+}
+
+fn rewrite_staged_dirs(env: &Environment, prompt: &str, dirs: &[&Path]) -> String {
+    if env.is_host() {
+        return prompt.to_string();
+    }
+    let mut out = prompt.to_string();
+    for dir in dirs {
+        let host = dir.to_string_lossy();
+        let inside = env.to_env(dir);
+        for sep in ['\\', '/'] {
+            out = out.replace(&format!("{host}{sep}"), &format!("{inside}/"));
+        }
+    }
+    out
+}
+
 fn format_user_message(prompt: &str) -> String {
     format!(
         "{}\n",
@@ -1354,14 +1406,15 @@ pub async fn steer_session(nyra_session_id: &str, prompt: &str) -> bool {
     let Some(sess) = get_session(nyra_session_id) else {
         return false;
     };
-    {
+    let env = {
         let inner = sess.inner.lock();
         if !inner.alive || inner.current_turn.is_none() {
             return false;
         }
-    }
+        Environment::of(&inner.cwd)
+    };
 
-    let payload = format_user_message(prompt);
+    let payload = format_user_message(&prompt_in_env(&env, prompt));
     let mut guard = sess.stdin.lock().await;
     let Some(stdin) = guard.as_mut() else {
         return false;
@@ -1433,6 +1486,7 @@ pub async fn run_claude(
 
     sess.inner.lock().refresh_runtime_settings(&settings);
 
+    let prompt = prompt_in_env(&Environment::of(&cwd), &prompt);
     let rx = match send_prompt_to_session(&sess, &prompt).await {
         Ok(rx) => rx,
         Err(e) => {
@@ -1455,7 +1509,11 @@ async fn spawn_session(
     worktree_name: Option<&str>,
     fingerprint: String,
 ) -> Result<Arc<Session>, String> {
-    let claude_bin = resolve_claude_binary(&settings.claude_binary_path);
+    let env = Environment::of(cwd);
+    let claude_bin = match env.own_claude()? {
+        Some(own) => own,
+        None => resolve_claude_binary(&settings.claude_binary_path),
+    };
     let (args, _) = build_spawn_args(
         cwd,
         settings,
@@ -1472,9 +1530,9 @@ async fn spawn_session(
     );
     crate::logf!("CWD: {cwd}");
 
-    let mut child = platform::command(&claude_bin)
+    let mut child = env
+        .command(&claude_bin, cwd)
         .args(&args)
-        .current_dir(cwd)
         .env_clear()
         .envs(util::clean_child_env())
         .stdin(Stdio::piped())
@@ -2077,7 +2135,9 @@ fn emit_plan_ready(nyra_session_id: &str, tool_id: &str) {
     else {
         return;
     };
-    match std::fs::read_to_string(&path) {
+    // The event keeps the path as the session wrote it; the renderer resolves
+    // it against the chat's cwd like every other path in a tool card.
+    match std::fs::read_to_string(host_path(nyra_session_id, &path)) {
         Ok(plan) if !plan.trim().is_empty() => emit_event(
             nyra_session_id,
             json!({ "type": "plan_ready", "tool_id": tool_id, "path": path, "plan": plan }),
@@ -2095,12 +2155,13 @@ async fn process_tool_blocks(
     nyra_session_id: &str,
     tool_blocks: &[Value],
 ) -> bool {
-    let (skip_permissions, auto_approve, plan_mode) = {
+    let (skip_permissions, auto_approve, plan_mode, env) = {
         let inner = sess.inner.lock();
         (
             inner.settings.skip_permissions,
             inner.settings.auto_approve_tools.clone(),
             inner.settings.plan_mode,
+            Environment::of(&inner.cwd),
         )
     };
 
@@ -2116,7 +2177,7 @@ async fn process_tool_blocks(
             tool_id: block.get("id").and_then(Value::as_str).unwrap_or_default().to_string(),
             tool_name: tool_name.to_string(),
             input: input.clone(),
-            original_content: capture_original_content(tool_name, &input).await,
+            original_content: capture_original_content(&env, tool_name, &input).await,
         };
         // Headless Claude has no ExitPlanMode — see `build_spawn_args`. What it
         // does instead is write the plan to `.claude/plans/`, so that write is
@@ -2672,6 +2733,120 @@ mod tests {
         assert!(args.windows(2).any(|w| w == ["--model", "opus"]));
         assert!(args.windows(2).any(|w| w == ["--permission-mode", "plan"]));
         assert!(fp.contains("/tmp/x"));
+    }
+
+    #[test]
+    fn a_wsl_session_is_told_its_linux_directory_on_the_same_argv_shape() {
+        let s = SpawnSettings::default();
+        let cwd = r"\\wsl.localhost\Ubuntu\home\me\repo";
+        let (args, fp) = build_spawn_args(cwd, &s, None, None, None, None);
+        let prompt = args
+            .windows(2)
+            .find(|w| w[0] == "--append-system-prompt")
+            .map(|w| w[1].clone())
+            .expect("the system prompt is inline, as on the host");
+        assert!(prompt.contains("The current working directory is: /home/me/repo."), "{prompt}");
+        assert!(!prompt.contains(r"\\wsl"), "{prompt}");
+        // The fingerprint names the project the way Nyra does.
+        assert!(fp.contains(r"\\\\wsl.localhost\\Ubuntu"), "{fp}");
+
+        let (host_args, _) = build_spawn_args(r"C:\Users\me\repo", &s, None, None, None, None);
+        let host_prompt = host_args.windows(2).find(|w| w[0] == "--append-system-prompt").unwrap()[1].clone();
+        assert!(host_prompt.contains(r"The current working directory is: C:\Users\me\repo."));
+    }
+
+    /// Against the real thing: the distro's own CLI takes Nyra's exact argv —
+    /// multi-line system prompt inline — through `wsl.exe`, answers the
+    /// initialize request, and is gone from the distro once the `wsl.exe` pid is
+    /// terminated the way dispose does it. No model call is made.
+    /// `cargo test -- --ignored wsl` with `NYRA_TEST_DISTRO` (default `Ubuntu`).
+    #[tokio::test]
+    #[ignore]
+    async fn wsl_real_distro_runs_the_session_argv_and_dies_with_its_pid() {
+        let distro = std::env::var("NYRA_TEST_DISTRO").unwrap_or_else(|_| "Ubuntu".into());
+        let cwd = format!(r"\\wsl.localhost\{distro}\tmp");
+        let env = Environment::of(&cwd);
+        let claude = env.own_claude().expect("the distro has claude").expect("WSL has its own");
+        let marker = format!("nyra-argv-{}", util::rand_suffix(8));
+        let settings = SpawnSettings {
+            system_prompt: format!("Line one of {marker}.\nLine \"two\" with $HOME, `ticks` and a \\ backslash.\n\nDone."),
+            ..SpawnSettings::default()
+        };
+        let (args, _) = build_spawn_args(&cwd, &settings, None, None, None, None);
+        let mut child = env
+            .command(&claude, &cwd)
+            .args(&args)
+            .env_clear()
+            .envs(util::clean_child_env())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("wsl.exe starts");
+        let pid = child.id().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(INITIALIZE_REQUEST.as_bytes()).await.unwrap();
+        stdin.flush().await.unwrap();
+
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        let answered = tokio::time::timeout(Duration::from_secs(60), async {
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.contains("control_response") && line.contains("nyra-initialize") {
+                    return true;
+                }
+            }
+            false
+        })
+        .await;
+        let mut err = String::new();
+        if !matches!(answered, Ok(true)) {
+            use tokio::io::AsyncReadExt;
+            let _ = tokio::time::timeout(
+                Duration::from_secs(2),
+                child.stderr.take().unwrap().read_to_string(&mut err),
+            )
+            .await;
+        }
+        assert!(matches!(answered, Ok(true)), "no initialize response; stderr: {err}");
+
+        // The argv arrived whole: the running process carries the marker.
+        let running = |env: &Environment| {
+            let out = env
+                .std_command("pgrep", &cwd)
+                .args(["-af", &marker])
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        assert!(running(&env).contains("claude"), "claude not found running with the marker");
+
+        platform::terminate(pid).unwrap();
+        let _ = child.wait().await;
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let left = running(&env);
+        assert!(!left.lines().any(|l| l.contains("claude") && !l.contains("pgrep")), "left running: {left}");
+    }
+
+    #[test]
+    fn staged_attachments_are_named_as_the_distro_sees_them() {
+        let images = Path::new(r"C:\Users\ME~1\AppData\Local\Temp\nyra-images-42");
+        let files = Path::new(r"C:\Users\ME~1\AppData\Local\Temp\nyra-files-42");
+        let prompt = concat!(
+            r"Look at [Image: C:\Users\ME~1\AppData\Local\Temp\nyra-images-42\17-ab.png] and ",
+            r"[File: C:\Users\ME~1\AppData\Local\Temp\nyra-files-42\17-cd-notes v2.md], ",
+            r"not C:\Users\ME~1\AppData\Local\Temp\nyra-images-420\other.png"
+        );
+        let wsl = Environment::of(r"\\wsl.localhost\Ubuntu\home\me\repo");
+        assert_eq!(
+            rewrite_staged_dirs(&wsl, prompt, &[images, files]),
+            concat!(
+                "Look at [Image: /mnt/c/Users/ME~1/AppData/Local/Temp/nyra-images-42/17-ab.png] and ",
+                "[File: /mnt/c/Users/ME~1/AppData/Local/Temp/nyra-files-42/17-cd-notes v2.md], ",
+                r"not C:\Users\ME~1\AppData\Local\Temp\nyra-images-420\other.png"
+            )
+        );
+        assert_eq!(rewrite_staged_dirs(&Environment::Host, prompt, &[images, files]), prompt);
     }
 
     #[test]

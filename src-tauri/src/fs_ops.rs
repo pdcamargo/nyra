@@ -470,9 +470,9 @@ pub async fn list_files(cwd: &str, query: &str) -> Vec<FileEntry> {
 async fn fuzzy_list_files(cwd: &str, query: &str) -> Vec<FileEntry> {
     let files: Vec<String> = match tokio::time::timeout(
         Duration::from_secs(5),
-        crate::platform::command("git")
+        crate::environment::Environment::of(cwd)
+            .command("git", cwd)
             .args(["ls-files", "--cached", "--others", "--exclude-standard"])
-            .current_dir(cwd)
             .output(),
     )
     .await

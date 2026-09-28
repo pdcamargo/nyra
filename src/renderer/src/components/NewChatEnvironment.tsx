@@ -11,6 +11,7 @@ import {
 } from './ui/dropdown-menu'
 import { useSessionsStore, findProject } from '../store/sessions'
 import { newPendingWorktree } from '../lib/worktrees'
+import { environmentLabel } from '../lib/environment'
 
 /**
  * Where this chat will run, offered above the composer before it starts.
@@ -86,6 +87,9 @@ export default function NewChatEnvironment({
 
   const setPending = useSessionsStore.getState().setPendingWorktree
   const isWorktree = pending !== null
+  // "Local" means "in the checkout you are in", which for a project inside WSL
+  // is inside the distro — so it says which one.
+  const localLabel = environmentLabel(project.path) ?? 'Local'
   const baseRef = isWorktree
     ? pending.baseRef || currentBranch || 'current branch'
     : currentBranch || 'current branch'
@@ -138,13 +142,13 @@ export default function NewChatEnvironment({
       <DropdownMenu>
         <DropdownMenuTrigger className={TRIGGER} aria-label="Where this chat runs">
           <Laptop className="size-3.5 text-muted-foreground" />
-          {isWorktree ? 'Worktree' : 'Local'}
+          {isWorktree ? 'Worktree' : localLabel}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" side="top" className="w-60">
           <DropdownMenuLabel>Work in</DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => setPending(sessionId, null)}>
             <Laptop />
-            Local
+            {localLabel}
             {!isWorktree && <Check className="ml-auto size-3.5" />}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setPending(sessionId, newPendingWorktree())}>

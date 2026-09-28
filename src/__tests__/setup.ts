@@ -79,6 +79,18 @@ Object.defineProperty(globalThis, 'api', {
       saveFile: () => Promise.resolve(null)
     },
     system: { homedir: () => Promise.resolve('/home/test') },
+    environment: {
+      info: () =>
+        Promise.resolve({
+          kind: 'host',
+          distro: null,
+          reachable: true,
+          claudeFound: true,
+          mirroredNetworking: false,
+          cwdInEnv: '',
+          homeInEnv: null
+        })
+    },
     appWindow: {
       startDragging: noop,
       toggleMaximize: noop,

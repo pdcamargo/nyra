@@ -10,6 +10,7 @@ mod commands;
 mod designs;
 mod devtools;
 mod dictation;
+mod environment;
 mod file_extractor;
 mod file_tree;
 mod fonts;
@@ -204,6 +205,7 @@ pub fn run() {
             commands::fs_read_text_file,
             commands::fs_stat_file,
             commands::system_homedir,
+            commands::environment_info,
             commands::git_branch,
             commands::git_branch_list,
             commands::git_checkout,

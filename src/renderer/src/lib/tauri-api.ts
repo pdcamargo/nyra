@@ -30,6 +30,7 @@ import type {
   TabDevice,
   DirListing,
   EditorApp,
+  EnvironmentInfo,
   FileEntry,
   FileStamp,
   McpEntry,
@@ -333,15 +334,22 @@ export const api = {
     list: () => call<FontFamily[]>('fonts_list')
   },
 
+  /**
+   * The path-only commands take the chat's `cwd` where there is one. A path out
+   * of a tool card is named the way the session's environment names it —
+   * `/home/me/repo/a.ts` in WSL — and Rust resolves it through that. A path that
+   * is already a host path is unaffected.
+   */
   fs: {
-    readFile: (filePath: string) =>
-      call<{ content?: string; error?: string }>('fs_read_file', { filePath }),
-    readImage: (filePath: string) =>
-      call<ReadImageResult>('fs_read_image', { filePath }),
-    revertFile: (filePath: string, originalContent: string | null) =>
+    readFile: (filePath: string, cwd?: string) =>
+      call<{ content?: string; error?: string }>('fs_read_file', { filePath, cwd: cwd ?? null }),
+    readImage: (filePath: string, cwd?: string) =>
+      call<ReadImageResult>('fs_read_image', { filePath, cwd: cwd ?? null }),
+    revertFile: (filePath: string, originalContent: string | null, cwd?: string) =>
       call<{ success?: boolean; error?: string }>('fs_revert_file', {
         filePath,
-        originalContent
+        originalContent,
+        cwd: cwd ?? null
       }),
     listFiles: (cwd: string, query: string) =>
       call<FileEntry[]>('fs_list_files', { cwd, query }),
@@ -350,8 +358,10 @@ export const api = {
     listDir: (dirPath: string) => call<DirListing>('fs_list_dir', { dirPath }),
     /** A file's text for the read-only preview. Bounded, unlike `readFile`,
      *  which backs editors that write what they read back. */
-    readTextFile: (filePath: string) => call<ReadTextOutcome>('fs_read_text_file', { filePath }),
-    statFile: (filePath: string) => call<FileStamp>('fs_stat_file', { filePath }),
+    readTextFile: (filePath: string, cwd?: string) =>
+      call<ReadTextOutcome>('fs_read_text_file', { filePath, cwd: cwd ?? null }),
+    statFile: (filePath: string, cwd?: string) =>
+      call<FileStamp>('fs_stat_file', { filePath, cwd: cwd ?? null }),
     /** Every file in the repo at `cwd`, for the quick-open picker. */
     listProjectFiles: (cwd: string, limit = 20000) =>
       call<FileListResult>('fs_list_project_files', { cwd, limit }),
@@ -360,10 +370,10 @@ export const api = {
     /** Editors installed on this machine. Empty off macOS, where the menu falls
      *  back to the system default. */
     listEditors: () => call<EditorApp[]>('fs_list_editors'),
-    openWith: (filePath: string, appPath: string | null) =>
-      call<{ ok?: boolean; error?: string }>('fs_open_with', { filePath, appPath }),
-    reveal: (filePath: string) =>
-      call<{ ok?: boolean; error?: string }>('fs_reveal', { filePath })
+    openWith: (filePath: string, appPath: string | null, cwd?: string) =>
+      call<{ ok?: boolean; error?: string }>('fs_open_with', { filePath, appPath, cwd: cwd ?? null }),
+    reveal: (filePath: string, cwd?: string) =>
+      call<{ ok?: boolean; error?: string }>('fs_reveal', { filePath, cwd: cwd ?? null })
   },
 
   system: {
@@ -371,6 +381,12 @@ export const api = {
     /** Hand a URL to the user's own browser. http(s) only; anything else is
      *  refused in Rust rather than passed to the OS. */
     openExternal: (url: string) => call<{ ok: boolean; error?: string }>('open_external', { url })
+  },
+
+  /** Where a project runs — this machine or a WSL distro. Asking about a
+   *  distro also warms Rust's probe of it. */
+  environment: {
+    info: (cwd: string) => call<EnvironmentInfo>('environment_info', { cwd })
   },
 
   /**
@@ -549,8 +565,11 @@ export const api = {
 
   subagents: {
     /** A finished agent's transcript, off disk, for a tab opened after the fact. */
-    transcript: (path: string) =>
-      call<{ model: string | null; entries: SubagentWireEntry[] }>('subagent_transcript', { path })
+    transcript: (path: string, cwd?: string) =>
+      call<{ model: string | null; entries: SubagentWireEntry[] }>('subagent_transcript', {
+        path,
+        cwd: cwd ?? null
+      })
   },
 
   login: {

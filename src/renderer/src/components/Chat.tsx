@@ -3,6 +3,8 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
 import { useSessionsStore, activeCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type Agent, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
+import { wslShare } from '../lib/environment'
+import { useEnvironmentInfo } from '../hooks/useEnvironmentInfo'
 import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
 import MarkdownRenderer from './MarkdownRenderer'
@@ -1875,6 +1877,8 @@ export default function Chat(): React.JSX.Element {
           <RestoreWorktreeBanner sessionId={activeSession.id} />
         )}
 
+        <WslNotices cwd={cwd} />
+
         {/* Merge and Remove used to live in the header bar, which is gone. They
             belong here anyway: the banner is the only thing on screen that says
             this chat has a worktree, so it should also be what offers to finish
@@ -2186,6 +2190,52 @@ function RestoreWorktreeBanner({ sessionId }: { sessionId: string }): React.JSX.
   )
 }
 
+
+/**
+ * What a chat inside WSL cannot do, said before it fails rather than after.
+ *
+ * Asked of Rust once per directory: whether the distro answered, whether it has
+ * its own `claude`, and whether mirrored networking lets it reach the browser
+ * and app tools on the host's loopback. A chat on this machine never asks.
+ */
+function WslNotices({ cwd }: { cwd: string }): React.JSX.Element | null {
+  const share = wslShare(cwd)
+  const browserTools = useSettingsStore((s) => s.browserTools)
+  const appTools = useSettingsStore((s) => s.appTools)
+  const info = useEnvironmentInfo(cwd)
+
+  if (!share || !info || info.kind !== 'wsl') return null
+  const distro = info.distro ?? share.distro
+
+  let message: React.ReactNode = null
+  if (!info.reachable) {
+    message = (
+      <>
+        {distro} did not answer. Check that <code className="font-mono">wsl -d {distro}</code> opens a
+        shell, then start a new chat.
+      </>
+    )
+  } else if (!info.claudeFound) {
+    message = `Claude Code isn’t installed in ${distro}.`
+  } else if (!info.mirroredNetworking && (browserTools || appTools)) {
+    message = (
+      <>
+        Browser and app tools are off in WSL chats. Add{' '}
+        <code className="font-mono">networkingMode=mirrored</code> under{' '}
+        <code className="font-mono">[wsl2]</code> in{' '}
+        <code className="font-mono">%USERPROFILE%\.wslconfig</code>, then run{' '}
+        <code className="font-mono">wsl --shutdown</code>.
+      </>
+    )
+  }
+  if (!message) return null
+
+  return (
+    <div className="mb-3 flex items-center gap-2 rounded-lg border border-warning/20 bg-warning/6 px-3 py-2">
+      <p className="flex-1 text-[11px] text-warning">{message}</p>
+    </div>
+  )
+}
 
 /**
  * The turn is running.

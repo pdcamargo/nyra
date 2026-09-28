@@ -12,6 +12,7 @@
  * `ls-files`, a diff header): git writes `/` on every OS, so splitting one of
  * those on `/` is already correct everywhere.
  */
+import { toHostPath } from './environment'
 import { platform } from './platform'
 
 type Style = 'posix' | 'win32'
@@ -142,8 +143,12 @@ export function shortenPath(path: string, n: number): string {
   return parts.length <= n ? path : `…${separatorOf(path)}${parts.slice(-n).join(separatorOf(path))}`
 }
 
-/** A path Claude printed, against the directory its chat runs in. */
+/** A path Claude printed, against the directory its chat runs in — and named
+ *  the way Nyra can open it, when the chat runs somewhere else (see
+ *  `environment.ts`). */
 export function resolvePath(filePath: string, cwd: string): string {
+  const hosted = toHostPath(cwd, filePath)
+  if (hosted !== filePath) return hosted
   if (isAbsolute(filePath)) return filePath
   const dotSlash = style() === 'win32' ? /^\.[\\/]/ : /^\.\//
   return joinPath(cwd, filePath.replace(dotSlash, ''))

@@ -4,7 +4,7 @@
 use serde::Serialize;
 use std::path::Path;
 
-use crate::util;
+use crate::environment::Environment;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -176,7 +176,7 @@ pub async fn list_commands(cwd: &str) -> ScopedList<CommandInfo> {
     let mut global = Vec::new();
     let mut project = Vec::new();
     scan_commands_dir(
-        util::home_dir().join(".claude").join("commands"),
+        Environment::of(cwd).home().join(".claude").join("commands"),
         "global",
         String::new(),
         &mut global,
@@ -195,7 +195,8 @@ pub async fn list_commands(cwd: &str) -> ScopedList<CommandInfo> {
 }
 
 pub async fn list_skills(cwd: &str) -> ScopedList<SkillInfo> {
-    let global_dir = util::home_dir().join(".claude").join("skills");
+    // The global dirs are the environment's: a WSL project lists the distro's.
+    let global_dir = Environment::of(cwd).home().join(".claude").join("skills");
     let project_dir = Path::new(cwd).join(".claude").join("skills");
     let (global, project) = tokio::join!(
         scan_skills_dir(&global_dir, "global"),
@@ -205,7 +206,7 @@ pub async fn list_skills(cwd: &str) -> ScopedList<SkillInfo> {
 }
 
 pub async fn list_agents(cwd: &str) -> ScopedList<AgentInfo> {
-    let global_dir = util::home_dir().join(".claude").join("agents");
+    let global_dir = Environment::of(cwd).home().join(".claude").join("agents");
     let project_dir = Path::new(cwd).join(".claude").join("agents");
     let (global, project) = tokio::join!(
         scan_agents_dir(&global_dir, "global"),
@@ -230,7 +231,7 @@ pub async fn write_skill(
         return Err("Invalid skill name. Use only letters, numbers, hyphens, and underscores.".into());
     }
     let base_dir = if scope == "global" {
-        util::home_dir().join(".claude").join("skills").join(name)
+        Environment::of(cwd).home().join(".claude").join("skills").join(name)
     } else {
         Path::new(cwd).join(".claude").join("skills").join(name)
     };

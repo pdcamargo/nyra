@@ -90,6 +90,7 @@ import type {
   MarketplaceEntry
 } from '../../../shared/workflow-types'
 import { shortenPath } from '../lib/paths'
+import { environmentLabel, wslShare } from '../lib/environment'
 
 // --- Constants ---
 const AVAILABLE_TOOLS = [
@@ -3591,6 +3592,15 @@ function TriggerCard({
             />
           </div>
           <CwdField cwd={trigger.cwd} onChange={(cwd) => onUpdate({ cwd })} />
+          {wslShare(trigger.cwd) && (
+            // The watcher runs on Windows, and no change event crosses the
+            // share from inside the distro. Said here rather than left to look
+            // like a trigger that simply never happens to fire.
+            <p className="text-[0.7em] text-warning leading-relaxed">
+              File watching can&apos;t see changes inside {environmentLabel(trigger.cwd)} yet, so this
+              trigger won&apos;t fire.
+            </p>
+          )}
           <div className="flex gap-3">
             {(['add', 'change', 'unlink'] as const).map((ev) => (
               <label key={ev} className="flex items-center gap-1 text-[0.77em] text-foreground/80 cursor-pointer">

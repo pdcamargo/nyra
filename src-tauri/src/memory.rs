@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::environment::Environment;
 use crate::util;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -160,9 +161,10 @@ pub async fn list_memory_files(cwd: &str) -> MemoryListResult {
         }
     }
 
+    // The global one is the environment's: a WSL chat reads the distro's.
     files.push(
         build_memory_file(
-            &util::home_dir().join(".claude").join("CLAUDE.md"),
+            &Environment::of(cwd).home().join(".claude").join("CLAUDE.md"),
             MemorySource::GlobalClaude,
             "Global CLAUDE.md",
             None,
@@ -214,9 +216,10 @@ pub async fn list_memory_files(cwd: &str) -> MemoryListResult {
 /// Memory edits are confined to the project memory dir, `~/.claude`, and the
 /// project itself — the renderer supplies the path, so it can't be trusted.
 fn is_path_allowed(file_path: &str, cwd: &str) -> bool {
+    let env = Environment::of(cwd);
     let allowed = [
         project_memory_dir(cwd),
-        util::home_dir().join(".claude"),
+        env.home().join(".claude"),
         PathBuf::from(cwd),
     ];
     // By component, so it holds for either separator, and `..` is refused
@@ -225,7 +228,7 @@ fn is_path_allowed(file_path: &str, cwd: &str) -> bool {
     if path.components().any(|c| c == std::path::Component::ParentDir) {
         return false;
     }
-    allowed.iter().any(|dir| path.starts_with(dir))
+    allowed.iter().any(|dir| env.is_within(dir, path))
 }
 
 pub async fn read_memory_file(file_path: &str, cwd: &str) -> Result<String, String> {
@@ -308,6 +311,24 @@ mod tests {
         assert!(!is_path_allowed("/etc/passwd", cwd));
         assert!(!is_path_allowed("/Users/x/proj/../../../etc/passwd", cwd));
         assert!(!is_path_allowed("/Users/x/project-two/a.md", cwd));
+    }
+
+    #[test]
+    fn a_wsl_chat_may_edit_the_distros_claude_dir_and_not_the_hosts() {
+        crate::environment::wsl::set_probe_for_test(
+            "MemTest",
+            crate::environment::wsl::Probe { home: "/home/me".into(), ..Default::default() },
+        );
+        let cwd = r"\\wsl.localhost\MemTest\home\me\repo";
+        assert!(is_path_allowed(r"\\wsl.localhost\MemTest\home\me\.claude\CLAUDE.md", cwd));
+        assert!(is_path_allowed(r"\\wsl.localhost\memtest\home\me\repo\CLAUDE.md", cwd));
+        assert!(is_path_allowed(
+            r"\\wsl.localhost\MemTest\home\me\.claude\projects\-home-me-repo\memory\a.md",
+            cwd
+        ));
+        let host_claude = util::home_dir().join(".claude").join("CLAUDE.md");
+        assert!(!is_path_allowed(&host_claude.to_string_lossy(), cwd));
+        assert!(!is_path_allowed(r"\\wsl.localhost\MemTest\home\me\repo\..\..\x", cwd));
     }
 
     #[test]

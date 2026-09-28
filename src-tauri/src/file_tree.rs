@@ -124,9 +124,12 @@ async fn ignored_names(dir: &str, names: &[String]) -> (HashSet<String>, bool) {
         payload.push(0);
     }
 
-    let spawned = crate::platform::command("git")
+    // Inside the directory's own environment. In a WSL project that is one
+    // `wsl.exe` start per folder opened: ~45ms warm, against ~20ms for native
+    // git and ~16ms for the readdir over the share. Not worth batching yet.
+    let spawned = crate::environment::Environment::of(dir)
+        .command("git", dir)
         .args(["check-ignore", "--stdin", "-z"])
-        .current_dir(dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -284,9 +287,9 @@ fn match_score(path: &str, needle_lower: &str) -> Option<u32> {
 async fn git_listed_files(cwd: &str) -> Option<Vec<u8>> {
     match tokio::time::timeout(
         GIT_TIMEOUT,
-        crate::platform::command("git")
+        crate::environment::Environment::of(cwd)
+            .command("git", cwd)
             .args(["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
-            .current_dir(cwd)
             .output(),
     )
     .await

@@ -4,11 +4,12 @@
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-use crate::util;
+use crate::environment::Environment;
 
 fn settings_path(scope: &str, cwd: &str) -> PathBuf {
     if scope == "global" {
-        util::home_dir().join(".claude").join("settings.json")
+        // The environment's own: a WSL project's global hooks are the distro's.
+        Environment::of(cwd).home().join(".claude").join("settings.json")
     } else {
         Path::new(cwd).join(".claude").join("settings.json")
     }

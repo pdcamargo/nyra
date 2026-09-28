@@ -51,6 +51,8 @@ import { createPermanentWorktree, defaultBranchName } from '../lib/worktrees'
 import { archiveChat, openArchivedChats } from '../lib/archive'
 import type { WorkflowDefinition } from '../../../shared/workflow-types'
 import { basename } from '../lib/paths'
+import { environmentLabel } from '../lib/environment'
+import EnvironmentBadge from './EnvironmentBadge'
 
 // Lazy so monaco-editor only loads when Memory is opened.
 const MemoryTab = React.lazy(() => import('./MemoryTab'))
@@ -447,6 +449,7 @@ function ProjectMenu({ project }: { project: Project }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(project.name)
+  const environment = environmentLabel(project.path)
 
   const commit = (): void => {
     if (name.trim()) useSessionsStore.getState().renameProject(project.id, name.trim())
@@ -489,6 +492,9 @@ function ProjectMenu({ project }: { project: Project }): React.JSX.Element {
         ) : (
           <>
             <DropdownMenuLabel className="pb-0">{project.name}</DropdownMenuLabel>
+            {environment && (
+              <p className="px-2 text-[0.77em] text-muted-foreground">Runs in {environment}</p>
+            )}
             <p className="px-2 pb-1.5 font-mono text-[0.77em] break-all text-muted-foreground">
               {project.path}
             </p>
@@ -878,6 +884,7 @@ function SessionsList(): React.JSX.Element {
             <span className={`truncate text-[0.92em] ${projectSpinner ? 'nyra-shimmer' : ''}`}>
               {project.name}
             </span>
+            <EnvironmentBadge cwd={project.path} />
           </button>
           <div className="flex items-center shrink-0 pr-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <ProjectMenu project={project} />

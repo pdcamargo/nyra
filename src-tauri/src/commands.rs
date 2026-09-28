@@ -19,6 +19,7 @@ use crate::{
     memory, model_catalog, open_with, plugin_logos, plugins, processes, skills, subagents,
 };
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
+use crate::environment::Environment;
 
 // ---- claude ----
 
@@ -322,19 +323,37 @@ pub async fn settings_sync(settings: NyraSettings) {
     util::set_settings(settings);
 }
 
-#[tauri::command(rename_all = "camelCase")]
-pub async fn fs_read_file(file_path: String) -> Value {
-    fs_ops::read_file(&file_path).await
+/// A path the renderer handed over, as one Nyra can open.
+///
+/// A path out of a tool card or Claude's prose is named the way the session's
+/// environment names it — `/home/me/repo/a.ts` in WSL — so the commands that
+/// take one also take the chat's `cwd` and resolve it here. A path that is
+/// already a host path, or a call with no chat behind it, passes through
+/// unchanged.
+fn in_host(cwd: Option<&str>, path: &str) -> String {
+    match cwd.filter(|c| !c.is_empty()) {
+        Some(cwd) => Environment::of(cwd).to_host(path).to_string_lossy().into_owned(),
+        None => path.to_string(),
+    }
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn fs_read_image(file_path: String) -> Value {
-    fs_ops::read_image(&file_path).await
+pub async fn fs_read_file(file_path: String, cwd: Option<String>) -> Value {
+    fs_ops::read_file(&in_host(cwd.as_deref(), &file_path)).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn fs_revert_file(file_path: String, original_content: Option<String>) -> Value {
-    fs_ops::revert_file(&file_path, original_content).await
+pub async fn fs_read_image(file_path: String, cwd: Option<String>) -> Value {
+    fs_ops::read_image(&in_host(cwd.as_deref(), &file_path)).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn fs_revert_file(
+    file_path: String,
+    original_content: Option<String>,
+    cwd: Option<String>,
+) -> Value {
+    fs_ops::revert_file(&in_host(cwd.as_deref(), &file_path), original_content).await
 }
 
 #[tauri::command]
@@ -368,7 +387,13 @@ pub fn fs_list_editors() -> Vec<open_with::EditorApp> {
 /// with the default, so "Open with Zed" on a file that has been deleted would
 /// otherwise launch Zed on nothing.
 #[tauri::command(rename_all = "camelCase")]
-pub fn fs_open_with(app: AppHandle, file_path: String, app_path: Option<String>) -> Value {
+pub fn fs_open_with(
+    app: AppHandle,
+    file_path: String,
+    app_path: Option<String>,
+    cwd: Option<String>,
+) -> Value {
+    let file_path = in_host(cwd.as_deref(), &file_path);
     if std::fs::metadata(&file_path).is_err() {
         return json!({ "error": "That file no longer exists." });
     }
@@ -384,7 +409,8 @@ pub fn fs_open_with(app: AppHandle, file_path: String, app_path: Option<String>)
 /// gone; falling back to the parent directory is more useful than an error
 /// toast when a file was just deleted out from under the panel.
 #[tauri::command(rename_all = "camelCase")]
-pub fn fs_reveal(app: AppHandle, file_path: String) -> Value {
+pub fn fs_reveal(app: AppHandle, file_path: String, cwd: Option<String>) -> Value {
+    let file_path = in_host(cwd.as_deref(), &file_path);
     if std::fs::metadata(&file_path).is_ok() {
         return match app.opener().reveal_item_in_dir(&file_path) {
             Ok(()) => json!({ "ok": true }),
@@ -404,18 +430,25 @@ pub fn fs_reveal(app: AppHandle, file_path: String) -> Value {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn fs_read_text_file(file_path: String) -> fs_ops::ReadTextOutcome {
-    fs_ops::read_text_file(&file_path).await
+pub async fn fs_read_text_file(file_path: String, cwd: Option<String>) -> fs_ops::ReadTextOutcome {
+    fs_ops::read_text_file(&in_host(cwd.as_deref(), &file_path)).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn fs_stat_file(file_path: String) -> fs_ops::FileStamp {
-    fs_ops::stat_file(&file_path).await
+pub async fn fs_stat_file(file_path: String, cwd: Option<String>) -> fs_ops::FileStamp {
+    fs_ops::stat_file(&in_host(cwd.as_deref(), &file_path)).await
 }
 
 #[tauri::command]
 pub fn system_homedir() -> String {
     util::home_dir().to_string_lossy().to_string()
+}
+
+/// Where `cwd`'s project runs — this machine or a WSL distro — and what that
+/// environment can do.
+#[tauri::command]
+pub async fn environment_info(cwd: String) -> crate::environment::EnvironmentInfo {
+    crate::environment::info(&cwd).await
 }
 
 // ---- git ----
@@ -855,8 +888,8 @@ pub fn processes_clear(nyra_session_id: String) {
 /// runs, but its transcript outlives the session, so an agent from three turns
 /// ago still has something to show.
 #[tauri::command(rename_all = "camelCase")]
-pub fn subagent_transcript(path: String) -> Value {
-    subagents::read_transcript(&path)
+pub fn subagent_transcript(path: String, cwd: Option<String>) -> Value {
+    subagents::read_transcript(&in_host(cwd.as_deref(), &path))
 }
 
 // ---- login ----

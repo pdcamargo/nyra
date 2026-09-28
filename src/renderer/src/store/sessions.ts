@@ -7,6 +7,7 @@ import { useBrowserStore } from './browser'
 import { useWorkspaceStore } from './workspace'
 import { backfillProjects, nameForPath } from './projects-migration'
 import { homedir } from '../lib/homedir'
+import { samePath } from '../lib/paths'
 import { useTerminalsStore } from './terminals'
 import { useResourceDockStore } from './resourceDock'
 import type { ChangeBlock } from '../lib/changeBlocks'
@@ -455,8 +456,10 @@ export const useSessionsStore = create<SessionsStore>()(
 
       createProject: (path: string, name?: string) => {
         // Adding a folder that is already a project selects it rather than
-        // producing a second row pointing at the same checkout.
-        const existing = get().projects.find((p) => p.path === path)
+        // producing a second row pointing at the same checkout. `samePath`, not
+        // `===`: on Windows `C:\Repo` and `c:/repo/` are one checkout, and so are
+        // `\\wsl.localhost\Ubuntu\x` and `//WSL.LOCALHOST/ubuntu/x/`.
+        const existing = get().projects.find((p) => samePath(p.path, path))
         if (existing) return existing.id
         const id = crypto.randomUUID()
         set((state) => ({

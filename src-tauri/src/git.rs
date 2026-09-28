@@ -3,14 +3,30 @@
 use serde_json::{json, Value};
 use std::time::Duration;
 
+use crate::environment::Environment;
+
+/// `git` in `cwd`, inside the environment `cwd` belongs to. For a WSL project
+/// that is the distro's own git against its own filesystem: Windows git on the
+/// share is slow, and refuses the repo outright as "dubious ownership" because
+/// the files belong to the Linux user.
 async fn git(cwd: &str, args: &[&str], timeout_ms: u64) -> Result<std::process::Output, String> {
     tokio::time::timeout(
         Duration::from_millis(timeout_ms),
-        crate::platform::command("git").args(args).current_dir(cwd).output(),
+        Environment::of(cwd).command("git", cwd).args(args).output(),
     )
     .await
     .map_err(|_| "git timed out".to_string())?
     .map_err(|e| e.to_string())
+}
+
+/// A path git printed while running in `cwd`, as one Nyra can open.
+fn host_path(cwd: &str, printed: &str) -> String {
+    Environment::of(cwd).to_host(printed).to_string_lossy().into_owned()
+}
+
+/// A path Nyra holds, as git running in `cwd` names it.
+fn env_path(cwd: &str, host: &str) -> String {
+    Environment::of(cwd).to_env(std::path::Path::new(host))
 }
 
 /// The top of the working tree `cwd` is in — the path git's own output is
@@ -28,7 +44,7 @@ async fn worktree_root(cwd: &str) -> Option<String> {
         return None;
     }
     let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!root.is_empty()).then_some(root)
+    (!root.is_empty()).then(|| host_path(cwd, &root))
 }
 
 pub async fn branch(cwd: &str) -> String {
@@ -103,11 +119,12 @@ pub async fn worktree_create(cwd: &str, branch_name: &str) -> Value {
         .to_string_lossy()
         .to_string();
 
-    match git(cwd, &["worktree", "add", "-b", branch_name, &worktree_path], 10_000).await {
+    let worktree_arg = env_path(cwd, &worktree_path);
+    match git(cwd, &["worktree", "add", "-b", branch_name, &worktree_arg], 10_000).await {
         Ok(out) if out.status.success() => json!({ "path": worktree_path, "branch": branch_name }),
         first => {
             // `-b` fails when the branch already exists; retry checking it out.
-            match git(cwd, &["worktree", "add", &worktree_path, branch_name], 10_000).await {
+            match git(cwd, &["worktree", "add", &worktree_arg, branch_name], 10_000).await {
                 Ok(out) if out.status.success() => {
                     json!({ "path": worktree_path, "branch": branch_name })
                 }
@@ -138,7 +155,7 @@ pub async fn main_worktree_root(cwd: &str) -> Option<String> {
     }
     String::from_utf8_lossy(&out.stdout)
         .lines()
-        .find_map(|line| line.strip_prefix("worktree ").map(str::to_string))
+        .find_map(|line| line.strip_prefix("worktree ").map(|p| host_path(cwd, p)))
 }
 
 /// Merge a worktree's branch back into the main working tree.
@@ -180,7 +197,8 @@ pub async fn worktree_remove(cwd: &str, worktree_path: &str) -> Value {
     let root = main_worktree_root(cwd)
         .await
         .unwrap_or_else(|| cwd.to_string());
-    match git(&root, &["worktree", "remove", worktree_path, "--force"], 10_000).await {
+    let worktree_arg = env_path(&root, worktree_path);
+    match git(&root, &["worktree", "remove", &worktree_arg, "--force"], 10_000).await {
         Ok(out) if out.status.success() => json!({ "success": true }),
         Ok(out) => json!({
             "success": false,
@@ -196,8 +214,12 @@ pub async fn worktree_remove(cwd: &str, worktree_path: &str) -> Value {
 /// Where Codex-style managed worktrees live. Beside the workflow store, not
 /// beside the project — the old `<project>/../.nyra-worktree-<branch>` location
 /// littered the parent directory of every repo you touched.
-pub fn worktrees_root() -> std::path::PathBuf {
-    crate::util::home_dir().join(".nyra").join("worktrees")
+///
+/// In the home of the environment the project runs in: a WSL project's
+/// worktrees are the distro's `~/.nyra/worktrees`, on its own filesystem, where
+/// its git and its Claude can work in them at full speed.
+pub fn worktrees_root(project_path: &str) -> std::path::PathBuf {
+    Environment::of(project_path).home().join(".nyra").join("worktrees")
 }
 
 fn slug(input: &str) -> String {
@@ -241,7 +263,7 @@ pub fn managed_worktree_path(project_path: &str, branch_name: &str) -> String {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".into());
-    worktrees_root()
+    worktrees_root(project_path)
         .join(format!("{}-{}", slug(&project), short_hash(project_path)))
         .join(format!("{}-{}", slug(branch_name), crate::util::rand_suffix(4)))
         .to_string_lossy()
@@ -279,7 +301,7 @@ pub async fn worktree_list(cwd: &str) -> Vec<Value> {
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("worktree ") {
             flush(&mut path, &mut branch_name, &mut detached, &mut trees);
-            path = rest.to_string();
+            path = host_path(cwd, rest);
         } else if let Some(rest) = line.strip_prefix("branch ") {
             branch_name = rest.trim_start_matches("refs/heads/").to_string();
         } else if line.trim() == "detached" {
@@ -359,7 +381,7 @@ async fn seed_worktree(main: &str, worktree: &str) -> Value {
             let patch = std::env::temp_dir()
                 .join(format!("nyra-seed-{}.patch", crate::util::rand_suffix(8)));
             if std::fs::write(&patch, &out.stdout).is_ok() {
-                let patch_arg = patch.to_string_lossy().to_string();
+                let patch_arg = env_path(worktree, &patch.to_string_lossy());
                 if let Ok(apply) = git(
                     worktree,
                     &["apply", "--whitespace=nowarn", &patch_arg],
@@ -433,12 +455,13 @@ pub async fn worktree_create_managed(
     }
 
     let base = base_ref.filter(|b| !b.is_empty()).unwrap_or("HEAD");
-    let mut args = vec!["worktree", "add", "-b", branch_name, &dest, base];
+    let dest_arg = env_path(&root, &dest);
+    let mut args = vec!["worktree", "add", "-b", branch_name, &dest_arg, base];
     let mut out = git(&root, &args, 20_000).await;
 
     // `-b` fails when the branch already exists; check it out instead.
     if !matches!(&out, Ok(o) if o.status.success()) {
-        args = vec!["worktree", "add", &dest, branch_name];
+        args = vec!["worktree", "add", &dest_arg, branch_name];
         out = git(&root, &args, 20_000).await;
     }
 
@@ -726,7 +749,7 @@ pub async fn worktree_snapshot(worktree_path: &str, branch_name: &str, session_i
             if let Ok(out) = git(worktree_path, &["merge-base", &main_branch, branch_name], 5000).await {
                 if out.status.success() {
                     let base = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    let bundle = dest.join("branch.bundle").to_string_lossy().to_string();
+                    let bundle = env_path(worktree_path, &dest.join("branch.bundle").to_string_lossy());
                     let range = format!("{base}..{branch_name}");
                     bundled = matches!(
                         git(worktree_path, &["bundle", "create", &bundle, &range], 30_000).await,
@@ -782,7 +805,7 @@ pub async fn worktree_restore(cwd: &str, session_id: &str) -> Value {
     // all that's needed to bring the branch back.
     let bundle = dir.join("branch.bundle");
     if bundle.exists() {
-        let bundle_arg = bundle.to_string_lossy().to_string();
+        let bundle_arg = env_path(&root, &bundle.to_string_lossy());
         let refspec = format!("{branch_name}:{branch_name}");
         let _ = git(&root, &["fetch", &bundle_arg, &refspec], 30_000).await;
     }
@@ -791,7 +814,7 @@ pub async fn worktree_restore(cwd: &str, session_id: &str) -> Value {
     if let Some(parent) = std::path::Path::new(&dest).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let added = git(&root, &["worktree", "add", &dest, &branch_name], 20_000).await;
+    let added = git(&root, &["worktree", "add", &env_path(&root, &dest), &branch_name], 20_000).await;
     match added {
         Ok(o) if o.status.success() => {}
         Ok(o) => {
@@ -802,7 +825,7 @@ pub async fn worktree_restore(cwd: &str, session_id: &str) -> Value {
 
     let patch = dir.join("uncommitted.patch");
     if patch.exists() {
-        let patch_arg = patch.to_string_lossy().to_string();
+        let patch_arg = env_path(&dest, &patch.to_string_lossy());
         let _ = git(&dest, &["apply", "--whitespace=nowarn", &patch_arg], 15_000).await;
     }
 
@@ -952,7 +975,65 @@ mod tests {
             std::path::Path::new(p).parent().unwrap().to_string_lossy().to_string()
         };
         assert_ne!(parent(&a), parent(&b));
-        assert!(a.starts_with(&worktrees_root().to_string_lossy().to_string()));
+        assert!(a.starts_with(&worktrees_root("/Users/me/work/api").to_string_lossy().to_string()));
+        assert!(worktrees_root("/Users/me/work/api").starts_with(crate::util::home_dir()));
+    }
+
+    /// Against the real thing: git runs inside the distro, what it prints comes
+    /// back as share paths, and an untracked file is read over the share. Also
+    /// what one git call costs through `wsl.exe`. `cargo test -- --ignored wsl`.
+    #[tokio::test]
+    #[ignore]
+    async fn wsl_real_distro_git_speaks_host_paths() {
+        let distro = std::env::var("NYRA_TEST_DISTRO").unwrap_or_else(|_| "Ubuntu".into());
+        let name = format!("nyra-git-{}", crate::util::rand_suffix(6));
+        let cwd = format!(r"\\wsl.localhost\{distro}\tmp\{name}");
+        let env = Environment::of(&cwd);
+        let sh = |script: &str| {
+            let out = env.std_command("sh", "").args(["-c", script]).output().unwrap();
+            assert!(out.status.success(), "{script}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        sh(&format!(
+            "mkdir -p /tmp/{name} && cd /tmp/{name} && git init -q -b main && \
+             git -c user.email=t@n -c user.name=t commit -q --allow-empty -m init && \
+             printf 'a\\nb\\nc\\n' > new.txt"
+        ));
+
+        assert!(is_repo(&cwd).await);
+        assert_eq!(worktree_root(&cwd).await.as_deref(), Some(cwd.as_str()));
+        assert_eq!(main_worktree_root(&cwd).await.as_deref(), Some(cwd.as_str()));
+        assert_eq!(worktree_list(&cwd).await[0]["path"], cwd.as_str());
+        let files = diff_files(&cwd, None).await;
+        let row = &files["files"][0];
+        assert_eq!(row["path"], "new.txt");
+        assert_eq!(row["insertions"], 3, "the untracked file was read over the share");
+
+        let mut ms = Vec::new();
+        for _ in 0..10 {
+            let started = std::time::Instant::now();
+            assert_eq!(branch(&cwd).await, "main");
+            ms.push(started.elapsed().as_millis());
+        }
+        eprintln!("git branch via wsl.exe x10 (ms): {ms:?}");
+        sh(&format!("rm -rf /tmp/{name}"));
+    }
+
+    #[test]
+    fn a_wsl_projects_worktrees_live_in_the_distro() {
+        crate::environment::wsl::set_probe_for_test(
+            "GitTest",
+            crate::environment::wsl::Probe { home: "/home/me".into(), ..Default::default() },
+        );
+        let project = r"\\wsl.localhost\GitTest\home\me\dev\api";
+        let dest = managed_worktree_path(project, "feat/x");
+        // Separators normalised: `join` writes this OS's, and the test runs on macOS too.
+        assert!(
+            dest.replace('/', r"\").starts_with(r"\\wsl.localhost\GitTest\home\me\.nyra\worktrees\api-"),
+            "{dest}"
+        );
+        // And git, inside the distro, is handed the distro's name for it.
+        assert!(env_path(project, &dest).starts_with("/home/me/.nyra/worktrees/api-"));
+        assert_eq!(host_path(project, "/home/me/dev/api"), project);
     }
 
     #[test]

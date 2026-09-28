@@ -338,6 +338,26 @@ export type FileEntry = {
   type: 'file' | 'folder'
 }
 
+/** Where a project runs. Mirrors `environment::EnvironmentInfo` in Rust. */
+export type EnvironmentInfo = {
+  kind: 'host' | 'wsl'
+  distro: string | null
+  /** Whether the distro answered at all. Always true on the host. */
+  reachable: boolean
+  /** Whether the distro has its own `claude`. Always true on the host, which
+   *  reports a missing CLI its own way. */
+  claudeFound: boolean
+  /** Whether the distro shares the host's loopback, so the browser and app
+   *  tools reach it. Always false on the host, where it means nothing. */
+  mirroredNetworking: boolean
+  /** The directory as the environment names it — `/home/me/repo` in WSL, the
+   *  cwd unchanged on the host. */
+  cwdInEnv: string
+  /** The environment's `$HOME` as it names it. Null on the host, and for a
+   *  distro that did not answer. */
+  homeInEnv: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Browser
 // ---------------------------------------------------------------------------
