@@ -130,7 +130,8 @@ makes a port unmaintainable.
   `main` window entry has to be made in both files.
 
 What is still untested on real Windows, and how to test it, is in
-`docs/windows-port.md`.
+`docs/windows-port.md`. Projects that live inside WSL are a separate, per-project
+layer: see `docs/wsl-projects.md`. Don't add them to `platform/`.
 
 Check the Windows side from a Mac with `cargo xwin check --all-targets --target
 x86_64-pc-windows-msvc --target-dir target/xwin`. It needs `cargo install
