@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.5.0',
+    date: '2026-09-28',
     notes: [
       'Nyra now runs on Windows',
       'On Windows, projects inside WSL run Claude, git and the terminal in their own distro',
