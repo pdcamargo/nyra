@@ -3,6 +3,36 @@
 A Tauri desktop client for Claude Code. React + TypeScript renderer, Rust backend,
 a Node sidecar for the browser.
 
+## Commits
+
+Commit straight to `main`. Don't create a branch, and don't open a PR unless
+asked. **Wait for Patrick to approve the work before committing it.** He
+reviews by running the app, not by reading the diff. Commit messages and PR
+bodies carry no `Co-Authored-By` line, or any other Claude or Anthropic
+attribution: end the message at its last real line.
+
+## Stopping Nyra
+
+**Never quit Nyra by name.** That means no `pkill -x nyra`, no `osascript -e
+'quit app "nyra"'`, and no `taskkill /IM nyra.exe`. The dev binary and the
+installed app share a name (and on macOS a bundle id), and the conversation
+doing the quitting is usually running inside the installed one. Quitting by
+name closes it mid-turn, which looks exactly like Nyra crashing.
+
+To stop a dev instance, kill its process tree by PID:
+`node scripts/nyra-dev.mjs instances` lists the running Nyras. Then kill the dev
+one along with `scripts/dev.mjs`, `tauri dev` and vite. If the installed app
+really has to quit, ask Patrick to quit it.
+
+## Legacy storage
+
+`src/renderer/src/lib/legacy-storage.ts` is the one file that still says
+`coide`, and it must keep saying it. The app was renamed and its history
+rewritten, but installed copies still hold sessions, settings, panel sizes and
+shortcuts under `coide-*` keys and a `coide` IndexedDB database. That file is
+what migrates them. "Finishing the rename" there silently orphans every one of
+them.
+
 ## Tooltips and shortcuts
 
 **An icon-only control gets a real tooltip, never the native `title` attribute.**
