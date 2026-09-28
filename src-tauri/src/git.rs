@@ -1018,6 +1018,10 @@ mod tests {
         sh(&format!("rm -rf /tmp/{name}"));
     }
 
+    // Windows only: these paths are `\\wsl.localhost\…` UNC paths, and on macOS
+    // `std::path` does not split on `\`, so `file_name` and `..` both read wrong.
+    // A macOS build never has a WSL project to begin with.
+    #[cfg(windows)]
     #[test]
     fn a_wsl_projects_worktrees_live_in_the_distro() {
         crate::environment::wsl::set_probe_for_test(

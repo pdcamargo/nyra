@@ -313,6 +313,10 @@ mod tests {
         assert!(!is_path_allowed("/Users/x/project-two/a.md", cwd));
     }
 
+    // Windows only: these paths are `\\wsl.localhost\…` UNC paths, and on macOS
+    // `std::path` does not split on `\`, so `file_name` and `..` both read wrong.
+    // A macOS build never has a WSL project to begin with.
+    #[cfg(windows)]
     #[test]
     fn a_wsl_chat_may_edit_the_distros_claude_dir_and_not_the_hosts() {
         crate::environment::wsl::set_probe_for_test(
