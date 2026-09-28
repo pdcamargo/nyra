@@ -8,7 +8,12 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Nyra now runs on Windows',
+      'On Windows, projects inside WSL run Claude, git and the terminal in their own distro',
+      'Stop now ends the turn without restarting Claude, so the next reply starts right away',
+      'Fixed memories and chat titles not being found for projects whose path contains a dot'
+    ]
   },
   {
     version: '0.4.2',
