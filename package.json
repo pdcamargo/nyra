@@ -26,6 +26,7 @@
     "sidecar:install": "npm --prefix sidecar install --no-audit --no-fund",
     "postinstall": "npm run sidecar:install",
     "release:manifest": "node scripts/release-manifest.mjs",
+    "release:windows": "node scripts/release-windows.mjs",
     "design:dev": "npm run dev -w @nyra/design"
   },
   "dependencies": {
