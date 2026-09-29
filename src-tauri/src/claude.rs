@@ -490,6 +490,7 @@ pub fn dispose_session(nyra_session_id: &str) {
     USAGE_CALLBACKS.lock().remove(nyra_session_id);
     ai_title::forget(nyra_session_id);
     subagents::forget_session(nyra_session_id);
+    crate::desktop::forget(nyra_session_id);
     fail_result_callback(nyra_session_id, "Session disposed");
 }
 
@@ -1148,6 +1149,21 @@ const APP_CONVENTION: &str = concat!(
     "tidying up after yourself."
 );
 
+/// Taught only when the desktop tools are attached.
+///
+/// The long material — the loop, the cheaper routes, what each refusal means —
+/// is the `nyra-desktop` skill, which loads only when it is needed. This is the
+/// part a schema cannot carry: that the window is one the user is looking at
+/// and can move, and that another app changing on its own looks like a fault
+/// unless someone says what happened.
+const DESKTOP_CONVENTION: &str = concat!(
+    "\n\nYou can operate other apps on this computer with the `desktop_*` tools; load the ",
+    "nyra-desktop skill before using them. Take a `desktop_snapshot` before acting, and a ",
+    "fresh one each time, because the user may have moved things. Nothing that sends, ",
+    "deletes, buys or submits without asking first. Afterwards say in one line what you ",
+    "did in which app: \"I typed the address into Mail's To field\"."
+);
+
 /// Everything Nyra has to teach a session about itself, plus whatever the user
 /// added.
 ///
@@ -1160,6 +1176,7 @@ fn compose_system_prompt(
     user_prompt: &str,
     has_browser: bool,
     has_app: bool,
+    has_desktop: bool,
 ) -> String {
     let mut parts: Vec<&str> = vec![
         "You are running inside Nyra, a desktop GUI for Claude Code.",
@@ -1180,6 +1197,9 @@ fn compose_system_prompt(
     }
     if has_app {
         parts.push(APP_CONVENTION);
+    }
+    if has_desktop {
+        parts.push(DESKTOP_CONVENTION);
     }
 
     let nyra = parts.join(" ");
@@ -1231,6 +1251,13 @@ fn build_spawn_args(
         .filter(|_| reachable && util::settings().app_tools)
         .and_then(crate::app_mcp::mcp_endpoint);
 
+    // And for other apps on this computer — off unless turned on, and on the
+    // same terms: no chat id means no window to ask the user in, and no user
+    // to ask whether an app may be touched.
+    let desktop_mcp = nyra_session_id
+        .filter(|_| reachable && util::settings().desktop_tools)
+        .and_then(crate::desktop::mcp_endpoint);
+
     // The directory as the session itself sees it — `/home/me/repo` in WSL,
     // which is what every path it prints will be relative to.
     let full_system_prompt = compose_system_prompt(
@@ -1238,6 +1265,7 @@ fn build_spawn_args(
         &settings.system_prompt,
         browser_mcp.is_some(),
         app_mcp.is_some(),
+        desktop_mcp.is_some(),
     );
     args.push("--append-system-prompt".into());
     args.push(full_system_prompt);
@@ -1297,6 +1325,12 @@ fn build_spawn_args(
     if let Some((url, token)) = app_mcp {
         servers.insert(
             "nyra-app".into(),
+            json!({ "type": "http", "url": url, "headers": { "x-nyra-token": token } }),
+        );
+    }
+    if let Some((url, token)) = desktop_mcp {
+        servers.insert(
+            "nyra-desktop".into(),
             json!({ "type": "http", "url": url, "headers": { "x-nyra-token": token } }),
         );
     }
@@ -1413,6 +1447,8 @@ pub async fn steer_session(nyra_session_id: &str, prompt: &str) -> bool {
         }
         Environment::of(&inner.cwd)
     };
+    // The user wrote something, so an Esc earlier in the turn is answered.
+    crate::desktop::turn_started(nyra_session_id);
 
     let payload = format_user_message(&prompt_in_env(&env, prompt));
     let mut guard = sess.stdin.lock().await;
@@ -1487,6 +1523,8 @@ pub async fn run_claude(
     sess.inner.lock().refresh_runtime_settings(&settings);
 
     let prompt = prompt_in_env(&Environment::of(&cwd), &prompt);
+    // A new message from the user lifts whatever Esc refused last turn.
+    crate::desktop::turn_started(&nyra_session_id);
     let rx = match send_prompt_to_session(&sess, &prompt).await {
         Ok(rx) => rx,
         Err(e) => {
@@ -1884,6 +1922,7 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
             let _ = turn.send(Ok(session_id));
         }
         crate::ai_title::turn_ended(nyra_session_id);
+        crate::desktop::turn_ended(nyra_session_id);
     }
 
     if event_type == "result" {
@@ -2296,6 +2335,7 @@ async fn on_child_exit(sess: &Arc<Session>, nyra_session_id: &str, exit_code: Op
         "Claude [{}] exited with code: {exit_code:?}",
         util::short(nyra_session_id)
     );
+    crate::desktop::turn_ended(nyra_session_id);
 
     let leftover = {
         let mut inner = sess.inner.lock();
@@ -3106,8 +3146,8 @@ mod tests {
 
     #[test]
     fn the_browser_is_only_taught_to_a_session_that_has_one() {
-        let with = compose_system_prompt("/tmp/x", "", true, false);
-        let without = compose_system_prompt("/tmp/x", "", false, false);
+        let with = compose_system_prompt("/tmp/x", "", true, false, false);
+        let without = compose_system_prompt("/tmp/x", "", false, false, false);
 
         assert!(with.contains("This conversation has a real browser"));
         // The failure that matters: a session with no browser tools must not be
@@ -3144,8 +3184,8 @@ mod tests {
     /// tools that do not exist and report changes that never happened.
     #[test]
     fn the_app_tools_are_only_taught_to_a_session_that_has_them() {
-        let with = compose_system_prompt("/tmp/x", "", false, true);
-        let without = compose_system_prompt("/tmp/x", "", false, false);
+        let with = compose_system_prompt("/tmp/x", "", false, true, false);
+        let without = compose_system_prompt("/tmp/x", "", false, false, false);
 
         for name in ["nyra_ui", "nyra_flow", "nyra_update"] {
             assert!(with.contains(name), "{name} missing when attached");
@@ -3173,9 +3213,9 @@ mod tests {
     /// there so growth has to be a decision rather than a drift.
     #[test]
     fn the_app_convention_stays_inside_its_budget() {
-        let base = compose_system_prompt("/tmp/x", "", false, false);
-        let with_app = compose_system_prompt("/tmp/x", "", false, true);
-        let with_both = compose_system_prompt("/tmp/x", "", true, true);
+        let base = compose_system_prompt("/tmp/x", "", false, false, false);
+        let with_app = compose_system_prompt("/tmp/x", "", false, true, false);
+        let with_both = compose_system_prompt("/tmp/x", "", true, true, false);
 
         let added = with_app.len() - base.len();
         // ~4 chars a token is close enough for a budget, and stable.
@@ -3194,8 +3234,8 @@ mod tests {
     /// off silently takes the app tools with it.
     #[test]
     fn the_browser_and_the_app_are_taught_independently() {
-        let app_only = compose_system_prompt("/tmp/x", "", false, true);
-        let browser_only = compose_system_prompt("/tmp/x", "", true, false);
+        let app_only = compose_system_prompt("/tmp/x", "", false, true, false);
+        let browser_only = compose_system_prompt("/tmp/x", "", true, false, false);
 
         assert!(app_only.contains("nyra_ui"));
         assert!(!app_only.contains("browser_device"));
@@ -3203,12 +3243,53 @@ mod tests {
         assert!(!browser_only.contains("nyra_ui"));
     }
 
+    /// A session that is told it can drive other apps when it cannot will
+    /// report clicks that never happened; one that can and is not told will
+    /// never think to. And the shared conventions must survive either way.
+    #[test]
+    fn the_desktop_tools_are_only_taught_to_a_session_that_has_them() {
+        let with = compose_system_prompt("/tmp/x", "", false, false, true);
+        let without = compose_system_prompt("/tmp/x", "", false, false, false);
+
+        assert!(with.contains("desktop_snapshot"));
+        assert!(!without.contains("desktop_"));
+        assert!(!without.contains("nyra-desktop"));
+        // The four things it exists to say.
+        assert!(with.contains("nyra-desktop skill"));
+        assert!(with.contains("fresh one each time"));
+        assert!(with.contains("sends, deletes, buys or submits"));
+        assert!(with.contains("in which app"));
+
+        for shared in [
+            "```nyra-ask",
+            "```nyra-tasks",
+            "```nyra-changes",
+            "![alt](/absolute/path.png)",
+        ] {
+            assert!(with.contains(shared), "{shared}");
+        }
+
+        // Independent of the other two.
+        let everything = compose_system_prompt("/tmp/x", "", true, true, true);
+        assert!(everything.contains("browser_device") && everything.contains("nyra_ui") && everything.contains("desktop_snapshot"));
+        assert!(!compose_system_prompt("/tmp/x", "", true, true, false).contains("desktop_"));
+    }
+
+    #[test]
+    fn the_desktop_convention_stays_inside_its_budget() {
+        let base = compose_system_prompt("/tmp/x", "", false, false, false);
+        let with = compose_system_prompt("/tmp/x", "", false, false, true);
+        let added = with.len() - base.len();
+        println!("  + desktop tools {:>5} chars  ~{:>4} tokens", added, added / 4);
+        assert!(added < 600, "the desktop convention grew to {added} chars");
+    }
+
     /// The gap a second agent caught while testing the card: `git diff --numstat`
     /// cannot see a file git has never been told about, so a turn that adds files
     /// would summarise none of them. The convention has to say so.
     #[test]
     fn the_changes_convention_covers_files_git_has_never_seen() {
-        let composed = compose_system_prompt("/tmp/x", "", false, false);
+        let composed = compose_system_prompt("/tmp/x", "", false, false, false);
         assert!(composed.contains("git diff --numstat"));
         assert!(composed.contains("git ls-files --others --exclude-standard"));
         assert!(composed.contains("base: <short sha>"));
@@ -3216,7 +3297,7 @@ mod tests {
 
     #[test]
     fn the_users_own_prompt_comes_last() {
-        let composed = compose_system_prompt("/tmp/x", "Always speak in haiku.", true, true);
+        let composed = compose_system_prompt("/tmp/x", "Always speak in haiku.", true, true, false);
         assert!(composed.ends_with("Always speak in haiku."));
         assert!(composed.contains("running inside Nyra"));
     }

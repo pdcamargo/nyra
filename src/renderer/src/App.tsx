@@ -30,6 +30,7 @@ import { syncBrowserGone, syncSidecarTabs, useWorkspaceStore } from './store/wor
 import { handleBinding } from './store/panelLayout'
 import { usePanelSizesStore } from './store/panelSizes'
 import { startAppControl } from './lib/appControl'
+import { startDesktopEvents } from './lib/desktopControl'
 import { ViewErrorBoundary } from './components/ViewErrorBoundary'
 
 // Lazy-load heavy components — modals with Monaco, WorkflowCanvas with React Flow
@@ -112,11 +113,13 @@ export default function App(): React.JSX.Element {
   // reason the browser events are: the question can arrive whatever is mounted.
   useEffect(() => {
     const stopControl = startAppControl()
+    const stopDesktop = startDesktopEvents()
     const stopUpdates = window.api.updates.onAvailable(({ version }) => {
       useUiStore.getState().setUpdateAvailable(version)
     })
     return () => {
       stopControl()
+      stopDesktop()
       stopUpdates()
     }
   }, [])

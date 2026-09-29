@@ -8,6 +8,7 @@ mod browser;
 mod claude;
 mod commands;
 mod designs;
+mod desktop;
 mod devtools;
 mod dictation;
 mod environment;
@@ -95,6 +96,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
+        // Only ever holds Esc, and only while a chat is controlling another app.
+        // See desktop/indicator.rs.
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -299,6 +303,9 @@ pub fn run() {
             commands::update_install,
             commands::app_version,
             commands::app_control_response,
+            commands::desktop_permissions,
+            commands::desktop_fix_permission,
+            commands::desktop_stop,
             commands::devtools_screenshot,
             commands::devtools_eval,
             commands::dev_log_push,

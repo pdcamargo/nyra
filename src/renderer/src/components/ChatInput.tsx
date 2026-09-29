@@ -25,6 +25,8 @@ import { compressImage } from '../utils/imageCompression'
 import { useAttachmentStaging } from '../hooks/useAttachmentStaging'
 import type { Agent, ToolCallMessage } from '../store/sessions'
 import QuestionDock from './QuestionDock'
+import DesktopAccessDock from './desktop/DesktopAccessDock'
+import DesktopStatus from './desktop/DesktopStatus'
 import PlanCard, { type PlanAnswer } from './PlanCard'
 import { useQuestionAnswerStore } from '../store/questionAnswer'
 import { composerIntent } from '../lib/composerIntent'
@@ -922,6 +924,7 @@ export default function ChatInput({
       {/* Inside the composer's own padded box rather than a sibling of it, so the
           two cannot drift apart when that padding changes. */}
       {activeSessionId && <NewChatEnvironment sessionId={activeSessionId} />}
+      {activeSessionId && <DesktopStatus sessionId={activeSessionId} />}
 
       {/* Codex-shaped: the field on its own line, then a footer carrying what you
           set per turn — approvals on the left, model and effort on the right,
@@ -938,6 +941,9 @@ export default function ChatInput({
             lights the question and the field together as the single control they
             are. A question outranks a plan — the two cannot both be live, but if
             they ever were, the question is the one that stops the turn. */}
+        {/* Claude is waiting on this before it touches another app, so it goes
+            where its own questions go. */}
+        {activeSessionId && <DesktopAccessDock sessionId={activeSessionId} />}
         {question ? (
           <div className="max-h-[min(44vh,380px)] overflow-y-auto">
             <QuestionDock

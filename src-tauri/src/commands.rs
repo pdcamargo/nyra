@@ -1154,6 +1154,30 @@ pub fn app_control_response(request_id: String, result: Value) {
 }
 
 // ---------------------------------------------------------------------------
+// Desktop control
+// ---------------------------------------------------------------------------
+
+/// What the OS will and will not let the desktop tools do, as neutral entries:
+/// the renderer shows each one's reason and a button carrying its fix.
+#[tauri::command]
+pub async fn desktop_permissions() -> Vec<crate::desktop::PermissionEntry> {
+    crate::desktop::live().permissions().await
+}
+
+/// The button: ask the OS for it, and open wherever it is switched on.
+#[tauri::command]
+pub async fn desktop_fix_permission(kind: String) -> Result<(), String> {
+    let kind = crate::desktop::PermissionKind::parse(&kind).ok_or("unknown permission")?;
+    crate::desktop::live().fix_permission(kind).await
+}
+
+/// "Stop desktop control": the same kill switch as the global Esc.
+#[tauri::command]
+pub fn desktop_stop() {
+    crate::desktop::indicator::stop_all();
+}
+
+// ---------------------------------------------------------------------------
 // Devtools
 // ---------------------------------------------------------------------------
 //

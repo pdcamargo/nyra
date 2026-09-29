@@ -23,6 +23,15 @@ export type NyraSettings = {
   browserTools: boolean
   /** Whether Claude gets the tools that drive Nyra itself. */
   appTools: boolean
+  /** Whether Claude gets the tools that operate other apps. Off by default:
+   *  on macOS the permission they need is inherited by every command a chat
+   *  runs, and on Windows there is no permission at all. */
+  desktopTools: boolean
+  /** Apps answered "always" in the desktop allow prompt, by the opaque id
+   *  Rust gave them. Rust reads this list. */
+  desktopAllowedApps: string[]
+  /** What to call each of those ids in Settings. Renderer-only; Rust ignores it. */
+  desktopAppNames: Record<string, string>
   /** The floating miniature. Codex had to add this switch after the fact; it
    *  costs nothing to have from the start. */
   browserPip: boolean
@@ -161,6 +170,9 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   worktreeAutoDelete: true,
   browserTools: true,
   appTools: true,
+  desktopTools: false,
+  desktopAllowedApps: [],
+  desktopAppNames: {},
   browserPip: true,
   showChatMemory: false,
   awayRecap: true,

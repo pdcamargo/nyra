@@ -87,6 +87,7 @@ export type CommandId =
   | 'session.clear'
   | 'session.copy'
   | 'session.abort'
+  | 'desktop.stop'
   | 'session.pr.open'
   | 'project.add'
   | 'panel.left'
@@ -377,6 +378,20 @@ export const COMMANDS: Command[] = [
     // when you decide to stop it.
     allowInInput: true,
     run: () => void window.api.claude.abort(useSessionsStore.getState().activeSessionId ?? undefined)
+  },
+  {
+    // Esc already does this from anywhere while Claude is controlling an app —
+    // Rust holds it as a global key for exactly that long. This is the same
+    // switch with a name: the palette, and the chip over the composer.
+    id: 'desktop.stop',
+    agent: false,
+    agentReason: 'Claude stopping its own control of another app is not something the user asked for.',
+    label: 'Stop desktop control',
+    group: 'Session',
+    defaultChord: null,
+    icon: Square,
+    palette: true,
+    run: () => void window.api.desktop.stop()
   },
   {
     // Unbound by default. Most chats have no PR at all, so a chord would sit

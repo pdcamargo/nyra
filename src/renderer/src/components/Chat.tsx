@@ -2202,6 +2202,7 @@ function WslNotices({ cwd }: { cwd: string }): React.JSX.Element | null {
   const share = wslShare(cwd)
   const browserTools = useSettingsStore((s) => s.browserTools)
   const appTools = useSettingsStore((s) => s.appTools)
+  const desktopTools = useSettingsStore((s) => s.desktopTools)
   const info = useEnvironmentInfo(cwd)
 
   if (!share || !info || info.kind !== 'wsl') return null
@@ -2217,10 +2218,10 @@ function WslNotices({ cwd }: { cwd: string }): React.JSX.Element | null {
     )
   } else if (!info.claudeFound) {
     message = `Claude Code isn’t installed in ${distro}.`
-  } else if (!info.mirroredNetworking && (browserTools || appTools)) {
+  } else if (!info.mirroredNetworking && (browserTools || appTools || desktopTools)) {
     message = (
       <>
-        Browser and app tools are off in WSL chats. Add{' '}
+        Browser, app and desktop tools are off in WSL chats. Add{' '}
         <code className="font-mono">networkingMode=mirrored</code> under{' '}
         <code className="font-mono">[wsl2]</code> in{' '}
         <code className="font-mono">%USERPROFILE%\.wslconfig</code>, then run{' '}

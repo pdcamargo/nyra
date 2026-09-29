@@ -31,6 +31,7 @@ import { useWorkspaceStore, workspaceFor } from '../store/workspace'
 import { openFileInPanel } from './openFile'
 import { resolveTheme } from './theme'
 import { renderDesign } from './designRender'
+import { askDesktopAccess } from './desktopControl'
 
 type Op = (args: Record<string, unknown>) => unknown | Promise<unknown>
 
@@ -177,6 +178,10 @@ const OPS: Record<string, Op> = {
    * `ask_renderer` grew a per-op timeout: the first render in a session pays
    * for launching a headless Chromium.
    */
+  // Asked the first time a chat touches an app. Held open until the user
+  // answers in that chat's composer; Rust waits up to two minutes.
+  'desktop.allow': (args) => askDesktopAccess(args),
+
   async 'design.render'({ path, artboard, scale }) {
     if (typeof path !== 'string' || path.length === 0) {
       throw new Error("design.render needs a 'path'")

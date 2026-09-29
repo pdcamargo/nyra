@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Eye, FileDiff, GitBranch, Laptop, MemoryStick, RotateCw, TerminalSquare } from 'lucide-react'
+import { Eye, FileDiff, GitBranch, Laptop, MemoryStick, MousePointerClick, RotateCw, Square, TerminalSquare } from 'lucide-react'
 import { useSessionsStore, findProject, type TextMessage } from '../store/sessions'
 import { useUiStore } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { EMPTY_BROWSER, useBrowserStore } from '../store/browser'
+import { useDesktopStore } from '../store/desktop'
+import { IconButton } from './ui/icon-button'
 import { browserKey, useWorkspaceStore } from '../store/workspace'
 import { collectAttachments, formatSize } from '../lib/summary'
 import { formatMemory, readChatMemory, type ChatMemory } from '../lib/chatMemory'
@@ -103,6 +105,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
   )
   const browser = useBrowserStore((s) => (session ? s.bySession[session.id] : null) ?? EMPTY_BROWSER)
   const dismissPip = useBrowserStore((s) => s.dismissPip)
+  const controlling = useDesktopStore((s) => (session ? s.bySession[session.id]?.controlling : null) ?? null)
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const changesKeys = useChordLabel('panel.right.changes')
   const [stat, setStat] = useState<Stat | null>(null)
@@ -258,6 +261,25 @@ export default function SummaryPanel(): React.JSX.Element | null {
               <GitBranch className="size-3.5" />
             }
             label={session.branch}
+          />
+        )}
+        {/* Another app this chat is driving right now. The same fact as the chip
+            over the composer, for when the composer is not what you are
+            looking at. */}
+        {controlling && (
+          <Row
+            icon={<MousePointerClick className="size-3.5 text-info" />}
+            label={`Using ${controlling}`}
+            trailing={
+              <IconButton
+                label="Stop desktop control"
+                command="desktop.stop"
+                onClick={() => void window.api.desktop.stop()}
+                className="shrink-0 text-muted-foreground"
+              >
+                <Square className="size-3" />
+              </IconButton>
+            }
           />
         )}
         {/* What this chat is holding: its Claude process, everything under it,

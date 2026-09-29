@@ -52,6 +52,14 @@ pub const BUNDLED: &[Bundled] = &[
     // `packages/design/scripts/generate-skill.mts`, with a test that
     // regenerates and diffs. Long, and that is fine: a skill loads on its
     // description, and only the frontmatter is carried in every turn.
+    // Operating other apps. Its own skill for the same reason as the two
+    // above: it should load for "do X in Mail", and for nothing else. The
+    // cheaper routes and the refusal table are long; only this frontmatter
+    // rides in every turn.
+    Bundled {
+        name: "nyra-desktop",
+        content: include_str!("../../.agents/skills/nyra-desktop/SKILL.md"),
+    },
     Bundled {
         name: "nyra-design",
         content: include_str!("../../.agents/skills/nyra-design/SKILL.md"),

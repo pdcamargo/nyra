@@ -19,5 +19,13 @@
     -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!--
+      Desktop control's cheaper route: `osascript` run by a chat sends Apple
+      Events as Nyra, and under the hardened runtime they are refused without
+      this. Accessibility and Screen Recording, which the desktop tools use,
+      need no entitlement: they are TCC grants keyed to the signature.
+    -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
 </dict>
 </plist>

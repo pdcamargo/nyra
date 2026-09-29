@@ -57,6 +57,14 @@ pub struct NyraSettings {
     /// but a switch rather than a given, because the schemas ride along in every
     /// turn of every chat.
     pub app_tools: bool,
+    /// Whether Claude gets the tools that operate other apps. Off by default,
+    /// unlike the other two: on macOS the Accessibility grant these need is
+    /// inherited by every command a chat runs, and on Windows nothing needs
+    /// granting at all, so turning it on is a decision rather than a default.
+    pub desktop_tools: bool,
+    /// Apps answered "always" in the desktop allow prompt, by the id the OS
+    /// half gave them. The renderer writes it; `desktop/` only reads it.
+    pub desktop_allowed_apps: Vec<String>,
     /// The floating miniature over the conversation.
     pub browser_pip: bool,
     // Appearance — fonts, type size, zoom, chat width — is deliberately absent.
@@ -85,6 +93,8 @@ impl Default for NyraSettings {
             worktree_auto_delete: default_true(),
             browser_tools: default_true(),
             app_tools: default_true(),
+            desktop_tools: false,
+            desktop_allowed_apps: Vec::new(),
             browser_pip: default_true(),
         }
     }

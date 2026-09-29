@@ -2,6 +2,7 @@ import React from 'react'
 import { useSettingsStore } from '../../store/settings'
 import { NumberField, SectionLabel, SettingRow, Toggle } from './primitives'
 import DictationSection from './DictationSection'
+import DesktopSection from './DesktopSection'
 
 export default function GeneralTab(): React.JSX.Element {
   const settings = useSettingsStore()
@@ -49,6 +50,8 @@ export default function GeneralTab(): React.JSX.Element {
       <SettingRow label="Browser preview over the chat">
         <Toggle checked={settings.browserPip} onChange={(v) => update({ browserPip: v })} />
       </SettingRow>
+
+      <DesktopSection />
 
       <DictationSection />
 

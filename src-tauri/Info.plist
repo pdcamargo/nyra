@@ -9,10 +9,16 @@
   and `tauri dev` does not run the bundler, so a dev build has no Info.plist at
   all. Dictation therefore has to be tested in a bundled build
   (`node scripts/build-app.mjs`), not with `npm run dev`.
+
+  NSAppleEventsUsageDescription is the sentence shown the first time a chat
+  runs `osascript` against another app (the nyra-desktop skill's cheaper route):
+  those Apple Events are sent under Nyra's identity.
 -->
 <plist version="1.0">
 <dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>Nyra uses the microphone for dictation. Your speech is transcribed on this Mac and never leaves it.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Claude, running in Nyra, can control this app for you when you ask it to. You decide each app once.</string>
 </dict>
 </plist>

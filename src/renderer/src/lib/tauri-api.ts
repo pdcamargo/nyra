@@ -106,6 +106,21 @@ export type DictationEvent =
   | { type: 'model_cancelled'; model: string }
   | { type: 'model_failed'; model: string; error: string }
 
+export type DesktopPermissionKind = 'controlInput' | 'captureScreen'
+export type DesktopFix = { label: string; target: string }
+export type DesktopPermission = {
+  kind: DesktopPermissionKind
+  granted: boolean
+  reason: string
+  fix: DesktopFix | null
+}
+export type DesktopBlocked = {
+  chatId: string
+  kind: DesktopPermissionKind
+  reason: string
+  fix: DesktopFix | null
+}
+
 const EVENT_NAMES = [
   'claude:event',
   'claude:permission',
@@ -119,6 +134,9 @@ const EVENT_NAMES = [
   'nyra:app-request',
   'nyra:update-available',
   'nyra:designs-changed',
+  'nyra:desktop-activity',
+  'nyra:desktop-blocked',
+  'nyra:desktop-stopped',
   'dictation:event'
 ] as const
 
@@ -328,6 +346,20 @@ export const api = {
   settings: {
     sync: (settings: Record<string, unknown>) => call<void>('settings_sync', { settings })
   },
+  /**
+   * Claude operating other apps. Rust owns every rule; this side shows the
+   * questions it asks, what is being controlled, and what is missing.
+   */
+  desktop: {
+    permissions: () => call<DesktopPermission[]>('desktop_permissions'),
+    fixPermission: (kind: DesktopPermissionKind) => call<void>('desktop_fix_permission', { kind }),
+    stop: () => call<void>('desktop_stop'),
+    onActivity: (cb: (p: { chatId: string; app: string | null }) => void) =>
+      on('nyra:desktop-activity', cb),
+    onBlocked: (cb: (p: DesktopBlocked) => void) => on('nyra:desktop-blocked', cb),
+    onStopped: (cb: (p: { chats: string[] }) => void) => on('nyra:desktop-stopped', cb)
+  },
+
 
   fonts: {
     /** Every family installed on this machine. Cached on the Rust side. */
