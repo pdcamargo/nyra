@@ -61,11 +61,65 @@ import type { ChatWidth } from '../../../shared/types'
  */
 const OUTER = 'calc(var(--avail) + var(--scrollbar-size))'
 
+/**
+ * The two percentage-bearing terms of --col-w. Written once, because --col-w and
+ * every expression that measures against it (see `withColumn`) have to agree.
+ */
+const FILL = '(var(--avail) - 2 * var(--gap) - var(--gutter))'
+const CAP = '(var(--avail) - 2 * var(--gap))'
+
+/**
+ * `k ± var(--col-w) * factor`, spelled out so WebKit gets it right under zoom.
+ *
+ * WebKit mis-scales a min() or max() that holds a percentage when it is an
+ * operand of arithmetic: at 125% page zoom `(100% - min(400px, 100%)) / 2`
+ * lands 375px from the edge rather than 300, and the error grows with the zoom.
+ * --col-w is exactly such a min(), and every offset here used to subtract it, so
+ * on a zoomed Mac the column slid right until it sat against the summary.
+ * Chromium never had the bug, which is why Windows never showed it.
+ *
+ * The same min() is fine used whole — as a width, or with calc() inside it — so
+ * the arithmetic is distributed into its arguments instead of applied to it:
+ *
+ *   k - min(a, max(b, c), d) = max(k - a, min(k - b, k - c), k - d)
+ *   k + min(a, max(b, c), d) = min(k + a, max(k + b, k + c), k + d)
+ *
+ * --col-min stays nested: it is a min() of plain lengths, which WebKit resolves
+ * before zoom can get at it.
+ */
+function withColumn(k: string, sign: 1 | -1, factor = 1): string {
+  const op = sign === 1 ? '+' : '-'
+  const scaled = factor === 1 ? '' : ` * ${factor}`
+  const term = (w: string): string => `calc(${k} ${op} ${w}${scaled})`
+  const outer = sign === 1 ? 'min' : 'max'
+  const inner = sign === 1 ? 'max' : 'min'
+  return (
+    `${outer}(${term('var(--col-max)')},` +
+    ` ${inner}(${term('var(--col-min)')}, ${term(FILL)}),` +
+    ` ${term(CAP)})`
+  )
+}
+
+/** Where the column's right edge may come to, short of the floating card. */
+const CARD_EDGE = `${OUTER} - var(--gutter) - var(--card-gap)`
+
 export const COLUMN_OFFSET =
   'clamp(var(--gap),' +
-  ' min(calc((var(--avail) - var(--col-w)) / 2),' +
-  ` calc(${OUTER} - var(--col-w) - var(--gutter) - var(--card-gap))),` +
-  ' calc(var(--avail) - var(--gap) - var(--col-w)))'
+  ` min(${withColumn('var(--avail) / 2', -1, 0.5)},` +
+  ` ${withColumn(CARD_EDGE, -1)}),` +
+  ` ${withColumn('var(--avail) - var(--gap)', -1)})`
+
+/**
+ * The column's midline: COLUMN_OFFSET plus half of --col-w, for the jump pill.
+ *
+ * Not `calc(${COLUMN_OFFSET} + var(--col-w) / 2)`, which is the same WebKit bug
+ * twice over. Adding a constant to a clamp() adds it to each of its three
+ * arguments, and the centred term's halves cancel to a plain `--avail / 2`.
+ */
+export const COLUMN_CENTER =
+  `clamp(${withColumn('var(--gap)', 1, 0.5)},` +
+  ` min(calc(var(--avail) / 2), ${withColumn(CARD_EDGE, -1, 0.5)}),` +
+  ` ${withColumn('var(--avail) - var(--gap)', -1, 0.5)})`
 
 /**
  * For the three things that sit beside the scroller rather than in it.
@@ -153,9 +207,6 @@ export function columnVars(gutterOpen: boolean, width: ChatWidth): React.CSSProp
     // The gutter is subtracted where there is room to spare and dropped where
     // there is not, which is the floating summary's own rule: it overlaps the
     // conversation on a narrow window rather than squeezing it to nothing.
-    '--col-w':
-      'min(var(--col-max),' +
-      ' max(var(--col-min), calc(var(--avail) - 2 * var(--gap) - var(--gutter))),' +
-      ' calc(var(--avail) - 2 * var(--gap)))'
+    '--col-w': `min(var(--col-max), max(var(--col-min), calc${FILL}), calc${CAP})`
   } as React.CSSProperties
 }

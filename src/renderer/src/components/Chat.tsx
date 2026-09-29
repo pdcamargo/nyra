@@ -42,7 +42,7 @@ import ZoomableImage from './ZoomableImage'
 import ActivityStrip from './ActivityStrip'
 import SessionRecap from './SessionRecap'
 import { useChordLabel } from './ui/kbd'
-import { COLUMN_OFFSET, OUTSIDE_SCROLLER, SUMMARY_OFFSET, SUMMARY_WIDTH, columnVars } from '../lib/chatColumn'
+import { COLUMN_CENTER, COLUMN_OFFSET, OUTSIDE_SCROLLER, SUMMARY_OFFSET, SUMMARY_WIDTH, columnVars } from '../lib/chatColumn'
 import StatsModal from './StatsModal'
 import CopyBlocksModal from './CopyBlocksModal'
 import ReleaseNotesModal from './ReleaseNotesModal'
@@ -2092,7 +2092,7 @@ export default function Chat(): React.JSX.Element {
             {
               ...columnGeometry,
               ...OUTSIDE_SCROLLER,
-              left: `calc(${COLUMN_OFFSET} + var(--col-w) / 2)`
+              left: COLUMN_CENTER
             } as React.CSSProperties
           }
           className="absolute bottom-4 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-strong bg-accent px-3 py-1.5 text-[11px] text-foreground/80 shadow-lg transition-all hover:bg-secondary hover:text-foreground"

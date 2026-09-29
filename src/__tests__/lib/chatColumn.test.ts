@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  COLUMN_CENTER,
   COLUMN_OFFSET,
   OUTSIDE_SCROLLER,
   SUMMARY_OFFSET,
@@ -60,7 +61,30 @@ describe('columnVars', () => {
   // Centring the pair was honest about the space the card takes and read as a
   // column shoved off-centre. The conversation is what gets centred.
   it('centres the conversation itself', () => {
-    expect(COLUMN_OFFSET).toContain('(var(--avail) - var(--col-w)) / 2')
+    // (avail - col-w) / 2, distributed: see withColumn.
+    expect(COLUMN_OFFSET).toContain('calc(var(--avail) / 2 - var(--col-max) * 0.5)')
+  })
+
+  // WebKit mis-scales a percentage-bearing min() used as an operand of calc()
+  // under page zoom, and --col-w is one. Subtracting it slid the column right
+  // on every zoomed Mac. Its arguments are measured against instead.
+  it('never does arithmetic on --col-w itself', () => {
+    expect(COLUMN_OFFSET).not.toContain('var(--col-w)')
+    expect(COLUMN_CENTER).not.toContain('var(--col-w)')
+  })
+
+  it('measures against the same terms --col-w is made of', () => {
+    const colW = varsFor('wide', true)['--col-w']
+    for (const term of ['var(--col-max)', 'var(--col-min)', '(var(--avail) - 2 * var(--gap) - var(--gutter))', '(var(--avail) - 2 * var(--gap))']) {
+      expect(colW).toContain(term)
+      expect(COLUMN_OFFSET).toContain(term)
+      expect(COLUMN_CENTER).toContain(term)
+    }
+  })
+
+  // The jump pill's midline. The centred term's halves cancel.
+  it('puts the midline at the middle when the column is centred', () => {
+    expect(COLUMN_CENTER).toContain('min(calc(var(--avail) / 2),')
   })
 
   // ...and gives ground only where the card would come closer than --card-gap.
@@ -68,8 +92,8 @@ describe('columnVars', () => {
   // the card fitted without it; reserving nothing put the card's left edge
   // exactly on the column's right edge in every window where this term wins.
   it('spends the clearance down to the floor before it moves the column', () => {
-    expect(COLUMN_OFFSET).toContain('var(--col-w) - var(--gutter) - var(--card-gap)')
-    expect(COLUMN_OFFSET).not.toContain('var(--col-w) - var(--gap) - var(--gutter)')
+    expect(COLUMN_OFFSET).toContain('- var(--gutter) - var(--card-gap) - var(--col-max)')
+    expect(COLUMN_OFFSET).not.toContain('- var(--gap) - var(--gutter) - var(--col-max)')
     expect(COLUMN_OFFSET).toContain('min(')
   })
 
@@ -136,7 +160,7 @@ describe('the floating summary', () => {
   it('is cleared by the gutter the column already reserves', () => {
     const gutterPx = Number(varsFor('wide', true)['--gutter'].replace('rem', '')) * 16
     expect(gutterPx).toBe(SUMMARY_WIDTH + 12)
-    expect(COLUMN_OFFSET).toContain('var(--col-w) - var(--gutter) - var(--card-gap)')
+    expect(COLUMN_OFFSET).toContain('var(--scrollbar-size)) - var(--gutter) - var(--card-gap)')
   })
 })
 
