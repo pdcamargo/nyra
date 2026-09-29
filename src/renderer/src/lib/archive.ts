@@ -1,4 +1,5 @@
 import { useBrowserStore } from '../store/browser'
+import { useDesktopStore } from '../store/desktop'
 import { useProcessesStore } from '../store/processes'
 import { useResourceDockStore } from '../store/resourceDock'
 import { useRunningStore } from '../store/running'
@@ -58,6 +59,7 @@ async function stopChatWork(sessionId: string): Promise<ArchiveResult> {
     /* never had one */
   }
   useBrowserStore.getState().forget(sessionId)
+  useDesktopStore.getState().forget(sessionId)
   useWorkspaceStore.getState().reconcile(sessionId, [])
 
   // A /mcp or /status card open above the composer belongs to the chat that is

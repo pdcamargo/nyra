@@ -13,7 +13,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use super::{AppId, AppInfo, Answer, Blocked, BoxFuture, Host, PermissionKind};
+use super::{AppId, AppInfo, Answer, Blocked, BoxFuture, Host, PermissionKind, Seen};
 use crate::util;
 
 const TRAY_ID: &str = "nyra-desktop-control";
@@ -87,6 +87,14 @@ impl Host for TauriHost {
         };
         util::emit("nyra:desktop-activity", json!({ "chatId": chat, "app": app }));
         refresh(apps);
+    }
+
+    fn seen(&self, chat: &str, seen: &Seen) {
+        let mut payload = serde_json::to_value(seen).unwrap_or_default();
+        if let Some(map) = payload.as_object_mut() {
+            map.insert("chatId".into(), json!(chat));
+        }
+        util::emit("nyra:desktop-seen", payload);
     }
 
     fn blocked(&self, chat: &str, kind: PermissionKind, blocked: &Blocked) {

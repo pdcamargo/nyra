@@ -829,7 +829,10 @@ impl Backend for Native {
             PermissionEntry {
                 kind: PermissionKind::CaptureScreen,
                 granted: unsafe { CGPreflightScreenCaptureAccess() },
-                reason: "Nyra needs Screen Recording permission to take pictures of other apps' windows".into(),
+                // The second half is the trap found testing phase 2: a build signed
+                // differently leaves Nyra ticked in the list while macOS refuses it,
+                // and a new grant only counts after a relaunch.
+                reason: "Nyra needs Screen Recording permission to take pictures of other apps' windows. If Nyra is already ticked there, remove it with − and add it again, then quit and reopen Nyra".into(),
                 fix: Some(Fix {
                     label: "Open Screen Recording settings".into(),
                     target: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture".into(),
@@ -1052,8 +1055,62 @@ impl Backend for Native {
         Ok(Raised(true))
     }
 
-    fn capture_window(&self, _app: &AppInfo, _window: &WindowKey) -> Result<Vec<u8>> {
-        Err(DesktopError::Unsupported("window screenshots are not built yet".into()))
+    /// Through `screencapture`, not ScreenCaptureKit directly: it is what
+    /// macOS ships for exactly this, it runs under Nyra's Screen Recording
+    /// grant as our child, and it covers 13.3, which SCScreenshotManager does
+    /// not. `sips` then brings it down to the width the engine asked for.
+    fn capture_window(&self, _app: &AppInfo, window: &WindowKey, width: u32) -> Result<Vec<u8>> {
+        let id = window
+            .0
+            .strip_prefix("cg:")
+            .ok_or_else(|| DesktopError::Unsupported("this window has no id macOS can capture it by".into()))?;
+        let dir = &*SCRATCH_DIR;
+        std::fs::create_dir_all(dir).map_err(|e| DesktopError::Failed(e.to_string()))?;
+        let path = dir.join(format!("capture-{}.png", crate::util::rand_hex(6)));
+
+        let shot = crate::platform::std_command("/usr/sbin/screencapture")
+            .args(["-x", "-o", "-t", "png", &format!("-l{id}")])
+            .arg(&path)
+            .output()
+            .map_err(|e| DesktopError::Failed(format!("screencapture did not run: {e}")))?;
+        if !shot.status.success() || !path.is_file() {
+            let _ = std::fs::remove_file(&path);
+            return Err(DesktopError::Failed(format!(
+                "screencapture could not capture that window: {}",
+                String::from_utf8_lossy(&shot.stderr).trim()
+            )));
+        }
+
+        let bytes = std::fs::read(&path).map_err(|e| DesktopError::Failed(e.to_string()));
+        let wider = bytes.as_ref().ok().and_then(|b| super::safety::png_size(b)).is_some_and(|(w, _)| w > width);
+        let bytes = if wider {
+            let _ = crate::platform::std_command("/usr/bin/sips")
+                .args(["--resampleWidth", &width.to_string()])
+                .arg(&path)
+                .output();
+            std::fs::read(&path).map_err(|e| DesktopError::Failed(e.to_string()))
+        } else {
+            bytes
+        };
+        let _ = std::fs::remove_file(&path);
+        bytes
+    }
+
+    fn app_icon(&self, app: &AppInfo) -> Option<Vec<u8>> {
+        use objc2::AnyThread;
+        use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSRunningApplication};
+        use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize};
+
+        autoreleasepool(|_| {
+            let running = NSRunningApplication::runningApplicationWithProcessIdentifier(app.pid as i32)?;
+            let icon = running.icon()?;
+            // 32pt at 2x: sharp in a 16px slot, and a few KB rather than the 1024px master.
+            let mut rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(64.0, 64.0));
+            let cg = unsafe { icon.CGImageForProposedRect_context_hints(&mut rect, None, None) }?;
+            let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg);
+            let data = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
+            Some(data.to_vec())
+        })
     }
 
     fn open(&self, target: &Target) -> Result<String> {
@@ -1085,14 +1142,6 @@ impl Backend for Native {
         })
     }
 
-    fn frontmost(&self) -> Option<AppId> {
-        autoreleasepool(|_| unsafe {
-            let app: Option<Retained<AnyObject>> = msg_send![&*workspace(), frontmostApplication];
-            let id: Option<Retained<NSString>> = msg_send![&*app?, bundleIdentifier];
-            id.map(|s| AppId(s.to_string()))
-        })
-    }
-
     fn seconds_since_user_input(&self) -> f64 {
         unsafe { CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGAnyInputEventType) }
     }
@@ -1119,6 +1168,13 @@ mod tests {
     }
 
     /// Allows the apps it names and refuses the rest, printing what it is told.
+    impl Native {
+        /// Not off limits, so a test never photographs a password manager.
+        fn block_reason_for_test(&self, app: &AppInfo) -> bool {
+            super::super::safety::block_reason(app, None, BLOCKLIST, |id, p| self.app_matches(id, p), std::process::id()).is_none()
+        }
+    }
+
     struct AllowOnly(&'static [&'static str]);
 
     impl Host for AllowOnly {
@@ -1141,6 +1197,9 @@ mod tests {
         fn blocked(&self, _chat: &str, kind: PermissionKind, b: &Blocked) {
             println!("  blocked {kind:?}: {}", b.reason);
         }
+        fn seen(&self, _chat: &str, seen: &Seen) {
+            println!("  seen {} — {:?} (picture: {})", seen.app, seen.title, seen.png.is_some());
+        }
     }
 
     /// The phase 1 check on a real Mac: open TextEdit, type a line, read it
@@ -1150,7 +1209,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn drives_textedit_end_to_end() {
-        let d = Desktop::new(Native::new(), AllowOnly(&["TextEdit"]), GuardTiming::default());
+        let d = Desktop::new(Native::new(), AllowOnly(&["TextEdit"]), GuardTiming::default(), SCRATCH_DIR.clone());
         let chat = "e2e";
         let say = |label: &str, r: &std::result::Result<String, String>| match r {
             Ok(t) => println!("--- {label}\n{t}\n"),
@@ -1203,6 +1262,34 @@ mod tests {
         assert!(terminal.unwrap_err().contains("off limits"));
 
         d.turn_ended(chat);
+    }
+
+    /// Captures one real window at a width, and reads a real icon. Needs Screen
+    /// Recording and Accessibility; ignored, and run by hand.
+    #[test]
+    #[ignore]
+    fn captures_a_real_window_and_an_icon() {
+        let n = Native::new();
+        let apps = n.list_apps().unwrap();
+        let (app, window) = apps
+            .iter()
+            .find_map(|a| {
+                let w = n.list_windows(a).ok()?.into_iter().find(|w| w.key.0.starts_with("cg:") && w.frame.is_some_and(|f| f.w > 300.0))?;
+                (n.block_reason_for_test(a)).then_some((a.clone(), w))
+            })
+            .expect("some allowed app with a window");
+        let png = n.capture_window(&app, &window.key, 800).unwrap();
+        let (w, h) = super::super::safety::png_size(&png).unwrap();
+        println!("  {} — {:?}: {w}x{h}", app.name, window.title);
+        assert!(w <= 800 && w >= 300, "{w}");
+        let path = std::env::temp_dir().join("nyra-desktop-real-capture.png");
+        std::fs::write(&path, &png).unwrap();
+        println!("  saved {}", path.display());
+
+        let icon = n.app_icon(&app).expect("an icon");
+        let (iw, ih) = super::super::safety::png_size(&icon).unwrap();
+        println!("  icon {iw}x{ih}, {} bytes", icon.len());
+        assert!(iw <= 256 && ih <= 256);
     }
 
     /// Preflight only: says whether the grants are held, and never prompts.

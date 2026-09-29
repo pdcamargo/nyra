@@ -121,13 +121,15 @@ default-features = false
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSError", "NSDictionary", "NSValue", "NSUserDefaults"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSError", "NSDictionary", "NSValue", "NSUserDefaults", "NSGeometry"] }
 objc2-app-kit = { version = "0.3", features = [
   "NSImage",
   "NSImageRep",
   "NSBitmapImageRep",
   "NSGraphicsContext",
   "objc2-core-graphics",
+  # Desktop control: an app's icon for the miniature (src/desktop/macos.rs).
+  "NSRunningApplication",
 ] }
 objc2-web-kit = { version = "0.3", features = [
   "objc2-app-kit",

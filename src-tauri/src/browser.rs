@@ -412,6 +412,11 @@ pub fn mcp_endpoint(chat_id: &str) -> Option<(String, String)> {
 /// Relay one JSON-RPC message. `Null` back means it was a notification and
 /// there is nothing to answer with.
 pub async fn mcp_message(chat_id: &str, message: Value) -> Result<Value, String> {
+    // The miniature shows whichever surface a chat touched last, browser or
+    // another app's window; this is the browser's half of that clock.
+    if message.get("method").and_then(Value::as_str) == Some("tools/call") {
+        crate::util::emit("nyra:browser-touched", json!({ "chatId": chat_id, "at": crate::util::now_ms() }));
+    }
     let result = call("mcp.message", json!({ "chatId": chat_id, "message": message })).await?;
     Ok(result.get("message").cloned().unwrap_or(Value::Null))
 }

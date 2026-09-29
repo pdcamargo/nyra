@@ -76,7 +76,9 @@ export function startDesktopEvents(): () => void {
     ),
     window.api.desktop.onStopped(({ chats }) => {
       for (const chatId of chats) store().setControlling(chatId, null)
-    })
+    }),
+    window.api.desktop.onSeen(({ chatId, ...seen }) => store().setSeen(chatId, seen)),
+    window.api.browser.onTouched(({ chatId, at }) => store().touchBrowser(chatId, at))
   ]
   return () => stops.forEach((stop) => stop())
 }

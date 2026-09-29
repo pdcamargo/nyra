@@ -333,14 +333,13 @@ pub trait Backend: Send + Sync + 'static {
     fn press_keys(&self, app: &AppInfo, window: &WindowKey, chord: &Chord) -> Result<Raised>;
     /// A real click at a screen point. Moves the pointer.
     fn click_at(&self, app: &AppInfo, window: &WindowKey, point: Point) -> Result<Raised>;
-    /// Phase 2: `desktop_screenshot` and the miniature.
-    #[allow(dead_code)]
-    fn capture_window(&self, app: &AppInfo, window: &WindowKey) -> Result<Vec<u8>>;
+    /// One window as a PNG, `width` pixels wide or narrower. The engine picks
+    /// the width so a pixel in the image is a point on screen wherever it can.
+    fn capture_window(&self, app: &AppInfo, window: &WindowKey, width: u32) -> Result<Vec<u8>>;
+    /// The app's icon as a small PNG, for the miniature and the allow prompt.
+    fn app_icon(&self, app: &AppInfo) -> Option<Vec<u8>>;
     /// Returns what it opened, in words.
     fn open(&self, target: &Target) -> Result<String>;
-    /// Phase 2: which app the miniature should prefer.
-    #[allow(dead_code)]
-    fn frontmost(&self) -> Option<AppId>;
     fn seconds_since_user_input(&self) -> f64;
 }
 
@@ -371,7 +370,35 @@ pub trait Host: Send + Sync + 'static {
     fn controlling(&self, chat: &str, app: Option<&str>);
     /// A permission is missing, and the user can fix it with a button.
     fn blocked(&self, chat: &str, kind: PermissionKind, blocked: &Blocked);
+    /// The chat just looked at a window: what the miniature should show.
+    fn seen(&self, chat: &str, seen: &Seen);
 }
+
+/// The last window a chat looked at, for the miniature. A still, never a
+/// stream: the latest screenshot, or a capture taken alongside a snapshot when
+/// the permission is already held — never one prompted for just to fill this.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Seen {
+    pub app: String,
+    pub title: String,
+    /// A PNG in this instance's scratch dir, when there is a picture.
+    pub png: Option<String>,
+    /// The app's icon as a `data:` URL, so the renderer needs no file read.
+    pub icon: Option<String>,
+    pub at: i64,
+}
+
+/// Where this instance keeps captures: `nyra-desktop-{pid}`, never a shared
+/// name — two running Nyras must not clean up each other's pictures.
+pub static SCRATCH_DIR: Lazy<std::path::PathBuf> =
+    Lazy::new(|| crate::util::temp_dir().join(format!("nyra-desktop-{}", std::process::id())));
+
+/// The widest a screenshot is sent at. Past this the model's image input
+/// downscales anyway, so the extra pixels cost tokens and buy nothing.
+const MAX_SHOT_EDGE: f64 = 1568.0;
+/// The miniature is 300px across; twice that stays sharp on a retina screen.
+const PREVIEW_WIDTH: u32 = 600;
 
 // ---------------------------------------------------------------------------
 // The engine
@@ -407,6 +434,10 @@ struct ChatState<H> {
     snapshot_no: u32,
     refs: HashMap<u32, RefEntry<H>>,
     windows: HashMap<(AppId, WindowKey), WindowSeen>,
+    /// Points per pixel of each window's latest screenshot, so x/y read off
+    /// that image land where they were read.
+    shot_scale: HashMap<(AppId, WindowKey), f64>,
+    shots_taken: u32,
     controlling: Option<String>,
 }
 
@@ -420,6 +451,8 @@ impl<H> Default for ChatState<H> {
             snapshot_no: 0,
             refs: HashMap::new(),
             windows: HashMap::new(),
+            shot_scale: HashMap::new(),
+            shots_taken: 0,
             controlling: None,
         }
     }
@@ -443,6 +476,15 @@ pub struct Desktop<B: Backend, H: Host> {
     last_injected_escape: Mutex<Option<Instant>>,
     prompted: Mutex<HashSet<PermissionKind>>,
     guard: GuardTiming,
+    /// This instance's capture dir, one subdirectory per chat.
+    scratch: std::path::PathBuf,
+    icons: Mutex<HashMap<AppId, Option<String>>>,
+}
+
+/// A screenshot, for the MCP layer to hand over as an image.
+pub struct Shot {
+    pub text: String,
+    pub png: Vec<u8>,
 }
 
 /// What `desktop_act` was asked to do.
@@ -466,7 +508,7 @@ type Out = std::result::Result<String, String>;
 const SAY_WHAT_YOU_DID: &str = "Take a new snapshot to see the result, and tell the user in one line what you did in";
 
 impl<B: Backend, H: Host> Desktop<B, H> {
-    pub fn new(backend: B, host: H, guard: GuardTiming) -> Self {
+    pub fn new(backend: B, host: H, guard: GuardTiming, scratch: std::path::PathBuf) -> Self {
         Self {
             backend: Arc::new(backend),
             host,
@@ -476,7 +518,70 @@ impl<B: Backend, H: Host> Desktop<B, H> {
             last_injected_escape: Mutex::new(None),
             prompted: Mutex::new(HashSet::new()),
             guard,
+            scratch,
+            icons: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn chat_dir(&self, chat: &str) -> std::path::PathBuf {
+        // A chat id is a UUID, but it arrives in a URL; nothing else reaches a path.
+        let safe: String = chat.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+        self.scratch.join(if safe.is_empty() { "chat".into() } else { safe })
+    }
+
+    /// Put a PNG in this chat's scratch dir and return its path.
+    fn keep(&self, chat: &str, name: &str, png: &[u8]) -> Option<String> {
+        let dir = self.chat_dir(chat);
+        std::fs::create_dir_all(&dir).ok()?;
+        let path = dir.join(name);
+        std::fs::write(&path, png).ok()?;
+        Some(path.to_string_lossy().into_owned())
+    }
+
+    async fn icon(&self, app: &AppInfo) -> Option<String> {
+        if let Some(hit) = self.icons.lock().get(&app.id) {
+            return hit.clone();
+        }
+        let a = app.clone();
+        let png = self.run(move |b| b.app_icon(&a)).await;
+        let url = png.map(|p| {
+            use base64::Engine;
+            format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(p))
+        });
+        self.icons.lock().insert(app.id.clone(), url.clone());
+        url
+    }
+
+    /// Tell the miniature what was just looked at, with a picture when the
+    /// permission for one is already held. Never prompts, never fails a call.
+    async fn report_seen(&self, chat: &str, app: &AppInfo, window: &WindowInfo, png: Option<String>) {
+        let png = match png {
+            Some(p) => Some(p),
+            None => self.preview(chat, app, window).await,
+        };
+        let seen = Seen {
+            app: app.name.clone(),
+            title: window.title.clone(),
+            png,
+            icon: self.icon(app).await,
+            at: crate::util::now_ms(),
+        };
+        self.host.seen(chat, &seen);
+    }
+
+    async fn preview(&self, chat: &str, app: &AppInfo, window: &WindowInfo) -> Option<String> {
+        let granted = self
+            .run(|b| b.permissions())
+            .await
+            .into_iter()
+            .find(|p| p.kind == PermissionKind::CaptureScreen)
+            .is_some_and(|p| p.granted);
+        if !granted {
+            return None;
+        }
+        let (a, k) = (app.clone(), window.key.clone());
+        let png = self.run(move |b| b.capture_window(&a, &k, PREVIEW_WIDTH)).await.ok()?;
+        self.keep(chat, "preview.png", &png)
     }
 
     async fn run<T: Send + 'static>(&self, f: impl FnOnce(&B) -> T + Send + 'static) -> T {
@@ -516,6 +621,7 @@ impl<B: Backend, H: Host> Desktop<B, H> {
     }
 
     pub fn forget(&self, chat: &str) {
+        let _ = std::fs::remove_dir_all(self.chat_dir(chat));
         let was = self.chats.lock().remove(chat).and_then(|s| s.controlling);
         if was.is_some() {
             self.host.controlling(chat, None);
@@ -783,11 +889,10 @@ impl<B: Backend, H: Host> Desktop<B, H> {
         let app = self.admit(chat, app_query).await?;
         let menu = window_query.is_some_and(|w| w.eq_ignore_ascii_case("menu"));
 
-        let (key, title, frame) = if menu {
-            (WindowKey("menu".into()), "menu bar".to_string(), None)
-        } else {
-            let w = self.admit_window(&app, window_query).await?;
-            (w.key, w.title, w.frame)
+        let window = if menu { None } else { Some(self.admit_window(&app, window_query).await?) };
+        let (key, title, frame) = match &window {
+            None => (WindowKey("menu".into()), "menu bar".to_string(), None),
+            Some(w) => (w.key.clone(), w.title.clone(), w.frame),
         };
 
         let _busy = self.busy.lock().await;
@@ -825,7 +930,49 @@ impl<B: Backend, H: Host> Desktop<B, H> {
             s.windows.insert((app.id.clone(), key.clone()), WindowSeen { snapshot: no, ..rendered.seen });
             format!("{header}\n{}", rendered.text)
         });
+        drop(_busy);
+        if let Some(w) = &window {
+            self.report_seen(chat, &app, w, None).await;
+        }
         Ok(text)
+    }
+
+    pub async fn screenshot(&self, chat: &str, app_query: &str, window_query: Option<&str>) -> std::result::Result<Shot, String> {
+        let app = self.admit(chat, app_query).await?;
+        let window = self.admit_window(&app, window_query).await?;
+        self.need(chat, PermissionKind::CaptureScreen).await?;
+
+        // A pixel in the image is a point on screen, unless the window is too
+        // big to send whole; then the scale is remembered for x/y.
+        let points = window.frame.map(|f| f.w.max(f.h)).unwrap_or(MAX_SHOT_EDGE);
+        let aspect = window.frame.map(|f| if f.h > 0.0 { f.w / f.h } else { 1.0 }).unwrap_or(1.0);
+        let edge = points.min(MAX_SHOT_EDGE);
+        let width = if aspect >= 1.0 { edge } else { edge * aspect }.round().max(1.0) as u32;
+
+        let png = {
+            let _busy = self.busy.lock().await;
+            let (a, k) = (app.clone(), window.key.clone());
+            self.run(move |b| b.capture_window(&a, &k, width)).await.map_err(|e| e.text())?
+        };
+        let (w, h) = safety::png_size(&png).ok_or("The capture came back as something other than a PNG.")?;
+        let scale = window.frame.map(|f| f.w / w as f64).unwrap_or(1.0);
+        let n = self.with_chat(chat, |s| {
+            s.shot_scale.insert((app.id.clone(), window.key.clone()), scale);
+            s.shots_taken += 1;
+            s.shots_taken
+        });
+        let path = self.keep(chat, &format!("shot-{n}.png"), &png);
+        self.report_seen(chat, &app, &window, path.clone()).await;
+
+        let title = if window.title.is_empty() { "untitled window".to_string() } else { format!("\"{}\"", window.title) };
+        let saved = path.map(|p| format!(" Saved at {p}.")).unwrap_or_default();
+        Ok(Shot {
+            text: format!(
+                "{} — {title}, {w}×{h}.{saved}\nFor desktop_act, x and y are pixels in this image. desktop_snapshot is cheaper and gives refs; use a screenshot when the tree doesn't say enough.",
+                app.name
+            ),
+            png,
+        })
     }
 
     /// A ref, turned back into something the OS half can act on.
@@ -953,7 +1100,8 @@ impl<B: Backend, H: Host> Desktop<B, H> {
                 Some(e) => e.irreversible.then(|| format!("press {}", snapshot::describe(&e.role, &e.label))),
                 None => match (args.x, args.y, &window, &seen) {
                     (Some(x), Some(y), Some(w), Some(seen)) => w.frame.and_then(|f| {
-                        let p = Point { x: f.x + x, y: f.y + y };
+                        let k = self.with_chat(chat, |s| s.shot_scale.get(&(app.id.clone(), w.key.clone())).copied()).unwrap_or(1.0);
+                        let p = Point { x: f.x + x * k, y: f.y + y * k };
                         seen.danger.iter().find(|(r, _)| r.contains(p)).map(|(_, what)| format!("press {what}"))
                     }),
                     _ => None,
@@ -1036,7 +1184,10 @@ impl<B: Backend, H: Host> Desktop<B, H> {
                     let Some(frame) = window.as_ref().and_then(|w| w.frame) else {
                         return Err("That window has no position to click in.".into());
                     };
-                    let p = Point { x: frame.x + x, y: frame.y + y };
+                    let k = self
+                        .with_chat(chat, |s| s.shot_scale.get(&(app.id.clone(), window_key.clone())).copied())
+                        .unwrap_or(1.0);
+                    let p = Point { x: frame.x + x * k, y: frame.y + y * k };
                     let (a, k) = (app.clone(), window_key.clone());
                     let r = self.run(move |b| b.click_at(&a, &k, p)).await;
                     self.injected();
@@ -1188,7 +1339,9 @@ fn refusal(app: &str, why: &str) -> String {
 pub type Live = Desktop<Native, indicator::TauriHost>;
 
 static DESKTOP: Lazy<Live> =
-    Lazy::new(|| Desktop::new(Native::new(), indicator::TauriHost::default(), GuardTiming::default()));
+    Lazy::new(|| {
+        Desktop::new(Native::new(), indicator::TauriHost::default(), GuardTiming::default(), SCRATCH_DIR.clone())
+    });
 
 pub fn live() -> &'static Live {
     &DESKTOP

@@ -22,7 +22,17 @@ pub struct State {
     /// The last input event the "OS" saw — ours or the user's.
     pub last_input: Option<Instant>,
     pub granted: bool,
+    /// Screen Recording, separately: the two are granted separately.
+    pub capture: bool,
     pub requests: usize,
+}
+
+/// Just enough of a PNG for `png_size` to read.
+pub fn png_header(w: u32, h: u32) -> Vec<u8> {
+    let mut v = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    v.extend_from_slice(&w.to_be_bytes());
+    v.extend_from_slice(&h.to_be_bytes());
+    v
 }
 
 #[derive(Clone, Default)]
@@ -62,17 +72,29 @@ impl Backend for Fake {
         true
     }
     fn permissions(&self) -> Vec<PermissionEntry> {
-        vec![PermissionEntry {
-            kind: PermissionKind::ControlInput,
-            granted: self.0.lock().granted,
-            reason: "Nyra needs Accessibility".into(),
-            fix: Some(Fix { label: "Open Accessibility settings".into(), target: "fake://ax".into() }),
-        }]
+        let s = self.0.lock();
+        vec![
+            PermissionEntry {
+                kind: PermissionKind::ControlInput,
+                granted: s.granted,
+                reason: "Nyra needs Accessibility".into(),
+                fix: Some(Fix { label: "Open Accessibility settings".into(), target: "fake://ax".into() }),
+            },
+            PermissionEntry {
+                kind: PermissionKind::CaptureScreen,
+                granted: s.capture,
+                reason: "Nyra needs Screen Recording".into(),
+                fix: Some(Fix { label: "Open Screen Recording settings".into(), target: "fake://sr".into() }),
+            },
+        ]
     }
-    fn request_permission(&self, _kind: PermissionKind) -> bool {
+    fn request_permission(&self, kind: PermissionKind) -> bool {
         let mut s = self.0.lock();
         s.requests += 1;
-        s.granted
+        match kind {
+            PermissionKind::ControlInput => s.granted,
+            PermissionKind::CaptureScreen => s.capture,
+        }
     }
     fn list_apps(&self) -> Result<Vec<AppInfo>> {
         Ok(self.0.lock().apps.clone())
@@ -134,15 +156,17 @@ impl Backend for Fake {
         s.last_input = Some(Instant::now());
         Ok(Raised(false))
     }
-    fn capture_window(&self, _app: &AppInfo, _w: &WindowKey) -> Result<Vec<u8>> {
-        Err(DesktopError::Unsupported("no capture".into()))
+    fn capture_window(&self, _app: &AppInfo, _w: &WindowKey, width: u32) -> Result<Vec<u8>> {
+        let mut s = self.0.lock();
+        s.log.push(format!("capture {width}"));
+        Ok(png_header(width, width * 3 / 4))
+    }
+    fn app_icon(&self, _app: &AppInfo) -> Option<Vec<u8>> {
+        Some(png_header(64, 64))
     }
     fn open(&self, target: &Target) -> Result<String> {
         self.0.lock().log.push(format!("open {target:?}"));
         Ok(format!("{target:?}"))
-    }
-    fn frontmost(&self) -> Option<AppId> {
-        None
     }
     fn seconds_since_user_input(&self) -> f64 {
         self.0.lock().last_input.map(|t| t.elapsed().as_secs_f64()).unwrap_or(100.0)
@@ -156,6 +180,7 @@ pub struct HostState {
     pub always: HashSet<String>,
     pub controlling: Vec<(String, Option<String>)>,
     pub blocked: Vec<Blocked>,
+    pub seen: Vec<Seen>,
 }
 
 #[derive(Clone, Default)]
@@ -187,6 +212,9 @@ impl Host for FakeHost {
     }
     fn blocked(&self, _chat: &str, _kind: PermissionKind, blocked: &Blocked) {
         self.0.lock().blocked.push(blocked.clone());
+    }
+    fn seen(&self, _chat: &str, seen: &Seen) {
+        self.0.lock().seen.push(seen.clone());
     }
 }
 
@@ -240,7 +268,8 @@ pub fn desktop() -> (Desktop<Fake, FakeHost>, Fake, FakeHost) {
     let fake = Fake::default();
     fake.0.lock().granted = true;
     let host = FakeHost::default();
-    (Desktop::new(fake.clone(), host.clone(), quick()), fake, host)
+    let scratch = std::env::temp_dir().join(format!("nyra-desktop-test-{}", crate::util::rand_hex(6)));
+    (Desktop::new(fake.clone(), host.clone(), quick(), scratch), fake, host)
 }
 
 pub fn mail_tree() -> Tree {
@@ -551,6 +580,80 @@ mod tests {
         host.0.lock().answers.push_back(Answer::ThisChat);
         d.snapshot("c", "Finder", None, None).await.unwrap();
         assert_eq!(host.0.lock().asked[0].2, Some("can move or delete any file"));
+    }
+
+    #[tokio::test]
+    async fn a_screenshot_needs_screen_recording_and_says_how_to_fix_it() {
+        let (d, fake, host) = setup();
+        host.0.lock().always.insert("fake.mail".into());
+        let err = d.screenshot("c", "Mail", None).await.err().unwrap();
+        assert!(err.contains("Screen Recording") && err.contains("Open Screen Recording settings"), "{err}");
+        assert!(!fake.0.lock().log.iter().any(|l| l.starts_with("capture")), "captured without the permission");
+
+        fake.0.lock().capture = true;
+        let shot = d.screenshot("c", "Mail", None).await.unwrap();
+        assert!(shot.text.contains("1000×750"), "{}", shot.text);
+        assert!(shot.text.contains("x and y are pixels in this image"), "{}", shot.text);
+        // What the miniature is told: the picture, the app, and its icon.
+        let seen = host.0.lock().seen.last().cloned().unwrap();
+        assert_eq!(seen.app, "Mail");
+        assert!(seen.png.as_deref().is_some_and(|p| std::path::Path::new(p).is_file()));
+        assert!(seen.icon.as_deref().is_some_and(|i| i.starts_with("data:image/png;base64,")));
+    }
+
+    #[tokio::test]
+    async fn a_blocked_app_is_not_photographed_either() {
+        let (d, fake, host) = setup();
+        fake.0.lock().capture = true;
+        add_app(&fake, "fake.keychain", "Keychain Access", "Keychain", root(vec![]));
+        host.0.lock().always.insert("fake.keychain".into());
+        assert!(d.screenshot("c", "Keychain Access", None).await.err().unwrap().contains("off limits"));
+    }
+
+    #[tokio::test]
+    async fn x_and_y_are_read_in_the_screenshots_pixels() {
+        let (d, fake, host) = setup();
+        fake.0.lock().capture = true;
+        host.0.lock().always.insert("fake.mail".into());
+        // A window wider than a screenshot is sent at: every pixel is 2 points.
+        fake.0.lock().windows.get_mut("fake.mail").unwrap()[0].frame = Some(Rect { x: 0.0, y: 0.0, w: 3136.0, h: 1600.0 });
+        let shot = d.screenshot("c", "Mail", None).await.unwrap();
+        assert!(shot.text.contains("1568×"), "{}", shot.text);
+
+        let mut a = act("Mail", None, "press");
+        a.x = Some(300.0);
+        a.y = Some(200.0);
+        d.act("c", a).await.unwrap();
+        assert!(fake.0.lock().log.contains(&"click 600,400".to_string()), "{:?}", fake.0.lock().log);
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_previews_only_when_the_permission_is_already_held() {
+        let (d, fake, host) = setup();
+        host.0.lock().always.insert("fake.mail".into());
+        d.snapshot("c", "Mail", None, None).await.unwrap();
+        let seen = host.0.lock().seen.last().cloned().unwrap();
+        // Told what was seen, with no picture, and nobody was asked for one.
+        assert_eq!(seen.title, "Inbox");
+        assert!(seen.png.is_none());
+        assert_eq!(fake.0.lock().requests, 0);
+
+        fake.0.lock().capture = true;
+        d.snapshot("c", "Mail", None, None).await.unwrap();
+        assert!(host.0.lock().seen.last().unwrap().png.is_some());
+        assert!(fake.0.lock().log.contains(&"capture 600".to_string()));
+    }
+
+    #[tokio::test]
+    async fn forgetting_a_chat_deletes_its_pictures() {
+        let (d, fake, host) = setup();
+        fake.0.lock().capture = true;
+        host.0.lock().always.insert("fake.mail".into());
+        d.screenshot("c", "Mail", None).await.unwrap();
+        let png = host.0.lock().seen.last().unwrap().png.clone().unwrap();
+        assert!(std::path::Path::new(&png).is_file());
+        d.forget("c");
+        assert!(!std::path::Path::new(&png).exists());
     }
 
     #[tokio::test]

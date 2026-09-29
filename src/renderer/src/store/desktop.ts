@@ -7,7 +7,7 @@
  * lives in settings, because Rust reads it from there.
  */
 import { create } from 'zustand'
-import type { DesktopFix, DesktopPermissionKind } from '../lib/tauri-api'
+import type { DesktopFix, DesktopPermissionKind, DesktopSeen } from '../lib/tauri-api'
 
 export type DesktopAnswer = 'chat' | 'always' | 'no'
 
@@ -29,9 +29,20 @@ export type ChatDesktop = {
   controlling: string | null
   asks: DesktopAsk[]
   blocked: DesktopBlock | null
+  /** The last window this chat looked at, for the miniature. */
+  seen: Omit<DesktopSeen, 'chatId'> | null
+  /** When it last called a browser tool, so the miniature can tell which of
+   *  the two surfaces was touched last. */
+  browserAt: number
 }
 
-export const EMPTY_DESKTOP: ChatDesktop = { controlling: null, asks: [], blocked: null }
+export const EMPTY_DESKTOP: ChatDesktop = {
+  controlling: null,
+  asks: [],
+  blocked: null,
+  seen: null,
+  browserAt: 0
+}
 
 type DesktopStore = {
   bySession: Record<string, ChatDesktop>
@@ -40,6 +51,9 @@ type DesktopStore = {
   /** Settle and remove one question. Settling twice is a no-op. */
   settleAsk: (sessionId: string, key: string, answer: DesktopAnswer | 'dismissed') => void
   setBlocked: (sessionId: string, blocked: DesktopBlock | null) => void
+  setSeen: (sessionId: string, seen: ChatDesktop['seen']) => void
+  touchBrowser: (sessionId: string, at: number) => void
+  forget: (sessionId: string) => void
 }
 
 const patch = (
@@ -66,5 +80,14 @@ export const useDesktopStore = create<DesktopStore>()((set, get) => ({
     )
     ask.resolve(answer)
   },
-  setBlocked: (sessionId, blocked) => set((s) => patch(s, sessionId, { blocked }))
+  setBlocked: (sessionId, blocked) => set((s) => patch(s, sessionId, { blocked })),
+  setSeen: (sessionId, seen) => set((s) => patch(s, sessionId, { seen })),
+  touchBrowser: (sessionId, browserAt) => set((s) => patch(s, sessionId, { browserAt })),
+  forget: (sessionId) =>
+    set((s) => {
+      if (!(sessionId in s.bySession)) return s
+      const bySession = { ...s.bySession }
+      delete bySession[sessionId]
+      return { bySession }
+    })
 }))

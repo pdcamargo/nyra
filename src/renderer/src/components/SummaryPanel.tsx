@@ -106,6 +106,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const browser = useBrowserStore((s) => (session ? s.bySession[session.id] : null) ?? EMPTY_BROWSER)
   const dismissPip = useBrowserStore((s) => s.dismissPip)
   const controlling = useDesktopStore((s) => (session ? s.bySession[session.id]?.controlling : null) ?? null)
+  const seen = useDesktopStore((s) => (session ? s.bySession[session.id]?.seen : null) ?? null)
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const changesKeys = useChordLabel('panel.right.changes')
   const [stat, setStat] = useState<Stat | null>(null)
@@ -409,6 +410,36 @@ export default function SummaryPanel(): React.JSX.Element | null {
               <TooltipContent>Open this subagent</TooltipContent>
             </Tooltip>
           ))}
+        </Section>
+      )}
+
+      {/* The last other app this chat looked at. The miniature shows it; this is
+          where a dismissed miniature comes back from, like the browser's. */}
+      {seen && (
+        <Section
+          label="Other apps"
+          action={
+            browser.pipDismissed ? (
+              <button
+                type="button"
+                onClick={() => session && dismissPip(session.id, false)}
+                className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Show preview
+              </button>
+            ) : undefined
+          }
+        >
+          <Row
+            icon={
+              seen.icon ? (
+                <img src={seen.icon} alt="" className="size-3.5 rounded-[3px]" />
+              ) : (
+                <MousePointerClick className="size-3.5" />
+              )
+            }
+            label={seen.title ? `${seen.app} — ${seen.title}` : seen.app}
+          />
         </Section>
       )}
 

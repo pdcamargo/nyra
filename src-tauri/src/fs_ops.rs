@@ -23,9 +23,10 @@ pub static FILES_DIR: Lazy<PathBuf> =
     Lazy::new(|| util::temp_dir().join(format!("nyra-files-{}", std::process::id())));
 
 /// Scratch-dir names owned by exactly one instance, shaped `{prefix}{pid}`.
-/// `nyra-devshots-` belongs to `devtools.rs`; it is swept here so there is one
+/// `nyra-devshots-` belongs to `devtools.rs` and `nyra-desktop-` to
+/// `desktop/`; they are swept here so there is one
 /// place that knows what a per-instance scratch dir looks like.
-const SCRATCH_PREFIXES: [&str; 3] = ["nyra-images-", "nyra-files-", "nyra-devshots-"];
+const SCRATCH_PREFIXES: [&str; 4] = ["nyra-images-", "nyra-files-", "nyra-devshots-", "nyra-desktop-"];
 
 // The un-suffixed `nyra-images` / `nyra-files` this replaced are deliberately
 // left alone. A surviving one means either an older build is running right now
@@ -578,6 +579,7 @@ pub async fn write_text_file(file_path: &str, content: &str) -> Result<(), Strin
 pub fn cleanup_temp_dirs() {
     let _ = std::fs::remove_dir_all(&*IMAGES_DIR);
     let _ = std::fs::remove_dir_all(&*FILES_DIR);
+    let _ = std::fs::remove_dir_all(&*crate::desktop::SCRATCH_DIR);
 }
 
 /// Scratch dirs whose owning process is gone.

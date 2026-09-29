@@ -67,8 +67,26 @@ it happen.
    works while its element is where it was. Once it has moved you'll be told to
    snapshot again, so do that. Don't guess.
 
-`x`/`y` in place of a ref is a real click at a point in the window. It moves
-the user's pointer, so use it only when the tree has nothing usable.
+## When to take a screenshot
+
+`desktop_screenshot app:"Preview"` returns the window as an image you can look
+at. Snapshots are cheaper and give you refs, so start with one. Take a
+screenshot when the snapshot doesn't tell you enough:
+
+- the app draws its own UI and the tree is empty or just `group`s: canvases,
+  games, most design tools, some Electron apps
+- the question is visual: layout, colour, whether something rendered, what an
+  image or chart shows
+- you need to check that the window looks the way the user described
+
+`x`/`y` in place of a ref is a real click at a pixel in the window's **latest
+screenshot**, so take one first and read the point off it. It moves the user's
+pointer, so use it only when the tree has nothing usable. The first screenshot
+needs Screen Recording. If it's missing, the user is shown a button.
+
+To show the user a screenshot in the conversation, use the path in the result
+with Nyra's image convention. The miniature over the chat already shows the
+last window you looked at, so do this only when they ask.
 
 ## What needs the user
 
@@ -87,7 +105,7 @@ get past the refusal.
 | **off limits** | Password managers, Keychain, System Settings, terminals and Nyra itself can't be touched, and the user cannot allow them. Don't try the shell, a script or `osascript` instead. Say what you needed, and let the user do it. |
 | **the user said no** | Stop using that app in this chat. |
 | **password field** | You never type into or read a password field. Ask the user to fill it in. |
-| **needs Accessibility / Screen Recording** | The user has been shown a button to grant it. Tell them, then wait until they say it's done. |
+| **needs Accessibility / Screen Recording** | The user has been shown a button to grant it. Tell them, then wait until they say it's done. Screen Recording only counts after Nyra is quit and reopened. If Nyra is already ticked in the list and it still fails, the tick is left over from an older build: they remove it with − and add it again. |
 | **using the keyboard or mouse** | The user is working. Wait, then try once more, or tell them what you were about to do. |
 | **stopped desktop control (Esc)** | The user pressed Esc. Touch nothing more this turn, and say where you stopped. |
 | **secure keyboard entry is on** | macOS is dropping keystrokes, because a password field or a terminal's Secure Keyboard Entry is active somewhere. Ask the user to close it. |

@@ -134,14 +134,14 @@ impl Backend for Native {
     fn click_at(&self, _app: &AppInfo, _w: &WindowKey, _p: Point) -> Result<Raised> {
         not_yet()
     }
-    fn capture_window(&self, _app: &AppInfo, _w: &WindowKey) -> Result<Vec<u8>> {
+    fn capture_window(&self, _app: &AppInfo, _w: &WindowKey, _width: u32) -> Result<Vec<u8>> {
         not_yet()
+    }
+    fn app_icon(&self, _app: &AppInfo) -> Option<Vec<u8>> {
+        None
     }
     fn open(&self, _target: &Target) -> Result<String> {
         not_yet()
-    }
-    fn frontmost(&self) -> Option<AppId> {
-        None
     }
     fn seconds_since_user_input(&self) -> f64 {
         f64::MAX

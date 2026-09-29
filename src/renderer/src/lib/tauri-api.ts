@@ -114,6 +114,16 @@ export type DesktopPermission = {
   reason: string
   fix: DesktopFix | null
 }
+export type DesktopSeen = {
+  chatId: string
+  app: string
+  title: string
+  /** A PNG in this instance's scratch dir, when there is a picture. */
+  png: string | null
+  /** The app's icon as a `data:` URL. */
+  icon: string | null
+  at: number
+}
 export type DesktopBlocked = {
   chatId: string
   kind: DesktopPermissionKind
@@ -137,6 +147,8 @@ const EVENT_NAMES = [
   'nyra:desktop-activity',
   'nyra:desktop-blocked',
   'nyra:desktop-stopped',
+  'nyra:desktop-seen',
+  'nyra:browser-touched',
   'dictation:event'
 ] as const
 
@@ -357,7 +369,9 @@ export const api = {
     onActivity: (cb: (p: { chatId: string; app: string | null }) => void) =>
       on('nyra:desktop-activity', cb),
     onBlocked: (cb: (p: DesktopBlocked) => void) => on('nyra:desktop-blocked', cb),
-    onStopped: (cb: (p: { chats: string[] }) => void) => on('nyra:desktop-stopped', cb)
+    onStopped: (cb: (p: { chats: string[] }) => void) => on('nyra:desktop-stopped', cb),
+    /** A chat just looked at another app's window. */
+    onSeen: (cb: (p: DesktopSeen) => void) => on('nyra:desktop-seen', cb)
   },
 
 
@@ -692,7 +706,11 @@ export const api = {
     tabHistory: (chatId: string, tabId: string, action: 'back' | 'forward' | 'reload') =>
       call<BrowserReply<{ url: string | null }>>('browser_tab_history', { chatId, tabId, action }),
     tabList: (chatId: string) => call<BrowserReply<{ tabs: BrowserTab[] }>>('browser_tab_list', { chatId }),
-    onEvent: (callback: (event: BrowserEvent) => void) => on('browser:event', callback)
+    onEvent: (callback: (event: BrowserEvent) => void) => on('browser:event', callback),
+    /** Claude called a browser tool: the browser's half of which surface the
+     *  miniature shows. */
+    onTouched: (callback: (p: { chatId: string; at: number }) => void) =>
+      on('nyra:browser-touched', callback)
   },
 
   terminal: {

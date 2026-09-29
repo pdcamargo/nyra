@@ -264,6 +264,17 @@ pub fn keys_commit(chord: &Chord, focused: Option<&Role>, window_has_irreversibl
 // Odds and ends
 // ---------------------------------------------------------------------------
 
+/// Width and height from a PNG's header, or `None` if it is not one.
+pub fn png_size(png: &[u8]) -> Option<(u32, u32)> {
+    const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+    if png.len() < 24 || &png[..8] != SIGNATURE || &png[12..16] != b"IHDR" {
+        return None;
+    }
+    let w = u32::from_be_bytes(png[16..20].try_into().ok()?);
+    let h = u32::from_be_bytes(png[20..24].try_into().ok()?);
+    Some((w, h))
+}
+
 pub fn chunks(text: &str, size: usize) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0;
@@ -403,6 +414,14 @@ mod tests {
         // Fixing a typo is not deleting the message.
         assert!(keys_commit(&del, Some(&Role::TextField), true).is_none());
         assert!(keys_commit(&del, Some(&Role::List), true).is_some());
+    }
+
+    #[test]
+    fn reads_a_pngs_size_and_refuses_anything_else() {
+        let png = super::super::fake::png_header(1200, 800);
+        assert_eq!(png_size(&png), Some((1200, 800)));
+        assert_eq!(png_size(b"GIF89a not a png at all......"), None);
+        assert_eq!(png_size(&png[..10]), None);
     }
 
     #[test]

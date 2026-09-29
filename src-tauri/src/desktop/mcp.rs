@@ -33,6 +33,18 @@ pub fn tool_schemas() -> Value {
             }
         },
         {
+            "name": "desktop_screenshot",
+            "description": "One window as an image, for when the snapshot doesn't say enough. Its pixels are what x/y in desktop_act mean.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "app": { "type": "string" },
+                    "window": { "type": "string", "description": "Number or title. Default: the focused window." }
+                },
+                "required": ["app"]
+            }
+        },
+        {
             "name": "desktop_act",
             "description": "Act on a ref from a snapshot. Anything that sends, deletes, buys or submits needs the user's yes first, then confirmed:true.",
             "inputSchema": {
@@ -43,7 +55,7 @@ pub fn tool_schemas() -> Value {
                     "ref": { "type": "string" },
                     "text": { "type": "string", "description": "For type and set_value." },
                     "keys": { "type": "string", "description": "For keys: \"cmd+s\", \"return\", \"mod+w\" (mod = cmd on macOS, ctrl on Windows)." },
-                    "x": { "type": "number", "description": "With y, instead of ref, only when the tree is no use: a point in the window to press." },
+                    "x": { "type": "number", "description": "With y, instead of ref, only when the tree is no use: a pixel in the window's latest screenshot." },
                     "y": { "type": "number" },
                     "window": { "type": "string", "description": "For keys or x/y. Default: the focused window." },
                     "confirmed": { "type": "boolean", "description": "The user said yes to this send/delete/buy/submit." }
@@ -91,6 +103,22 @@ pub async fn handle<B: Backend, H: Host>(desktop: &Desktop<B, H>, chat: &str, me
             let params = message.get("params").cloned().unwrap_or(Value::Null);
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            if name == "desktop_screenshot" {
+                return match screenshot(desktop, chat, &args).await {
+                    Ok(shot) => {
+                        use base64::Engine;
+                        let data = base64::engine::general_purpose::STANDARD.encode(&shot.png);
+                        reply(
+                            id,
+                            json!({ "content": [
+                                { "type": "image", "data": data, "mimeType": "image/png" },
+                                { "type": "text", "text": shot.text }
+                            ] }),
+                        )
+                    }
+                    Err(why) => reply(id, json!({ "content": [{ "type": "text", "text": why }], "isError": true })),
+                };
+            }
             match call(desktop, chat, name, &args).await {
                 Ok(text) => reply(id, json!({ "content": [{ "type": "text", "text": text }] })),
                 Err(why) => reply(
@@ -105,6 +133,15 @@ pub async fn handle<B: Backend, H: Host>(desktop: &Desktop<B, H>, chat: &str, me
             "error": { "code": -32601, "message": format!("Unknown method {other}") }
         }),
     }
+}
+
+async fn screenshot<B: Backend, H: Host>(
+    desktop: &Desktop<B, H>,
+    chat: &str,
+    args: &Value,
+) -> Result<super::Shot, String> {
+    let app = arg(args, "app").ok_or("desktop_screenshot needs an app. Call desktop_apps for the list.")?;
+    desktop.screenshot(chat, &app, arg(args, "window").as_deref()).await
 }
 
 async fn call<B: Backend, H: Host>(
@@ -140,7 +177,7 @@ async fn call<B: Backend, H: Host>(
             desktop.open(chat, &target).await
         }
         other => Err(format!(
-            "Unknown tool '{other}'. This server offers desktop_apps, desktop_snapshot, desktop_act and desktop_open."
+            "Unknown tool '{other}'. This server offers desktop_apps, desktop_snapshot, desktop_screenshot, desktop_act and desktop_open."
         )),
     }
 }
@@ -151,7 +188,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn lists_the_four_tools_inside_their_budget() {
+    async fn lists_the_five_tools_inside_their_budget() {
         let (d, _, _) = fake::desktop();
         let listed = handle(&d, "c", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await;
         let names: Vec<&str> = listed["result"]["tools"]
@@ -160,7 +197,7 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["desktop_apps", "desktop_snapshot", "desktop_act", "desktop_open"]);
+        assert_eq!(names, ["desktop_apps", "desktop_snapshot", "desktop_screenshot", "desktop_act", "desktop_open"]);
         // In every turn of every chat that has them. Growth is a decision.
         let weight = serde_json::to_string(&tool_schemas()).unwrap().len();
         println!("  desktop schemas {weight:>5} chars  ~{:>4} tokens", weight / 4);

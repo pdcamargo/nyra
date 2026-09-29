@@ -48,7 +48,7 @@ import CopyBlocksModal from './CopyBlocksModal'
 import ReleaseNotesModal from './ReleaseNotesModal'
 import InSessionSearchBar from './InSessionSearchBar'
 import SummaryPanel from './SummaryPanel'
-import BrowserPip, { usePipVisible } from './browser/BrowserPip'
+import Miniature, { useMiniature } from './Miniature'
 import { findMatches } from '../utils/inSessionSearch'
 import { useHighlightMatches } from '../hooks/useHighlightMatches'
 import { useWorkingWord } from '../hooks/useWorkingWord'
@@ -172,7 +172,7 @@ function spawnSettingsForSession(sessionId: string): SpawnSettings {
 export default function Chat(): React.JSX.Element {
   const running = useRunningStore((s) => s.running)
   const summaryOpen = useUiStore((s) => s.summaryOpen)
-  const pipVisible = usePipVisible()
+  const pipVisible = useMiniature() !== null
   const chatWidth = useSettingsStore((s) => s.chatWidth)
   const columnGeometry = useMemo(
     () => columnVars(summaryOpen || pipVisible, chatWidth),
@@ -1841,7 +1841,7 @@ export default function Chat(): React.JSX.Element {
         style={{ ...OUTSIDE_SCROLLER, left: SUMMARY_OFFSET, width: SUMMARY_WIDTH }}
       >
         <SummaryPanel />
-        <BrowserPip />
+        <Miniature />
       </div>
 
       {/* The column is centred and width-limited, and stays put when the summary
