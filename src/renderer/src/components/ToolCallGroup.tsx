@@ -13,17 +13,26 @@ import { tail } from '../lib/paths'
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write'])
 
+/**
+ * Why a failed row is red, in a word or two. A failed Bash result opens with
+ * `Exit code N`; anything else the CLI failed just says so.
+ */
+export function failureLabel(result: string | undefined): string {
+  const exit = /^Exit code (\d+)/.exec(result ?? '')
+  return exit ? `exit ${exit[1]}` : 'failed'
+}
+
 export function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.Element {
   const done = message.result !== undefined
   const denied = message.denied === true
-  const hasError = done && !denied && message.result && (
-    message.result.includes('error') || message.result.includes('Error') ||
-    message.result.includes('ENOENT') || message.result.includes('exit code')
-  )
+  // The CLI's verdict, not a guess from the output. Searching the text for
+  // "error" turned every grep for the word, and every "0 errors", red.
+  const failed = done && !denied && message.isError === true
 
   // No status dot: the row lines up with the prose around it, so the state
-  // rides on the name — shimmering while it runs, red when it failed.
-  const nameClass = denied || hasError
+  // rides on the name — shimmering while it runs, red when it failed, with the
+  // reason at the end of the row so red never goes unexplained.
+  const nameClass = denied || failed
     ? 'text-danger'
     : done
       ? 'text-muted-foreground'
@@ -63,6 +72,11 @@ export function TraceLine({ message }: { message: ToolCallMessage }): React.JSX.
       )}
       {denied && (
         <span className="text-c-xs text-danger ml-auto shrink-0">denied</span>
+      )}
+      {failed && (
+        <span className="text-c-xs text-danger ml-auto shrink-0 font-mono">
+          {failureLabel(message.result)}
+        </span>
       )}
     </div>
   )

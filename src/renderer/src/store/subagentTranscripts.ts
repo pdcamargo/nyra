@@ -19,14 +19,21 @@ import { create } from 'zustand'
 export type SubagentEntry =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
-  | { kind: 'tool'; toolId: string; name: string; input: Record<string, unknown>; result?: string }
+  | {
+      kind: 'tool'
+      toolId: string
+      name: string
+      input: Record<string, unknown>
+      result?: string
+      isError?: boolean
+    }
 
 /** A wire entry, before the `tool_result` halves are folded into their calls. */
 export type SubagentWireEntry =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
   | { kind: 'tool'; tool_id: string; name: string; input: Record<string, unknown> }
-  | { kind: 'tool_result'; tool_id: string; result: string }
+  | { kind: 'tool_result'; tool_id: string; result: string; is_error?: boolean }
 
 export type SubagentTranscript = {
   model?: string
@@ -77,7 +84,11 @@ function merge(existing: SubagentEntry[], incoming: SubagentWireEntry[]): Subage
       for (let i = list.length - 1; i >= 0; i--) {
         const candidate = list[i]
         if (candidate.kind === 'tool' && candidate.toolId === entry.tool_id) {
-          list[i] = { ...candidate, result: entry.result }
+          list[i] = {
+            ...candidate,
+            result: entry.result,
+            ...(entry.is_error ? { isError: true } : {})
+          }
           break
         }
       }

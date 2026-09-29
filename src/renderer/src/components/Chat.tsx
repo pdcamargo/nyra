@@ -69,7 +69,7 @@ type ClaudeEventBase = { nyraSessionId?: string }
 type ClaudeEvent = ClaudeEventBase & (
   | { type: 'tool_start'; tool_id: string; tool_name: string }
   | { type: 'tool_input'; tool_id: string; tool_name?: string; input: Record<string, unknown>; originalContent?: string | null }
-  | { type: 'tool_result'; tool_id: string; content: string }
+  | { type: 'tool_result'; tool_id: string; content: string; is_error?: boolean }
   | { type: 'tool_denied'; tool_id: string; tool_name: string; input: Record<string, unknown>; originalContent?: string | null }
   | { type: 'usage'; input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; context_tokens?: number }
   | { type: 'context_window'; tokens: number }
@@ -926,7 +926,7 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'tool_result') {
-        updateToolResult(sid, event.tool_id, event.content)
+        updateToolResult(sid, event.tool_id, event.content, event.is_error)
 
         if (prCallsRef.current.delete(event.tool_id)) {
           const ref = findCreatedPr(event.content ?? '')

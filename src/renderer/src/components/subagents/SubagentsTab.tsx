@@ -53,7 +53,8 @@ function blocksOf(entries: SubagentEntry[], toolId: string): Block[] {
         tool_id: entry.toolId,
         tool_name: entry.name,
         input: entry.input,
-        ...(entry.result !== undefined ? { result: entry.result } : {})
+        ...(entry.result !== undefined ? { result: entry.result } : {}),
+        ...(entry.isError ? { isError: true } : {})
       }
       const last = blocks[blocks.length - 1]
       if (last?.kind === 'tools') last.messages.push(message)

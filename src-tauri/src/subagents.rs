@@ -388,6 +388,7 @@ pub fn entries_from_line(raw: &Value) -> (Vec<Value>, Option<String>) {
                 "kind": "tool_result",
                 "tool_id": block.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
                 "result": clip(&result_text(block), MAX_RESULT),
+                "is_error": block.get("is_error").and_then(Value::as_bool).unwrap_or(false),
             })),
             _ => {}
         }

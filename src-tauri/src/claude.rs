@@ -762,9 +762,18 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                 .get("tool_use_id")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
+            // The CLI's own verdict: a Bash that exited non-zero, a Read of a
+            // missing file. The renderer used to guess this from the output
+            // text, and any command that printed the word "error" went red.
+            let is_error = block.get("is_error").and_then(Value::as_bool).unwrap_or(false);
             emit_event(
                 nyra_session_id,
-                json!({ "type": "tool_result", "tool_id": tool_id, "content": result_content }),
+                json!({
+                    "type": "tool_result",
+                    "tool_id": tool_id,
+                    "content": result_content,
+                    "is_error": is_error
+                }),
             );
             processes::note_tool_result(nyra_session_id, tool_id, &result_content);
             // The launch receipt of a background subagent carries the same path

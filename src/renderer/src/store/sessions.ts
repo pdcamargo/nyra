@@ -58,6 +58,9 @@ export type ToolCallMessage = {
   tool_name: string
   input: Record<string, unknown>
   result?: string
+  /** The CLI reported the tool as failed. Absent on results recorded before
+   *  Nyra kept it, which therefore never show as failed. */
+  isError?: boolean
   denied?: boolean
   originalContent?: string | null
   timestamp?: number
@@ -325,7 +328,7 @@ type SessionsStore = {
    *  the recap's time away exactly like switching to another chat. */
   setWindowAway: (away: boolean) => void
   addMessage: (sessionId: string, message: Message) => void
-  updateToolResult: (sessionId: string, toolId: string, content: string) => void
+  updateToolResult: (sessionId: string, toolId: string, content: string, isError?: boolean) => void
   updateToolInput: (sessionId: string, toolId: string, input: Record<string, unknown>) => void
   markToolDenied: (sessionId: string, toolId: string) => void
   setAutoAcceptEdits: (sessionId: string, value: boolean) => void
@@ -608,7 +611,7 @@ export const useSessionsStore = create<SessionsStore>()(
         }))
       },
 
-      updateToolResult: (sessionId: string, toolId: string, content: string) => {
+      updateToolResult: (sessionId: string, toolId: string, content: string, isError?: boolean) => {
         set((state) => ({
           sessions: state.sessions.map((s) => {
             if (s.id !== sessionId) return s
@@ -616,7 +619,7 @@ export const useSessionsStore = create<SessionsStore>()(
               ...s,
               messages: s.messages.map((m) =>
                 m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId
-                  ? { ...m, result: content }
+                  ? { ...m, result: content, ...(isError ? { isError: true } : {}) }
                   : m
               )
             }
