@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.6.1',
+    date: '2026-09-29',
     notes: [
       'Fixed the chat sliding right, into the summary card, when a Mac is zoomed in or out',
       'Fixed the port pill above the composer sometimes never appearing, or disappearing while its server was still running',
