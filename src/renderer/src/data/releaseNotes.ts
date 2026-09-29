@@ -8,7 +8,12 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'New versions now appear as a card in the bottom-right corner, with an Update and restart button',
+      'Nyra shows what changed the first time it opens after an update',
+      'Turn on Settings → About → Update automatically to download updates in the background and install them when you quit',
+      'Added Extra high effort, between High and Max'
+    ]
   },
   {
     version: '0.6.1',

@@ -1139,6 +1139,11 @@ pub async fn update_install(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn update_stage(app: tauri::AppHandle) -> Result<String, String> {
+    updates::stage(&app).await
+}
+
+#[tauri::command]
 pub fn app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
 }

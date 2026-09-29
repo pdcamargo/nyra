@@ -14,7 +14,7 @@ import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { Archive, ArrowDownToLine, Brain, Copy, Folder, Slash, Sparkles, Store, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
+import { Archive, Brain, Copy, Folder, Slash, Sparkles, Store, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -103,7 +103,6 @@ export default function Sidebar(): React.JSX.Element {
         <ModeToggle />
       </div>
 
-      <UpdateBadge />
 
       {/* The rail's nav.
 
@@ -282,35 +281,6 @@ const VISIBLE_PER_PROJECT = 6
  * asks while scanning the list. The line says what is *happening* — running,
  * waiting on you, unread — and the rest is here when you point at it.
  */
-/**
- * A new version exists, said quietly.
- *
- * Above the tabs because that is the one part of the rail that is not a list of
- * your things — a banner among the chats would read as a chat. It only appears
- * when the launch check found something, and it opens Settings rather than
- * installing: the decision stays where the release notes are.
- */
-function UpdateBadge(): React.JSX.Element | null {
-  const version = useUiStore((s) => s.updateAvailable)
-  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
-  if (!version) return null
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          className="mx-2 mt-2 flex items-center gap-1.5 rounded-md bg-info/10 px-2 py-1 text-[0.85em] text-info transition-colors hover:bg-info/20"
-        >
-          <ArrowDownToLine className="size-3 shrink-0" />
-          <span className="truncate">Update to {version}</span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>{`Nyra ${version} is available`}</TooltipContent>
-    </Tooltip>
-  )
-}
-
 function ChatCard({
   session,
   hasBrowser

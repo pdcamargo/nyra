@@ -143,6 +143,7 @@ const EVENT_NAMES = [
   'browser:event',
   'nyra:app-request',
   'nyra:update-available',
+  'nyra:update-progress',
   'nyra:designs-changed',
   'nyra:desktop-activity',
   'nyra:desktop-blocked',
@@ -188,10 +189,17 @@ export const api = {
       call<{ available: boolean; version: string; notes: string; current: string }>(
         'update_check'
       ),
+    /** Install now and restart. Uses a staged download when there is one. */
     install: () => call<void>('update_install'),
+    /** Download in the background and hold it for the next quit. Resolves to
+     *  the staged version. */
+    stage: () => call<string>('update_stage'),
     version: () => call<string>('app_version'),
     /** Rust found one while answering `nyra_update`. */
-    onAvailable: (cb: (p: { version: string }) => void) => on('nyra:update-available', cb)
+    onAvailable: (cb: (p: { version: string }) => void) => on('nyra:update-available', cb),
+    /** Bytes received so far, from either `install` or `stage`. */
+    onProgress: (cb: (p: { version: string; received: number; total: number | null }) => void) =>
+      on('nyra:update-progress', cb)
   },
 
   /**

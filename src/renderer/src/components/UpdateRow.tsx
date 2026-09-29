@@ -1,19 +1,19 @@
 import React, { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
+import { useUpdatesStore } from '../store/updates'
 
-type State =
+type Check =
   | { kind: 'idle' }
   | { kind: 'checking' }
   | { kind: 'current' }
-  | { kind: 'available'; version: string }
-  | { kind: 'installing' }
   | { kind: 'failed'; message: string }
 
 /**
  * The version, and a way to move off it.
  *
- * Deliberately manual rather than a check on every launch: an app that reaches
- * out on its own should say so, and this one is opened dozens of times a day.
+ * Checking is this row's own business. What happens to a release once one is
+ * found — downloading, staged for quit, failed to install — lives in the
+ * updates store, so this row and the toast can never disagree about it.
  *
  * A failure is shown rather than swallowed. A typo in the endpoint and a
  * genuinely unreachable network look identical from in here, and reporting
@@ -21,61 +21,68 @@ type State =
  */
 export default function UpdateRow(): React.JSX.Element {
   const [version, setVersion] = useState('')
-  const [state, setState] = useState<State>({ kind: 'idle' })
+  const [check, setCheck] = useState<Check>({ kind: 'idle' })
+  const phase = useUpdatesStore((s) => s.phase)
 
   useEffect(() => {
     void window.api.updates.version().then(setVersion).catch(() => setVersion(''))
   }, [])
 
-  const check = async (): Promise<void> => {
-    setState({ kind: 'checking' })
+  const runCheck = async (): Promise<void> => {
+    setCheck({ kind: 'checking' })
     try {
       const result = await window.api.updates.check()
-      setState(
-        result.available ? { kind: 'available', version: result.version } : { kind: 'current' }
-      )
+      if (result.available) {
+        setCheck({ kind: 'idle' })
+        useUpdatesStore.getState().found(result.version)
+      } else {
+        setCheck({ kind: 'current' })
+      }
     } catch (err) {
-      setState({ kind: 'failed', message: err instanceof Error ? err.message : String(err) })
+      setCheck({ kind: 'failed', message: err instanceof Error ? err.message : String(err) })
     }
   }
 
-  const install = async (): Promise<void> => {
-    setState({ kind: 'installing' })
-    try {
-      // Succeeds by never returning — the app restarts into the new version.
-      await window.api.updates.install()
-    } catch (err) {
-      setState({ kind: 'failed', message: err instanceof Error ? err.message : String(err) })
-    }
+  const install = (): void => void useUpdatesStore.getState().install()
+  const installing = phase.kind === 'downloading' && phase.mode === 'restart'
+  const offer = phase.kind === 'available' || phase.kind === 'ready'
+
+  let status: React.ReactNode = null
+  if (phase.kind === 'available') {
+    status = <span className="text-info"> — {phase.version} is available</span>
+  } else if (phase.kind === 'downloading') {
+    status = <span className="text-muted-foreground"> — downloading {phase.version}</span>
+  } else if (phase.kind === 'ready') {
+    status = <span className="text-info"> — {phase.version} installs when you quit</span>
+  } else if (phase.kind === 'failed') {
+    status = <span className="text-danger"> — {phase.message}</span>
+  } else if (check.kind === 'current') {
+    status = <span className="text-muted-foreground"> — up to date</span>
+  } else if (check.kind === 'failed') {
+    status = <span className="text-danger"> — {check.message}</span>
   }
 
-  const busy = state.kind === 'checking' || state.kind === 'installing'
+  const busy = check.kind === 'checking' || installing
 
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex items-center justify-between gap-3 border-b border-separator py-2.5">
       <span className="text-xs text-foreground/80">
         Nyra <span className="font-mono text-muted-foreground">{version || '…'}</span>
-        {state.kind === 'current' && (
-          <span className="text-muted-foreground"> — up to date</span>
-        )}
-        {state.kind === 'available' && (
-          <span className="text-info"> — {state.version} is available</span>
-        )}
-        {state.kind === 'failed' && (
-          <span className="text-danger/80"> — {state.message}</span>
-        )}
+        {status}
       </span>
 
-      {state.kind === 'available' ? (
+      {offer ? (
         <button
+          type="button"
           onClick={install}
           className="shrink-0 rounded-lg bg-info px-3 py-1.5 text-xs font-medium text-info-foreground transition-opacity hover:opacity-85"
         >
-          Update and restart
+          {phase.kind === 'ready' ? 'Restart now' : 'Update and restart'}
         </button>
       ) : (
         <button
-          onClick={check}
+          type="button"
+          onClick={runCheck}
           disabled={busy}
           className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-accent disabled:opacity-50"
         >
@@ -83,11 +90,7 @@ export default function UpdateRow(): React.JSX.Element {
           {/* The label carries the state, so checking says so — it used to keep
               reading "Check for updates" with only a spinner to say otherwise. */}
           <span className={busy ? 'nyra-shimmer' : undefined}>
-            {state.kind === 'installing'
-              ? 'Installing…'
-              : state.kind === 'checking'
-                ? 'Checking…'
-                : 'Check for updates'}
+            {installing ? 'Installing…' : check.kind === 'checking' ? 'Checking…' : 'Check for updates'}
           </span>
         </button>
       )}

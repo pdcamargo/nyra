@@ -10,6 +10,8 @@ import CommandPalette from './components/CommandPalette'
 import QuickOpen from './components/QuickOpen'
 import ImageLightbox from './components/ImageLightbox'
 import SettingsModal from './components/settings/SettingsModal'
+import UpdateToast from './components/UpdateToast'
+import WhatsNewDialog from './components/WhatsNewDialog'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useResolvedTheme } from './hooks/useResolvedTheme'
 import { applyThemeClass } from './lib/theme'
@@ -25,6 +27,7 @@ import { migrateSessionsDb } from './lib/legacy-storage'
 import { useWorkflowStore } from './store/workflow'
 import { useProcessesStore, type BgProcess } from './store/processes'
 import { applySessionPanels, useUiStore } from './store/ui'
+import { useUpdatesStore } from './store/updates'
 import { dropBrowserHub, useBrowserStore } from './store/browser'
 import { syncBrowserGone, syncSidecarTabs, useWorkspaceStore } from './store/workspace'
 import { handleBinding } from './store/panelLayout'
@@ -54,17 +57,17 @@ export default function App(): React.JSX.Element {
   const shellRef = useRef<HTMLDivElement>(null)
   useKeyboardShortcuts()
 
-  // One look, at launch. Enough for a badge to be honest without the app
-  // reaching out on a timer — and it stays a badge: nothing installs until the
-  // About row is clicked.
+  // One look, at launch. Enough for the toast to be honest without the app
+  // reaching out on a timer. Nothing installs unless someone presses Update,
+  // or turned on Update automatically — and even then it waits for quit.
   useEffect(() => {
     void window.api.updates
       .check()
       .then((result) => {
-        if (result.available) useUiStore.getState().setUpdateAvailable(result.version)
+        if (result.available) useUpdatesStore.getState().found(result.version)
       })
       .catch(() => {
-        // Offline, or no release yet. A badge that cannot appear is the right
+        // Offline, or no release yet. A toast that cannot appear is the right
         // failure; the manual check in Settings says why.
       })
   }, [])
@@ -115,12 +118,16 @@ export default function App(): React.JSX.Element {
     const stopControl = startAppControl()
     const stopDesktop = startDesktopEvents()
     const stopUpdates = window.api.updates.onAvailable(({ version }) => {
-      useUiStore.getState().setUpdateAvailable(version)
+      useUpdatesStore.getState().found(version)
+    })
+    const stopProgress = window.api.updates.onProgress((p) => {
+      useUpdatesStore.getState().progress(p)
     })
     return () => {
       stopControl()
       stopDesktop()
       stopUpdates()
+      stopProgress()
     }
   }, [])
 
@@ -334,6 +341,8 @@ export default function App(): React.JSX.Element {
       <CommandPalette />
       <QuickOpen />
       <ImageLightbox />
+      <UpdateToast />
+      <WhatsNewDialog />
 
       {/* Lazy-loaded modals */}
       <Suspense fallback={null}>

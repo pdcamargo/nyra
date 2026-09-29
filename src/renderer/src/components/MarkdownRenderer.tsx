@@ -18,6 +18,7 @@ import { Check, Copy, WrapText } from 'lucide-react'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
 import { useSessionsStore, activeCwd } from '../store/sessions'
 import { useResourceDockStore } from '../store/resourceDock'
+import { useUpdatesStore } from '../store/updates'
 import { isAbsolute, resolvePath } from '../lib/paths'
 import { cachedImage, loadImage, type ImageEntry } from '../lib/imageCache'
 import { protectAttachmentRefs, remarkPromptDecorations } from '../lib/promptMarkdown'
@@ -217,7 +218,7 @@ function resolveNyraLink(href: string): NyraLink | null {
       // Claude is told to offer this and never to call the installer itself:
       // installing restarts Nyra, which would kill the reply mid-sentence.
       label: 'Update and restart',
-      run: () => void window.api.updates.install()
+      run: () => void useUpdatesStore.getState().install()
     }
   }
   const flow = /^flow\/([\w.-]+)$/.exec(rest)

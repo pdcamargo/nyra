@@ -18,6 +18,7 @@
 
 import { agentCommands, runCommand } from '../commands/registry'
 import { useUiStore } from '../store/ui'
+import { pendingVersion, useUpdatesStore } from '../store/updates'
 import {
   PANEL_DEFAULTS,
   PANEL_MINS,
@@ -58,7 +59,7 @@ function state(): Record<string, unknown> {
     },
     view: workflow.isCanvasOpen ? 'flows' : 'chat',
     theme: { preference: settings.theme, showing: resolveTheme(settings.theme) },
-    updateAvailable: ui.updateAvailable,
+    updateAvailable: pendingVersion(useUpdatesStore.getState().phase),
     flow: workflow.currentWorkflow
       ? { id: workflow.currentWorkflow.id, name: workflow.currentWorkflow.name }
       : null,

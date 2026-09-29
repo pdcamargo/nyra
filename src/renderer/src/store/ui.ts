@@ -32,8 +32,6 @@ type UiStore = {
   mainView: MainView
   /** Project selected when opening Archived from a project menu. */
   archivedProjectId: string | null
-  /** Set by the one check at launch. Null until it answers, and when it says no. */
-  updateAvailable: string | null
   pendingMemoryFilePath: string | null
   pendingInputPrefill: string | null
   bottomPanelOpen: boolean
@@ -66,7 +64,6 @@ type UiStore = {
   quickOpenOpen: boolean
   setMainView: (view: MainView) => void
   openArchived: (projectId?: string | null) => void
-  setUpdateAvailable: (version: string | null) => void
   openMemoryFile: (filePath: string) => void
   consumePendingMemoryFile: () => void
   prefillInput: (text: string) => void
@@ -129,7 +126,6 @@ export function applySessionPanels(sessionId: string | null): void {
 export const useUiStore = create<UiStore>()(persist((set, get) => ({
   mainView: 'chat',
   archivedProjectId: null,
-  updateAvailable: null,
   pendingMemoryFilePath: null,
   pendingInputPrefill: null,
   bottomPanelOpen: false,
@@ -144,7 +140,6 @@ export const useUiStore = create<UiStore>()(persist((set, get) => ({
   quickOpenOpen: false,
   setMainView: (mainView) => set({ mainView }),
   openArchived: (projectId = null) => set({ mainView: 'archived', archivedProjectId: projectId }),
-  setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
   openMemoryFile: (filePath) =>
     set({ mainView: 'memory', pendingMemoryFilePath: filePath, projectsPanelOpen: true }),
   consumePendingMemoryFile: () => set({ pendingMemoryFilePath: null }),

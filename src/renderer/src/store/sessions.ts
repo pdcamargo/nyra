@@ -8,6 +8,7 @@ import { useWorkspaceStore } from './workspace'
 import { backfillProjects, nameForPath } from './projects-migration'
 import { homedir } from '../lib/homedir'
 import { samePath } from '../lib/paths'
+import type { NyraSettings } from '../../../shared/types'
 import { useTerminalsStore } from './terminals'
 import { useResourceDockStore } from './resourceDock'
 import type { ChangeBlock } from '../lib/changeBlocks'
@@ -291,7 +292,7 @@ export type Session = {
    *  conversation is actually doing. */
   planMode?: boolean
   model?: string
-  effort?: '' | 'low' | 'medium' | 'high' | 'max'
+  effort?: NyraSettings['effort']
   /** Which panels this conversation has open, and how wide the right one is.
    *
    *  Per chat because the answer genuinely differs per chat: one is a browsing

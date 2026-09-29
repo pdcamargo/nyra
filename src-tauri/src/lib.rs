@@ -301,6 +301,7 @@ pub fn run() {
             commands::browser_tab_list,
             commands::update_check,
             commands::update_install,
+            commands::update_stage,
             commands::app_version,
             commands::app_control_response,
             commands::desktop_permissions,
@@ -318,6 +319,11 @@ pub fn run() {
             }
             if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
                 shutdown();
+            }
+            // After shutdown, so no terminal or Claude child is still holding a
+            // file the installer is about to replace.
+            if let RunEvent::Exit = event {
+                updates::install_staged_on_exit();
             }
         });
 }
