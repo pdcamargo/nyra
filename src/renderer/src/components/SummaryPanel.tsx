@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Eye, FileDiff, GitBranch, Laptop, MemoryStick, MousePointerClick, RotateCw, Square, TerminalSquare } from 'lucide-react'
-import { useSessionsStore, findProject, type TextMessage } from '../store/sessions'
+import { useSessionsStore, findProject, type Agent, type TextMessage } from '../store/sessions'
 import { useUiStore } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { EMPTY_BROWSER, useBrowserStore } from '../store/browser'
@@ -84,6 +84,64 @@ function Row({
       <span className="text-[11px] text-foreground/80 truncate flex-1">{label}</span>
       {trailing}
     </div>
+  )
+}
+
+/** How many subagents the summary lists before it starts folding them away. */
+export const AGENTS_INLINE_LIMIT = 5
+
+/**
+ * Which subagents the summary shows without being asked.
+ *
+ * A long session can run dozens, and the card listed every one of them, most
+ * long finished. Up to the limit nothing changes. Past it only the running ones
+ * stay — they are what you glance at the card to find out about — and the rest
+ * are one "Show more" away. The Subagents tab still has every one.
+ */
+export function inlineAgents(
+  agents: readonly Agent[],
+  limit = AGENTS_INLINE_LIMIT
+): { shown: Agent[]; hidden: number } {
+  if (agents.length <= limit) return { shown: [...agents], hidden: 0 }
+  const shown = agents.filter((a) => a.status === 'running').slice(0, limit)
+  return { shown, hidden: agents.length - shown.length }
+}
+
+function AgentRow({ agent }: { agent: Agent }): React.JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => openSubagentsInPanel(agent.toolId)}
+          className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+        >
+          <StatusDot
+            className={
+              agent.status === 'running'
+                ? 'bg-info nyra-breathe'
+                : agent.status === 'failed'
+                  ? 'bg-danger'
+                  : 'bg-success'
+            }
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[11px] text-foreground/80">{agent.name}</span>
+            {agent.status === 'running' && agent.activity && (
+              <span className="block truncate text-[10px] italic text-info">
+                {agent.activity}
+              </span>
+            )}
+          </span>
+          {agent.durationMs != null && (
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {formatElapsed(agent.durationMs)}
+            </span>
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Open this subagent</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -185,6 +243,9 @@ export default function SummaryPanel(): React.JSX.Element | null {
   // listening after its shell exited is still going.
   const liveProcesses = processes.filter(isLive)
   const now = useClock(open && liveProcesses.length > 0)
+  // Which chat has its full subagent list open. Keyed by session so switching
+  // chats does not carry one chat's expanded list into another.
+  const [agentsExpandedFor, setAgentsExpandedFor] = useState<string | null>(null)
 
   if (!open || !session) return null
 
@@ -193,6 +254,9 @@ export default function SummaryPanel(): React.JSX.Element | null {
   )
   const shown = attachments.slice(0, 4)
   const agents = session.agents ?? []
+  const agentsExpanded = agentsExpandedFor === session.id
+  const inline = inlineAgents(agents)
+  const agentRows = agentsExpanded ? agents : inline.shown
 
   // Glass: this is the one panel with real content behind it to blur. The
   // workspace rail is docked with nothing underneath, so the same treatment
@@ -376,41 +440,22 @@ export default function SummaryPanel(): React.JSX.Element | null {
             </Tooltip>
           }
         >
-          {agents.map((agent) => (
-            <Tooltip key={agent.toolId}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => openSubagentsInPanel(agent.toolId)}
-                  className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
-                >
-                  <StatusDot
-                    className={
-                      agent.status === 'running'
-                        ? 'bg-info nyra-breathe'
-                        : agent.status === 'failed'
-                          ? 'bg-danger'
-                          : 'bg-success'
-                    }
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] text-foreground/80">{agent.name}</span>
-                    {agent.status === 'running' && agent.activity && (
-                      <span className="block truncate text-[10px] italic text-info">
-                        {agent.activity}
-                      </span>
-                    )}
-                  </span>
-                  {agent.durationMs != null && (
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {formatElapsed(agent.durationMs)}
-                    </span>
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Open this subagent</TooltipContent>
-            </Tooltip>
+          {agentRows.map((agent) => (
+            <AgentRow key={agent.toolId} agent={agent} />
           ))}
+          {inline.hidden > 0 && (
+            <button
+              type="button"
+              onClick={() => setAgentsExpandedFor(agentsExpanded ? null : session.id)}
+              className="mt-0.5 rounded-md px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {agentsExpanded
+                ? 'Show less'
+                : inline.shown.length === 0
+                  ? `Show ${inline.hidden} finished`
+                  : `Show ${inline.hidden} more`}
+            </button>
+          )}
         </Section>
       )}
 
