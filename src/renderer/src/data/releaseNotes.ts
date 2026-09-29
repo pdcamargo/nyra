@@ -8,7 +8,12 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Fixed the chat sliding right, into the summary card, when a Mac is zoomed in or out',
+      'Fixed the port pill above the composer sometimes never appearing, or disappearing while its server was still running',
+      'The port pill and Chat RAM now work on Windows',
+      'Fixed images attached on Windows showing as struck-through file paths instead of chips'
+    ]
   },
   {
     version: '0.6.0',
