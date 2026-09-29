@@ -68,6 +68,71 @@ failure is fixed in `platform/` or as a trait in `lib/platform.ts`, never as an
 - **Unported features.** "Open with" detects no editors yet (`open_with.rs`),
   and the devtools screenshot/eval route is macOS-only (`devtools.rs`).
 
+## Desktop control
+
+Claude operating other apps (`src-tauri/src/desktop/`) runs on macOS. On
+Windows, `desktop/windows.rs` is a stub: it compiles, satisfies the `Backend`
+trait, and answers "not supported yet" from every primitive. Filling it in has
+to happen on a real machine. Everything above the trait — refs, pruning, the
+allowlist, the blocklist, password fields, the typing guard, Esc, the
+`confirmed: true` gate, screenshots' coordinate scale — is OS-neutral, already
+tested against `fake.rs`, and should not need to change. If it seems to, the
+contract is wrong; fix it in `mod.rs` and in `macos.rs` too.
+
+### How each primitive maps
+
+| Primitive | Windows |
+|---|---|
+| `list_apps` | `EnumWindows`, top-level visible windows grouped by process. `AppId` is the executable's full path; `app_matches` compares the file name, case-insensitively. |
+| `find_app`, `open` | App Paths in the registry and Start-menu shortcuts for a name; `ShellExecuteExW` to open an app, a path or a URL. |
+| `list_windows` | The app's top-level windows. `WindowKey` is the HWND. Set `blocked` when the owning process runs at a higher integrity level than Nyra (`OpenProcess` + `TokenIntegrityLevel`): UIPI silently drops input and patterns sent to it, so this must be a refusal, never a no-op. |
+| `element_tree`, `menu_bar` | UI Automation, a `CacheRequest` over the ControlView walker, honouring `Limits`. `IsOffscreen` fills `offscreen`, `IsPassword` fills `secure`, `BoundingRectangle` the frame. Skip window furniture (scroll bars, thumbs, grips) the way `macos.rs` skips `FURNITURE`. |
+| `perform` | Press: Invoke, then Toggle, SelectionItem, ExpandCollapse. None of them → `Unsupported`, and the engine clicks the centre. Focus: `SetFocus`. SetValue: ValuePattern. |
+| `type_text` | UIA cannot insert at a caret: Focus, then `SendInput` with `KEYEVENTF_UNICODE`. Needs the window in front → `Raised(true)`. |
+| `press_keys`, `click_at` | Bring the window forward, then `SendInput`. `mod_is_cmd` is false, so `mod+s` is Ctrl+S. |
+| `capture_window` | Windows.Graphics.Capture for the HWND (or `PrintWindow` as a fallback), scaled to the width asked for. |
+| `app_icon` | `SHGetFileInfoW` / `ExtractIconExW` on the executable, as a PNG. |
+| `permissions` | `[]`: nothing to grant. Elevation is per window, in `list_windows`. |
+| `seconds_since_user_input` | `GetLastInputInfo`. It counts Nyra's own `SendInput` too; the engine already discounts that. |
+
+### Known risks
+
+- **Foreground lock.** Windows limits which process may call
+  `SetForegroundWindow`. Typing, keys and clicks all need the target in front.
+  If it fails, try UIA `SetFocus` on the window, or the
+  `AttachThreadInput` technique, and report `Raised` honestly.
+- **Threading.** UIA wants a COM apartment. Give it one dedicated MTA thread
+  and send every primitive to it, rather than initialising COM on whatever
+  `spawn_blocking` thread turns up.
+- **Capture.** Windows.Graphics.Capture draws a yellow border on Windows 10,
+  and some windows (DRM, some GPU apps) come back black.
+- **Global Esc.** `RegisterHotKey` for a bare Escape fails if another app holds
+  it. `indicator.rs` logs that; the tray's Stop still works.
+
+### Checklist
+
+Run `cargo test --lib drives_notepad_end_to_end -- --ignored --nocapture` in
+`src-tauri`. It is the finish line: it opens Notepad, types, reads the line
+back, and checks the refusals. Then, in the running app with "Let Claude use
+other apps" on, in a new chat:
+
+1. **Notepad.** Ask Claude to open Notepad, type a line, and read it back. The
+   allow prompt appears first; the chip over the composer and the tray icon
+   say "Claude is using Notepad" and go away when the turn ends.
+2. **Elevated window.** Open Task Manager as administrator. `desktop_apps`
+   shows its window as blocked, and acting on it is refused with a reason.
+3. **Blocked apps.** Settings, Windows Security, Windows Terminal and
+   Credential Manager (Control Panel) are refused, and "always" cannot allow
+   them.
+4. **Password field.** Typing into a password box is refused.
+5. **Esc.** Ask for a long paragraph to be typed; press Esc in Notepad. Typing
+   stops, and every desktop call is refused until you send a new message.
+6. **Send gate.** In an app with a Send button, pressing it without
+   `confirmed: true` is refused.
+7. **Screenshot.** `desktop_screenshot` returns the window, and the miniature
+   over the chat shows it with the app's icon.
+8. **No console windows.** Nothing flashes up during any of this.
+
 ## Releasing for Windows
 
 This comes after the checklist passes. Today `npm run gh-release` uploads only

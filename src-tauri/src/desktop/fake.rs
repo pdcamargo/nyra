@@ -218,6 +218,35 @@ impl Host for FakeHost {
     }
 }
 
+/// For the end-to-end tests on a real machine: allows the apps it names,
+/// refuses the rest, and prints what it is told.
+pub struct AllowOnly(pub &'static [&'static str]);
+
+impl Host for AllowOnly {
+    fn ask_allow<'a>(
+        &'a self,
+        _chat: &'a str,
+        app: &'a AppInfo,
+        _warning: Option<&'static str>,
+    ) -> BoxFuture<'a, std::result::Result<Answer, String>> {
+        let yes = self.0.iter().any(|n| n.eq_ignore_ascii_case(&app.name));
+        println!("  asked about {} -> {}", app.name, if yes { "this chat" } else { "no" });
+        Box::pin(async move { Ok(if yes { Answer::ThisChat } else { Answer::No }) })
+    }
+    fn always_allowed(&self, _id: &AppId) -> bool {
+        false
+    }
+    fn controlling(&self, _chat: &str, app: Option<&str>) {
+        println!("  controlling: {app:?}");
+    }
+    fn blocked(&self, _chat: &str, kind: PermissionKind, b: &Blocked) {
+        println!("  blocked {kind:?}: {}", b.reason);
+    }
+    fn seen(&self, _chat: &str, seen: &Seen) {
+        println!("  seen {} — {:?} (picture: {})", seen.app, seen.title, seen.png.is_some());
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Building a desktop
 // ---------------------------------------------------------------------------

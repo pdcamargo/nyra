@@ -147,3 +147,74 @@ impl Backend for Native {
         f64::MAX
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// The phase 3 finish line, on a real Windows machine: open Notepad, type a
+    /// line, read it back, then be refused Settings and Windows Terminal. Moves
+    /// real windows, so ignored and run by hand:
+    /// `cargo test --lib drives_notepad_end_to_end -- --ignored --nocapture`.
+    /// Until `windows.rs` is filled in it fails at the first step with "not
+    /// supported yet", which is the point.
+    #[tokio::test]
+    #[ignore]
+    async fn drives_notepad_end_to_end() {
+        let d = Desktop::new(
+            Native::new(),
+            super::super::fake::AllowOnly(&["Notepad"]),
+            GuardTiming::default(),
+            SCRATCH_DIR.clone(),
+        );
+        let chat = "e2e";
+        let say = |label: &str, r: &std::result::Result<String, String>| match r {
+            Ok(t) => println!("--- {label}\n{t}\n"),
+            Err(e) => println!("--- {label} (refused)\n{e}\n"),
+        };
+
+        let opened = d.open(chat, "Notepad").await;
+        say("desktop_open Notepad", &opened);
+        opened.unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let snap = d.snapshot(chat, "Notepad", None, None).await;
+        say("desktop_snapshot", &snap);
+        let snap = snap.unwrap();
+        // Classic Notepad is an edit control, Windows 11's a document; either
+        // way it is the one text area or text field in the window.
+        let area = snap
+            .lines()
+            .find(|l| l.contains("] text area") || l.contains("] text field"))
+            .and_then(|l| l.trim().split(']').next())
+            .map(|r| r.trim_start_matches('[').to_string())
+            .expect("a text area in Notepad");
+
+        let line = "Typed by Claude through Nyra desktop control.";
+        let typed = d
+            .act(chat, ActArgs { app: "Notepad".into(), r#ref: Some(area), action: "type".into(), text: Some(line.into()), ..Default::default() })
+            .await;
+        say("desktop_act type", &typed);
+        typed.unwrap();
+
+        let again = d.snapshot(chat, "Notepad", None, None).await;
+        say("desktop_snapshot again", &again);
+        assert!(again.unwrap().contains(line), "the line did not read back");
+
+        let shot = d.screenshot(chat, "Notepad", None).await;
+        match &shot {
+            Ok(s) => println!("--- desktop_screenshot\n{}\n", s.text),
+            Err(e) => println!("--- desktop_screenshot (refused)\n{e}\n"),
+        }
+        assert!(shot.is_ok(), "no screenshot");
+
+        for blocked in ["Settings", "Windows Terminal"] {
+            let r = d.open(chat, blocked).await;
+            say(&format!("desktop_open {blocked}"), &r);
+            assert!(r.unwrap_err().contains("off limits"), "{blocked} was not refused");
+        }
+
+        d.turn_ended(chat);
+    }
+}

@@ -1167,38 +1167,10 @@ mod tests {
         assert!(!n.app_matches(&AppId("com.apple.TerminalX".into()), "com.apple.Terminal"));
     }
 
-    /// Allows the apps it names and refuses the rest, printing what it is told.
     impl Native {
         /// Not off limits, so a test never photographs a password manager.
         fn block_reason_for_test(&self, app: &AppInfo) -> bool {
             super::super::safety::block_reason(app, None, BLOCKLIST, |id, p| self.app_matches(id, p), std::process::id()).is_none()
-        }
-    }
-
-    struct AllowOnly(&'static [&'static str]);
-
-    impl Host for AllowOnly {
-        fn ask_allow<'a>(
-            &'a self,
-            _chat: &'a str,
-            app: &'a AppInfo,
-            _warning: Option<&'static str>,
-        ) -> BoxFuture<'a, std::result::Result<Answer, String>> {
-            let yes = self.0.contains(&app.name.as_str());
-            println!("  asked about {} -> {}", app.name, if yes { "this chat" } else { "no" });
-            Box::pin(async move { Ok(if yes { Answer::ThisChat } else { Answer::No }) })
-        }
-        fn always_allowed(&self, _id: &AppId) -> bool {
-            false
-        }
-        fn controlling(&self, _chat: &str, app: Option<&str>) {
-            println!("  controlling: {app:?}");
-        }
-        fn blocked(&self, _chat: &str, kind: PermissionKind, b: &Blocked) {
-            println!("  blocked {kind:?}: {}", b.reason);
-        }
-        fn seen(&self, _chat: &str, seen: &Seen) {
-            println!("  seen {} — {:?} (picture: {})", seen.app, seen.title, seen.png.is_some());
         }
     }
 
@@ -1209,7 +1181,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn drives_textedit_end_to_end() {
-        let d = Desktop::new(Native::new(), AllowOnly(&["TextEdit"]), GuardTiming::default(), SCRATCH_DIR.clone());
+        let d = Desktop::new(Native::new(), super::super::fake::AllowOnly(&["TextEdit"]), GuardTiming::default(), SCRATCH_DIR.clone());
         let chat = "e2e";
         let say = |label: &str, r: &std::result::Result<String, String>| match r {
             Ok(t) => println!("--- {label}\n{t}\n"),
