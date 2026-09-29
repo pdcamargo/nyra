@@ -19,7 +19,7 @@ import { Eye } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { useSessionsStore } from '../store/sessions'
-import { EMPTY_PROCESSES, useProcessesStore, type BgProcess } from '../store/processes'
+import { EMPTY_PROCESSES, stillRunning, useProcessesStore, type BgProcess } from '../store/processes'
 import { useUiStore } from '../store/ui'
 
 /** Rows persisted before monitors were tracked have no kind; they were shells. */
@@ -30,7 +30,7 @@ export function isMonitor(proc: BgProcess): boolean {
 /** Every watch this chat currently has armed, oldest first. */
 export function liveMonitors(processes: readonly BgProcess[]): BgProcess[] {
   return processes
-    .filter((p) => isMonitor(p) && p.status === 'running')
+    .filter((p) => isMonitor(p) && stillRunning(p))
     .sort((a, b) => a.startedAt - b.startedAt)
 }
 

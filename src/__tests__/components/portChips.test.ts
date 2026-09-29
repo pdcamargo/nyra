@@ -73,6 +73,11 @@ describe('isLive', () => {
     expect(isLive(proc({ status: 'exited', ports: [3000] }))).toBe(true)
     expect(isLive(proc({ status: 'exited' }))).toBe(false)
   })
+
+  it('counts a shell whose pid was never found as running', () => {
+    expect(isLive(proc({ status: 'untracked' }))).toBe(true)
+    expect(isLive(proc({ status: 'orphaned' }))).toBe(true)
+  })
 })
 
 describe('portUrl', () => {

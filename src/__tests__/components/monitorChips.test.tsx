@@ -46,6 +46,17 @@ describe('liveMonitors', () => {
     expect(liveMonitors(rows).map((p) => p.shellId)).toEqual(['a'])
   })
 
+  // A monitor queued behind a permission prompt is announced after the CLI
+  // forked it, its pid hunt misses, and the row reads untracked — still
+  // watching, and it went missing from the composer while it was.
+  it('keeps a monitor whose pid was never found', () => {
+    const rows = [
+      proc({ shellId: 'u', kind: 'monitor', status: 'untracked' }),
+      proc({ shellId: 'o', kind: 'monitor', status: 'orphaned' })
+    ]
+    expect(liveMonitors(rows).map((p) => p.shellId)).toEqual(['u', 'o'])
+  })
+
   it('orders by when the watch was armed', () => {
     const rows = [
       proc({ shellId: 'late', kind: 'monitor', startedAt: 3000 }),

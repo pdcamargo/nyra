@@ -13,12 +13,11 @@ import React from 'react'
 import { Eye, SquareTerminal } from 'lucide-react'
 import type { ToolCallMessage } from '../store/sessions'
 import { useSessionsStore } from '../store/sessions'
-import { useProcessesStore, type BgProcess } from '../store/processes'
+import { stillRunning, useProcessesStore, type BgProcess } from '../store/processes'
 import { useUiStore } from '../store/ui'
 import {
   backgroundKindOf,
   backgroundLabel,
-  isLive,
   type BackgroundKind,
   type BackgroundOutcome
 } from '../lib/backgroundCalls'
@@ -29,8 +28,8 @@ export function startText(kind: BackgroundKind, name: string, proc: BgProcess | 
   if (kind === 'shell' && proc && proc.ports.length > 0) {
     return `${name} serving ${proc.ports.map((p) => `:${p}`).join(' ')}`
   }
-  if (kind === 'monitor') return isLive(proc) ? `Watching ${name}` : `Watched ${name}`
-  return isLive(proc) ? `${name} running in the background` : `${name} ran in the background`
+  if (kind === 'monitor') return stillRunning(proc) ? `Watching ${name}` : `Watched ${name}`
+  return stillRunning(proc) ? `${name} running in the background` : `${name} ran in the background`
 }
 
 export function endText(
@@ -108,7 +107,7 @@ function StartLine({ sid, message }: { sid: string | null; message: ToolCallMess
   const kind = backgroundKindOf(message)
   const name = backgroundLabel(message)
   const serving = kind === 'shell' && !!proc && proc.ports.length > 0
-  const live = isLive(proc) && !serving
+  const live = stillRunning(proc) && !serving
   const command = typeof message.input.command === 'string' ? message.input.command : name
   return (
     <Line

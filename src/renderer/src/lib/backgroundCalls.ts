@@ -1,4 +1,4 @@
-import type { BgProcess } from '../store/processes'
+import { stillRunning, type BgProcess } from '../store/processes'
 import { newMessageId, useSessionsStore, type ToolCallMessage } from '../store/sessions'
 
 /**
@@ -33,14 +33,6 @@ export function backgroundLabel(tc: ToolCallMessage): string {
   return tc.tool_name === 'Monitor' ? 'a monitor' : 'a background command'
 }
 
-/**
- * Still going, as far as the registry knows. Untracked means the pid was never
- * found, not that it stopped; orphaned means its Claude went away and it did not.
- */
-export function isLive(proc: BgProcess | undefined): boolean {
-  return proc?.status === 'running' || proc?.status === 'untracked' || proc?.status === 'orphaned'
-}
-
 export type BackgroundOutcome = 'done' | 'failed' | 'stopped'
 
 export function outcomeOf(proc: BgProcess): BackgroundOutcome {
@@ -57,10 +49,10 @@ export function outcomeOf(proc: BgProcess): BackgroundOutcome {
  */
 export function endedBetween(prev: readonly BgProcess[], next: readonly BgProcess[]): BgProcess[] {
   return next.filter((row) => {
-    if (isLive(row)) return false
+    if (stillRunning(row)) return false
     const before = prev.find((p) => p.shellId === row.shellId)
     if (!before) return false
-    return isLive(before) || (before.exitCode === null && row.exitCode !== null)
+    return stillRunning(before) || (before.exitCode === null && row.exitCode !== null)
   })
 }
 

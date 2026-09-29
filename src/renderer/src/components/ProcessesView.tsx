@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { useSessionsStore } from '../store/sessions'
-import { useProcessesStore, EMPTY_PROCESSES, type BgProcess } from '../store/processes'
+import { useProcessesStore, EMPTY_PROCESSES, stillRunning, type BgProcess } from '../store/processes'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 export default function ProcessesView(): React.JSX.Element {
@@ -50,7 +50,7 @@ export default function ProcessesView(): React.JSX.Element {
 function summarize(procs: BgProcess[]): { running: number; exited: number; killed: number; failed: number } {
   let running = 0, exited = 0, killed = 0, failed = 0
   for (const p of procs) {
-    if (p.status === 'running' || p.status === 'orphaned' || p.status === 'untracked') running++
+    if (stillRunning(p)) running++
     else if (p.status === 'killed') killed++
     else if (p.status === 'stopped' || p.status === 'exited') {
       if (p.exitCode != null && p.exitCode !== 0) failed++
@@ -64,7 +64,7 @@ function ProcessRow({ proc, sessionId }: { proc: BgProcess; sessionId: string })
   const [expanded, setExpanded] = useState(false)
   const [killing, setKilling] = useState(false)
 
-  const isAlive = proc.status === 'running' || proc.status === 'orphaned' || proc.status === 'untracked'
+  const isAlive = stillRunning(proc)
   const tickingNow = useTickingClock(isAlive)
   const runtime = formatRuntime(proc, isAlive ? tickingNow : (proc.endedAt ?? proc.lastOutputAt ?? proc.startedAt))
 

@@ -14,7 +14,7 @@ import { Radio } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { useSessionsStore } from '../store/sessions'
-import { EMPTY_PROCESSES, useProcessesStore, type BgProcess } from '../store/processes'
+import { EMPTY_PROCESSES, stillRunning, useProcessesStore, type BgProcess } from '../store/processes'
 import { startBrowserTab } from './browser/useBrowserSession'
 import { useUiStore } from '../store/ui'
 
@@ -31,7 +31,7 @@ export type LivePort = { port: number; process: BgProcess }
  * is its own evidence of life.
  */
 export function isLive(proc: BgProcess): boolean {
-  return proc.status === 'running' || (proc.ports?.length ?? 0) > 0
+  return stillRunning(proc) || (proc.ports?.length ?? 0) > 0
 }
 
 /**
