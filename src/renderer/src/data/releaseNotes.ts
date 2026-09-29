@@ -8,7 +8,13 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Claude can now read, click and type in other apps on your Mac or PC. Turn it on in Settings → General → Other apps',
+      'Claude asks before it touches each app, and never touches password managers, Keychain, System Settings, terminals or Nyra itself',
+      'Sending, deleting or buying anything waits for your yes, and Esc stops Claude from anywhere',
+      'The preview over the chat now shows the last window Claude looked at in another app',
+      'Fixed plans not opening as a plan card on Windows'
+    ]
   },
   {
     version: '0.5.0',
