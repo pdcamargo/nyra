@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.6.2',
+    date: '2026-09-29',
     notes: [
       'New versions now appear as a card in the bottom-right corner, with an Update and restart button',
       'Nyra shows what changed the first time it opens after an update',
