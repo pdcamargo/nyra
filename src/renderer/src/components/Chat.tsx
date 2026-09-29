@@ -36,6 +36,8 @@ import { formatMessageTime } from '../lib/messageTime'
 import { extractPlan } from '../utils/permission'
 import ToolCallGroup from './ToolCallGroup'
 import SubagentChip from './SubagentChip'
+import BackgroundChip from './BackgroundChip'
+import { isBackgroundCall } from '../lib/backgroundCalls'
 import PermissionDialog, { type PermissionRequest } from './PermissionDialog'
 import ChatInput from './ChatInput'
 import EditMessageBox from './EditMessageBox'
@@ -355,6 +357,7 @@ export default function Chat(): React.JSX.Element {
     | { kind: 'tool_group'; messages: ToolCallMessage[]; firstId: string }
     | { kind: 'memory'; writes: MemoryWrite[]; calls: ToolCallMessage[]; firstId: string }
     | { kind: 'agents'; messages: ToolCallMessage[]; ended: boolean; firstId: string }
+    | { kind: 'background'; message: ToolCallMessage }
     | { kind: 'loading' }
     | { kind: 'waiting'; tasks: WaitingTask[] }
 
@@ -430,6 +433,12 @@ export default function Chat(): React.JSX.Element {
           }
           continue
         }
+        // Same for a shell or monitor left running: its call returns at once,
+        // so inside a tool strip it read as done while it was still going.
+        if (tc.tool_name === 'BackgroundEnded' || isBackgroundCall(tc)) {
+          items.push({ kind: 'background', message: tc })
+          continue
+        }
         // Anything the user has to read or answer stands alone. Folded into a
         // run of tool calls it becomes "1 other tool" inside a collapsed strip,
         // which is exactly where the plan card went missing.
@@ -494,6 +503,7 @@ export default function Chat(): React.JSX.Element {
       if (item.kind === 'tool_group') return `tg-${item.firstId}`
       if (item.kind === 'memory') return `mem-${item.firstId}`
       if (item.kind === 'agents') return `ag-${item.firstId}`
+      if (item.kind === 'background') return `bg-${item.message.id}`
       return item.msg.id
     },
   })
@@ -1713,7 +1723,8 @@ export default function Chat(): React.JSX.Element {
           (item.kind === 'message' && item.msg.id === messageId) ||
           (item.kind === 'tool_group' && item.firstId === messageId) ||
           (item.kind === 'memory' && item.firstId === messageId) ||
-          (item.kind === 'agents' && item.firstId === messageId)
+          (item.kind === 'agents' && item.firstId === messageId) ||
+          (item.kind === 'background' && item.message.id === messageId)
       ),
     [virtualItems]
   )
@@ -2042,6 +2053,19 @@ export default function Chat(): React.JSX.Element {
                     style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
                   >
                     <SubagentChip messages={item.messages} ended={item.ended} />
+                  </div>
+                )
+              }
+
+              if (item.kind === 'background') {
+                return (
+                  <div
+                    key={vItem.key}
+                    data-index={vItem.index}
+                    ref={virtualizer.measureElement}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                  >
+                    <BackgroundChip message={item.message} />
                   </div>
                 )
               }

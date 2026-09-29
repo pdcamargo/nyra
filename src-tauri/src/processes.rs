@@ -368,13 +368,22 @@ pub fn note_task_started(
 }
 
 /// `system/task_updated` — Claude's own status wins over our polling.
-pub fn note_task_updated(nyra_session_id: &str, tool_use_id: &str, patch: &Value) {
+///
+/// Found by task id as well as by `tool_use_id`: the CLI sends this one with
+/// only `task_id`, so a lookup by the other found nothing and a shell's end was
+/// left to `task_notification` — which a row the pid hunt had given up on could
+/// not take either.
+pub fn note_task_updated(nyra_session_id: &str, tool_use_id: &str, task_id: &str, patch: &Value) {
     let changed = {
         let mut sessions = SESSIONS.lock();
-        match sessions
-            .get_mut(nyra_session_id)
-            .and_then(|s| s.by_shell_id.get_mut(tool_use_id))
-        {
+        match sessions.get_mut(nyra_session_id).and_then(|s| {
+            if !tool_use_id.is_empty() && s.by_shell_id.contains_key(tool_use_id) {
+                return s.by_shell_id.get_mut(tool_use_id);
+            }
+            s.by_shell_id
+                .values_mut()
+                .find(|p| !task_id.is_empty() && p.task_id.as_deref() == Some(task_id))
+        }) {
             Some(p) => {
                 if let Some(status) = patch.get("status").and_then(Value::as_str) {
                     p.status = map_claude_status(status);
@@ -392,12 +401,27 @@ pub fn note_task_updated(nyra_session_id: &str, tool_use_id: &str, patch: &Value
     }
 }
 
+/// Still going, as far as we know: untracked means its pid was never found, and
+/// orphaned that its Claude went away while it did not.
+fn is_live(status: ProcStatus) -> bool {
+    matches!(status, ProcStatus::Running | ProcStatus::Untracked | ProcStatus::Orphaned)
+}
+
+/// The exit code in a notification's summary — `Background command "…" failed
+/// with exit code 3`. The only place the CLI says it: `status` is just "failed".
+fn exit_code_in(summary: &str) -> Option<i32> {
+    let rest = &summary[summary.rfind("exit code ")? + "exit code ".len()..];
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '-').collect();
+    digits.parse().ok()
+}
+
 /// `system/task_notification` — carries the file Claude streams task stdout to.
 pub fn note_task_notification(
     nyra_session_id: &str,
     tool_use_id: &str,
     status: Option<&str>,
     output_file: Option<&str>,
+    summary: Option<&str>,
 ) {
     let mut new_output_file: Option<String> = None;
     let mut changed = false;
@@ -421,14 +445,22 @@ pub fn note_task_notification(
         if let Some(s) = status.filter(|s| !s.is_empty()) {
             let mapped = map_claude_status(s);
             // `task_notification(status=stopped)` lands after `task_updated(status=killed)`;
-            // without this guard it would downgrade the more specific signal.
-            if mapped != ProcStatus::Running && p.status == ProcStatus::Running {
+            // without this guard it would downgrade the more specific signal. Any
+            // live row can end, though — an untracked one used to stay that way.
+            if mapped != ProcStatus::Running && is_live(p.status) {
                 p.status = mapped;
             }
             if p.ended_at.is_none() && mapped != ProcStatus::Running {
                 p.ended_at = Some(util::now_ms());
             }
             changed = true;
+        }
+
+        if p.exit_code.is_none() {
+            if let Some(code) = summary.and_then(exit_code_in) {
+                p.exit_code = Some(code);
+                changed = true;
+            }
         }
     }
 
@@ -1185,6 +1217,7 @@ mod tests {
         note_task_updated(
             sid,
             "toolu_d",
+            "",
             &serde_json::json!({ "status": "completed", "end_time": 1790108586337i64 }),
         );
 
@@ -1192,6 +1225,58 @@ mod tests {
         assert_eq!(rows[0].status, ProcStatus::Exited);
         assert!(rows[0].ended_at.is_some());
         drop_session(sid);
+    }
+
+    // The CLI sends `task_updated` with a task id and no `tool_use_id`.
+    #[test]
+    fn a_task_update_finds_its_row_by_task_id() {
+        let sid = "s-update-by-task";
+        with_session(sid);
+        note_tool_input(
+            sid,
+            "toolu_t",
+            "Monitor",
+            &serde_json::json!({ "ws": { "url": "wss://x/y" } }),
+        );
+        note_task_started(sid, "toolu_t", "bsrnpl2ao", None);
+        note_task_updated(sid, "", "bsrnpl2ao", &serde_json::json!({ "status": "completed" }));
+
+        assert_eq!(rows(sid)[0].status, ProcStatus::Exited);
+        drop_session(sid);
+    }
+
+    // On Windows the pid hunt often gives up, and an untracked shell is still a
+    // running one: its end has to land, with the code only the summary carries.
+    #[test]
+    fn an_untracked_shell_ends_with_its_exit_code() {
+        let sid = "s-untracked-ends";
+        with_session(sid);
+        note_tool_input(
+            sid,
+            "toolu_u",
+            "Monitor",
+            &serde_json::json!({ "ws": { "url": "wss://x/y" } }),
+        );
+        SESSIONS.lock().get_mut(sid).unwrap().by_shell_id.get_mut("toolu_u").unwrap().status =
+            ProcStatus::Untracked;
+        note_task_notification(
+            sid,
+            "toolu_u",
+            Some("failed"),
+            None,
+            Some("Background command \"Failing check\" failed with exit code 3"),
+        );
+
+        let rows = rows(sid);
+        assert_eq!(rows[0].status, ProcStatus::Exited);
+        assert_eq!(rows[0].exit_code, Some(3));
+        drop_session(sid);
+    }
+
+    #[test]
+    fn reads_the_exit_code_out_of_a_summary() {
+        assert_eq!(exit_code_in("\"Wait\" completed (exit code 0)"), Some(0));
+        assert_eq!(exit_code_in("\"Tick counter\" stream ended"), None);
     }
 
     // A plain Bash call is still not a monitor, and a foreground one is still

@@ -926,6 +926,7 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
             Some("task_updated") => processes::note_task_updated(
                 nyra_session_id,
                 raw.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
+                raw.get("task_id").and_then(Value::as_str).unwrap_or_default(),
                 raw.get("patch").unwrap_or(&json!({})),
             ),
             // Background subagents. The turn ends the moment they are spawned,
@@ -972,6 +973,7 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                     tool_use_id,
                     status,
                     output_file,
+                    raw.get("summary").and_then(Value::as_str),
                 );
                 // `note_task_notification` looks this up in `by_shell_id`, which
                 // only a backgrounded `Bash` ever populates — so for a `Task`

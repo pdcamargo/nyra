@@ -26,6 +26,7 @@ import { primeHomedir } from './lib/homedir'
 import { migrateSessionsDb } from './lib/legacy-storage'
 import { useWorkflowStore } from './store/workflow'
 import { useProcessesStore, type BgProcess } from './store/processes'
+import { announceBackgroundEnd, endedBetween } from './lib/backgroundCalls'
 import { applySessionPanels, useUiStore } from './store/ui'
 import { useUpdatesStore } from './store/updates'
 import { dropBrowserHub, useBrowserStore } from './store/browser'
@@ -182,7 +183,11 @@ export default function App(): React.JSX.Element {
   // Subscribe to background-process updates from main
   useEffect(() => {
     const unsub = window.api.processes.onUpdate(({ nyraSessionId, processes }) => {
+      const prev = useProcessesStore.getState().bySession[nyraSessionId] ?? []
       useProcessesStore.getState().setForSession(nyraSessionId, processes as BgProcess[])
+      for (const proc of endedBetween(prev, processes as BgProcess[])) {
+        announceBackgroundEnd(nyraSessionId, proc)
+      }
     })
     return unsub
   }, [])
