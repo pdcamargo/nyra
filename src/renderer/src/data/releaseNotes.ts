@@ -13,7 +13,9 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       'Nyra shows what changed the first time it opens after an update',
       'Turn on Settings → About → Update automatically to download updates in the background and install them when you quit',
       'Added Extra high effort, between High and Max',
-      "Fixed commands turning red when their output only mentioned an error. A command that really failed now says why, like \"exit 1\""
+      "Fixed commands turning red when their output only mentioned an error. A command that really failed now says why, like \"exit 1\"",
+      'A chat waiting on a background command, monitor or subagent now says so, instead of looking finished',
+      'When background work reports back and Claude picks up on its own, the chat now shows it working'
     ]
   },
   {

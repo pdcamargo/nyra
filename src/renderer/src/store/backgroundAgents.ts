@@ -1,7 +1,12 @@
 import { create } from 'zustand'
 
 /**
- * Subagents still working after the turn that spawned them has ended.
+ * Background work still going after the turn that started it has ended.
+ *
+ * Named for subagents, which is what it was written for, but it holds the CLI's
+ * whole `background_tasks_changed` roster: backgrounded shells and monitors
+ * arrive in it too (`task_type` `local_bash`), and `lib/backgroundWait.ts`
+ * tells them apart.
  *
  * Claude closes a turn the moment it has launched background agents — in one
  * observed run, three of them started over 21 seconds, the turn ended 10 seconds

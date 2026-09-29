@@ -13,6 +13,8 @@ import AskUserQuestionCard from './AskUserQuestionCard'
 import PlanCard, { splitPlan, type PlanAnswer } from './PlanCard'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
+import { EMPTY_PROCESSES, useProcessesStore } from '../store/processes'
+import { waitingLabel, waitingOn, type WaitingTask } from '../lib/backgroundWait'
 import {
   useSubagentTranscriptsStore,
   type SubagentWireEntry
@@ -333,6 +335,19 @@ export default function Chat(): React.JSX.Element {
 
   const isLoading = activeSessionId ? running[activeSessionId] === true : false
 
+  // Between turns, what Claude will come back from. Without it a chat waiting
+  // on a test run or a monitor looked exactly like one that was done.
+  const roster = useBackgroundAgentsStore((s) =>
+    activeSessionId ? s.bySession[activeSessionId] : undefined
+  )
+  const sessionProcesses = useProcessesStore((s) =>
+    activeSessionId ? (s.bySession[activeSessionId] ?? EMPTY_PROCESSES) : EMPTY_PROCESSES
+  )
+  const waiting = useMemo(
+    () => (roster ? waitingOn(roster, sessionProcesses) : []),
+    [roster, sessionProcesses]
+  )
+
   // Build virtual items: interleave date separators with messages, plus loading indicator
   type VirtualItem =
     | { kind: 'separator'; label: string }
@@ -341,6 +356,7 @@ export default function Chat(): React.JSX.Element {
     | { kind: 'memory'; writes: MemoryWrite[]; calls: ToolCallMessage[]; firstId: string }
     | { kind: 'agents'; messages: ToolCallMessage[]; ended: boolean; firstId: string }
     | { kind: 'loading' }
+    | { kind: 'waiting'; tasks: WaitingTask[] }
 
   const virtualItems = useMemo((): VirtualItem[] => {
     const items: VirtualItem[] = []
@@ -435,8 +451,9 @@ export default function Chat(): React.JSX.Element {
       }
     }
     if (isLoading) items.push({ kind: 'loading' })
+    else if (waiting.length > 0) items.push({ kind: 'waiting', tasks: waiting })
     return items
-  }, [messages, isLoading])
+  }, [messages, isLoading, waiting])
 
   /**
    * The assistant message that closes each turn — the last one before the next
@@ -473,6 +490,7 @@ export default function Chat(): React.JSX.Element {
       if (!item) return `gone-${index}`
       if (item.kind === 'separator') return `sep-${index}`
       if (item.kind === 'loading') return 'loading'
+      if (item.kind === 'waiting') return 'waiting'
       if (item.kind === 'tool_group') return `tg-${item.firstId}`
       if (item.kind === 'memory') return `mem-${item.firstId}`
       if (item.kind === 'agents') return `ag-${item.firstId}`
@@ -733,6 +751,18 @@ export default function Chat(): React.JSX.Element {
       // Route events to the session identified by nyraSessionId tag
       const sid = event.nyraSessionId ?? useSessionsStore.getState().activeSessionId
       if (!sid) return
+
+      // A turn nobody sent. When a background shell, monitor or subagent reports
+      // back, the CLI starts a turn by itself — and `startRun` only ever ran on
+      // send, so that turn streamed in with no indicator and an idle send
+      // button. The main thread's own output is the tell: a subagent's never
+      // reaches here as these types. `result` ends it like any other turn.
+      if (
+        (event.type === 'tool_start' || event.type === 'assistant_text' || event.type === 'thinking') &&
+        !useRunningStore.getState().running[sid]
+      ) {
+        useRunningStore.getState().startRun(sid)
+      }
 
       // The account's own model list, answered once per process. Global rather
       // than per chat: it is the same account whichever chat asked.
@@ -1972,6 +2002,24 @@ export default function Chat(): React.JSX.Element {
                 )
               }
 
+              if (item.kind === 'waiting') {
+                return (
+                  <div
+                    key={vItem.key}
+                    data-index={vItem.index}
+                    ref={virtualizer.measureElement}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                  >
+                    {/* The indicator's slot and spacing: this is the same
+                        question — is anything still going? — answered for the
+                        time between turns. */}
+                    <div className="flex justify-start pt-5 pb-2">
+                      <WaitingIndicator tasks={item.tasks} />
+                    </div>
+                  </div>
+                )
+              }
+
               if (item.kind === 'memory') {
                 return (
                   <div
@@ -2273,6 +2321,29 @@ function ThinkingIndicator({ startTime }: { startTime?: number }): React.JSX.Ele
           {(elapsed / 1000).toFixed(1)}s
         </span>
       )}
+    </span>
+  )
+}
+
+/**
+ * The turn is over, but Claude is not done.
+ *
+ * A background shell, monitor or subagent will start the next turn when it
+ * reports back. Quieter than the working indicator on purpose — nothing is
+ * happening this second — but present, because the alternative was a finished-
+ * looking chat that suddenly started talking again.
+ */
+function WaitingIndicator({ tasks }: { tasks: WaitingTask[] }): React.JSX.Element {
+  const names = tasks.map((t) => t.description).join(' · ')
+  return (
+    <span className="flex min-w-0 max-w-full items-center gap-2 text-c-md">
+      <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-info" aria-hidden="true" />
+      <span className="min-w-0 truncate text-foreground/80" title={names}>
+        {waitingLabel(tasks)}
+      </span>
+      <span className="shrink-0 text-c-sm text-muted-foreground">
+        · Claude continues when {tasks.length === 1 ? 'it reports' : 'they report'} back
+      </span>
     </span>
   )
 }

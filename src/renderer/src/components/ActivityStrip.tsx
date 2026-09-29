@@ -83,7 +83,7 @@ export default function ActivityStrip({
 
       {outstanding > 0 && (
         <p className="border-t border-border/55 px-3 py-1.5 text-[10px] text-muted-foreground">
-          {outstanding} subagent{outstanding === 1 ? '' : 's'} working — see the summary
+          {outstanding} background task{outstanding === 1 ? '' : 's'} running — see the summary
         </p>
       )}
     </div>
