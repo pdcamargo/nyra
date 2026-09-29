@@ -20,7 +20,7 @@ import { useSessionsStore, activeCwd } from '../store/sessions'
 import { useResourceDockStore } from '../store/resourceDock'
 import { isAbsolute, resolvePath } from '../lib/paths'
 import { cachedImage, loadImage, type ImageEntry } from '../lib/imageCache'
-import { remarkPromptDecorations } from '../lib/promptMarkdown'
+import { protectAttachmentRefs, remarkPromptDecorations } from '../lib/promptMarkdown'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const THEME_DARK = 'github-dark-dimmed'
@@ -618,7 +618,7 @@ function MarkdownRendererInner({
       urlTransform={passNyraLinks}
       components={components as Components}
     >
-      {children}
+      {prompt ? protectAttachmentRefs(children) : children}
     </ReactMarkdown>
   )
 }

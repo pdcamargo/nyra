@@ -184,6 +184,33 @@ function walk(parent: Node): void {
 }
 
 /**
+ * A prompt's attachment markers, escaped so markdown reads them as plain text.
+ *
+ * The chips are found in the parsed tree, and a marker's path can be parsed into
+ * something else before that. On Windows it always was: temp paths are 8.3
+ * short names, so two screenshots in one message are two `ADMINI~1`s, a pair of
+ * tildes, and GFM struck through everything between them. The marker ended up
+ * split across a `<del>`, the finder never saw it whole, and the bubble showed
+ * both paths in full. A `\` before `_` or `*` in a path does the same with
+ * emphasis.
+ *
+ * Every ASCII punctuation character inside a marker is backslash-escaped, which
+ * CommonMark turns back into the character itself. The marker reaches the
+ * plugin as one run of text, byte for byte what was sent.
+ */
+export function protectAttachmentRefs(text: string): string {
+  const refs = findAttachmentRefs(text)
+  if (refs.length === 0) return text
+  let out = ''
+  let at = 0
+  for (const ref of refs) {
+    out += text.slice(at, ref.from) + text.slice(ref.from, ref.to).replace(/[!-/:-@[-`{-~]/g, '\\$&')
+    at = ref.to
+  }
+  return out + text.slice(at)
+}
+
+/**
  * Draw a sent prompt the way the composer drew it.
  *
  * Opt-in: `MarkdownRenderer` also renders Claude's replies, plan cards and the

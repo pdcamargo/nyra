@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import MarkdownRenderer from '../../renderer/src/components/MarkdownRenderer'
+import { setPlatformForTest } from '@renderer/lib/platform'
 
 const openFileInPanel = vi.fn()
 vi.mock('../../renderer/src/lib/openFile', () => ({
@@ -81,6 +82,33 @@ describe('a message you wrote', () => {
     const chip = el.querySelector('.nyra-attach-chip')
     expect(chip?.textContent).toBe('nyra-image-8f2.png')
     expect(el.textContent).not.toContain('/tmp/')
+  })
+
+  // Windows temp paths are 8.3 short names, and two of them in one message are
+  // a pair of `~`, which GFM reads as strikethrough. The markers were split
+  // across a `<del>` before the chip finder saw them, so the bubble showed both
+  // paths in full, struck through.
+  it('chips Windows paths, tildes and backslashes included', () => {
+    setPlatformForTest('windows')
+    onTestFinished(() => setPlatformForTest(null))
+    const a = String.raw`C:\Users\ADMINI~1\AppData\Local\Temp\nyra-images-50980\1790664152213-9qgzvk.png`
+    const b = String.raw`C:\Users\ADMINI~1\AppData\Local\Temp\nyra-images-50980\1790664214604-9x7tjl.png`
+    const el = prompt(`[Image: ${a}] my user uses zoom. Also [Image: ${b}], so it's not trustable`)
+    const chips = el.querySelectorAll('.nyra-attach-chip')
+    expect(chips).toHaveLength(2)
+    expect(chips[0]).toHaveAttribute('title', a)
+    expect(chips[0].textContent).toBe('1790664152213-9qgzvk.png')
+    expect(chips[1]).toHaveAttribute('title', b)
+    expect(el.querySelector('del')).toBeNull()
+    expect(el.textContent).not.toContain('AppData')
+    expect(el.textContent).toContain("so it's not trustable")
+  })
+
+  it('leaves markdown outside a marker alone', () => {
+    const el = prompt(String.raw`**look** at [Image: C:\a\_b_\c.png] and ~~this~~`)
+    expect(el.querySelector('strong')?.textContent).toBe('look')
+    expect(el.querySelector('del')?.textContent).toBe('this')
+    expect(el.querySelector('.nyra-attach-chip')).toHaveAttribute('title', String.raw`C:\a\_b_\c.png`)
   })
 
   // `@ultrathink` is one mention, not a mention with a rainbow inside it.
