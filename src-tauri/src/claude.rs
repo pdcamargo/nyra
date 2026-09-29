@@ -308,6 +308,9 @@ struct SessionInner {
     pending_permissions: VecDeque<PendingPermission>,
     waiting_for_permission: bool,
     pending_event_buffer: Vec<Value>,
+    /// A backlog replay is under way. The one already running is the only one:
+    /// a second, started by an answer landing mid-replay, would interleave lines.
+    replaying: bool,
     current_turn: Option<TurnSender>,
     turn_prompt: String,
     line_buffer: String,
@@ -328,13 +331,15 @@ struct SessionInner {
     counted_messages: HashSet<String>,
 }
 
-/// What answering one queued prompt did to the permission gate.
+/// The next step in replaying what queued behind the permission gate.
 #[derive(Debug, PartialEq)]
-enum GateState {
-    /// More prompts are queued — stay parked.
-    StillWaiting,
-    /// Gate lowered; these buffered events need replaying in order.
-    Cleared(Vec<Value>),
+enum Replay {
+    /// A prompt is still unanswered — stay parked, backlog and all.
+    Parked,
+    /// The next buffered line, in the order it arrived.
+    Line(Value),
+    /// Backlog drained; the gate is down.
+    Done,
 }
 
 impl SessionInner {
@@ -351,6 +356,7 @@ impl SessionInner {
             pending_permissions: VecDeque::new(),
             waiting_for_permission: false,
             pending_event_buffer: Vec::new(),
+            replaying: false,
             current_turn: None,
             turn_prompt: String::new(),
             line_buffer: String::new(),
@@ -389,13 +395,34 @@ impl SessionInner {
         self.pending_permissions.pop_front()
     }
 
-    /// Lower the gate once nothing is queued, handing back the events to replay.
-    fn release_gate_if_drained(&mut self) -> GateState {
+    /// One line at a time, and the gate stays up until the last one is out.
+    ///
+    /// The whole backlog used to be handed back at once with the gate already
+    /// down, and replayed straight to the renderer. A line in it can be a tool
+    /// call of its own — the CLI writes each call of a parallel batch as its own
+    /// `assistant` line, so everything after the first gated call queues here —
+    /// and nothing announced it, so the second and third calls of a batch never
+    /// reached the transcript. Stepping lets each one go through the gate, and
+    /// one that needs asking re-arms it with the rest still queued behind.
+    ///
+    /// Stopping hands the replay back in the same step, so an answer that lands
+    /// just after sees no replay running and starts its own.
+    fn next_replay(&mut self) -> Replay {
         if !self.pending_permissions.is_empty() {
-            return GateState::StillWaiting;
+            self.replaying = false;
+            return Replay::Parked;
         }
-        self.waiting_for_permission = false;
-        GateState::Cleared(std::mem::take(&mut self.pending_event_buffer))
+        if self.pending_event_buffer.is_empty() {
+            self.replaying = false;
+            self.waiting_for_permission = false;
+            return Replay::Done;
+        }
+        Replay::Line(self.pending_event_buffer.remove(0))
+    }
+
+    /// Claim the replay; false when one is already running.
+    fn begin_replay(&mut self) -> bool {
+        !std::mem::replace(&mut self.replaying, true)
     }
 }
 
@@ -596,17 +623,12 @@ pub async fn respond_permission(approved: bool, nyra_session_id: Option<String>)
         // Answered with nothing queued. Shouldn't happen now the gate is armed
         // atomically, but if it ever does, unstick the stream rather than leaving
         // it parked on a prompt that will never arrive.
-        let state = sess.inner.lock().release_gate_if_drained();
-        if let GateState::Cleared(buffered) = state {
-            crate::logf!(
-                "Permission answered with an empty queue [{}] — releasing gate, replaying {} event(s)",
-                util::short(&nyra_session_id),
-                buffered.len()
-            );
-            for raw in buffered {
-                handle_event(&raw, &nyra_session_id);
-            }
-        }
+        let queued = sess.inner.lock().pending_event_buffer.len();
+        crate::logf!(
+            "Permission answered with an empty queue [{}] — releasing gate, replaying {queued} event(s)",
+            util::short(&nyra_session_id),
+        );
+        replay_backlog(&sess, &nyra_session_id).await;
         return;
     };
 
@@ -636,19 +658,12 @@ pub async fn respond_permission(approved: bool, nyra_session_id: Option<String>)
             &tool_info.input,
         );
 
-        // More approvals queued for this turn — wait for them before replaying.
-        let (state, alive) = {
-            let mut inner = sess.inner.lock();
-            let state = inner.release_gate_if_drained();
-            (state, inner.alive)
-        };
-        let GateState::Cleared(buffered) = state else {
-            return; // more approvals queued for this turn
-        };
-
-        for raw in buffered {
-            handle_event(&raw, &nyra_session_id);
+        // More approvals queued, a replayed call that needs asking, or a replay
+        // already running that this answer has just unparked.
+        if !replay_backlog(&sess, &nyra_session_id).await {
+            return;
         }
+        let alive = sess.inner.lock().alive;
 
         // The child stays up across turns. If it died while we were waiting for
         // the answer, close out the stream so the next prompt respawns.
@@ -695,6 +710,7 @@ pub async fn respond_permission(approved: bool, nyra_session_id: Option<String>)
     let turn = {
         let mut inner = sess.inner.lock();
         inner.pending_event_buffer.clear();
+        inner.replaying = false;
         inner.waiting_for_permission = false;
         inner.current_turn.take()
     };
@@ -1407,6 +1423,7 @@ async fn send_prompt_to_session(
         inner.pending_permissions.clear();
         inner.waiting_for_permission = false;
         inner.pending_event_buffer.clear();
+        inner.replaying = false;
         inner.counted_messages.clear();
         inner.current_turn = Some(tx);
         inner.turn_prompt = prompt.to_string();
@@ -1615,6 +1632,7 @@ async fn spawn_session(
             pending_permissions: VecDeque::new(),
             waiting_for_permission: false,
             pending_event_buffer: Vec::new(),
+            replaying: false,
             current_turn: None,
             turn_prompt: String::new(),
             line_buffer: String::new(),
@@ -2066,18 +2084,7 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
 
     let waiting = sess.inner.lock().waiting_for_permission;
     if event_type == "assistant" && !waiting {
-        let tool_blocks: Vec<Value> = raw
-            .get("message")
-            .and_then(|m| m.get("content"))
-            .and_then(Value::as_array)
-            .map(|c| {
-                c.iter()
-                    .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default();
-
+        let tool_blocks = tool_blocks_of(&raw);
         if !tool_blocks.is_empty() {
             let should_skip = process_tool_blocks(sess, nyra_session_id, &tool_blocks).await;
             if !should_skip {
@@ -2105,6 +2112,51 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
         handle_event(&raw, nyra_session_id);
     }
     false
+}
+
+/// The `tool_use` blocks in an `assistant` line; empty for anything else.
+fn tool_blocks_of(raw: &Value) -> Vec<Value> {
+    if raw.get("type").and_then(Value::as_str) != Some("assistant") {
+        return Vec::new();
+    }
+    raw.get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array)
+        .map(|c| {
+            c.iter()
+                .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Replay what queued behind an answered prompt, in order.
+///
+/// Each line goes through the gate the way a live one does — its tool calls
+/// announced, or asked about — and one that parks the stream again leaves the
+/// rest queued. Lines arriving meanwhile queue behind the backlog rather than
+/// overtaking it, because the gate stays up until it is empty. True when this
+/// call drained it and the gate is down.
+async fn replay_backlog(sess: &Arc<Session>, nyra_session_id: &str) -> bool {
+    if !sess.inner.lock().begin_replay() {
+        return false;
+    }
+    loop {
+        let step = sess.inner.lock().next_replay();
+        let raw = match step {
+            Replay::Parked => return false,
+            Replay::Done => return true,
+            Replay::Line(raw) => raw,
+        };
+        let tool_blocks = tool_blocks_of(&raw);
+        // Parked on a prompt: its announcement goes out once it is answered,
+        // the same as for a live line that parks.
+        if !tool_blocks.is_empty() && process_tool_blocks(sess, nyra_session_id, &tool_blocks).await {
+            continue;
+        }
+        handle_event(&raw, nyra_session_id);
+    }
 }
 
 fn buffer_event(sess: &Arc<Session>, raw: Value) {
@@ -2712,30 +2764,38 @@ mod tests {
     }
 
     #[test]
-    fn answering_the_last_prompt_lowers_the_gate_and_returns_the_backlog() {
+    fn answering_the_last_prompt_replays_the_backlog_then_lowers_the_gate() {
         let mut inner = SessionInner::for_test();
         inner.arm_permission_gate(vec![prompt("Bash")]);
         inner.pending_event_buffer = vec![json!({"type": "assistant"})];
 
         assert!(inner.take_pending_permission().is_some());
-        let state = inner.release_gate_if_drained();
-
+        assert_eq!(inner.next_replay(), Replay::Line(json!({"type": "assistant"})));
+        // Still up while the line is out, so nothing arriving now overtakes it.
+        assert!(inner.waiting_for_permission);
+        assert_eq!(inner.next_replay(), Replay::Done);
         assert!(!inner.waiting_for_permission);
-        match state {
-            GateState::Cleared(buffered) => assert_eq!(buffered.len(), 1),
-            other => panic!("expected the gate to clear, got {other:?}"),
-        }
-        assert!(inner.pending_event_buffer.is_empty(), "backlog handed over, not copied");
     }
 
     #[test]
     fn the_gate_stays_up_while_prompts_remain() {
         let mut inner = SessionInner::for_test();
         inner.arm_permission_gate(vec![prompt("Bash"), prompt("Edit")]);
+        inner.pending_event_buffer = vec![json!({"type": "assistant"})];
 
         inner.take_pending_permission().unwrap();
-        assert_eq!(inner.release_gate_if_drained(), GateState::StillWaiting);
+        assert_eq!(inner.next_replay(), Replay::Parked);
         assert!(inner.waiting_for_permission);
+        assert_eq!(inner.pending_event_buffer.len(), 1, "backlog kept for later");
+    }
+
+    #[test]
+    fn only_one_replay_runs_at_a_time() {
+        let mut inner = SessionInner::for_test();
+        assert!(inner.begin_replay());
+        assert!(!inner.begin_replay(), "an answer landing mid-replay leaves it to the running one");
+        assert_eq!(inner.next_replay(), Replay::Done);
+        assert!(inner.begin_replay(), "stopping hands it back");
     }
 
     #[test]
@@ -2749,13 +2809,13 @@ mod tests {
         inner.pending_event_buffer = vec![json!({"type": "assistant"}), json!({"type": "result"})];
 
         assert!(inner.take_pending_permission().is_none());
-        let state = inner.release_gate_if_drained();
-
-        assert!(!inner.waiting_for_permission, "must not stay parked forever");
-        match state {
-            GateState::Cleared(buffered) => assert_eq!(buffered.len(), 2, "backlog must be replayed"),
-            other => panic!("expected the gate to clear, got {other:?}"),
+        let mut replayed = 0;
+        while let Replay::Line(_) = inner.next_replay() {
+            replayed += 1;
         }
+
+        assert_eq!(replayed, 2, "backlog must be replayed");
+        assert!(!inner.waiting_for_permission, "must not stay parked forever");
     }
 
     #[test]
@@ -2765,12 +2825,53 @@ mod tests {
 
         let mut cleared = 0;
         while inner.take_pending_permission().is_some() {
-            if matches!(inner.release_gate_if_drained(), GateState::Cleared(_)) {
+            if inner.next_replay() == Replay::Done {
                 cleared += 1;
             }
         }
         assert_eq!(cleared, 1);
         assert!(!inner.waiting_for_permission);
+    }
+
+    /// One `assistant` line per call, the way the CLI writes a parallel batch.
+    fn bash_line(id: &str) -> Value {
+        json!({
+            "type": "assistant",
+            "message": { "content": [{
+                "type": "tool_use", "id": id, "name": "Bash", "input": { "command": "true" }
+            }] }
+        })
+    }
+
+    // The second and third calls of a parallel batch queued behind the first
+    // call's prompt, and the replay forwarded them without announcing either,
+    // so they never reached the transcript.
+    #[tokio::test]
+    async fn a_gated_call_in_the_backlog_is_asked_about_not_dropped() {
+        let sess = test_session(false);
+        {
+            let mut inner = sess.inner.lock();
+            inner.arm_permission_gate(vec![prompt("Bash")]);
+            inner.pending_event_buffer = vec![bash_line("toolu_2"), bash_line("toolu_3")];
+            inner.take_pending_permission().unwrap();
+        }
+
+        assert!(!replay_backlog(&sess, "s-replay").await, "the next call parks it again");
+        {
+            let inner = sess.inner.lock();
+            assert!(inner.waiting_for_permission);
+            let asked: Vec<&str> = inner.pending_permissions.iter().map(|p| p.tool_id.as_str()).collect();
+            assert_eq!(asked, ["toolu_2"]);
+            assert_eq!(inner.pending_event_buffer, vec![bash_line("toolu_3")], "the rest waits its turn");
+        }
+
+        sess.inner.lock().take_pending_permission().unwrap();
+        assert!(!replay_backlog(&sess, "s-replay").await);
+        assert_eq!(sess.inner.lock().pending_permissions[0].tool_id, "toolu_3");
+
+        sess.inner.lock().take_pending_permission().unwrap();
+        assert!(replay_backlog(&sess, "s-replay").await);
+        assert!(!sess.inner.lock().waiting_for_permission);
     }
 
     #[test]
