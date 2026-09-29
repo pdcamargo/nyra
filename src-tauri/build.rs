@@ -1,6 +1,36 @@
 fn main() {
     link_clang_runtime();
-    tauri_build::build()
+    let windows = if embed_windows_manifest() {
+        tauri_build::WindowsAttributes::new_without_app_manifest()
+    } else {
+        tauri_build::WindowsAttributes::new()
+    };
+    tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))
+        .expect("failed to run the tauri build script")
+}
+
+/// Embed the Windows app manifest into every binary this crate links, test
+/// executables included, and return whether it did.
+///
+/// The manifest asks for Common Controls v6, the only version with
+/// `TaskDialogIndirect`, which Tauri's dependencies import. Left to Tauri it is
+/// a resource in the app binary alone, so `cargo test` on Windows died before
+/// running a test: STATUS_ENTRYPOINT_NOT_FOUND, from a test exe that loaded v5.
+/// Passing it to the linker instead reaches every target, and Tauri is told
+/// not to add a second copy. The file is Tauri's default, unchanged.
+///
+/// MSVC's linker only (`link.exe`, and `lld-link` for a cross-check from a Mac).
+fn embed_windows_manifest() -> bool {
+    let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    if !(windows && msvc) {
+        return false;
+    }
+    let manifest = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("windows-app-manifest.xml");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
+    true
 }
 
 /// Link clang's own runtime library on macOS.

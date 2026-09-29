@@ -675,11 +675,13 @@ mod tests {
 
     #[test]
     fn accepts_png_and_jpeg_by_extension() {
-        assert_eq!(renderable_media_type("/tmp/chart.png"), Ok("image/png"));
-        assert_eq!(renderable_media_type("/tmp/shot.jpeg"), Ok("image/jpeg"));
-        assert_eq!(renderable_media_type("/tmp/SHOT.JPG"), Ok("image/jpeg"));
-        assert_eq!(renderable_media_type("/tmp/anim.gif"), Ok("image/gif"));
-        assert_eq!(renderable_media_type("/tmp/preview.webp"), Ok("image/webp"));
+        // Absolute on this OS: `/tmp/…` has no drive, so on Windows it is not.
+        let at = |name: &str| std::env::temp_dir().join(name).to_string_lossy().into_owned();
+        assert_eq!(renderable_media_type(&at("chart.png")), Ok("image/png"));
+        assert_eq!(renderable_media_type(&at("shot.jpeg")), Ok("image/jpeg"));
+        assert_eq!(renderable_media_type(&at("SHOT.JPG")), Ok("image/jpeg"));
+        assert_eq!(renderable_media_type(&at("anim.gif")), Ok("image/gif"));
+        assert_eq!(renderable_media_type(&at("preview.webp")), Ok("image/webp"));
     }
 
     #[test]

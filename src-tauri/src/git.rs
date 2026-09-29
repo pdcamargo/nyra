@@ -858,6 +858,10 @@ mod tests {
             repo.git(&["init", "-b", "main"]);
             repo.git(&["config", "user.email", "test@nyra.local"]);
             repo.git(&["config", "user.name", "Nyra Test"]);
+            // What was written is what is read back, whatever the machine's
+            // global git says: autocrlf=true, common on Windows, turns LF into
+            // CRLF on every checkout.
+            repo.git(&["config", "core.autocrlf", "false"]);
             std::fs::write(repo.path().join("README.md"), "base\n").unwrap();
             repo.git(&["add", "."]);
             repo.git(&["commit", "-m", "init"]);

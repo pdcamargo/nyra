@@ -367,6 +367,10 @@ mod tests {
             repo.git(&["init", "-b", "main"]);
             repo.git(&["config", "user.email", "test@nyra.local"]);
             repo.git(&["config", "user.name", "Nyra Test"]);
+            // What was written is what is read back, whatever the machine's
+            // global git says: autocrlf=true, common on Windows, turns LF into
+            // CRLF on every checkout.
+            repo.git(&["config", "core.autocrlf", "false"]);
             repo
         }
 
@@ -500,7 +504,8 @@ mod tests {
         assert!(validate_dir_path("src").is_err());
         assert!(validate_dir_path("./src").is_err());
         assert!(validate_dir_path("../src").is_err());
-        assert!(validate_dir_path("/Users/x/project").is_ok());
+        // Absolute on this OS: `/Users/x` has no drive, so on Windows it is not.
+        assert!(validate_dir_path(std::env::temp_dir().to_str().unwrap()).is_ok());
     }
 
     #[tokio::test]

@@ -2142,7 +2142,28 @@ fn plan_file_path(input: &Value) -> Option<&str> {
         .get("file_path")
         .or_else(|| input.get("path"))
         .and_then(Value::as_str)?;
-    path.contains("/.claude/plans/").then_some(path)
+    below(&names(path), &[".claude", "plans"]).map(|_| path)
+}
+
+/// The names along `path`, split the way this OS splits it: `/` on macOS, `\`
+/// and `/` on Windows. A substring test for `/.claude/plans/` missed every
+/// Windows path, so no plan there ever became a plan card.
+fn names(path: &str) -> Vec<&str> {
+    Path::new(path)
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(n) => n.to_str(),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Where `run` appears in `names` as consecutive directories with something
+/// below them, as the index just past it.
+fn below(names: &[&str], run: &[&str]) -> Option<usize> {
+    (0..names.len().saturating_sub(run.len()))
+        .find(|&i| names[i..i + run.len()] == *run)
+        .map(|i| i + run.len())
 }
 
 /// Claude's own bookkeeping, as opposed to the user's project.
@@ -2159,8 +2180,9 @@ fn is_claude_owned_file(input: &Value) -> bool {
     else {
         return false;
     };
-    path.contains("/.claude/plans/")
-        || (path.contains("/.claude/projects/") && path.contains("/memory/"))
+    let names = names(path);
+    below(&names, &[".claude", "plans"]).is_some()
+        || below(&names, &[".claude", "projects"]).is_some_and(|i| below(&names[i..], &["memory"]).is_some())
 }
 
 /// Turn a finished write into `.claude/plans/` into a plan the renderer can show.
@@ -3009,6 +3031,23 @@ mod tests {
         assert!(plan_file_path(&json!({ "file_path": "/repo/src/main.rs" })).is_none());
         assert!(plan_file_path(&json!({ "file_path": "/repo/plans/z.md" })).is_none());
         assert!(plan_file_path(&json!({})).is_none());
+        // The directory itself is not a plan, only what is written into it.
+        assert!(plan_file_path(&json!({ "file_path": "/Users/x/.claude/plans" })).is_none());
+    }
+
+    /// Built with this OS's own separator — `\` on Windows — which is how the
+    /// CLI reports them; a `/`-only substring test never matched one there.
+    #[test]
+    fn plans_and_memory_are_recognised_in_native_paths() {
+        let home = std::env::temp_dir();
+        let plan = home.join(".claude").join("plans").join("p.md");
+        let memory = home.join(".claude").join("projects").join("repo").join("memory").join("a.md");
+        let settings = home.join(".claude").join("settings.json");
+        let file = |p: &std::path::Path| json!({ "file_path": p.to_str().unwrap() });
+        assert!(plan_file_path(&file(&plan)).is_some());
+        assert!(is_claude_owned_file(&file(&plan)));
+        assert!(is_claude_owned_file(&file(&memory)));
+        assert!(!is_claude_owned_file(&file(&settings)));
     }
 
     #[test]

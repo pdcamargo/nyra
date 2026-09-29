@@ -178,10 +178,13 @@ pub fn expand_home(entry: &str) -> String {
 /// prefer it and keep the original behind it rather than betting on either.
 ///
 /// An entry holding the list separator itself cannot be written back into a
-/// PATH at all, so it is dropped rather than left to fail the whole join.
+/// PATH at all, so it is dropped rather than left to fail the whole join. It is
+/// asked of `split_paths`, which knows each OS's separator: `join_paths` only
+/// refuses one on Unix, and on Windows quietly quotes it — a form most tools
+/// reading PATH never unquote.
 fn push_entry(out: &mut Vec<String>, seen: &mut HashSet<String>, entry: &str) {
     let entry = entry.trim();
-    if entry.is_empty() || std::env::join_paths([entry]).is_err() {
+    if entry.is_empty() || std::env::split_paths(entry).count() != 1 || std::env::join_paths([entry]).is_err() {
         return;
     }
     let expanded = expand_home(entry);

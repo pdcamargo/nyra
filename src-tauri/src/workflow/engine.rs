@@ -1420,14 +1420,15 @@ mod tests {
         for node in &mut wf.nodes {
             let fails = node.id == "b";
             node.data = WorkflowNodeData::Script {
-                command: if fails { "exit 3".into() } else { "true".into() },
+                // Both read the same in sh, Git Bash and cmd; `true` does not.
+                command: if fails { "exit 3".into() } else { "exit 0".into() },
                 timeout_ms: None,
             };
         }
         let exec = Arc::new(Exec {
             id: "exec-ancestors".into(),
             wf,
-            cwd: "/tmp".into(),
+            cwd: std::env::temp_dir().to_string_lossy().into_owned(),
             settings: Default::default(),
             input_values: HashMap::new(),
             depth: 0,
