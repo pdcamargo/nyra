@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.6.0',
+    date: '2026-09-29',
     notes: [
       'Claude can now read, click and type in other apps on your Mac or PC. Turn it on in Settings → General → Other apps',
       'Claude asks before it touches each app, and never touches password managers, Keychain, System Settings, terminals or Nyra itself',
