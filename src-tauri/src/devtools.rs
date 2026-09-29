@@ -6,7 +6,8 @@
 //! the app does not work and the bug does not reproduce.
 //!
 //! So: go at the real webview. Two primitives, both reaching the live
-//! `WKWebView` through `with_webview`.
+//! `WKWebView` through `with_webview` — or, on Windows, the WebView2 behind it
+//! (see the Windows section at the bottom).
 //!
 //! `takeSnapshotWithConfiguration` is the screenshot, and the reason is
 //! specific: it is an IPC round-trip that makes the WebContent process
@@ -25,7 +26,7 @@
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 use std::time::Duration;
 
 use crate::util;
@@ -43,7 +44,7 @@ const MAX_SHOTS_KEPT: usize = 40;
 /// The main thread may be the thing that is wedged, so nothing here waits
 /// forever. Generous, because a suspended WebContent process can be slow to
 /// answer before it answers correctly.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Whether this instance answers the debug routes at all.
@@ -392,22 +393,169 @@ async fn eval(script: &str) -> Result<String, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Windows
+// ---------------------------------------------------------------------------
+//
+// The same two primitives against WebView2. `CapturePreview` renders the page
+// into a stream Nyra hands it — no desktop capture, so like the WKWebView
+// snapshot it needs no permission and works behind other windows, and like it
+// the title bar Windows draws is outside the image. `ExecuteScript` answers with
+// the JSON of the script's value, and the wrapper's value is already a JSON
+// string, so it is decoded once on the way out.
+//
+// Both handlers fire on the UI thread from the message loop; nothing here waits
+// on that thread, only on the channel, so a wedged loop is a timeout rather
+// than a hang.
+
+/// The sender, where both the handler and the failed-call path can reach it.
+#[cfg(windows)]
+type Slot<T> =
+    std::sync::Arc<parking_lot::Mutex<Option<tokio::sync::oneshot::Sender<Result<T, String>>>>>;
+
+#[cfg(windows)]
+fn answer<T>(slot: &Slot<T>, result: Result<T, String>) {
+    if let Some(tx) = slot.lock().take() {
+        let _ = tx.send(result);
+    }
+}
+
+/// Full size: `CapturePreview` has no scale option, and a PNG is not worth
+/// decoding here only to shrink it. The width asked for is ignored.
+#[cfg(windows)]
+async fn capture(_max_width_px: Option<u32>) -> Result<(Vec<u8>, i64, i64), String> {
+    use webview2_com::CapturePreviewCompletedHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
+    use windows::Win32::UI::Shell::SHCreateMemStream;
+
+    let window = util::main_window().ok_or("no main window")?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let slot: Slot<Vec<u8>> = std::sync::Arc::new(parking_lot::Mutex::new(Some(tx)));
+    let for_call = slot.clone();
+
+    window
+        .with_webview(move |webview| {
+            let call = || -> windows::core::Result<()> {
+                let core = unsafe { webview.controller().CoreWebView2()? };
+                let stream =
+                    unsafe { SHCreateMemStream(None) }.ok_or_else(windows::core::Error::empty)?;
+                let written = stream.clone();
+                let handler = CapturePreviewCompletedHandler::create(Box::new(move |result| {
+                    let png = result
+                        .and_then(|()| unsafe { read_stream(&written) })
+                        .map_err(|e| e.message());
+                    answer(&slot, png);
+                    Ok(())
+                }));
+                unsafe {
+                    core.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, &stream, &handler)
+                }
+            };
+            if let Err(e) = call() {
+                answer(&for_call, Err(format!("CapturePreview failed: {}", e.message())));
+            }
+        })
+        .map_err(|e| format!("could not reach the webview: {e}"))?;
+
+    let png = match tokio::time::timeout(CALL_TIMEOUT, rx).await {
+        Ok(Ok(result)) => result?,
+        Ok(Err(_)) => return Err("the capture handler was dropped without answering".into()),
+        Err(_) => return Err("capture timed out — the UI thread is wedged".into()),
+    };
+    let (width, height) = png_size(&png).ok_or("CapturePreview did not produce a PNG")?;
+    Ok((png, width, height))
+}
+
+#[cfg(windows)]
+unsafe fn read_stream(
+    stream: &windows::Win32::System::Com::IStream,
+) -> windows::core::Result<Vec<u8>> {
+    use windows::Win32::System::Com::{STREAM_SEEK_END, STREAM_SEEK_SET};
+    let mut end = 0u64;
+    stream.Seek(0, STREAM_SEEK_END, Some(&mut end))?;
+    stream.Seek(0, STREAM_SEEK_SET, None)?;
+    let mut out = vec![0u8; end as usize];
+    let mut read = 0u32;
+    stream.Read(out.as_mut_ptr() as *mut _, end as u32, Some(&mut read)).ok()?;
+    out.truncate(read as usize);
+    Ok(out)
+}
+
+/// Width and height out of a PNG's IHDR, which always comes first.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn png_size(png: &[u8]) -> Option<(i64, i64)> {
+    if png.len() < 24 || &png[..8] != b"\x89PNG\r\n\x1a\n" || &png[12..16] != b"IHDR" {
+        return None;
+    }
+    let be = |at: usize| i64::from(u32::from_be_bytes([png[at], png[at + 1], png[at + 2], png[at + 3]]));
+    Some((be(16), be(20)))
+}
+
+#[cfg(windows)]
+async fn eval(script: &str) -> Result<String, String> {
+    use webview2_com::ExecuteScriptCompletedHandler;
+    use windows::core::HSTRING;
+
+    let window = util::main_window().ok_or("no main window")?;
+    let script = HSTRING::from(script);
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let slot: Slot<String> = std::sync::Arc::new(parking_lot::Mutex::new(Some(tx)));
+    let for_call = slot.clone();
+
+    window
+        .with_webview(move |webview| {
+            let call = || -> windows::core::Result<()> {
+                let core = unsafe { webview.controller().CoreWebView2()? };
+                let handler = ExecuteScriptCompletedHandler::create(Box::new(move |result, json| {
+                    // The wrapper always returns a string, so anything that is
+                    // not one means the script never ran.
+                    let value = result.map_err(|e| e.message()).and_then(|()| {
+                        serde_json::from_str::<String>(&json)
+                            .map_err(|_| format!("the script returned {json} rather than a string"))
+                    });
+                    answer(&slot, value);
+                    Ok(())
+                }));
+                unsafe { core.ExecuteScript(&script, &handler) }
+            };
+            if let Err(e) = call() {
+                answer(&for_call, Err(format!("ExecuteScript failed: {}", e.message())));
+            }
+        })
+        .map_err(|e| format!("could not reach the webview: {e}"))?;
+
+    match tokio::time::timeout(CALL_TIMEOUT, rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("the eval handler was dropped without answering".into()),
+        Err(_) => Err("eval timed out — the UI thread is wedged".into()),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Everywhere else
 // ---------------------------------------------------------------------------
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 async fn capture(_max_width_px: Option<u32>) -> Result<(Vec<u8>, i64, i64), String> {
-    Err("window capture is macOS-only — it goes through WKWebView".into())
+    Err("window capture needs WKWebView or WebView2".into())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 async fn eval(_script: &str) -> Result<String, String> {
-    Err("eval is macOS-only — it goes through WKWebView".into())
+    Err("eval needs WKWebView or WebView2".into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_size_out_of_a_png_header() {
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        png.extend_from_slice(&1920u32.to_be_bytes());
+        png.extend_from_slice(&1080u32.to_be_bytes());
+        assert_eq!(png_size(&png), Some((1920, 1080)));
+        assert_eq!(png_size(b"GIF89a, not a png at all"), None);
+    }
 
     #[test]
     fn devshots_dir_is_scoped_to_this_process() {

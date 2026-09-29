@@ -104,6 +104,9 @@ windows-sys = { version = "0.59", features = [
   "Win32_Networking_WinSock",
 ] }
 dunce = "1"
+# `nyra-dev shot` and `eval` (src/devtools.rs): the WebView2 behind the window.
+# Already in the tree through wry at this version.
+webview2-com = "0.38"
 # Desktop control (src/desktop/windows.rs): UI Automation for the tree,
 # SendInput for keys and clicks, Windows.Graphics.Capture (PrintWindow as the
 # fallback) and WIC for screenshots, the shell's AppsFolder for app names.

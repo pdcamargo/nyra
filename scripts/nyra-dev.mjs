@@ -5,7 +5,8 @@
  * Nyra is used to develop Nyra, so there is usually a dev instance and an
  * installed one running at once, and until now no way to see into either. This
  * talks to the loopback server every instance already runs (`webhook_server.rs`)
- * and reaches the real WKWebView behind it — so a screenshot is the actual app,
+ * and reaches the real webview behind it — WKWebView on macOS, WebView2 on
+ * Windows — so a screenshot is the actual app,
  * not the renderer loaded in a browser tab where there is no Tauri IPC and
  * nothing works.
  *
@@ -16,10 +17,12 @@
  *
  * Targets the dev instance unless told otherwise: --port N, or --profile release.
  *
- * The screenshot is WebKit's own software re-render, which is why it needs no
- * Screen Recording permission and works when the window is behind others. The
- * same fact means hardware-accelerated layers — WebGL, video, the browser
- * panel's canvas — come back blank, and window chrome is outside the image.
+ * The screenshot is the webview's own render of the page, which is why it needs
+ * no Screen Recording permission and works when the window is behind others.
+ * The same fact means window chrome is outside the image, and on macOS that
+ * hardware-accelerated layers — WebGL, video, the browser panel's canvas —
+ * come back blank. WebView2 has no scale option, so on Windows --max-width is
+ * ignored and the image is full size.
  */
 import fs from 'node:fs'
 import os from 'node:os'

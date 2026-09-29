@@ -65,8 +65,7 @@ failure is fixed in `platform/` or as a trait in `lib/platform.ts`, never as an
 - **Orphans after a crash.** Unix children go when Nyra does; Windows children
   don't. A job object would fix it, but it would also kill the updater's
   installer, so it has been left out until that is solved.
-- **Unported features.** "Open with" detects no editors yet (`open_with.rs`),
-  and the devtools screenshot/eval route is macOS-only (`devtools.rs`).
+- **Unported features.** "Open with" detects no editors yet (`open_with.rs`).
 
 ## Desktop control
 
