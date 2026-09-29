@@ -28,8 +28,8 @@ export default function DesktopAccessDock({
         <span className="text-c-sm font-medium text-foreground">Let Claude use {name}?</span>
       </div>
       <p className="pb-2 text-c-sm leading-snug text-muted-foreground">
-        It can read {name}’s windows, press buttons and type. It still asks before sending, deleting
-        or buying anything, and Esc stops it.
+        Claude can see {name}’s windows, click and type in them. It checks with you before anything
+        important, like sending or deleting. Press Esc to stop it.
       </p>
       {ask.warning && (
         <p className="pb-2 text-c-sm leading-snug text-warning">

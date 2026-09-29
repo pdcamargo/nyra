@@ -94,6 +94,45 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
 dunce = "1"
+# Desktop control (src/desktop/windows.rs): UI Automation for the tree,
+# SendInput for keys and clicks, Windows.Graphics.Capture (PrintWindow as the
+# fallback) and WIC for screenshots, the shell's AppsFolder for app names.
+# The same 0.61 tauri already builds, so this adds features, not a crate.
+windows = { version = "0.61", features = [
+  "Foundation",
+  "Graphics_Capture",
+  "Graphics_DirectX",
+  "Graphics_DirectX_Direct3D11",
+  "Win32_Foundation",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Imaging",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_Storage_Packaging_Appx",
+  "Win32_Storage_Xps",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Ole",
+  "Win32_System_Registry",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_System_Variant",
+  "Win32_System_WinRT",
+  "Win32_System_WinRT_Direct3D11",
+  "Win32_System_WinRT_Graphics_Capture",
+  "Win32_UI_Accessibility",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_Shell_PropertiesSystem",
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 # `metal` makes build.rs set GGML_METAL_EMBED_LIBRARY=ON, which bakes the
 # shader source into the binary and compiles it at runtime — no .metallib to
