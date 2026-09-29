@@ -13,6 +13,7 @@
 //! its own single `mod imp` switch in its own file, the way `spellcheck.rs`
 //! does, rather than moving in here.
 
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -28,9 +29,10 @@ mod windows;
 use windows as imp;
 
 pub use imp::{
-    canonical_dir, default_shell, executable_names, file_id, force_kill, is_alive, log_dir,
-    login_shell_path, on_shutdown_signal, private_open_options, restrict_to_owner, simplified,
-    terminate, CLAUDE_INSTALLS, FALLBACK_BINS,
+    canonical_dir, default_shell, executable_names, file_id, find_processes, force_kill,
+    is_alive, listening_ports, log_dir, login_shell_path, on_shutdown_signal,
+    private_open_options, process_table, restrict_to_owner, simplified, terminate,
+    CLAUDE_INSTALLS, FALLBACK_BINS,
 };
 
 // ---------------------------------------------------------------------------
@@ -90,6 +92,126 @@ pub fn terminate_then_kill(pid: u32, grace: Duration) -> std::io::Result<()> {
         }
     });
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// The process table
+// ---------------------------------------------------------------------------
+
+/// One process, as `process_table` reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessRow {
+    pub pid: i32,
+    pub ppid: i32,
+    /// Resident size in KB, or `None` where the OS would not say — on Windows,
+    /// a protected process that cannot be opened. The row still counts for the
+    /// tree: its children are still somebody's.
+    pub resident_kb: Option<u64>,
+}
+
+/// `ps -axo pid=,ppid=,rss=` → rows.
+///
+/// Here rather than in `unix.rs` because it is plain text and its tests should
+/// run everywhere. A line missing a column is dropped whole: half a row would
+/// report the process and none of its memory.
+#[cfg_attr(windows, allow(dead_code))]
+pub fn parse_ps_rows(text: &str) -> Vec<ProcessRow> {
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid = fields.next()?.parse::<i32>().ok()?;
+            let ppid = fields.next()?.parse::<i32>().ok()?;
+            // macOS and Linux both report resident size in KB.
+            let kb = fields.next()?.parse::<u64>().ok()?;
+            Some(ProcessRow { pid, ppid, resident_kb: Some(kb) })
+        })
+        .collect()
+}
+
+/// A process whose command line contains what `find_processes` was asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FoundProcess {
+    pub pid: i32,
+    /// When it started, in Unix ms, where the OS would say.
+    pub started_ms: Option<i64>,
+}
+
+/// `needle` as a `pgrep -f` pattern that matches it literally: `pgrep` takes
+/// an extended regex, and a `(` or `[` in a command line would otherwise make
+/// the pattern invalid, a `.` match anything.
+#[cfg_attr(windows, allow(dead_code))]
+pub fn pgrep_escape(needle: &str) -> String {
+    let mut pattern = String::with_capacity(needle.len() * 2);
+    for c in needle.chars() {
+        if matches!(c, '\\' | '^' | '$' | '.' | '|' | '?' | '*' | '+' | '(' | ')' | '[' | ']' | '{' | '}') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    pattern
+}
+
+/// `ps -o lstart=` → Unix ms. Asked for in the C locale, so the shape is fixed:
+/// "Thu May  1 19:14:32 2026".
+#[cfg_attr(windows, allow(dead_code))]
+pub fn parse_lstart_ms(s: &str) -> Option<i64> {
+    use chrono::{Local, NaiveDateTime, TimeZone};
+    // Collapse the space-padded day ("May  1" vs "May 11") so one format covers
+    // both, and drop the leading weekday: chrono cross-checks it against the
+    // date, which only adds a way to fail on input we don't need anyway.
+    let fields: Vec<&str> = s.split_whitespace().collect();
+    if fields.len() < 5 {
+        return None;
+    }
+    let naive = NaiveDateTime::parse_from_str(&fields[1..].join(" "), "%b %d %H:%M:%S %Y").ok()?;
+    Local
+        .from_local_datetime(&naive)
+        .single()
+        .map(|dt| dt.timestamp_millis())
+}
+
+// ---------------------------------------------------------------------------
+// Listening ports
+// ---------------------------------------------------------------------------
+
+/// `lsof -F pn` output → which ports each pid is listening on.
+///
+/// One field per line, `p` opening a new process block and `n` naming a
+/// socket: `p1085`, `f14`, `n127.0.0.1:4201`. Parsed rather than column-split
+/// because the human format pads and truncates the command name.
+#[cfg_attr(windows, allow(dead_code))]
+pub fn parse_lsof_ports(text: &str) -> HashMap<i32, Vec<u16>> {
+    let mut by_pid: HashMap<i32, Vec<u16>> = HashMap::new();
+    let mut current: Option<i32> = None;
+    for line in text.lines() {
+        let Some((tag, rest)) = line.split_at_checked(1) else {
+            continue;
+        };
+        match tag {
+            "p" => current = rest.trim().parse::<i32>().ok(),
+            "n" => {
+                let Some(pid) = current else { continue };
+                // `127.0.0.1:4201`, `*:7000`, `[::1]:3000` — the port is what
+                // follows the last colon in every form.
+                let Some(port) = rest.rsplit(':').next().and_then(|p| p.trim().parse::<u16>().ok())
+                else {
+                    continue;
+                };
+                add_port(&mut by_pid, pid, port);
+            }
+            _ => {}
+        }
+    }
+    by_pid
+}
+
+/// Record one listener, keeping each pid's ports deduped and lowest first. A
+/// server bound on both IPv4 and IPv6 is two sockets and one port.
+pub fn add_port(by_pid: &mut HashMap<i32, Vec<u16>>, pid: i32, port: u16) {
+    let ports = by_pid.entry(pid).or_default();
+    if let Err(at) = ports.binary_search(&port) {
+        ports.insert(at, port);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +280,112 @@ pub fn unwrap_npm_shim(shim: &Path) -> Option<(OsString, OsString)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The real table, not a fixture: Chat RAM read `--` on Windows for as long
+    // as this went through a `ps` that is not there.
+    #[test]
+    fn the_process_table_finds_this_process_and_its_memory() {
+        let rows = process_table().expect("a process table");
+        let me = std::process::id() as i32;
+        let row = rows.iter().find(|r| r.pid == me).expect("this process in it");
+        assert!(row.resident_kb.unwrap_or(0) > 0);
+        assert!(rows.iter().any(|r| r.pid == row.ppid), "its parent in it too");
+    }
+
+    #[test]
+    fn escapes_regex_metacharacters_for_pgrep() {
+        assert_eq!(
+            pgrep_escape("npm run dev -- --host 0.0.0.0 (x) [y]+"),
+            r"npm run dev -- --host 0\.0\.0\.0 \(x\) \[y\]\+"
+        );
+    }
+
+    #[test]
+    fn parses_ps_lstart() {
+        // Space-padded single-digit day — the format `ps` actually emits.
+        assert!(parse_lstart_ms("Fri May  1 19:14:32 2026").is_some());
+        assert!(parse_lstart_ms("Mon May 11 19:14:32 2026").is_some());
+        // Weekday mismatch is tolerated; we only care about the date/time.
+        assert!(parse_lstart_ms("Thu May  1 19:14:32 2026").is_some());
+        assert!(parse_lstart_ms("garbage").is_none());
+        assert!(parse_lstart_ms("").is_none());
+    }
+
+    #[test]
+    fn parses_lsof_field_output() {
+        // Real shapes: loopback, wildcard, and IPv6 in brackets.
+        let out = "p1085\nf14\nn127.0.0.1:4201\np675\nf9\nn*:7000\nf11\nn[::1]:5000\n";
+        let by_pid = parse_lsof_ports(out);
+        assert_eq!(by_pid.get(&1085), Some(&vec![4201]));
+        assert_eq!(by_pid.get(&675), Some(&vec![5000, 7000]));
+    }
+
+    #[test]
+    fn dedupes_the_two_rows_one_server_produces() {
+        // A server bound on both IPv4 and IPv6 lists the same port twice.
+        let out = "p900\nf4\nn*:50065\nf5\nn*:50065\n";
+        assert_eq!(parse_lsof_ports(out).get(&900), Some(&vec![50065]));
+    }
+
+    #[test]
+    fn ignores_lsof_lines_it_cannot_read() {
+        let out = "\np-\nnnot-a-socket\np42\nn127.0.0.1:99999\nn127.0.0.1:8080\n";
+        let by_pid = parse_lsof_ports(out);
+        // 99999 does not fit a u16 and is dropped; the good row still lands.
+        assert_eq!(by_pid.get(&42), Some(&vec![8080]));
+    }
+
+    // The real tables, not fixtures. On Windows these went through `lsof` and
+    // `pgrep`, which are not there, so the port pill never appeared.
+    #[test]
+    fn finds_a_port_this_process_is_listening_on() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let Some(by_pid) = listening_ports() else {
+            // A machine without `lsof` says so rather than failing the build.
+            eprintln!("no listening-ports table on this machine");
+            return;
+        };
+        let me = std::process::id() as i32;
+        assert!(by_pid.get(&me).is_some_and(|ports| ports.contains(&port)), "{port} under {me}");
+    }
+
+    #[test]
+    fn finds_a_child_by_its_command_line() {
+        // A marker nothing else on the machine has, and a child that lives long
+        // enough to be looked at.
+        let marker = format!("nyra-find-{}", crate::util::rand_suffix(8));
+        #[cfg(windows)]
+        let mut child = std_command("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &format!("Start-Sleep 5 # {marker}")])
+            .spawn()
+            .unwrap();
+        #[cfg(not(windows))]
+        let mut child = std_command("sh")
+            .args(["-c", &format!("sleep 5; : {marker}")])
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        let found = find_processes(&marker);
+        let _ = child.kill();
+        let row = found.iter().find(|p| p.pid == child.id() as i32);
+        let row = row.unwrap_or_else(|| panic!("child {} not in {found:?}", child.id()));
+        let started = row.started_ms.expect("a start time");
+        let age = crate::util::now_ms() - started;
+        assert!((0..60_000).contains(&age), "started {age} ms ago");
+    }
+
+    #[test]
+    fn parses_ps_rows_and_drops_a_short_line() {
+        let rows = parse_ps_rows("    1     0  1234\n    7     1\n   42     1  2048\n");
+        assert_eq!(
+            rows,
+            vec![
+                ProcessRow { pid: 1, ppid: 0, resident_kb: Some(1234) },
+                ProcessRow { pid: 42, ppid: 1, resident_kb: Some(2048) },
+            ]
+        );
+    }
 
     #[test]
     fn reads_the_script_out_of_a_current_npm_shim() {

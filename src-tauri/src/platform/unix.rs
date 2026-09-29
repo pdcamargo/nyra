@@ -35,6 +35,67 @@ pub fn is_alive(pid: u32) -> bool {
     }
 }
 
+/// Every process on the machine, from one `ps`. Blocking; run it off the
+/// async runtime.
+pub fn process_table() -> Option<Vec<super::ProcessRow>> {
+    let out = super::std_command("ps")
+        .args(["-axo", "pid=,ppid=,rss="])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(super::parse_ps_rows(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Every process whose command line contains `needle`, with its start time:
+/// `pgrep -f` to find them, `ps -o lstart=` to date each one.
+pub fn find_processes(needle: &str) -> Vec<super::FoundProcess> {
+    // `--` because a pattern can begin with `-`, which would read as a flag.
+    let Ok(out) = super::std_command("pgrep")
+        .args(["-f", "--", &super::pgrep_escape(needle)])
+        .stdin(std::process::Stdio::null())
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.trim().parse::<i32>().ok())
+        .map(|pid| super::FoundProcess { pid, started_ms: start_time_ms(pid) })
+        .collect()
+}
+
+fn start_time_ms(pid: i32) -> Option<i64> {
+    // The C locale, because `lstart` is printed in the user's: on a Portuguese
+    // Mac it reads "Ter 29 Set", which the parse cannot read, and every
+    // candidate would be discarded for having no start time.
+    let out = super::std_command("ps")
+        .env("LC_ALL", "C")
+        .args(["-o", "lstart=", "-p", &pid.to_string()])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    super::parse_lstart_ms(String::from_utf8_lossy(&out.stdout).trim())
+}
+
+/// Which pid listens on which TCP ports, from `lsof`. `None` when there is no
+/// `lsof` to ask.
+pub fn listening_ports() -> Option<std::collections::HashMap<i32, Vec<u16>>> {
+    let out = super::std_command("lsof")
+        .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pn"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    // Not `status.success()`: `lsof` exits 1 when nothing matches, and "no
+    // listeners" is an answer — the one that clears a pill whose server died.
+    Some(super::parse_lsof_ports(&String::from_utf8_lossy(&out.stdout)))
+}
+
 /// Run `f` when the process is told to stop — a `kill`, a logout, a dev-loop
 /// restart — rather than only when Tauri decides it is exiting.
 pub fn on_shutdown_signal(f: fn()) {

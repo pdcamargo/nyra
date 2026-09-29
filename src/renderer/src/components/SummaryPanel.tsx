@@ -15,7 +15,7 @@ import { useProcessesStore, type BgProcess } from '../store/processes'
 import { formatElapsed } from './ActivityStrip'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { PrRows } from './PullRequestChips'
-import { PortBadges } from './PortChips'
+import { PortBadges, isLive } from './PortChips'
 import { isMonitor, monitorLabel } from './MonitorChips'
 import { useEnvironmentInfo } from '../hooks/useEnvironmentInfo'
 import { tildeInEnv } from '../lib/environment'
@@ -181,8 +181,9 @@ export default function SummaryPanel(): React.JSX.Element | null {
   // Above the guard: a hook that runs only while the panel is open is a hook
   // that vanishes when it closes, and React counts them.
   // Only what is still going — a finished shell belongs in the Processes tab,
-  // not in a summary of what this conversation has in flight.
-  const liveProcesses = processes.filter((p) => p.status === 'running')
+  // not in a summary of what this conversation has in flight. A server still
+  // listening after its shell exited is still going.
+  const liveProcesses = processes.filter(isLive)
   const now = useClock(open && liveProcesses.length > 0)
 
   if (!open || !session) return null

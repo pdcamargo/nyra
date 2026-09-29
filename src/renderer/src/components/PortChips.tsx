@@ -21,17 +21,29 @@ import { useUiStore } from '../store/ui'
 export type LivePort = { port: number; process: BgProcess }
 
 /**
+ * Still worth a row: running, or serving after its shell went away.
+ *
+ * The second half is the case that made the pill untrustworthy. A dev server
+ * outlives the shell that started it more often than not — the CLI restarts and
+ * takes the shell with it, and the server carries on — and filtering on the
+ * shell's status dropped the pill while the server was still answering. The
+ * registry only reports a port while something is listening on it, so a port
+ * is its own evidence of life.
+ */
+export function isLive(proc: BgProcess): boolean {
+  return proc.status === 'running' || (proc.ports?.length ?? 0) > 0
+}
+
+/**
  * Every port this chat is serving, lowest first.
  *
- * Only running shells: a port on an exited process is a number nobody can
- * reach. Deduped across processes, because two shells in one chat occasionally
- * both report a port they share through a proxy, and one pill per port is what
- * the composer has room for.
+ * Deduped across processes, because two shells in one chat occasionally both
+ * report a port they share through a proxy, and one pill per port is what the
+ * composer has room for.
  */
 export function livePorts(processes: readonly BgProcess[]): LivePort[] {
   const seen = new Map<number, BgProcess>()
   for (const proc of processes) {
-    if (proc.status !== 'running') continue
     for (const port of proc.ports ?? []) {
       if (!seen.has(port)) seen.set(port, proc)
     }

@@ -70,6 +70,12 @@ pub struct BgProcess {
     /// not inferred from the log — see the port scanner below for why.
     #[serde(default)]
     pub ports: Vec<u16>,
+    /// The pids that actually bound those ports, and which ports each one held.
+    /// What lets a port outlive the shell it was found under: when that shell
+    /// dies and its server is reparented away, the tree walk loses it, but the
+    /// listener is still there by pid.
+    #[serde(skip)]
+    pub listeners: HashMap<i32, Vec<u16>>,
     /// Byte size at the last tail read; lets the poller skip unchanged files.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_output_size: Option<u64>,
@@ -168,6 +174,7 @@ pub fn note_tool_input(
                 last_output_at: None,
                 last_output_size: None,
                 ports: Vec::new(),
+                listeners: HashMap::new(),
             };
             {
                 let mut sessions = SESSIONS.lock();
@@ -226,6 +233,7 @@ pub fn note_tool_input(
                 last_output_at: None,
                 last_output_size: None,
                 ports: Vec::new(),
+                listeners: HashMap::new(),
             };
             {
                 let mut sessions = SESSIONS.lock();
@@ -318,7 +326,7 @@ pub fn note_task_started(
     task_id: &str,
     description: Option<&str>,
 ) {
-    let changed = {
+    let (changed, retry) = {
         let mut sessions = SESSIONS.lock();
         match sessions
             .get_mut(nyra_session_id)
@@ -329,13 +337,33 @@ pub fn note_task_started(
                 if let Some(d) = description.filter(|d| !d.is_empty()) {
                     p.description = Some(d.to_string());
                 }
-                true
+                // The hunt that `tool_input` started is timed from when the
+                // call was announced, not from when the CLI got round to forking
+                // it — hooks and its own checks sit in between, and past a few
+                // seconds that hunt had already given up and called the shell
+                // untracked. This event is the fork itself, so a second hunt
+                // anchored here is looking at the right moment.
+                // Shells only: a `ws` monitor has no child to find, and a hunt
+                // for its URL would end by calling a live watch untracked.
+                let retry = p.kind == ProcKind::Shell
+                    && p.pid.is_none()
+                    && matches!(p.status, ProcStatus::Running | ProcStatus::Untracked)
+                    && !p.command.is_empty();
+                (true, retry.then(|| p.command.clone()))
             }
-            None => false,
+            None => (false, None),
         }
     };
     if changed {
         broadcast(nyra_session_id);
+    }
+    if let Some(command) = retry {
+        let sid = nyra_session_id.to_string();
+        let tid = tool_use_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            resolve_pid(&sid, &tid, &command).await;
+            broadcast(&sid);
+        });
     }
 }
 
@@ -621,22 +649,18 @@ pub struct SessionMemory {
     pub processes: usize,
 }
 
-/// `ps -axo pid=,ppid=,rss=` → (child → parent, pid → resident KB).
+/// The process table as the two maps the walk needs: child → parent, and
+/// pid → resident KB for every process whose size the OS would give.
 ///
 /// The whole table in one read. A chat's tree is a dozen processes deep on a
 /// busy turn, and the alternative is one syscall per pid.
-pub fn parse_ps_table(text: &str) -> (HashMap<i32, i32>, HashMap<i32, u64>) {
+pub fn process_maps(rows: &[platform::ProcessRow]) -> (HashMap<i32, i32>, HashMap<i32, u64>) {
     let mut parents = HashMap::new();
     let mut rss = HashMap::new();
-    for line in text.lines() {
-        let mut fields = line.split_whitespace();
-        let pid = fields.next().and_then(|v| v.parse::<i32>().ok());
-        let ppid = fields.next().and_then(|v| v.parse::<i32>().ok());
-        // macOS reports resident size in KB, like every other `ps` this touches.
-        let resident = fields.next().and_then(|v| v.parse::<u64>().ok());
-        if let (Some(pid), Some(ppid), Some(kb)) = (pid, ppid, resident) {
-            parents.insert(pid, ppid);
-            rss.insert(pid, kb);
+    for row in rows {
+        parents.insert(row.pid, row.ppid);
+        if let Some(kb) = row.resident_kb {
+            rss.insert(row.pid, kb);
         }
     }
     (parents, rss)
@@ -718,13 +742,20 @@ pub async fn session_memory(nyra_session_id: &str) -> SessionMemory {
             processes: 0,
         };
     }
-    let Some(table) = run_capture("ps", &["-axo", "pid=,ppid=,rss="]).await else {
+    // Off the runtime: on Unix this waits on `ps`, on Windows it opens every
+    // process on the machine in turn.
+    let table = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::task::spawn_blocking(platform::process_table),
+    )
+    .await;
+    let Ok(Ok(Some(rows))) = table else {
         return SessionMemory {
             bytes: 0,
             processes: 0,
         };
     };
-    let (parents, rss) = parse_ps_table(&table);
+    let (parents, rss) = process_maps(&rows);
     let (bytes, processes) = rss_under_roots(&roots, &parents, &rss);
     SessionMemory { bytes, processes }
 }
@@ -761,11 +792,10 @@ async fn resolve_pid(nyra_session_id: &str, shell_id: &str, command: &str) {
     // the command line (not the parent) still finds children that detached via
     // setsid/nohup.
     const DELAYS: [u64; 5] = [0, 200, 500, 1000, 2500];
-    let snippet = command.chars().take(60).collect::<String>().trim().to_string();
-    if snippet.is_empty() {
+    let Some(needle) = command_needle(command) else {
         mark_untracked(nyra_session_id, shell_id);
         return;
-    }
+    };
 
     let started_at = util::now_ms();
     for d in DELAYS {
@@ -783,7 +813,7 @@ async fn resolve_pid(nyra_session_id: &str, shell_id: &str, command: &str) {
                 _ => {}
             }
         }
-        if let Some(pid) = find_recent_by_command(&snippet, started_at).await {
+        if let Some(pid) = find_recent_by_command(&needle, started_at).await {
             {
                 let mut sessions = SESSIONS.lock();
                 if let Some(p) = sessions
@@ -791,6 +821,11 @@ async fn resolve_pid(nyra_session_id: &str, shell_id: &str, command: &str) {
                     .and_then(|s| s.by_shell_id.get_mut(shell_id))
                 {
                     p.pid = Some(pid);
+                    // An earlier hunt may have given up on it while this one was
+                    // still looking.
+                    if p.status == ProcStatus::Untracked {
+                        p.status = ProcStatus::Running;
+                    }
                 }
             }
             broadcast(nyra_session_id);
@@ -820,71 +855,53 @@ fn mark_untracked(nyra_session_id: &str, shell_id: &str) {
     }
 }
 
-async fn find_recent_by_command(snippet: &str, our_start: i64) -> Option<i32> {
-    let out = platform::command("pgrep")
-        .args(["-f", snippet])
-        .output()
-        .await
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let own = std::process::id() as i32;
-    let pids: Vec<i32> = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(|l| l.trim().parse::<i32>().ok())
-        .filter(|p| *p != own)
-        .collect();
-    if pids.is_empty() {
-        return None;
-    }
+/// The part of a command line that can be found in the process table as
+/// written.
+///
+/// Not simply the first 60 characters, which failed on quoting. The CLI does
+/// not run the command as written: it runs `zsh -c "… eval '<command>' …"` (and
+/// `bash.exe -c "…"` on Windows), so every quote in the command is re-escaped
+/// in the command line being searched, and a prefix that contained one no
+/// longer appeared in it. The shell was marked untracked, and an untracked
+/// shell has no pid to find its ports under.
+///
+/// So: the longest stretch with nothing in it that either quoting style would
+/// escape — no quotes, backslashes, `$` or backticks — which survives the
+/// wrapping unchanged. A literal; `platform::find_processes` makes it whatever
+/// its search wants.
+pub fn command_needle(command: &str) -> Option<String> {
+    let longest = command
+        .split(|c| matches!(c, '\'' | '"' | '\\' | '$' | '`' | '\n' | '\r'))
+        .map(str::trim)
+        .max_by_key(|run| run.chars().count())?;
+    let run: String = longest.chars().take(60).collect();
+    let run = run.trim();
+    (!run.is_empty()).then(|| run.to_string())
+}
+
+async fn find_recent_by_command(needle: &str, our_start: i64) -> Option<i32> {
+    let needle = needle.to_string();
+    let found = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::task::spawn_blocking(move || platform::find_processes(&needle)),
+    )
+    .await
+    .ok()?
+    .ok()?;
 
     // Only accept a process that actually started around when we registered the
     // shell, so a long-lived process with the same command line isn't mistaken
     // for this one.
-    let mut candidates: Vec<(i32, i64)> = Vec::new();
-    for pid in pids {
-        let Some(started) = read_start_time_ms(pid).await else {
-            continue;
-        };
-        let age = started - our_start;
+    let own = std::process::id() as i32;
+    let mut candidates: Vec<(i32, i64)> = found
+        .into_iter()
+        .filter(|p| p.pid != own)
+        .filter_map(|p| p.started_ms.map(|started| (p.pid, started - our_start)))
         // Slack on both sides: the child may predate our registration slightly.
-        if age > -3000 && age < 10_000 {
-            candidates.push((pid, age));
-        }
-    }
+        .filter(|(_, age)| *age > -3000 && *age < 10_000)
+        .collect();
     candidates.sort_by_key(|(_, age)| age.abs());
     candidates.first().map(|(pid, _)| *pid)
-}
-
-async fn read_start_time_ms(pid: i32) -> Option<i64> {
-    // macOS and most Linux distros: `ps -o lstart=` → "Thu May  1 19:14:32 2026".
-    let out = platform::command("ps")
-        .args(["-o", "lstart=", "-p", &pid.to_string()])
-        .output()
-        .await
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let raw = String::from_utf8_lossy(&out.stdout);
-    parse_lstart_ms(raw.trim())
-}
-
-pub fn parse_lstart_ms(s: &str) -> Option<i64> {
-    use chrono::{Local, NaiveDateTime, TimeZone};
-    // Collapse the space-padded day ("May  1" vs "May 11") so one format covers
-    // both, and drop the leading weekday: chrono cross-checks it against the
-    // date, which only adds a way to fail on input we don't need anyway.
-    let fields: Vec<&str> = s.split_whitespace().collect();
-    if fields.len() < 5 {
-        return None;
-    }
-    let naive = NaiveDateTime::parse_from_str(&fields[1..].join(" "), "%b %d %H:%M:%S %Y").ok()?;
-    Local
-        .from_local_datetime(&naive)
-        .single()
-        .map(|dt| dt.timestamp_millis())
 }
 
 pub fn truncate_output(s: &str) -> String {
@@ -920,90 +937,35 @@ pub fn truncate_output(s: &str) -> String {
 // is wrong twice over: a server that prints nothing (or prints before we attach
 // the tail, or scrolls past the 4 KB window) has no port, and a server that has
 // exited still has its banner sitting in the file, so the port outlives the
-// process that owned it. `lsof` cannot be stale — if it lists the port, someone
-// is listening on it right now.
+// process that owned it. The kernel's table cannot be stale — if it lists the
+// port, someone is listening on it right now. `platform::listening_ports` reads
+// it: `lsof` on macOS, the TCP table itself on Windows.
 //
-// Two whole-machine calls per scan, ~55 ms together on a 600-process machine,
+// Two whole-machine reads per scan, ~55 ms together on a 600-process Mac,
 // regardless of how many shells are tracked. Attribution is by process tree:
 // the tracked pid is a shell, and the thing that binds the port is its
 // grandchild (`sh` → `npm` → `node`), so the ports of every descendant roll up
 // to the shell Claude started.
 
-/// `lsof -F` output → which ports each pid is listening on.
-///
-/// The `-F pn` format is one field per line, `p` opening a new process block and
-/// `n` naming a socket: `p1085`, `f14`, `n127.0.0.1:4201`. Parsed rather than
-/// column-split because the human format pads and truncates the command name.
-pub fn parse_lsof_ports(text: &str) -> HashMap<i32, Vec<u16>> {
-    let mut by_pid: HashMap<i32, Vec<u16>> = HashMap::new();
-    let mut current: Option<i32> = None;
-    for line in text.lines() {
-        let (tag, rest) = match line.split_at_checked(1) {
-            Some(pair) => pair,
-            None => continue,
-        };
-        match tag {
-            "p" => current = rest.trim().parse::<i32>().ok(),
-            "n" => {
-                let Some(pid) = current else { continue };
-                // `127.0.0.1:4201`, `*:7000`, `[::1]:3000` — the port is what
-                // follows the last colon in every form.
-                let Some(port) = rest.rsplit(':').next().and_then(|p| p.trim().parse::<u16>().ok())
-                else {
-                    continue;
-                };
-                let ports = by_pid.entry(pid).or_default();
-                if !ports.contains(&port) {
-                    ports.push(port);
-                }
-            }
-            _ => {}
-        }
-    }
-    for ports in by_pid.values_mut() {
-        ports.sort_unstable();
-    }
-    by_pid
-}
-
-/// `ps -axo pid=,ppid=` → child → parent, for every process on the machine.
-pub fn parse_parent_map(text: &str) -> HashMap<i32, i32> {
-    let mut parents = HashMap::new();
-    for line in text.lines() {
-        let mut fields = line.split_whitespace();
-        if let (Some(Ok(pid)), Some(Ok(ppid))) = (
-            fields.next().map(str::parse::<i32>),
-            fields.next().map(str::parse::<i32>),
-        ) {
-            parents.insert(pid, ppid);
-        }
-    }
-    parents
-}
-
-/// The ports listening anywhere under each root, keyed by that root.
+/// The listeners anywhere under each root, keyed by that root: which pid bound
+/// which ports.
 ///
 /// Walks upward from each listening pid rather than downward from each root:
 /// there are a handful of listeners and hundreds of processes, and a `ppid` map
 /// only goes that way. The walk is depth-capped so a `ppid` cycle — which should
 /// not exist, but this runs every few seconds forever — cannot hang the poller.
-pub fn roll_up_ports(
+pub fn roll_up_listeners(
     roots: &[i32],
     parents: &HashMap<i32, i32>,
     listening: &HashMap<i32, Vec<u16>>,
-) -> HashMap<i32, Vec<u16>> {
+) -> HashMap<i32, HashMap<i32, Vec<u16>>> {
     const MAX_DEPTH: usize = 64;
-    let mut out: HashMap<i32, Vec<u16>> = HashMap::new();
+    let mut out: HashMap<i32, HashMap<i32, Vec<u16>>> = HashMap::new();
     for (pid, ports) in listening {
         let mut at = *pid;
         for _ in 0..MAX_DEPTH {
             if roots.contains(&at) {
-                let bucket = out.entry(at).or_default();
-                for port in ports {
-                    if !bucket.contains(port) {
-                        bucket.push(*port);
-                    }
-                }
+                out.entry(at).or_default().insert(*pid, ports.clone());
                 break;
             }
             match parents.get(&at) {
@@ -1012,72 +974,101 @@ pub fn roll_up_ports(
             }
         }
     }
-    for ports in out.values_mut() {
-        ports.sort_unstable();
-    }
     out
 }
 
-async fn run_capture(program: &str, args: &[&str]) -> Option<String> {
-    let out = tokio::time::timeout(
-        Duration::from_secs(5),
-        platform::command(program).args(args).output(),
-    )
-    .await
-    .ok()?
-    .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&out.stdout).to_string())
+/// Every port a set of listeners holds, deduped, lowest first.
+pub fn ports_of(listeners: &HashMap<i32, Vec<u16>>) -> Vec<u16> {
+    let mut ports: Vec<u16> = listeners.values().flatten().copied().collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports
 }
 
-/// One scan across every session. `lsof` is absent on some minimal Linux
-/// images and on Windows; there it finds nothing and no port is ever shown,
-/// which is the same as before this existed.
+/// What a shell is serving after this scan.
+///
+/// `found` is what the tree walk turned up under its live pid. `remembered` is
+/// what earlier scans did, and it is what keeps a server that has outlived its
+/// shell — the CLI restarted and took the shell with it, say, and the server was
+/// reparented to launchd — on the pill: the walk from that server no longer
+/// reaches anything we track, but the server is still listening by pid.
+///
+/// A remembered listener only counts for the ports it was seen holding, so a
+/// pid the kernel has since handed to something else, listening on something
+/// else, is not claimed. Once the server stops listening it drops out, which is
+/// what clears the pill.
+pub fn next_listeners(
+    found: Option<&HashMap<i32, Vec<u16>>>,
+    remembered: &HashMap<i32, Vec<u16>>,
+    listening: &HashMap<i32, Vec<u16>>,
+) -> HashMap<i32, Vec<u16>> {
+    let mut next: HashMap<i32, Vec<u16>> = HashMap::new();
+    for (pid, seen) in remembered {
+        let Some(now) = listening.get(pid) else { continue };
+        let still: Vec<u16> = seen.iter().copied().filter(|p| now.contains(p)).collect();
+        if !still.is_empty() {
+            next.insert(*pid, still);
+        }
+    }
+    if let Some(found) = found {
+        for (pid, ports) in found {
+            next.insert(*pid, ports.clone());
+        }
+    }
+    next
+}
+
+/// One scan across every session. Where the OS cannot say what is listening —
+/// a minimal Linux image without `lsof` — no port is ever shown, which is the
+/// same as before this existed.
 async fn scan_ports() {
-    let roots: Vec<i32> = {
+    let has_work = {
         let sessions = SESSIONS.lock();
-        sessions
-            .values()
-            .flat_map(|s| s.by_shell_id.values())
-            .filter(|p| matches!(p.status, ProcStatus::Running | ProcStatus::Orphaned))
-            .filter_map(|p| p.pid)
-            .collect()
+        sessions.values().flat_map(|s| s.by_shell_id.values()).any(|p| {
+            !p.listeners.is_empty()
+                || (p.pid.is_some() && matches!(p.status, ProcStatus::Running | ProcStatus::Orphaned))
+        })
     };
-    if roots.is_empty() {
+    if !has_work {
         return;
     }
 
-    let Some(lsof) = run_capture("lsof", &["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pn"]).await
-    else {
+    // Both whole-machine reads block: `lsof` and `ps` on Unix, a TCP table and
+    // a process snapshot on Windows.
+    let tables = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::task::spawn_blocking(|| (platform::listening_ports(), platform::process_table())),
+    )
+    .await;
+    let Ok(Ok((Some(listening), rows))) = tables else {
         return;
     };
-    let listening = parse_lsof_ports(&lsof);
-    let parents = run_capture("ps", &["-axo", "pid=,ppid="])
-        .await
-        .map(|t| parse_parent_map(&t))
-        .unwrap_or_default();
-    let by_root = roll_up_ports(&roots, &parents, &listening);
+    let (parents, _) = process_maps(&rows.unwrap_or_default());
 
     let mut touched: Vec<String> = Vec::new();
     {
         let mut sessions = SESSIONS.lock();
+        // Only a live shell is walked to: a dead one's pid may already belong
+        // to something else, and its tree is gone either way.
+        let roots: Vec<i32> = sessions
+            .values()
+            .flat_map(|s| s.by_shell_id.values())
+            .filter(|p| matches!(p.status, ProcStatus::Running | ProcStatus::Orphaned))
+            .filter_map(|p| p.pid)
+            .collect();
+        let by_root = roll_up_listeners(&roots, &parents, &listening);
         for (sid, state) in sessions.iter_mut() {
             let mut changed = false;
             for proc in state.by_shell_id.values_mut() {
-                let next = proc
+                let found = proc
                     .pid
-                    .and_then(|pid| by_root.get(&pid).cloned())
-                    .unwrap_or_default();
-                // A dead shell keeps whatever it last served rather than
-                // flickering to empty; the row is about to say "exited" anyway.
-                if next.is_empty() && !matches!(proc.status, ProcStatus::Running | ProcStatus::Orphaned)
-                {
-                    continue;
-                }
-                if proc.ports != next {
-                    proc.ports = next;
+                    .filter(|_| matches!(proc.status, ProcStatus::Running | ProcStatus::Orphaned))
+                    .and_then(|pid| by_root.get(&pid));
+                let listeners = next_listeners(found, &proc.listeners, &listening);
+                let ports = ports_of(&listeners);
+                proc.listeners = listeners;
+                if proc.ports != ports {
+                    proc.ports = ports;
                     changed = true;
                 }
             }
@@ -1102,6 +1093,37 @@ mod tests {
 
     fn rows(id: &str) -> Vec<BgProcess> {
         list_processes(id)
+    }
+
+    /// What the memory tests start from: `ps` text, the way Unix reads it.
+    fn parse_ps_table(text: &str) -> (HashMap<i32, i32>, HashMap<i32, u64>) {
+        process_maps(&platform::parse_ps_rows(text))
+    }
+
+    #[test]
+    fn a_process_the_os_would_not_size_still_parents_its_children() {
+        // Windows: a protected process has no readable working set, but the
+        // chat's processes under it are still the chat's.
+        let rows = [
+            platform::ProcessRow { pid: 10, ppid: 1, resident_kb: None },
+            platform::ProcessRow { pid: 11, ppid: 10, resident_kb: Some(300) },
+        ];
+        let (parents, rss) = process_maps(&rows);
+        assert_eq!(parents.get(&11), Some(&10));
+        assert!(!rss.contains_key(&10));
+        assert_eq!(rss_under_roots(&[10], &parents, &rss), (300 * 1024, 1));
+    }
+
+    /// The ports under each root, which is what the walk is for.
+    fn roll_up_ports(
+        roots: &[i32],
+        parents: &HashMap<i32, i32>,
+        listening: &HashMap<i32, Vec<u16>>,
+    ) -> HashMap<i32, Vec<u16>> {
+        roll_up_listeners(roots, parents, listening)
+            .into_iter()
+            .map(|(root, listeners)| (root, ports_of(&listeners)))
+            .collect()
     }
 
     // The bug: `task_started`, `task_updated` and `task_notification` all key on
@@ -1218,48 +1240,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_ps_lstart() {
-        // Space-padded and two-digit days, as `ps -o lstart=` emits them.
-        assert!(parse_lstart_ms("Fri May  1 19:14:32 2026").is_some());
-        assert!(parse_lstart_ms("Mon May 11 19:14:32 2026").is_some());
-        // A weekday inconsistent with the date must not sink the parse.
-        assert!(parse_lstart_ms("Thu May  1 19:14:32 2026").is_some());
-        assert!(parse_lstart_ms("garbage").is_none());
-        assert!(parse_lstart_ms("").is_none());
-    }
-
-    #[test]
-    fn parses_lsof_field_output() {
-        // Real shapes: loopback, wildcard, and IPv6 in brackets.
-        let out = "p1085\nf14\nn127.0.0.1:4201\np675\nf9\nn*:7000\nf11\nn[::1]:5000\n";
-        let by_pid = parse_lsof_ports(out);
-        assert_eq!(by_pid.get(&1085), Some(&vec![4201]));
-        assert_eq!(by_pid.get(&675), Some(&vec![5000, 7000]));
-    }
-
-    #[test]
-    fn dedupes_the_two_rows_one_server_produces() {
-        // A server bound on both IPv4 and IPv6 lists the same port twice.
-        let out = "p900\nf4\nn*:50065\nf5\nn*:50065\n";
-        assert_eq!(parse_lsof_ports(out).get(&900), Some(&vec![50065]));
-    }
-
-    #[test]
-    fn ignores_lsof_lines_it_cannot_read() {
-        let out = "\np-\nnnot-a-socket\np42\nn127.0.0.1:99999\nn127.0.0.1:8080\n";
-        let by_pid = parse_lsof_ports(out);
-        // 99999 does not fit a u16 and is dropped; the good row still lands.
-        assert_eq!(by_pid.get(&42), Some(&vec![8080]));
-    }
-
-    #[test]
-    fn parses_the_ps_parent_map() {
-        let parents = parse_parent_map("    1     0\n  325     1\n  400   325\n");
-        assert_eq!(parents.get(&400), Some(&325));
-        assert_eq!(parents.get(&1), Some(&0));
-    }
-
-    #[test]
     fn rolls_a_grandchilds_port_up_to_the_tracked_shell() {
         // sh(500) → npm(501) → node(502), and only node binds the port.
         let parents = HashMap::from([(502, 501), (501, 500), (500, 1)]);
@@ -1301,6 +1281,65 @@ mod tests {
         let parents = HashMap::from([(10, 11), (11, 10)]);
         let listening = HashMap::from([(10, vec![1234])]);
         assert!(roll_up_ports(&[999], &parents, &listening).is_empty());
+    }
+
+    #[test]
+    fn keeps_a_server_that_outlived_its_shell() {
+        // The shell died and node was reparented away, so the walk finds
+        // nothing — but node is still listening on the port it was seen on.
+        let remembered = HashMap::from([(502, vec![4202])]);
+        let listening = HashMap::from([(502, vec![4202])]);
+        let next = next_listeners(None, &remembered, &listening);
+        assert_eq!(ports_of(&next), vec![4202]);
+    }
+
+    #[test]
+    fn lets_a_remembered_server_go_once_it_stops_listening() {
+        let remembered = HashMap::from([(502, vec![4202])]);
+        assert!(next_listeners(None, &remembered, &HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn does_not_claim_a_reused_pid_listening_elsewhere() {
+        // Same pid, different port: the kernel handed it to someone else.
+        let remembered = HashMap::from([(502, vec![4202])]);
+        let listening = HashMap::from([(502, vec![9000])]);
+        assert!(next_listeners(None, &remembered, &listening).is_empty());
+    }
+
+    #[test]
+    fn takes_a_live_shells_walk_as_the_answer() {
+        let found = HashMap::from([(502, vec![5173, 24678])]);
+        let remembered = HashMap::from([(502, vec![5173])]);
+        let listening = HashMap::from([(502, vec![5173, 24678])]);
+        let next = next_listeners(Some(&found), &remembered, &listening);
+        assert_eq!(ports_of(&next), vec![5173, 24678]);
+    }
+
+    #[test]
+    fn a_needle_skips_what_the_cli_re_quotes() {
+        // `eval '…'` escapes the single quotes, so the run after them is the
+        // one that appears in the command line unchanged.
+        assert_eq!(
+            command_needle("cd '/Users/me/My App' && npx nx serve portal --port 4202").as_deref(),
+            Some("&& npx nx serve portal --port 4202")
+        );
+    }
+
+    #[test]
+    fn a_needle_is_literal() {
+        // Escaping is the search's business, not the needle's.
+        assert_eq!(
+            command_needle("npm run dev -- --host 0.0.0.0 (x) [y]+").as_deref(),
+            Some("npm run dev -- --host 0.0.0.0 (x) [y]+")
+        );
+    }
+
+    #[test]
+    fn a_needle_stops_at_a_dollar_and_is_capped() {
+        let long = format!("PORT=$PORT {}", "a".repeat(100));
+        assert_eq!(command_needle(&long).unwrap(), format!("PORT {}", "a".repeat(55)));
+        assert!(command_needle("''").is_none());
     }
 
     #[test]

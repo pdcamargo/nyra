@@ -92,7 +92,17 @@ libc = "0.2"
 # Process liveness (`OpenProcess`), and canonical paths without the `\\?\`
 # prefix. Both already in the tree through tokio and tauri. See src/platform/.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_Threading",
+  # The process table behind Chat RAM: parents and working sets.
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_ProcessStatus",
+  # The port pill: a shell's command line and start time, and who is listening.
+  "Wdk_System_Threading",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_Networking_WinSock",
+] }
 dunce = "1"
 # Desktop control (src/desktop/windows.rs): UI Automation for the tree,
 # SendInput for keys and clicks, Windows.Graphics.Capture (PrintWindow as the
