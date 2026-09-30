@@ -8,7 +8,16 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Added workspaces, each signed in to its own Claude account, so Work and Personal can run chats side by side',
+      "Switch workspaces from the rail on the sidebar's left edge, and move a project to another with Move to workspace",
+      'Deleting a workspace moves its chats and memory into another one first',
+      'Background commands and monitors now get their own line in the chat, which says when they finish, fail or stop',
+      'Fixed tool calls Claude makes together not appearing after you approved the first one',
+      'Fixed a running monitor disappearing from the composer and the summary, mostly on Windows',
+      'Fixed the sign-in window showing no terminal',
+      'Fixed leaving a project closing its terminals'
+    ]
   },
   {
     version: '0.6.2',
