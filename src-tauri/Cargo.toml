@@ -194,9 +194,9 @@ objc2-web-kit = { version = "0.3", features = [
   "WKSnapshotConfiguration",
 ] }
 # Notifications that know they were clicked (src/notify_user.rs). What the
-# notification plugin posts through, already in the tree at this version; the
-# plugin throws away the handle that waits for the click.
-notify-rust = "4.18"
+# notification plugin posts through, via notify-rust, already in the tree at this
+# version. Directly, because notify-rust never asks it to wait for a click.
+mac-notification-sys = "0.6"
 
 [features]
 # Used by `tauri dev` / `tauri build --debug`

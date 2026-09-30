@@ -115,19 +115,25 @@ fn toast_app_id(app: &AppHandle) -> String {
     }
 }
 
-/// Sent synchronously on a thread of its own, which blocks until the
-/// notification is clicked or dismissed.
+/// Sent on a thread of its own, which blocks until the notification is clicked
+/// or dismissed.
 ///
-/// That wait is how notify-rust reports a click on macOS, and it can last as
-/// long as the notification sits in Notification Center — so a dedicated thread,
+/// Through mac-notification-sys rather than notify-rust: it only waits when the
+/// notification asks for a response — a button, or `wait_for_click` — and
+/// notify-rust sets neither on a plain notification, so its `wait_for_action`
+/// returns on delivery and the click goes nowhere. The wait can last as long as
+/// the notification sits in Notification Center, hence a dedicated thread and
 /// not the async runtime's. The delegate it waits on is called on the main run
 /// loop, which Tauri is already pumping.
 #[cfg(target_os = "macos")]
 fn post(app: &AppHandle, title: &str, body: &str, chat: String) {
+    use mac_notification_sys::{Notification, NotificationResponse};
     use std::sync::Once;
 
     // Attributes every notification to an app, once per process. `tauri dev`
     // has no bundle of its own, so it borrows Terminal's, as the plugin does.
+    // It fails when LaunchServices has never seen that bundle id, and then every
+    // notification after it silently goes nowhere — worth a line in the log.
     static APPLICATION: Once = Once::new();
     APPLICATION.call_once(|| {
         let bundle = if tauri::is_dev() {
@@ -135,18 +141,23 @@ fn post(app: &AppHandle, title: &str, body: &str, chat: String) {
         } else {
             app.config().identifier.clone()
         };
-        let _ = notify_rust::set_application(&bundle);
+        if let Err(e) = mac_notification_sys::set_application(&bundle) {
+            crate::logf!("notification: could not post as {bundle}: {e:?}");
+        }
     });
 
-    let mut notification = notify_rust::Notification::new();
-    notification.summary(title).body(body);
-    std::thread::spawn(move || match notification.show() {
-        Ok(handle) => handle.wait_for_action(|action| {
-            if action == "default" {
-                open_chat(&chat);
-            }
-        }),
-        Err(e) => crate::logf!("notification failed: {e}"),
+    let (title, body) = (title.to_string(), body.to_string());
+    std::thread::spawn(move || {
+        match Notification::new()
+            .title(&title)
+            .message(&body)
+            .wait_for_click(true)
+            .send()
+        {
+            Ok(NotificationResponse::Click) => open_chat(&chat),
+            Ok(_) => {}
+            Err(e) => crate::logf!("notification failed: {e:?}"),
+        }
     });
 }
 
