@@ -15,7 +15,9 @@ import {
 import { DEFAULT_WORKSPACE_ID, useWorkspacesStore, type Workspace } from '../store/workspaces'
 import { WORKSPACE_RAIL_WIDTH } from '../store/panelSizes'
 import { useUiStore } from '../store/ui'
-import { switchWorkspace } from '../lib/workspaces'
+import { useRunningStore } from '../store/running'
+import { isArchived, useSessionsStore } from '../store/sessions'
+import { switchWorkspace, workspacesWhereKey } from '../lib/workspaces'
 import type { CommandId } from '../commands/registry'
 
 /**
@@ -28,6 +30,14 @@ export default function WorkspaceRail(): React.JSX.Element {
   const workspaces = useWorkspacesStore((s) => s.workspaces)
   const activeId = useWorkspacesStore((s) => s.activeId)
   const openDialog = useUiStore((s) => s.setWorkspaceDialog)
+  const running = useRunningStore((s) => s.running)
+  const runningKey = useSessionsStore((s) => workspacesWhereKey(s, (x) => running[x.id] === true))
+  // The row's own rule: a chat mid-turn holds its dot back until the turn ends.
+  const unreadKey = useSessionsStore((s) =>
+    workspacesWhereKey(s, (x) => !isArchived(x) && !running[x.id] && (x.unread ?? 0) > 0)
+  )
+  const busy = React.useMemo(() => new Set(runningKey.split('\n')), [runningKey])
+  const unread = React.useMemo(() => new Set(unreadKey.split('\n')), [unreadKey])
 
   return (
     <nav
@@ -40,6 +50,8 @@ export default function WorkspaceRail(): React.JSX.Element {
           key={workspace.id}
           workspace={workspace}
           active={workspace.id === activeId}
+          running={busy.has(workspace.id)}
+          unread={unread.has(workspace.id)}
           command={index < 9 ? (`workspace.switch.${index + 1}` as CommandId) : undefined}
         />
       ))}
@@ -66,14 +78,28 @@ export default function WorkspaceRail(): React.JSX.Element {
  * The two corners are concentric: the ring's radius is the tile's plus the 4px
  * between their edges (2px gap, 2px ring). Pixels rather than the theme's
  * `rounded-lg`, which is 13.4px — rounder than the ring around it on a 32px tile.
+ *
+ * A workspace with a chat mid-turn washes, the same sweep as a running row in
+ * the list — the one place a chat in a workspace you are not looking at can
+ * say it is still going. Laid over the tile rather than behind it, so it shows
+ * on a picture as well as on initials.
+ *
+ * One with an unread chat gets the list's dot, on the tile's bottom-right
+ * corner. Ringed in the rail's own colour, so it is cut out of whatever it sits
+ * on — a picture of any colour, the selection ring — rather than depending on
+ * contrast with it.
  */
 function RailItem({
   workspace,
   active,
+  running,
+  unread,
   command
 }: {
   workspace: Workspace
   active: boolean
+  running: boolean
+  unread: boolean
   command?: CommandId
 }): React.JSX.Element {
   const openDialog = useUiStore((s) => s.setWorkspaceDialog)
@@ -86,11 +112,11 @@ function RailItem({
           <TooltipTrigger asChild>
             <button
               type="button"
-              aria-label={workspace.name}
+              aria-label={unread ? `${workspace.name}, unread chats` : workspace.name}
               aria-current={active ? 'true' : undefined}
               onClick={() => switchWorkspace(workspace.id)}
               className={cn(
-                'group flex size-10 shrink-0 items-center justify-center rounded-[12px] border-2 p-[2px] outline-none transition-colors focus-visible:border-ring',
+                'group relative flex size-10 shrink-0 items-center justify-center rounded-[12px] border-2 p-[2px] outline-none transition-colors focus-visible:border-ring',
                 active ? 'border-foreground' : 'border-transparent'
               )}
             >
@@ -107,6 +133,18 @@ function RailItem({
                       : 'bg-workspace-tile text-muted-foreground group-hover:bg-workspace-tile-active group-hover:text-foreground'
                 )}
               />
+              {running && (
+                <span
+                  aria-hidden
+                  className="nyra-shimmer-bg pointer-events-none absolute inset-[2px] rounded-[8px]"
+                />
+              )}
+              {unread && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute right-0 bottom-0 size-2 rounded-full bg-info ring-2 ring-workspace-rail"
+                />
+              )}
             </button>
           </TooltipTrigger>
         </ContextMenuTrigger>

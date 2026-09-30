@@ -20,7 +20,8 @@ import {
   findSession,
   liveSessions,
   useSessionsStore,
-  workspaceIdOf
+  workspaceIdOf,
+  type Session
 } from '../store/sessions'
 import { useAccountsStore } from '../store/accounts'
 import type { ConfigDir } from './api-types'
@@ -75,6 +76,25 @@ export function switchWorkspace(id: string): void {
   if (next) sessions.setActiveSession(next)
   else sessions.clearActiveSession()
   void useAccountsStore.getState().refresh(id)
+}
+
+/**
+ * The workspaces holding a chat that passes `test`, for the rail's marks — a
+ * wash for one mid-turn, a dot for one unread.
+ *
+ * Read inside a sessions-store selector, so it returns a string rather than a
+ * set: the sessions array changes on every streamed token, and a primitive that
+ * compares equal is what keeps the rail from re-rendering with it.
+ */
+export function workspacesWhereKey(
+  state: Parameters<typeof findSession>[0],
+  test: (session: Session) => boolean
+): string {
+  const ids = new Set<string>()
+  for (const session of state.sessions) {
+    if (test(session)) ids.add(workspaceIdOf(state, session))
+  }
+  return [...ids].sort().join('\n')
 }
 
 /** The next or previous workspace in rail order, wrapping. */
