@@ -81,8 +81,60 @@ pub async fn claude_check_binary(custom_path: Option<String>) -> Value {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn claude_account_status(binary_path: String) -> Value {
-    json!(account_status::read(&binary_path).await)
+pub async fn claude_account_status(binary_path: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    json!(account_status::read(&binary_path, config_dir.as_deref()).await)
+}
+
+// ---- workspaces ----
+
+/// A new workspace's config dir, created — the `configDir` the renderer keeps.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn workspace_create(id: String) -> Value {
+    match crate::workspaces::create(&id).await {
+        Ok(dir) => json!({ "configDir": dir.to_string_lossy() }),
+        Err(e) => json!({ "error": e }),
+    }
+}
+
+/// Delete, step one: copy the workspace's conversations and memory into the
+/// target's config dir (`None` is Default). Nothing else changes if it fails.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn workspace_copy_transcripts(id: String, target_config_dir: Option<String>) -> Value {
+    match crate::workspaces::copy_transcripts(&id, util::config_dir_arg(target_config_dir)).await {
+        Ok(projects) => json!({ "ok": true, "projects": projects }),
+        Err(e) => json!({ "ok": false, "error": e }),
+    }
+}
+
+/// Sign a workspace's account out, so a Keychain entry does not outlive it.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn workspace_logout(config_dir: Option<String>) -> Value {
+    let binary = util::settings().claude_binary_path;
+    match account_status::logout(&binary, util::config_dir_arg(config_dir).as_deref()).await {
+        Ok(()) => json!({ "ok": true }),
+        Err(e) => json!({ "ok": false, "error": e }),
+    }
+}
+
+/// Delete, last step. Takes an id, never a path: the directory is worked out
+/// and checked in Rust.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn workspace_delete(id: String) -> Value {
+    match crate::workspaces::delete(&id).await {
+        Ok(()) => json!({ "ok": true }),
+        Err(e) => json!({ "ok": false, "error": e }),
+    }
+}
+
+/// Which config dir each project's flows run under, for triggers that fire with
+/// nobody asking the renderer. Merged into what is on disk, never replacing it.
+#[tauri::command(rename_all = "camelCase")]
+pub fn workspaces_sync_projects(projects: HashMap<String, Option<String>>, removed: Vec<String>) -> Value {
+    match crate::workspaces::sync_projects(&projects, &removed) {
+        Ok(()) => json!({ "ok": true }),
+        Err(e) => json!({ "ok": false, "error": e }),
+    }
 }
 
 /// Family → the id this CLI build resolves that alias to, from its own catalog.
@@ -133,6 +185,13 @@ async fn pick(app: &AppHandle, kind: PickKind) -> Value {
                 let _ = tx.send(p.map(|p| vec![p]));
             });
         }
+        PickKind::Image => {
+            // Exactly what `fs_ops::read_image` will read back.
+            builder = builder.add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]);
+            builder.pick_file(move |p| {
+                let _ = tx.send(p.map(|p| vec![p]));
+            });
+        }
         PickKind::Attachments => {
             // "All Files" first, because it is the default the dialog opens on
             // and there is no longer any such thing as an unsupported attachment
@@ -167,6 +226,7 @@ async fn pick(app: &AppHandle, kind: PickKind) -> Value {
 enum PickKind {
     Folder,
     Markdown,
+    Image,
     Attachments,
 }
 
@@ -180,6 +240,17 @@ const ATTACHMENT_EXTENSIONS: [&str; 44] = [
 #[tauri::command]
 pub async fn dialog_pick_folder(app: AppHandle) -> Option<String> {
     pick(&app, PickKind::Folder)
+        .await
+        .as_array()
+        .and_then(|a| a.first().cloned())
+        .and_then(|v| v.as_str().map(str::to_string))
+}
+
+/// One picture — a workspace's. Returned as a path for `fs_read_image`; the
+/// renderer keeps only the thumbnail it makes from it.
+#[tauri::command]
+pub async fn dialog_pick_image(app: AppHandle) -> Option<String> {
+    pick(&app, PickKind::Image)
         .await
         .as_array()
         .and_then(|a| a.first().cloned())
@@ -230,25 +301,35 @@ pub async fn dialog_save_file(app: AppHandle, default_name: String, content: Str
 
 // ---- skills, agents, memory ----
 
-#[tauri::command]
-pub async fn agents_list(cwd: String) -> Value {
-    json!(skills::list_agents(&cwd).await)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn agents_list(cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    json!(skills::list_agents(&cwd, config_dir.as_deref()).await)
 }
 
-#[tauri::command]
-pub async fn skills_list(cwd: String) -> Value {
-    json!(skills::list_skills(&cwd).await)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn skills_list(cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    json!(skills::list_skills(&cwd, config_dir.as_deref()).await)
 }
 
 /// The project's and the account's custom slash commands.
-#[tauri::command]
-pub async fn commands_list(cwd: String) -> Value {
-    json!(skills::list_commands(&cwd).await)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn commands_list(cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    json!(skills::list_commands(&cwd, config_dir.as_deref()).await)
 }
 
-#[tauri::command]
-pub async fn skills_write(scope: String, name: String, content: String, cwd: String) -> Value {
-    match skills::write_skill(&scope, &name, &content, &cwd).await {
+#[tauri::command(rename_all = "camelCase")]
+pub async fn skills_write(
+    scope: String,
+    name: String,
+    content: String,
+    cwd: String,
+    config_dir: Option<String>,
+) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match skills::write_skill(&scope, &name, &content, &cwd, config_dir.as_deref()).await {
         Ok(()) => json!({ "success": true }),
         Err(e) => json!({ "error": e }),
     }
@@ -272,9 +353,10 @@ pub async fn skills_delete(file_path: String) -> Value {
 
 /// Put Nyra's own skills back. The way out of a deletion or an edit, so neither
 /// is permanent — destructive to a customised skill, so the UI confirms first.
-#[tauri::command]
-pub async fn skills_restore_bundled(name: String) -> Value {
-    match crate::managed_skills::restore(&name).await {
+#[tauri::command(rename_all = "camelCase")]
+pub async fn skills_restore_bundled(name: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match crate::managed_skills::restore(&name, config_dir.as_deref()).await {
         Ok(()) => json!({ "success": true }),
         Err(e) => json!({ "error": e }),
     }
@@ -282,35 +364,45 @@ pub async fn skills_restore_bundled(name: String) -> Value {
 
 /// Which skills Nyra ships and whether it still updates each one, so a row can
 /// distinguish "kept current" from "you edited this, updates stopped".
-#[tauri::command]
-pub async fn skills_bundled_names() -> Value {
-    json!(crate::managed_skills::bundled_status().await)
-}
-
-#[tauri::command]
-pub async fn memory_list(cwd: String) -> Value {
-    json!(memory::list_memory_files(&cwd).await)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn skills_bundled_names(config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    json!(crate::managed_skills::bundled_status(config_dir.as_deref()).await)
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn memory_read(file_path: String, cwd: String) -> Value {
-    match memory::read_memory_file(&file_path, &cwd).await {
+pub async fn memory_list(cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    json!(memory::list_memory_files(&cwd, config_dir.as_deref()).await)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn memory_read(file_path: String, cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match memory::read_memory_file(&file_path, &cwd, config_dir.as_deref()).await {
         Ok(content) => json!({ "content": content }),
         Err(e) => json!({ "error": e }),
     }
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn memory_write(file_path: String, content: String, cwd: String) -> Value {
-    match memory::write_memory_file(&file_path, &content, &cwd).await {
+pub async fn memory_write(
+    file_path: String,
+    content: String,
+    cwd: String,
+    config_dir: Option<String>,
+) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match memory::write_memory_file(&file_path, &content, &cwd, config_dir.as_deref()).await {
         Ok(()) => json!({ "success": true }),
         Err(e) => json!({ "error": e }),
     }
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn memory_delete(file_path: String, cwd: String) -> Value {
-    match memory::delete_memory_file(&file_path, &cwd).await {
+pub async fn memory_delete(file_path: String, cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match memory::delete_memory_file(&file_path, &cwd, config_dir.as_deref()).await {
         Ok(()) => json!({ "success": true }),
         Err(e) => json!({ "error": e }),
     }
@@ -560,33 +652,38 @@ pub async fn git_worktree_remove(cwd: String, worktree_path: String) -> Value {
 
 // ---- mcp, hooks ----
 
-#[tauri::command]
-pub async fn mcp_list(cwd: String) -> Value {
-    json!(mcp::list(&cwd).await)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn mcp_list(cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    json!(mcp::list(&cwd, config_dir.as_deref()).await)
 }
 
 /// Every server `cwd` can reach and whether it connects, from `claude mcp list`.
-#[tauri::command]
-pub async fn mcp_health(cwd: String) -> Value {
-    match mcp::health(&cwd).await {
+#[tauri::command(rename_all = "camelCase")]
+pub async fn mcp_health(cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match mcp::health(&cwd, config_dir.as_deref()).await {
         Ok(servers) => json!({ "ok": true, "servers": servers }),
         Err(error) => json!({ "ok": false, "error": error }),
     }
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn mcp_inspect(cwd: String, name: String) -> Value {
-    mcp::inspect(&cwd, &name).await
+pub async fn mcp_inspect(cwd: String, name: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    mcp::inspect(&cwd, &name, config_dir.as_deref()).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn mcp_set_enabled(cwd: String, name: String, enabled: bool) -> Value {
-    mcp::set_enabled(&cwd, &name, enabled).await
+pub async fn mcp_set_enabled(cwd: String, name: String, enabled: bool, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    mcp::set_enabled(&cwd, &name, enabled, config_dir.as_deref()).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn plugins_catalog(cwd: Option<String>) -> Value {
-    plugins::catalog(cwd).await
+pub async fn plugins_catalog(cwd: Option<String>, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    plugins::catalog(cwd, config_dir.as_deref()).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -599,14 +696,16 @@ pub async fn plugins_public_logos() -> Value {
     json!(plugin_logos::list().await)
 }
 
-#[tauri::command]
-pub async fn hooks_read(scope: String, cwd: String) -> Value {
-    hooks::read(&scope, &cwd).await
+#[tauri::command(rename_all = "camelCase")]
+pub async fn hooks_read(scope: String, cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    hooks::read(&scope, &cwd, config_dir.as_deref()).await
 }
 
-#[tauri::command]
-pub async fn hooks_write(scope: String, hooks: Value, cwd: String) -> Value {
-    match hooks::write(&scope, hooks, &cwd).await {
+#[tauri::command(rename_all = "camelCase")]
+pub async fn hooks_write(scope: String, hooks: Value, cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match hooks::write(&scope, hooks, &cwd, config_dir.as_deref()).await {
         Ok(()) => json!({ "success": true }),
         Err(e) => json!({ "error": e }),
     }
@@ -894,9 +993,10 @@ pub fn subagent_transcript(path: String, cwd: Option<String>) -> Value {
 
 // ---- login ----
 
-#[tauri::command]
-pub fn login_start() -> Value {
-    match login::start_login(&util::settings().claude_binary_path) {
+#[tauri::command(rename_all = "camelCase")]
+pub fn login_start(config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match login::start_login(&util::settings().claude_binary_path, config_dir.as_deref()) {
         Ok(pid) => json!({ "pid": pid }),
         Err(e) => json!({ "error": e }),
     }
@@ -966,9 +1066,10 @@ pub fn dictation_model_cancel() {
 
 // ---- terminal ----
 
-#[tauri::command]
-pub fn terminal_spawn(id: String, cwd: String) -> Value {
-    match terminal::spawn_terminal(&id, &cwd) {
+#[tauri::command(rename_all = "camelCase")]
+pub fn terminal_spawn(id: String, cwd: String, config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match terminal::spawn_terminal(&id, &cwd, config_dir.as_deref()) {
         Ok(pid) => json!({ "pid": pid }),
         Err(e) => json!({ "error": e }),
     }

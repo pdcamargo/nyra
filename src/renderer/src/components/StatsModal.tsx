@@ -1,10 +1,10 @@
 import React, { useEffect, useCallback, useState } from 'react'
 import Modal from './Modal'
-import { useSessionsStore, type SessionUsage } from '../store/sessions'
+import { useSessionsStore, workspaceIdForSession, type SessionUsage } from '../store/sessions'
 import { useChatSettings } from '../hooks/useChatSettings'
 import { chatModelLabel } from '../lib/models'
 import { useModelVersions } from '../store/modelVersions'
-import { useRateLimitStore, type RateLimitWindow } from '../store/rateLimit'
+import { limitsFor, useRateLimitStore, type RateLimitWindow } from '../store/rateLimit'
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M'
@@ -75,7 +75,9 @@ export default function StatsModal({ onClose }: { onClose: () => void }): React.
   // which is a different model from `opus` rather than another word for it.
   const { model, effort } = useChatSettings()
   const versions = useModelVersions()
-  const rateLimitWindows = useRateLimitStore((s) => s.windows)
+  // The limits of this chat's account: its workspace's, not whichever is active.
+  const workspaceId = useSessionsStore((s) => workspaceIdForSession(s, s.activeSessionId))
+  const rateLimitWindows = useRateLimitStore((s) => limitsFor(s, workspaceId).windows)
   const [now, setNow] = useState(Date.now())
 
   useEffect(() => {

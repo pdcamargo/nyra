@@ -3,11 +3,17 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
+import { useTerminalsStore, type TerminalTab } from '../store/terminals'
+import { configDirOf } from '../store/workspaces'
 
-export interface TerminalTab {
-  id: string
-  title: string
-}
+type Entry = { term: Terminal; fitAddon: FitAddon; wrapper: HTMLDivElement }
+
+/** Every open tab, in every project and workspace — one string, so the
+ *  selector hands back something stable. */
+const allTabIds = (state: ReturnType<typeof useTerminalsStore.getState>): string =>
+  Object.values(state.byProject)
+    .flatMap((panel) => panel.tabs.map((t) => t.id))
+    .join('\n')
 
 interface TerminalPanelProps {
   cwd: string
@@ -19,19 +25,25 @@ interface TerminalPanelProps {
 
 export default function TerminalPanel({ cwd, tabs, activeTabId, visible, onTabsChange }: TerminalPanelProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
-  const terminalsRef = useRef<Map<string, { term: Terminal; fitAddon: FitAddon }>>(new Map())
+  // Every shell this panel has started, not only the ones on screen: the tabs
+  // passed in are one project's (or one workspace's), and switching away from
+  // it hides its terminals rather than ending them.
+  const terminalsRef = useRef<Map<string, Entry>>(new Map())
+  const openIds = useTerminalsStore(allTabIds)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
 
   // Initialize/show the active terminal
   useEffect(() => {
-    if (!activeTabId || !containerRef.current || !cwd || !visible) return
-
+    // Hidden first, whatever happens next: with no chat open there is nothing to
+    // start, and a shell from the project you left must not stay on screen
+    // under this one's tabs.
     for (const [id, entry] of terminalsRef.current) {
-      const el = entry.term.element?.parentElement
-      if (el) el.style.display = id === activeTabId ? '' : 'none'
+      entry.wrapper.style.display = id === activeTabId ? '' : 'none'
     }
+
+    if (!activeTabId || !containerRef.current || !cwd || !visible) return
 
     if (terminalsRef.current.has(activeTabId)) {
       const entry = terminalsRef.current.get(activeTabId)!
@@ -88,10 +100,12 @@ export default function TerminalPanel({ cwd, tabs, activeTabId, visible, onTabsC
     term.open(wrapper)
     fitAddon.fit()
 
-    terminalsRef.current.set(activeTabId, { term, fitAddon })
+    terminalsRef.current.set(activeTabId, { term, fitAddon, wrapper })
 
     const termId = activeTabId
-    window.api.terminal.spawn(termId, cwd)
+    // Under the workspace the tab was opened in, fixed for the shell's life.
+    const startedUnder = tabsRef.current.find((t) => t.id === termId)?.workspaceId
+    window.api.terminal.spawn(termId, cwd, configDirOf(startedUnder))
 
     term.onData((data) => {
       window.api.terminal.write(termId, data)
@@ -150,17 +164,21 @@ export default function TerminalPanel({ cwd, tabs, activeTabId, visible, onTabsC
     return () => resizeObserverRef.current?.disconnect()
   }, [activeTabId])
 
-  // Dispose terminals whose tabs were removed
+  // Dispose terminals whose tabs were closed — anywhere, not merely off screen.
+  // This used to compare against the tabs passed in, which are one project's, so
+  // switching project or workspace killed every shell of the one you left, and
+  // left its wrapper behind to push the next terminal out of view.
   useEffect(() => {
-    const liveIds = new Set(tabs.map((t) => t.id))
+    const open = new Set(openIds.split('\n'))
     for (const [id, entry] of terminalsRef.current) {
-      if (!liveIds.has(id)) {
+      if (!open.has(id)) {
         entry.term.dispose()
+        entry.wrapper.remove()
         terminalsRef.current.delete(id)
         window.api.terminal.kill(id)
       }
     }
-  }, [tabs])
+  }, [openIds])
 
   // Kill every PTY when the panel really goes away.
   //
@@ -175,6 +193,7 @@ export default function TerminalPanel({ cwd, tabs, activeTabId, visible, onTabsC
     return () => {
       for (const [id, entry] of terminals) {
         entry.term.dispose()
+        entry.wrapper.remove()
         window.api.terminal.kill(id)
       }
       terminals.clear()

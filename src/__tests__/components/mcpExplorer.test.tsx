@@ -117,7 +117,7 @@ describe('the MCP explorer', () => {
     await userEvent.click(screen.getByRole('button', { name: /View tools/ }))
 
     expect(await screen.findByText('create_pull_request')).toBeInTheDocument()
-    expect(bridge.inspect).toHaveBeenCalledWith(CWD, 'github')
+    expect(bridge.inspect).toHaveBeenCalledWith(CWD, 'github', null)
   })
 
   it('opens a tool to its description and parameters, required marked', async () => {
@@ -162,7 +162,7 @@ describe('the MCP explorer', () => {
 
     await userEvent.click(await screen.findByText('sentry'))
     await userEvent.click(screen.getByRole('button', { name: 'Disable here' }))
-    await waitFor(() => expect(bridge.setEnabled).toHaveBeenCalledWith(CWD, 'sentry', false))
+    await waitFor(() => expect(bridge.setEnabled).toHaveBeenCalledWith(CWD, 'sentry', false, null))
   })
 })
 
@@ -186,7 +186,7 @@ describe('the ahead-of-time check', () => {
     expect(screen.getByText('Needs authentication')).toBeInTheDocument()
     expect(screen.getByText('1 connected')).toBeInTheDocument()
     expect(screen.queryByText(/Not started/)).not.toBeInTheDocument()
-    expect(bridge.health).toHaveBeenCalledWith(CWD)
+    expect(bridge.health).toHaveBeenCalledWith(CWD, null)
   })
 
   it("lets the chat's own report win over the check", async () => {
@@ -239,7 +239,7 @@ describe('the ahead-of-time check', () => {
     expect(await screen.findByText('claude.ai Slack')).toBeInTheDocument()
     expect(screen.getByText(/checking…/)).toBeInTheDocument()
     // Remembered, not trusted: the launch still asks.
-    expect(bridge.health).toHaveBeenCalledWith(CWD)
+    expect(bridge.health).toHaveBeenCalledWith(CWD, null)
   })
 
   // No chat has started these servers, so there is no process to restart. The

@@ -193,15 +193,15 @@ fn servers_of(raw: &str) -> Option<Map<String, Value>> {
 
 /// Every server this project can reach, in Claude Code's own precedence order.
 ///
-/// Read from the `~/.claude` of the environment the CLI runs in, whose
+/// Read from the workspace's config in the environment the CLI runs in, whose
 /// `projects` are keyed by the directory as that environment spells it:
 /// `/home/me/repo` for a WSL project, not the share path Nyra holds.
-async fn discover(cwd: &str) -> Vec<RawServer> {
+async fn discover(cwd: &str, config_dir: Option<&Path>) -> Vec<RawServer> {
     let env = Environment::of(cwd);
     let home = env.home();
     let key = env.cwd_in_env(cwd);
-    let settings_path = home.join(".claude").join("settings.json");
-    let local_path = home.join(".claude.json");
+    let settings_path = util::claude_dir(&env, config_dir).join("settings.json");
+    let local_path = util::claude_json(&env, config_dir);
     let project_path = Path::new(cwd).join(".mcp.json");
 
     let (settings_raw, local_raw, project_raw) = tokio::join!(
@@ -284,8 +284,8 @@ async fn discover(cwd: &str) -> Vec<RawServer> {
     out
 }
 
-pub async fn list(cwd: &str) -> Vec<McpEntry> {
-    discover(cwd).await.iter().map(RawServer::entry).collect()
+pub async fn list(cwd: &str, config_dir: Option<&Path>) -> Vec<McpEntry> {
+    discover(cwd, config_dir).await.iter().map(RawServer::entry).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -337,21 +337,19 @@ fn write_project_list(root: &mut Value, cwd: &str, key: &str, name: &str, presen
     }
 }
 
-pub async fn set_enabled(cwd: &str, name: &str, enabled: bool) -> Value {
+pub async fn set_enabled(cwd: &str, name: &str, enabled: bool, config_dir: Option<&Path>) -> Value {
     let env = Environment::of(cwd);
-    let path = env.home().join(".claude.json");
+    let path = util::claude_json(&env, config_dir);
+    // Named as it is on disk: a workspace's is not `~/.claude.json`.
+    let shown = display_path(&path, &env.home());
     let key = env.cwd_in_env(cwd);
     let raw = match tokio::fs::read_to_string(&path).await {
         Ok(raw) => raw,
-        Err(e) => {
-            return json!({ "ok": false, "error": format!("Could not read ~/.claude.json: {e}") })
-        }
+        Err(e) => return json!({ "ok": false, "error": format!("Could not read {shown}: {e}") }),
     };
     let mut root: Value = match serde_json::from_str(&raw) {
         Ok(value) => value,
-        Err(e) => {
-            return json!({ "ok": false, "error": format!("~/.claude.json is not valid JSON: {e}") })
-        }
+        Err(e) => return json!({ "ok": false, "error": format!("{shown} is not valid JSON: {e}") }),
     };
 
     // The two lists together are the whole decision, and the enabled one is the
@@ -360,15 +358,15 @@ pub async fn set_enabled(cwd: &str, name: &str, enabled: bool) -> Value {
     write_project_list(&mut root, &key, "enabledMcpjsonServers", name, enabled);
 
     let Ok(serialized) = serde_json::to_string_pretty(&root) else {
-        return json!({ "ok": false, "error": "Could not serialise ~/.claude.json." });
+        return json!({ "ok": false, "error": format!("Could not serialise {shown}.") });
     };
     let temp = path.with_extension(format!("nyra-{}", std::process::id()));
     if let Err(e) = tokio::fs::write(&temp, format!("{serialized}\n")).await {
-        return json!({ "ok": false, "error": format!("Could not write ~/.claude.json: {e}") });
+        return json!({ "ok": false, "error": format!("Could not write {shown}: {e}") });
     }
     if let Err(e) = tokio::fs::rename(&temp, &path).await {
         let _ = tokio::fs::remove_file(&temp).await;
-        return json!({ "ok": false, "error": format!("Could not replace ~/.claude.json: {e}") });
+        return json!({ "ok": false, "error": format!("Could not replace {shown}: {e}") });
     }
     json!({ "ok": true, "name": name, "enabled": enabled })
 }
@@ -403,8 +401,8 @@ fn redact(message: &str, secrets: &[&str]) -> String {
     out
 }
 
-pub async fn inspect(cwd: &str, name: &str) -> Value {
-    let servers = discover(cwd).await;
+pub async fn inspect(cwd: &str, name: &str, config_dir: Option<&Path>) -> Value {
+    let servers = discover(cwd, config_dir).await;
     let Some(server) = servers.into_iter().find(|s| s.name == name) else {
         return json!({
             "ok": false,
@@ -535,8 +533,10 @@ pub struct McpHealth {
 ///
 /// A WSL project asks the distro's own CLI, inside the distro: its servers,
 /// its `~/.claude.json`, its `node`.
-pub async fn health(cwd: &str) -> Result<Vec<McpHealth>, String> {
+pub async fn health(cwd: &str, config_dir: Option<&Path>) -> Result<Vec<McpHealth>, String> {
     let env = Environment::of(cwd);
+    // Never into a distro: its claude has its own `~/.claude` (see `util::claude_dir`).
+    let config_dir = config_dir.filter(|_| env.is_host());
     let (binary, mut command) = match env.own_claude()? {
         Some(own) => {
             let command = env.command(&own, cwd);
@@ -554,7 +554,7 @@ pub async fn health(cwd: &str) -> Result<Vec<McpHealth>, String> {
     command
         .args(["mcp", "list"])
         .env_clear()
-        .envs(util::clean_child_env())
+        .envs(util::claude_child_env(config_dir))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -634,7 +634,7 @@ mod tests {
         let home = env.home();
         assert!(home.join(".claude").is_dir(), "no ~/.claude at {}", home.display());
         let cwd = home.to_string_lossy().into_owned();
-        let servers = health(&cwd).await.expect("claude mcp list ran in the distro");
+        let servers = health(&cwd, None).await.expect("claude mcp list ran in the distro");
         eprintln!("{distro}: {} server(s): {servers:?}", servers.len());
     }
 

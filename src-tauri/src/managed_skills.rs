@@ -24,7 +24,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::util;
 
@@ -153,11 +153,27 @@ pub struct Paths {
 }
 
 impl Paths {
+    /// Default's: `~/.claude/skills`, with its record where it always was.
     fn real() -> Self {
         Self {
             skills_root: util::home_dir().join(".claude").join("skills"),
             state_file: util::home_dir().join(".nyra").join("managed-skills.json"),
         }
+    }
+
+    /// A workspace's: its own `skills`, and a record beside its config dir —
+    /// `~/.nyra/workspaces/<id>/managed-skills.json`, gone with the workspace.
+    /// One record per root, because "you edited this, stop updating it" is about
+    /// one copy of a skill, not every workspace's.
+    fn for_config_dir(config_dir: &Path) -> Self {
+        Self {
+            skills_root: config_dir.join("skills"),
+            state_file: config_dir.parent().unwrap_or(config_dir).join("managed-skills.json"),
+        }
+    }
+
+    fn of(config_dir: Option<&Path>) -> Self {
+        config_dir.map_or_else(Self::real, Self::for_config_dir)
     }
 
     fn skill(&self, name: &str) -> PathBuf {
@@ -200,10 +216,19 @@ async fn write_skill(paths: &Paths, name: &str, content: &str) -> Result<(), Str
         .map_err(|e| e.to_string())
 }
 
-/// Bring `~/.claude/skills` in line with what this build ships. Safe to call on
-/// every launch; it writes only when rule 1 above says it may.
+/// Bring `~/.claude/skills`, and every workspace's, in line with what this
+/// build ships. Safe to call on every launch; it writes only when rule 1 above
+/// says it may.
 pub async fn sync() {
-    sync_in(&Paths::real(), BUNDLED).await
+    sync_in(&Paths::real(), BUNDLED).await;
+    for config_dir in crate::workspaces::config_roots() {
+        sync_in(&Paths::for_config_dir(&config_dir), BUNDLED).await;
+    }
+}
+
+/// A new workspace, so its first chat already has the skills the others do.
+pub async fn sync_into(config_dir: &Path) {
+    sync_in(&Paths::for_config_dir(config_dir), BUNDLED).await
 }
 
 async fn sync_in(paths: &Paths, bundled: &[Bundled]) {
@@ -276,8 +301,8 @@ async fn sync_in(paths: &Paths, bundled: &[Bundled]) {
 ///
 /// Deliberately one skill rather than all of them: restoring a deleted skill
 /// must not overwrite a *different* skill the user has customised.
-pub async fn restore(name: &str) -> Result<(), String> {
-    restore_in(&Paths::real(), BUNDLED, name).await
+pub async fn restore(name: &str, config_dir: Option<&Path>) -> Result<(), String> {
+    restore_in(&Paths::of(config_dir), BUNDLED, name).await
 }
 
 async fn restore_in(paths: &Paths, bundled: &[Bundled], name: &str) -> Result<(), String> {
@@ -311,8 +336,8 @@ pub struct BundledStatus {
 /// more than "Nyra put this here". The distinction that matters to a reader is
 /// `managed` (we keep it current) versus `adopted` (you edited it, so we stopped)
 /// — nothing else in the app records that, and silently stale is a bad surprise.
-pub async fn bundled_status() -> Vec<BundledStatus> {
-    bundled_status_in(&Paths::real(), BUNDLED).await
+pub async fn bundled_status(config_dir: Option<&Path>) -> Vec<BundledStatus> {
+    bundled_status_in(&Paths::of(config_dir), BUNDLED).await
 }
 
 async fn bundled_status_in(paths: &Paths, bundled: &[Bundled]) -> Vec<BundledStatus> {
@@ -452,6 +477,15 @@ mod tests {
             state_file: root.join("state.json"),
         };
         (Tmp(root), paths)
+    }
+
+    #[test]
+    fn a_workspace_keeps_its_own_skills_and_its_own_record() {
+        let dir = Path::new("/h/.nyra/workspaces/w1/.claude");
+        let paths = Paths::for_config_dir(dir);
+        assert_eq!(paths.skills_root, dir.join("skills"));
+        assert_eq!(paths.state_file, Path::new("/h/.nyra/workspaces/w1/managed-skills.json"));
+        assert_eq!(Paths::of(None).state_file, Paths::real().state_file);
     }
 
     fn bundle(content: &'static str) -> Vec<Bundled> {

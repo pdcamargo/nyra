@@ -50,7 +50,7 @@ import type {
   ScopedList,
   SkillInfo
 } from './api-types'
-import type { FontFamily } from './api-types'
+import type { AccountStatus, ConfigDir, FontFamily } from './api-types'
 import type { SpawnSettings } from '@shared/types'
 import type {
   MarketplaceIndex,
@@ -280,14 +280,8 @@ export const api = {
         customPath: customPath ?? null
       }),
 
-    accountStatus: (binaryPath: string) =>
-      call<{
-        loggedIn: boolean
-        loginMethod: string | null
-        organization: string | null
-        email: string | null
-        error: string | null
-      }>('claude_account_status', { binaryPath }),
+    accountStatus: (binaryPath: string, configDir: ConfigDir) =>
+      call<AccountStatus>('claude_account_status', { binaryPath, configDir }),
 
     /**
      * Family → the id this CLI build resolves that alias to, from its catalog.
@@ -319,6 +313,8 @@ export const api = {
   dialog: {
     pickFolder: () => call<string | null>('dialog_pick_folder'),
     pickFile: () => call<string | null>('dialog_pick_file'),
+    /** One PNG, JPEG, GIF or WebP — exactly what `fs.readImage` reads back. */
+    pickImage: () => call<string | null>('dialog_pick_image'),
     pickFiles: () => call<string[] | null>('dialog_pick_files'),
     saveFile: (defaultName: string, content: string) =>
       call<{ success?: boolean; canceled?: boolean; error?: string }>('dialog_save_file', {
@@ -328,22 +324,25 @@ export const api = {
   },
 
   agents: {
-    list: (cwd: string) => call<ScopedList<AgentInfo>>('agents_list', { cwd })
+    list: (cwd: string, configDir: ConfigDir) =>
+      call<ScopedList<AgentInfo>>('agents_list', { cwd, configDir })
   },
 
   memory: {
-    list: (cwd: string) => call<MemoryListResult>('memory_list', { cwd }),
-    read: (filePath: string, cwd: string) =>
-      call<{ content?: string; error?: string }>('memory_read', { filePath, cwd }),
-    write: (filePath: string, content: string, cwd: string) =>
-      call<{ success?: boolean; error?: string }>('memory_write', { filePath, content, cwd }),
-    delete: (filePath: string, cwd: string) =>
-      call<{ success?: boolean; error?: string }>('memory_delete', { filePath, cwd })
+    list: (cwd: string, configDir: ConfigDir) =>
+      call<MemoryListResult>('memory_list', { cwd, configDir }),
+    read: (filePath: string, cwd: string, configDir: ConfigDir) =>
+      call<{ content?: string; error?: string }>('memory_read', { filePath, cwd, configDir }),
+    write: (filePath: string, content: string, cwd: string, configDir: ConfigDir) =>
+      call<{ success?: boolean; error?: string }>('memory_write', { filePath, content, cwd, configDir }),
+    delete: (filePath: string, cwd: string, configDir: ConfigDir) =>
+      call<{ success?: boolean; error?: string }>('memory_delete', { filePath, cwd, configDir })
   },
 
-  /** Custom slash commands on disk: ~/.claude/commands and .claude/commands. */
+  /** Custom slash commands on disk: the workspace's commands and .claude/commands. */
   commands: {
-    list: (cwd: string) => call<ScopedList<CommandInfo>>('commands_list', { cwd }),
+    list: (cwd: string, configDir: ConfigDir) =>
+      call<ScopedList<CommandInfo>>('commands_list', { cwd, configDir }),
     /** Removes the one `.md` file. Refused unless it sits under
      *  `.claude/commands`, since this is one click inside a dialog. */
     delete: (filePath: string) =>
@@ -351,16 +350,17 @@ export const api = {
   },
 
   skills: {
-    list: (cwd: string) => call<ScopedList<SkillInfo>>('skills_list', { cwd }),
-    write: (scope: Scope, name: string, content: string, cwd: string) =>
-      call<{ success?: boolean; error?: string }>('skills_write', { scope, name, content, cwd }),
+    list: (cwd: string, configDir: ConfigDir) =>
+      call<ScopedList<SkillInfo>>('skills_list', { cwd, configDir }),
+    write: (scope: Scope, name: string, content: string, cwd: string, configDir: ConfigDir) =>
+      call<{ success?: boolean; error?: string }>('skills_write', { scope, name, content, cwd, configDir }),
     delete: (filePath: string) =>
       call<{ success?: boolean; error?: string }>('skills_delete', { filePath }),
     /** The skills Nyra ships, and whether it still updates each one. */
-    bundledNames: () => call<BundledSkill[]>('skills_bundled_names'),
+    bundledNames: (configDir: ConfigDir) => call<BundledSkill[]>('skills_bundled_names', { configDir }),
     /** Reinstall one of those, overwriting whatever is there. Confirm first. */
-    restoreBundled: (name: string) =>
-      call<{ success?: boolean; error?: string }>('skills_restore_bundled', { name })
+    restoreBundled: (name: string, configDir: ConfigDir) =>
+      call<{ success?: boolean; error?: string }>('skills_restore_bundled', { name, configDir })
   },
 
   settings: {
@@ -527,27 +527,50 @@ export const api = {
   },
 
   mcp: {
-    list: (cwd: string) => call<McpEntry[]>('mcp_list', { cwd }),
-    health: (cwd: string) => call<McpHealthResult>('mcp_health', { cwd }),
-    inspect: (cwd: string, name: string) =>
-      call<McpInspection>('mcp_inspect', { cwd, name }),
-    setEnabled: (cwd: string, name: string, enabled: boolean) =>
-      call<McpToggleResult>('mcp_set_enabled', { cwd, name, enabled })
+    list: (cwd: string, configDir: ConfigDir) => call<McpEntry[]>('mcp_list', { cwd, configDir }),
+    health: (cwd: string, configDir: ConfigDir) =>
+      call<McpHealthResult>('mcp_health', { cwd, configDir }),
+    inspect: (cwd: string, name: string, configDir: ConfigDir) =>
+      call<McpInspection>('mcp_inspect', { cwd, name, configDir }),
+    setEnabled: (cwd: string, name: string, enabled: boolean, configDir: ConfigDir) =>
+      call<McpToggleResult>('mcp_set_enabled', { cwd, name, enabled, configDir })
   },
 
   plugins: {
-    catalog: (cwd?: string) =>
-      call<PluginCatalog>('plugins_catalog', { cwd: cwd ?? null }),
-    action: (request: PluginActionRequest) =>
-      call<PluginActionResult>('plugins_action', { request }),
+    catalog: (cwd: string | undefined, configDir: ConfigDir) =>
+      call<PluginCatalog>('plugins_catalog', { cwd: cwd ?? null, configDir }),
+    /** `configDir` is the account the plugin is installed into — a plugin is
+     *  one workspace's, not every workspace's. */
+    action: (request: PluginActionRequest, configDir: ConfigDir) =>
+      call<PluginActionResult>('plugins_action', { request: { ...request, configDir } }),
     publicLogos: () => call<Record<string, string>>('plugins_public_logos')
   },
 
   hooks: {
-    read: (scope: Scope, cwd: string) =>
-      call<{ hooks: Record<string, unknown> }>('hooks_read', { scope, cwd }),
-    write: (scope: Scope, hooks: unknown, cwd: string) =>
-      call<{ success?: boolean; error?: string }>('hooks_write', { scope, hooks, cwd })
+    read: (scope: Scope, cwd: string, configDir: ConfigDir) =>
+      call<{ hooks: Record<string, unknown> }>('hooks_read', { scope, cwd, configDir }),
+    write: (scope: Scope, hooks: unknown, cwd: string, configDir: ConfigDir) =>
+      call<{ success?: boolean; error?: string }>('hooks_write', { scope, hooks, cwd, configDir })
+  },
+
+  /**
+   * Workspaces, the part that is a directory. The renderer owns the list; Rust
+   * owns where each one's config lives and the only way to delete one, which
+   * takes an id and never a path.
+   */
+  workspace: {
+    create: (id: string) => call<{ configDir?: string; error?: string }>('workspace_create', { id }),
+    copyTranscripts: (id: string, targetConfigDir: ConfigDir) =>
+      call<{ ok: boolean; projects?: number; error?: string }>('workspace_copy_transcripts', {
+        id,
+        targetConfigDir
+      }),
+    logout: (configDir: ConfigDir) =>
+      call<{ ok: boolean; error?: string }>('workspace_logout', { configDir }),
+    delete: (id: string) => call<{ ok: boolean; error?: string }>('workspace_delete', { id }),
+    /** Project id → config dir, for flows a trigger starts. Merged, not replaced. */
+    syncProjects: (projects: Record<string, ConfigDir>, removed: string[]) =>
+      call<{ ok: boolean; error?: string }>('workspaces_sync_projects', { projects, removed })
   },
 
   workflow: {
@@ -627,7 +650,9 @@ export const api = {
   },
 
   login: {
-    start: () => call<{ pid?: number; error?: string }>('login_start'),
+    /** `claude /login` for one workspace: its account, its config dir. */
+    start: (configDir: ConfigDir) =>
+      call<{ pid?: number; error?: string }>('login_start', { configDir }),
     input: (data: string) => call<void>('login_input', { data }),
     resize: (cols: number, rows: number) => call<void>('login_resize', { cols, rows }),
     cancel: () => call<void>('login_cancel'),
@@ -722,7 +747,9 @@ export const api = {
   },
 
   terminal: {
-    spawn: (id: string, cwd: string) => call<{ pid: number }>('terminal_spawn', { id, cwd }),
+    /** `configDir` is the workspace the shell starts under, fixed for its life. */
+    spawn: (id: string, cwd: string, configDir: ConfigDir) =>
+      call<{ pid: number }>('terminal_spawn', { id, cwd, configDir }),
     write: (id: string, data: string) => call<void>('terminal_write', { id, data }),
     resize: (id: string, cols: number, rows: number) =>
       call<void>('terminal_resize', { id, cols, rows }),

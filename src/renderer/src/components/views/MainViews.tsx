@@ -3,9 +3,11 @@ import { Brain, Slash, Sparkles, SquareTerminal } from 'lucide-react'
 import { BUILT_IN_COMMANDS } from '../../data/commands'
 import { useSkillEditorStore } from '../../store/skillEditor'
 import { useSessionsStore, activeProjectCwd } from '../../store/sessions'
+import { activeConfigDir, useActiveConfigDir } from '../../store/workspaces'
+import { claudeDirLabel } from '../../lib/workspaces'
 import { useUiStore, type MainView } from '../../store/ui'
 import { homedir } from '../../lib/homedir'
-import type { BundledSkill, CommandInfo, SkillInfo } from '../../lib/api-types'
+import type { BundledSkill, CommandInfo, ConfigDir, SkillInfo } from '../../lib/api-types'
 import { openFileInPanel } from '../../lib/openFile'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
@@ -93,7 +95,7 @@ function SkillActions(): React.JSX.Element {
         .replace(/^-|-$/g, '') || 'imported-skill'
 
     const cwd = activeProjectCwd(useSessionsStore.getState()) || homedir()
-    await window.api.skills.write('project', name, content, cwd)
+    await window.api.skills.write('project', name, content, cwd, activeConfigDir())
     window.dispatchEvent(new Event('nyra:skills-changed'))
     // No frontmatter means no description, and a skill without one is invisible
     // to the model. Open it so that can be fixed now rather than discovered.
@@ -142,8 +144,8 @@ function ManagedBadge({ status }: { status: BundledSkill['status'] }): React.JSX
   )
 }
 
-const listSkills = (cwd: string): Promise<{ global: SkillInfo[]; project: SkillInfo[] }> =>
-  window.api.skills.list(cwd)
+const listSkills = (cwd: string, configDir: ConfigDir): Promise<{ global: SkillInfo[]; project: SkillInfo[] }> =>
+  window.api.skills.list(cwd, configDir)
 
 function SkillsView(): React.JSX.Element {
   const { global, byProject, projects, activeId, setActiveId, reload } = useScopedLibrary(
@@ -155,10 +157,11 @@ function SkillsView(): React.JSX.Element {
   const [bundled, setBundled] = useState<BundledSkill[]>([])
   const setPendingAction = useSessionsStore((s) => s.setPendingAction)
   const setMainView = useUiStore((s) => s.setMainView)
+  const configDir = useActiveConfigDir()
 
   useEffect(() => {
-    void window.api.skills.bundledNames().then(setBundled)
-  }, [])
+    void window.api.skills.bundledNames(configDir).then(setBundled)
+  }, [configDir])
 
   const managed = (skill: SkillInfo): BundledSkill['status'] | undefined =>
     skill.scope === 'global' ? bundled.find((b) => b.name === skill.name)?.status : undefined
@@ -203,7 +206,7 @@ function SkillsView(): React.JSX.Element {
       <LibrarySearch value={search} onChange={setSearch} placeholder="Search skills" />
 
       <section className="mb-8">
-        <SectionHeading trailing="~/.claude/skills">Global</SectionHeading>
+        <SectionHeading trailing={`${claudeDirLabel(configDir)}/skills`}>Global</SectionHeading>
         {globalSkills.length > 0 ? (
           <LibraryGrid>{globalSkills.map(card)}</LibraryGrid>
         ) : (
@@ -221,9 +224,9 @@ function SkillsView(): React.JSX.Element {
               <button
                 type="button"
                 onClick={async () => {
-                  await window.api.skills.restoreBundled(name)
+                  await window.api.skills.restoreBundled(name, configDir)
                   window.dispatchEvent(new Event('nyra:skills-changed'))
-                  void window.api.skills.bundledNames().then(setBundled)
+                  void window.api.skills.bundledNames(configDir).then(setBundled)
                 }}
                 className="shrink-0 text-c-sm text-info transition-colors hover:underline"
               >
@@ -302,8 +305,8 @@ function SkillsView(): React.JSX.Element {
   )
 }
 
-const listCommands = (cwd: string): Promise<{ global: CommandInfo[]; project: CommandInfo[] }> =>
-  window.api.commands.list(cwd)
+const listCommands = (cwd: string, configDir: ConfigDir): Promise<{ global: CommandInfo[]; project: CommandInfo[] }> =>
+  window.api.commands.list(cwd, configDir)
 
 /**
  * Custom slash commands, the two places the CLI reads them from.
@@ -318,6 +321,7 @@ function CommandsView(): React.JSX.Element {
     listCommands,
     'nyra:commands-changed'
   )
+  const configDir = useActiveConfigDir()
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<CommandInfo | null>(null)
   const setPendingAction = useSessionsStore((s) => s.setPendingAction)
@@ -351,7 +355,7 @@ function CommandsView(): React.JSX.Element {
       <LibrarySearch value={search} onChange={setSearch} placeholder="Search commands" />
 
       <section className="mb-8">
-        <SectionHeading trailing="~/.claude/commands">Global</SectionHeading>
+        <SectionHeading trailing={`${claudeDirLabel(configDir)}/commands`}>Global</SectionHeading>
         {globalCommands.length > 0 ? (
           <LibraryGrid>{globalCommands.map(card)}</LibraryGrid>
         ) : (

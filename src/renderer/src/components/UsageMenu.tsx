@@ -1,14 +1,18 @@
 import React, { useEffect, useState } from 'react'
-import { Gauge } from 'lucide-react'
+import { Gauge, LogIn } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from './ui/dropdown-menu'
-import { dropExpired, useRateLimitStore } from '../store/rateLimit'
+import { dropExpired, limitsFor, useRateLimitStore } from '../store/rateLimit'
 import { useSessionsStore, activeSession as activeSessionSelector } from '../store/sessions'
+import { useActiveWorkspace } from '../store/workspaces'
+import { accountLabel, useAccountsStore } from '../store/accounts'
+import { openLogin } from '../lib/workspaces'
 import { contextFill } from '../lib/contextFill'
 
 /** The context window the app bills a conversation against. */
@@ -101,10 +105,14 @@ function Meter({
  * is persisted and stamped instead, and any window past its own reset is
  * dropped rather than shown — a stale figure with a time on it is useful, a
  * stale figure presented as now is not.
+ *
+ * All of it is the active workspace's: its account's limits, and its account's
+ * name on the row, so which quota the number is never needs guessing.
  */
 export default function UsageMenu(): React.JSX.Element {
-  const stored = useRateLimitStore((s) => s.windows)
-  const updatedAt = useRateLimitStore((s) => s.updatedAt)
+  const workspace = useActiveWorkspace()
+  const { windows: stored, updatedAt } = useRateLimitStore((s) => limitsFor(s, workspace.id))
+  const account = useAccountsStore((s) => s.byWorkspace[workspace.id])
   const session = useSessionsStore(activeSessionSelector)
   const [now, setNow] = useState(() => Date.now())
 
@@ -135,24 +143,45 @@ export default function UsageMenu(): React.JSX.Element {
       ? `Last reported ${ago(updatedAt, now)}`
       : null
 
+  // Unknown until the first `auth status` answers: then the row says nothing
+  // about the account rather than guessing.
+  const name = accountLabel(account)
+  const signedOut = account !== undefined && !account.loggedIn
+  const label = name ? `Usage - ${name}` : signedOut ? 'Usage - Signed out' : 'Usage'
+  // Two accounts can share a name; they never share an email. Under the name,
+  // smaller, unless the name line already is the email.
+  const email = account?.loggedIn && account.email && account.email !== name ? account.email : null
+
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[0.85em] transition-colors hover:bg-accent/50 aria-expanded:bg-accent ${
+        className={`flex w-full items-start gap-1.5 rounded-md px-2 py-1 text-left text-[0.85em] transition-colors hover:bg-accent/50 aria-expanded:bg-accent ${
           throttled ? 'text-danger' : 'text-muted-foreground hover:text-foreground/80'
         }`}
       >
-        <Gauge className="size-3.5 shrink-0" />
-        <span>Usage</span>
-        {headline && (
-          <span className="ml-auto flex items-baseline gap-1">
-            {/* Which window the number is. It is the five-hour one — the limit
-                that bites mid-session — and unlabelled it could as easily have
-                been the weekly, which is a different number entirely. */}
-            <span className="text-[0.8em] uppercase tracking-wide">5h</span>
-            <span className="font-mono text-[0.92em] tabular-nums">{headline}</span>
+        <Gauge className="mt-px size-3.5 shrink-0" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-center gap-1.5">
+            {/* The name gives way before the number does. */}
+            <span className="min-w-0 truncate" title={name ? label : undefined}>
+              {label}
+            </span>
+            {headline && (
+              <span className="ml-auto flex shrink-0 items-baseline gap-1">
+                {/* Which window the number is. It is the five-hour one — the limit
+                    that bites mid-session — and unlabelled it could as easily have
+                    been the weekly, which is a different number entirely. */}
+                <span className="text-[0.8em] uppercase tracking-wide">5h</span>
+                <span className="font-mono text-[0.92em] tabular-nums">{headline}</span>
+              </span>
+            )}
           </span>
-        )}
+          {email && (
+            <span className="truncate text-[0.85em]" title={email}>
+              {email}
+            </span>
+          )}
+        </span>
       </DropdownMenuTrigger>
       {/* As wide as the button that opened it. A panel narrower than its own
           trigger reads as a misalignment, and the rail's width is the one
@@ -162,6 +191,15 @@ export default function UsageMenu(): React.JSX.Element {
         side="top"
         className="w-[var(--radix-dropdown-menu-trigger-width)]"
       >
+        {signedOut && (
+          <>
+            <DropdownMenuItem onSelect={() => openLogin(workspace.id)}>
+              <LogIn />
+              <span className="min-w-0 truncate">Sign in to {workspace.name}…</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuLabel>Limits</DropdownMenuLabel>
         {WINDOWS.map(({ type, label }) => {
           const w = windows[type]

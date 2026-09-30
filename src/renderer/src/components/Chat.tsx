@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
-import { useSessionsStore, activeCwd, createSiblingSession, openFolderAsProject, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type Agent, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
+import { useSessionsStore, activeCwd, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type Agent, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { wslShare } from '../lib/environment'
 import { useEnvironmentInfo } from '../hooks/useEnvironmentInfo'
@@ -58,6 +58,7 @@ import { useHighlightMatches } from '../hooks/useHighlightMatches'
 import { useWorkingWord } from '../hooks/useWorkingWord'
 import { parseMcpFromInit } from '../utils/mcpParsing'
 import { useRateLimitStore } from '../store/rateLimit'
+import { openLogin } from '../lib/workspaces'
 import { useRunningStore, isSessionRunning } from '../store/running'
 import { useUiStore } from '../store/ui'
 import { useLoopsStore } from '../store/loops'
@@ -153,7 +154,9 @@ const EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit']
  * every query — so it takes effect on the next turn without respawning.
  */
 function spawnSettingsForSession(sessionId: string): SpawnSettings {
-  const base = spawnSettingsFor(useSettingsStore.getState())
+  // The chat's workspace decides the account. Its project's, when it has one —
+  // so a chat whose project moved respawns under the new account on this send.
+  const base = spawnSettingsFor(useSettingsStore.getState(), configDirForSession(useSessionsStore.getState(), sessionId))
   const session = useSessionsStore.getState().sessions.find((s) => s.id === sessionId)
 
   // Plan mode, model and effort are per-conversation, falling back to the
@@ -863,14 +866,17 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'rate_limit') {
-        useRateLimitStore.getState().setWindow({
+        // This chat's account's limits: credited to its workspace, never to
+        // whichever one happens to be on screen.
+        const workspaceId = workspaceIdForSession(useSessionsStore.getState(), sid)
+        useRateLimitStore.getState().setWindow(workspaceId, {
           status: event.status,
           resetsAt: event.resetsAt,
           rateLimitType: event.rateLimitType
         })
         // The utilisation for every window, when the CLI sends it — the
         // top-level fields above only describe the one that is limiting.
-        if (event.windows) useRateLimitStore.getState().setUnified(event.windows)
+        if (event.windows) useRateLimitStore.getState().setUnified(workspaceId, event.windows)
         return
       }
 
@@ -1213,7 +1219,8 @@ export default function Chat(): React.JSX.Element {
             files: lastUser.files
           })
         }
-        window.dispatchEvent(new CustomEvent('nyra:open-login'))
+        // The account that expired is this chat's workspace's.
+        openLogin(workspaceIdForSession(useSessionsStore.getState(), sid))
         return
       }
 

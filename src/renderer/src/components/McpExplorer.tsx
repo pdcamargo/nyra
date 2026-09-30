@@ -11,11 +11,11 @@ import {
   Wrench,
   X
 } from 'lucide-react'
-import { useSessionsStore, type McpServerInfo } from '../store/sessions'
+import { configDirForSession, useSessionsStore, type McpServerInfo } from '../store/sessions'
 import { isSessionRunning, useRunningStore } from '../store/running'
-import { useMcpHealthStore } from '../store/mcpHealth'
+import { healthKey, useMcpHealthStore } from '../store/mcpHealth'
 import { homedir } from '../lib/homedir'
-import type { McpEntry, McpHealthEntry, McpInspection, McpToggleResult } from '../lib/api-types'
+import type { ConfigDir, McpEntry, McpHealthEntry, McpInspection, McpToggleResult } from '../lib/api-types'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 /**
@@ -86,14 +86,16 @@ export default function McpExplorer({
   })
   // Outside a chat, the global scope: what a chat in no project would reach.
   const configuredAt = cwd ?? (activeCwd || homedir())
-  const health = useMcpHealthStore((state) => state.byCwd[configuredAt])
+  // The chat's account, or with no chat open the active workspace's.
+  const configDir = useSessionsStore((state) => configDirForSession(state, state.activeSessionId))
+  const health = useMcpHealthStore((state) => state.byCwd[healthKey(configuredAt, configDir)])
   const checkedServers = health?.servers ?? EMPTY_HEALTH
   const checking = health?.loading === true
 
   // Opening the list is the moment a stale check is worth redoing.
   useEffect(() => {
-    useMcpHealthStore.getState().warm(configuredAt)
-  }, [configuredAt])
+    useMcpHealthStore.getState().warm(configuredAt, configDir)
+  }, [configuredAt, configDir])
 
   const [entries, setEntries] = useState<McpEntry[]>([])
   const [selected, setSelected] = useState<string | null>(null)
@@ -109,7 +111,7 @@ export default function McpExplorer({
     let live = true
     setLoading(true)
     void window.api.mcp
-      .list(configuredAt)
+      .list(configuredAt, configDir)
       .then((result) => {
         if (live) setEntries(result ?? [])
       })
@@ -122,7 +124,7 @@ export default function McpExplorer({
     return () => {
       live = false
     }
-  }, [configuredAt])
+  }, [configuredAt, configDir])
 
   useEffect(() => reload(), [reload])
 
@@ -202,6 +204,7 @@ export default function McpExplorer({
         <ServerDetail
           server={selectedRow}
           cwd={configuredAt}
+          configDir={configDir}
           compact={compact}
           onBack={() => setSelected(null)}
           onChanged={reload}
@@ -229,6 +232,7 @@ export default function McpExplorer({
           scope="every server in this chat"
           hasStarted={liveServers.length > 0}
           cwd={configuredAt}
+          configDir={configDir}
         />
         {onClose && (
           <Tooltip>
@@ -295,7 +299,8 @@ function ReconnectButton({
   notify,
   scope,
   hasStarted,
-  cwd
+  cwd,
+  configDir
 }: {
   label?: string
   notify: (message: string) => void
@@ -304,6 +309,8 @@ function ReconnectButton({
   hasStarted: boolean
   /** Where the ahead-of-time check runs, when there is no chat to restart. */
   cwd: string
+  /** Whose servers: the workspace's account. */
+  configDir: ConfigDir
 }): React.JSX.Element {
   const activeSessionId = useSessionsStore((state) => state.activeSessionId)
   // Subscribed, not read once: the spinner lives in the running store, and a
@@ -311,13 +318,13 @@ function ReconnectButton({
   const running = useRunningStore((state) =>
     activeSessionId ? state.running[activeSessionId] === true : false
   )
-  const checking = useMcpHealthStore((state) => state.byCwd[cwd]?.loading === true)
+  const checking = useMcpHealthStore((state) => state.byCwd[healthKey(cwd, configDir)]?.loading === true)
   const recheck = !activeSessionId || !hasStarted
 
   const reconnect = useCallback(async () => {
     const sessionId = useSessionsStore.getState().activeSessionId
     if (!sessionId || !hasStarted) {
-      useMcpHealthStore.getState().warm(cwd, 0)
+      useMcpHealthStore.getState().warm(cwd, configDir, 0)
       return
     }
     if (isSessionRunning(sessionId)) {
@@ -436,6 +443,7 @@ function MetaRow({
 function ServerDetail({
   server,
   cwd,
+  configDir,
   compact,
   summary,
   onBack,
@@ -443,6 +451,7 @@ function ServerDetail({
 }: {
   server: Row
   cwd: string
+  configDir: ConfigDir
   compact: boolean
   summary: { connected: number; failed: number }
   onBack: () => void
@@ -458,25 +467,25 @@ function ServerDetail({
     setInspecting(true)
     setNote(null)
     void window.api.mcp
-      .inspect(cwd, server.name)
+      .inspect(cwd, server.name, configDir)
       .then((result) => setInspection(result))
       .catch((error) => setInspection({ ok: false, error: String(error) }))
       .finally(() => setInspecting(false))
-  }, [cwd, server.name])
+  }, [cwd, configDir, server.name])
 
   const setEnabled = useCallback(
     (enabled: boolean) => {
       if (!cwd) return
       setNote(null)
       void window.api.mcp
-        .setEnabled(cwd, server.name, enabled)
+        .setEnabled(cwd, server.name, enabled, configDir)
         .then((result: McpToggleResult) => {
           if (!result.ok) setNote(result.error)
           onChanged()
         })
         .catch((error) => setNote(String(error)))
     },
-    [cwd, onChanged, server.name]
+    [cwd, configDir, onChanged, server.name]
   )
 
   const command = server.url ?? [server.command, ...(server.args ?? [])].filter(Boolean).join(' ')
@@ -580,6 +589,7 @@ function ServerDetail({
             scope="every server in this chat"
             hasStarted={server.liveStatus === true}
             cwd={cwd}
+            configDir={configDir}
           />
         </div>
 

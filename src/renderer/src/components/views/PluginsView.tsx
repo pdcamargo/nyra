@@ -18,6 +18,7 @@ import { Checkbox } from '../ui/checkbox'
 import { SegmentedControl, Select, TextField } from '../settings/primitives'
 import { DialogAction, EmptyNote, SectionHeading } from './Library'
 import { activeProjectCwd, useSessionsStore } from '../../store/sessions'
+import { useActiveConfigDir } from '../../store/workspaces'
 import { isSessionRunning, useRunningStore } from '../../store/running'
 import type { AvailablePlugin, InstalledPlugin, PluginActionRequest } from '../../lib/api-types'
 import {
@@ -59,6 +60,8 @@ const PREVIEW_COUNT = 9
 
 export default function PluginsView(): React.JSX.Element {
   const cwd = useSessionsStore(activeProjectCwd)
+  // Plugins are the active workspace's: its account's catalog, its installs.
+  const configDir = useActiveConfigDir()
   const activeSessionId = useSessionsStore((state) => state.activeSessionId)
   const running = useRunningStore((state) =>
     activeSessionId ? state.running[activeSessionId] === true : false
@@ -98,7 +101,7 @@ export default function PluginsView(): React.JSX.Element {
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await window.api.plugins.catalog(cwd || undefined)
+      const result = await window.api.plugins.catalog(cwd || undefined, configDir)
       if (result.ok) {
         setCatalog({
           installed: result.installed,
@@ -115,7 +118,7 @@ export default function PluginsView(): React.JSX.Element {
     } finally {
       setLoading(false)
     }
-  }, [cwd])
+  }, [cwd, configDir])
 
   useEffect(() => {
     void reload()
@@ -155,7 +158,8 @@ export default function PluginsView(): React.JSX.Element {
       try {
         const confirmation = options?.confirmation
         const result = await window.api.plugins.action(
-          confirmation ? { ...request, acceptCommand: confirmation.sha256 ?? undefined } : request
+          confirmation ? { ...request, acceptCommand: confirmation.sha256 ?? undefined } : request,
+          configDir
         )
         if (!result.ok) {
           if ('needsConfirmation' in result) {
@@ -196,7 +200,7 @@ export default function PluginsView(): React.JSX.Element {
     }
     let live = true
     void window.api.plugins
-      .action({ action: 'details', id: open.id, cwd: cwd || undefined })
+      .action({ action: 'details', id: open.id, cwd: cwd || undefined }, configDir)
       .then((result) => {
         if (live && result.ok) setDetails(asComponentNames(result.components))
       })

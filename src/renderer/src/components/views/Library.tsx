@@ -3,8 +3,9 @@ import { Search } from 'lucide-react'
 import MarkdownRenderer from '../MarkdownRenderer'
 import Modal from '../Modal'
 import { homedir } from '../../lib/homedir'
-import { activeProjectCwd, useSessionsStore } from '../../store/sessions'
-import type { ScopedList } from '../../lib/api-types'
+import { activeProjectCwd, projectsInWorkspace, useSessionsStore } from '../../store/sessions'
+import { useActiveConfigDir, useWorkspacesStore } from '../../store/workspaces'
+import type { ConfigDir, ScopedList } from '../../lib/api-types'
 
 /**
  * The parts Skills, Commands and Memory share.
@@ -335,7 +336,8 @@ export function DialogAction({
 }
 
 /**
- * The global set, plus one project's set per project you have.
+ * The global set, plus one project's set per project you have — in the active
+ * workspace. Global means that workspace's config dir, so a switch re-reads.
  *
  * `skills_list` and `commands_list` each answer for one cwd, so the tabs mean one
  * call per project. That is a handful of directory reads at open, and it beats
@@ -343,7 +345,7 @@ export function DialogAction({
  * of a view that changes as often as the sidebar does.
  */
 export function useScopedLibrary<T>(
-  list: (cwd: string) => Promise<ScopedList<T>>,
+  list: (cwd: string, configDir: ConfigDir) => Promise<ScopedList<T>>,
   changeEvent?: string
 ): {
   global: T[]
@@ -355,6 +357,8 @@ export function useScopedLibrary<T>(
 } {
   const projects = useSessionsStore((s) => s.projects)
   const activeCwd = useSessionsStore(activeProjectCwd)
+  const workspaceId = useWorkspacesStore((s) => s.activeId)
+  const configDir = useActiveConfigDir()
   const [data, setData] = useState<{ global: T[]; byProject: Record<string, T[]> }>({
     global: [],
     byProject: {}
@@ -362,28 +366,28 @@ export function useScopedLibrary<T>(
   const [activeId, setActiveId] = useState<string | null>(null)
 
   const sorted = useMemo(
-    () => [...projects].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
-    [projects]
+    () => projectsInWorkspace(projects, workspaceId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+    [projects, workspaceId]
   )
 
   const reload = useCallback(() => {
     let live = true
     const run = async (): Promise<void> => {
       const byProject: Record<string, T[]> = {}
-      const results = await Promise.all(sorted.map((p) => list(p.path)))
+      const results = await Promise.all(sorted.map((p) => list(p.path, configDir)))
       sorted.forEach((p, i) => {
         byProject[p.id] = results[i].project
       })
       // Global is the same answer whichever cwd asks, so the first call already
       // has it; with no projects at all there is nothing to piggyback on.
-      const globals = results[0]?.global ?? (await list(activeCwd || homedir())).global
+      const globals = results[0]?.global ?? (await list(activeCwd || homedir(), configDir)).global
       if (live) setData({ global: globals, byProject })
     }
     void run()
     return () => {
       live = false
     }
-  }, [sorted, list, activeCwd])
+  }, [sorted, list, activeCwd, configDir])
 
   useEffect(() => reload(), [reload])
 

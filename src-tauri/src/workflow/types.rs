@@ -251,6 +251,10 @@ pub struct WorkflowDefinition {
     pub is_template: Option<bool>,
     #[serde(default)]
     pub recent_cwds: Option<Vec<String>>,
+    /// The project the flow belongs to, as the renderer saved it. Read only to
+    /// find the workspace — and so the account — its runs belong to.
+    #[serde(default)]
+    pub project_id: Option<String>,
     #[serde(default)]
     pub triggers: Option<Vec<WorkflowTrigger>>,
     #[serde(default)]

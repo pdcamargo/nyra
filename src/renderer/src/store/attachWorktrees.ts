@@ -1,5 +1,6 @@
 import { useSessionsStore } from './sessions'
 import { nameForPath } from './projects-migration'
+import { DEFAULT_WORKSPACE_ID } from './workspaces'
 
 /**
  * Finish the projects backfill for worktree chats.
@@ -33,7 +34,10 @@ export async function attachWorktreeSessions(): Promise<void> {
 
   useSessionsStore.setState((state) => {
     const projects = [...state.projects]
-    const byPath = new Map(projects.map((p) => [p.path, p]))
+    // Per workspace: attaching a chat to another workspace's project would move
+    // it to that account, and nothing about a restart should do that.
+    const key = (workspaceId: string, path: string): string => `${workspaceId}\u0000${path}`
+    const byPath = new Map(projects.map((p) => [key(p.workspaceId, p.path), p]))
     let changed = false
 
     const sessions = state.sessions.map((session) => {
@@ -41,16 +45,18 @@ export async function attachWorktreeSessions(): Promise<void> {
       const root = roots.get(session.cwd)
       if (!root) return session
 
-      let project = byPath.get(root)
+      const workspaceId = session.workspaceId ?? DEFAULT_WORKSPACE_ID
+      let project = byPath.get(key(workspaceId, root))
       if (!project) {
         project = {
           id: crypto.randomUUID(),
           name: nameForPath(root, projects.map((p) => p.name)),
           path: root,
-          order: projects.length
+          order: projects.length,
+          workspaceId
         }
         projects.push(project)
-        byPath.set(root, project)
+        byPath.set(key(workspaceId, root), project)
       }
       changed = true
       return { ...session, projectId: project.id }

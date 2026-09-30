@@ -66,6 +66,32 @@ export async function compressImage(base64: string, mediaType: string): Promise<
   }
 }
 
+/** The edge of a workspace's picture: twice the rail's 32px tile, for 2x displays. */
+export const WORKSPACE_IMAGE_SIZE = 128
+
+/**
+ * A picture cut to a centred square and scaled down to `size`, as a PNG data
+ * URL — what a workspace keeps instead of the file it was picked from. PNG so a
+ * logo's transparency survives; at 128px it is a few kilobytes either way. A
+ * picture smaller than `size` is not scaled up.
+ */
+export async function squareThumbnail(
+  base64: string,
+  mediaType: string,
+  size: number = WORKSPACE_IMAGE_SIZE
+): Promise<string> {
+  const img = await loadImage(base64, mediaType)
+  const side = Math.min(img.width, img.height)
+  const edge = Math.min(size, side)
+  const canvas = document.createElement('canvas')
+  canvas.width = edge
+  canvas.height = edge
+  const ctx = canvas.getContext('2d')!
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, edge, edge)
+  return canvas.toDataURL('image/png')
+}
+
 function loadImage(base64: string, mediaType: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()

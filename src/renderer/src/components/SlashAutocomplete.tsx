@@ -1,3 +1,4 @@
+import type { ConfigDir } from '../lib/api-types'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { noteCustomCommands, noteSkills, slashCommands } from '../lib/slashCommands'
 
@@ -27,7 +28,7 @@ const read = async <T,>(fn: () => Promise<{ global: T[]; project: T[] }>): Promi
  * something says a skill or a command changed, so one added a moment ago
  * completes without a restart.
  */
-export function useSlashItems(query: string, cwd: string): AutocompleteItem[] {
+export function useSlashItems(query: string, cwd: string, configDir: ConfigDir): AutocompleteItem[] {
   // The index is module state, not React state, so its revision is what a
   // re-render hangs off. The number itself is never read.
   const [, setRevision] = useState(0)
@@ -35,15 +36,15 @@ export function useSlashItems(query: string, cwd: string): AutocompleteItem[] {
 
   const refresh = useCallback((): void => {
     void Promise.all([
-      read(() => window.api.skills.list(cwd)),
-      read(() => window.api.commands.list(cwd))
+      read(() => window.api.skills.list(cwd, configDir)),
+      read(() => window.api.commands.list(cwd, configDir))
     ]).then(([skills, commands]) => {
       if (!live.current) return
       noteSkills(skills)
       noteCustomCommands(commands)
       setRevision((n) => n + 1)
     })
-  }, [cwd])
+  }, [cwd, configDir])
 
   // Re-fetch skills each time the autocomplete opens (query becomes non-empty)
   // so newly created skills appear without needing a restart

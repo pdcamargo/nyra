@@ -4,6 +4,8 @@ import { Editor } from '@monaco-editor/react'
 import { installMonacoEnvironment } from '../lib/monacoEnv'
 import { useSkillEditorStore } from '../store/skillEditor'
 import { useSessionsStore, activeProjectCwd } from '../store/sessions'
+import { useActiveConfigDir } from '../store/workspaces'
+import { claudeDirLabel } from '../lib/workspaces'
 import { homedir } from '../lib/homedir'
 import { useMonacoNyraTheme } from '../hooks/useMonacoNyraTheme'
 
@@ -52,6 +54,8 @@ export default function SkillEditorModal(): React.JSX.Element | null {
   // Skills belong to the project, not to a chat's worktree.
   const projectCwd = useSessionsStore(activeProjectCwd)
   const cwd = projectCwd || homedir()
+  // Global skills are the active workspace's.
+  const configDir = useActiveConfigDir()
 
   // Reset state when modal opens
   useEffect(() => {
@@ -121,7 +125,7 @@ export default function SkillEditorModal(): React.JSX.Element | null {
     setSaving(true)
     setError(null)
     const fullContent = buildFrontmatter(trimmedName, description, extraFields, content)
-    const result = await window.api.skills.write(scope, trimmedName, fullContent, cwd)
+    const result = await window.api.skills.write(scope, trimmedName, fullContent, cwd, configDir)
     setSaving(false)
 
     if (result.error) {
@@ -215,7 +219,7 @@ export default function SkillEditorModal(): React.JSX.Element | null {
               <p className="mt-1.5 text-[10px] text-muted-foreground">
                 {scope === 'project'
                   ? 'Saved to .claude/skills/ in your project'
-                  : 'Saved to ~/.claude/skills/ (available everywhere)'}
+                  : `Saved to ${claudeDirLabel(configDir)}/skills/ (every project in this workspace)`}
               </p>
             </div>
           )}

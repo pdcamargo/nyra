@@ -1,5 +1,6 @@
 import type { Project, Session } from './sessions'
 import { basename as pathBasename, segments } from '../lib/paths'
+import { DEFAULT_WORKSPACE_ID } from './workspaces'
 
 /** `/a/b/repo` → `repo`; tolerates trailing slashes and a bare `/`. */
 export function basename(path: string): string {
@@ -58,7 +59,8 @@ export function backfillProjects(sessions: Session[], existing: Project[]): Back
         id: crypto.randomUUID(),
         name: nameForPath(session.cwd, projects.map((p) => p.name)),
         path: session.cwd,
-        order: projects.length
+        order: projects.length,
+        workspaceId: DEFAULT_WORKSPACE_ID
       }
       projects.push(project)
       byPath.set(project.path, project)
@@ -68,4 +70,29 @@ export function backfillProjects(sessions: Session[], existing: Project[]): Back
   })
 
   return changed ? { sessions: next, projects } : { sessions, projects }
+}
+
+/**
+ * Put everything that predates workspaces into Default.
+ *
+ * Every project gets a `workspaceId`, and so does every chat with no project —
+ * a chat in a project belongs to whatever its project does, so it is left alone.
+ * Default is `~/.claude`, which is where all of it already ran, so nothing
+ * changes but the label. Idempotent: anything already assigned is kept.
+ */
+export function backfillWorkspaces(sessions: Session[], projects: Project[]): BackfillResult {
+  let changed = false
+  const nextProjects = projects.map((project) => {
+    if (project.workspaceId) return project
+    changed = true
+    return { ...project, workspaceId: DEFAULT_WORKSPACE_ID }
+  })
+  const known = new Set(nextProjects.map((p) => p.id))
+  const nextSessions = sessions.map((session) => {
+    if (session.workspaceId) return session
+    if (session.projectId && known.has(session.projectId)) return session
+    changed = true
+    return { ...session, workspaceId: DEFAULT_WORKSPACE_ID }
+  })
+  return changed ? { sessions: nextSessions, projects: nextProjects } : { sessions, projects }
 }

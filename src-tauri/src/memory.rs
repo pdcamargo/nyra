@@ -42,8 +42,8 @@ pub struct MemoryListResult {
     pub files: Vec<MemoryFile>,
 }
 
-pub fn project_memory_dir(cwd: &str) -> PathBuf {
-    util::claude_project_dir(cwd).join("memory")
+pub fn project_memory_dir(cwd: &str, config_dir: Option<&Path>) -> PathBuf {
+    util::claude_project_dir(cwd, config_dir).join("memory")
 }
 
 /// Pull `description:` and `type:` out of a memory file's YAML frontmatter.
@@ -134,8 +134,8 @@ async fn build_memory_file(
     file
 }
 
-pub async fn list_memory_files(cwd: &str) -> MemoryListResult {
-    let mem_dir = project_memory_dir(cwd);
+pub async fn list_memory_files(cwd: &str, config_dir: Option<&Path>) -> MemoryListResult {
+    let mem_dir = project_memory_dir(cwd, config_dir);
     let mut files = Vec::new();
 
     if let Ok(mut entries) = tokio::fs::read_dir(&mem_dir).await {
@@ -161,10 +161,11 @@ pub async fn list_memory_files(cwd: &str) -> MemoryListResult {
         }
     }
 
-    // The global one is the environment's: a WSL chat reads the distro's.
+    // The global one is the workspace's, in the environment's config dir: a WSL
+    // chat reads the distro's whatever its workspace.
     files.push(
         build_memory_file(
-            &Environment::of(cwd).home().join(".claude").join("CLAUDE.md"),
+            &util::claude_dir(&Environment::of(cwd), config_dir).join("CLAUDE.md"),
             MemorySource::GlobalClaude,
             "Global CLAUDE.md",
             None,
@@ -213,13 +214,14 @@ pub async fn list_memory_files(cwd: &str) -> MemoryListResult {
     }
 }
 
-/// Memory edits are confined to the project memory dir, `~/.claude`, and the
-/// project itself — the renderer supplies the path, so it can't be trusted.
-fn is_path_allowed(file_path: &str, cwd: &str) -> bool {
+/// Memory edits are confined to the project memory dir, the workspace's config
+/// dir, and the project itself — the renderer supplies the path, so it can't be
+/// trusted.
+fn is_path_allowed(file_path: &str, cwd: &str, config_dir: Option<&Path>) -> bool {
     let env = Environment::of(cwd);
     let allowed = [
-        project_memory_dir(cwd),
-        env.home().join(".claude"),
+        project_memory_dir(cwd, config_dir),
+        util::claude_dir(&env, config_dir),
         PathBuf::from(cwd),
     ];
     // By component, so it holds for either separator, and `..` is refused
@@ -231,8 +233,8 @@ fn is_path_allowed(file_path: &str, cwd: &str) -> bool {
     allowed.iter().any(|dir| env.is_within(dir, path))
 }
 
-pub async fn read_memory_file(file_path: &str, cwd: &str) -> Result<String, String> {
-    if !is_path_allowed(file_path, cwd) {
+pub async fn read_memory_file(file_path: &str, cwd: &str, config_dir: Option<&Path>) -> Result<String, String> {
+    if !is_path_allowed(file_path, cwd, config_dir) {
         return Err("Path not allowed".into());
     }
     tokio::fs::read_to_string(file_path)
@@ -240,8 +242,13 @@ pub async fn read_memory_file(file_path: &str, cwd: &str) -> Result<String, Stri
         .map_err(|e| e.to_string())
 }
 
-pub async fn write_memory_file(file_path: &str, content: &str, cwd: &str) -> Result<(), String> {
-    if !is_path_allowed(file_path, cwd) {
+pub async fn write_memory_file(
+    file_path: &str,
+    content: &str,
+    cwd: &str,
+    config_dir: Option<&Path>,
+) -> Result<(), String> {
+    if !is_path_allowed(file_path, cwd, config_dir) {
         return Err("Path not allowed".into());
     }
     if let Some(parent) = Path::new(file_path).parent() {
@@ -254,8 +261,8 @@ pub async fn write_memory_file(file_path: &str, content: &str, cwd: &str) -> Res
         .map_err(|e| e.to_string())
 }
 
-pub async fn delete_memory_file(file_path: &str, cwd: &str) -> Result<(), String> {
-    if !is_path_allowed(file_path, cwd) {
+pub async fn delete_memory_file(file_path: &str, cwd: &str, config_dir: Option<&Path>) -> Result<(), String> {
+    if !is_path_allowed(file_path, cwd, config_dir) {
         return Err("Path not allowed".into());
     }
     // Anchors are created by Claude Code itself; this API only removes entries.
@@ -307,10 +314,24 @@ mod tests {
     #[test]
     fn confines_writes_to_allowed_roots() {
         let cwd = "/Users/x/proj";
-        assert!(is_path_allowed("/Users/x/proj/CLAUDE.md", cwd));
-        assert!(!is_path_allowed("/etc/passwd", cwd));
-        assert!(!is_path_allowed("/Users/x/proj/../../../etc/passwd", cwd));
-        assert!(!is_path_allowed("/Users/x/project-two/a.md", cwd));
+        assert!(is_path_allowed("/Users/x/proj/CLAUDE.md", cwd, None));
+        assert!(!is_path_allowed("/etc/passwd", cwd, None));
+        assert!(!is_path_allowed("/Users/x/proj/../../../etc/passwd", cwd, None));
+        assert!(!is_path_allowed("/Users/x/project-two/a.md", cwd, None));
+    }
+
+    #[test]
+    fn a_workspace_edits_its_own_config_dir_and_not_the_default_one() {
+        let cwd = "/Users/x/proj";
+        let ws = Path::new("/Users/x/.nyra/workspaces/w1/.claude");
+        assert!(is_path_allowed("/Users/x/.nyra/workspaces/w1/.claude/CLAUDE.md", cwd, Some(ws)));
+        assert!(is_path_allowed(
+            "/Users/x/.nyra/workspaces/w1/.claude/projects/-Users-x-proj/memory/a.md",
+            cwd,
+            Some(ws)
+        ));
+        let default_claude = util::home_dir().join(".claude").join("CLAUDE.md");
+        assert!(!is_path_allowed(&default_claude.to_string_lossy(), cwd, Some(ws)));
     }
 
     // Windows only: these paths are `\\wsl.localhost\…` UNC paths, and on macOS
@@ -324,20 +345,21 @@ mod tests {
             crate::environment::wsl::Probe { home: "/home/me".into(), ..Default::default() },
         );
         let cwd = r"\\wsl.localhost\MemTest\home\me\repo";
-        assert!(is_path_allowed(r"\\wsl.localhost\MemTest\home\me\.claude\CLAUDE.md", cwd));
-        assert!(is_path_allowed(r"\\wsl.localhost\memtest\home\me\repo\CLAUDE.md", cwd));
+        assert!(is_path_allowed(r"\\wsl.localhost\MemTest\home\me\.claude\CLAUDE.md", cwd, None));
+        assert!(is_path_allowed(r"\\wsl.localhost\memtest\home\me\repo\CLAUDE.md", cwd, None));
         assert!(is_path_allowed(
             r"\\wsl.localhost\MemTest\home\me\.claude\projects\-home-me-repo\memory\a.md",
-            cwd
+            cwd,
+            None
         ));
         let host_claude = util::home_dir().join(".claude").join("CLAUDE.md");
-        assert!(!is_path_allowed(&host_claude.to_string_lossy(), cwd));
-        assert!(!is_path_allowed(r"\\wsl.localhost\MemTest\home\me\repo\..\..\x", cwd));
+        assert!(!is_path_allowed(&host_claude.to_string_lossy(), cwd, None));
+        assert!(!is_path_allowed(r"\\wsl.localhost\MemTest\home\me\repo\..\..\x", cwd, None));
     }
 
     #[test]
     fn encodes_the_project_dir_the_way_claude_does() {
-        let dir = project_memory_dir("/Users/x/proj");
+        let dir = project_memory_dir("/Users/x/proj", None);
         assert!(dir.ends_with(Path::new("-Users-x-proj").join("memory")), "{}", dir.display());
     }
 }

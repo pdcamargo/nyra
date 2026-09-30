@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, Suspense } from 'react'
 import Sidebar from './components/Sidebar'
+import WorkspaceRail from './components/WorkspaceRail'
 import TitleBar from './components/TitleBar'
 import { TooltipProvider } from './components/ui/tooltip'
 import Chat from './components/Chat'
@@ -18,7 +19,9 @@ import { applyThemeClass } from './lib/theme'
 import { appearanceOf, applyAppearance } from './lib/appearance'
 import { applyZoom } from './lib/zoom'
 import { useSettingsStore } from './store/settings'
-import { useSessionsStore } from './store/sessions'
+import { configDirForSession, useSessionsStore } from './store/sessions'
+import { activeConfigDir } from './store/workspaces'
+import { installWorkspaceFollowers } from './lib/workspaces'
 import { loadModelCatalog } from './store/modelVersions'
 import { useMcpHealthStore } from './store/mcpHealth'
 import { attachWorktreeSessions } from './store/attachWorktrees'
@@ -44,6 +47,9 @@ const SkillEditorModal = React.lazy(() => import('./components/SkillEditorModal'
 const HookEditorModal = React.lazy(() => import('./components/HookEditorModal'))
 const WelcomeModal = React.lazy(() => import('./components/WelcomeModal'))
 const LoginModal = React.lazy(() => import('./components/LoginModal'))
+const WorkspaceDialog = React.lazy(() => import('./components/WorkspaceDialog'))
+const WorkspaceDeleteDialog = React.lazy(() => import('./components/WorkspaceDeleteDialog'))
+const MoveProjectDialog = React.lazy(() => import('./components/MoveProjectDialog'))
 
 export default function App(): React.JSX.Element {
   // Both side panels live in the ui store now, next to bottomPanelOpen — the
@@ -89,11 +95,12 @@ export default function App(): React.JSX.Element {
     (s) => s.sessions.find((x) => x.id === s.activeSessionId)?.cwd ?? ''
   )
   useEffect(() => {
-    void primeHomedir().then((home) => useMcpHealthStore.getState().warm(home, Infinity))
+    void primeHomedir().then((home) => useMcpHealthStore.getState().warm(home, activeConfigDir(), Infinity))
   }, [])
+  const activeChatConfigDir = useSessionsStore((s) => configDirForSession(s, s.activeSessionId))
   useEffect(() => {
-    useMcpHealthStore.getState().warm(activeCwd, Infinity)
-  }, [activeCwd])
+    useMcpHealthStore.getState().warm(activeCwd, activeChatConfigDir, Infinity)
+  }, [activeCwd, activeChatConfigDir])
 
   // Alt-tab and minimise count as time away for the recap, the same as looking
   // at another chat. Focus rather than visibility alone: an alt-tabbed window
@@ -133,6 +140,7 @@ export default function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    let stopFollowing: (() => void) | undefined
     // Rehydrate first: the synchronous half of the projects backfill runs inside
     // the store's merge, and the git-dependent half has to follow it. The key
     // migration goes in front of it — rehydrating before the history has been
@@ -146,8 +154,11 @@ export default function App(): React.JSX.Element {
         // here rather than on write, because only now is the session list real.
         const ids = useSessionsStore.getState().sessions.map((x) => x.id)
         usePanelTabsStore.getState().prune(ids)
+        // Only now is it known which chat belongs to which workspace.
+        stopFollowing = installWorkspaceFollowers()
       })
     void primeHomedir()
+    return () => stopFollowing?.()
   }, [])
 
   useEffect(() => {
@@ -275,6 +286,7 @@ export default function App(): React.JSX.Element {
       {/* Left Sidebar */}
       {projectsPanelOpen && (
         <>
+          <WorkspaceRail />
           <Sidebar />
           <ResizeHandle
             side="left"
@@ -355,6 +367,9 @@ export default function App(): React.JSX.Element {
         <HookEditorModal />
         <WelcomeModal />
         <LoginModal />
+        <WorkspaceDialog />
+        <WorkspaceDeleteDialog />
+        <MoveProjectDialog />
       </Suspense>
     </div>
     </TooltipProvider>

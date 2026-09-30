@@ -101,6 +101,32 @@ describe('eventToChord', () => {
     )
     expect(eventToChord(ev({ key: '=', code: 'Equal', metaKey: true }), 'mac')).toBe('mod+=')
   })
+
+  // The workspace chords. Shift+] types }, which is no key token, and the code
+  // fallback is only right where ] sits where it does on a US keyboard.
+  it('reads a shifted bracket as the bracket, whatever key it is on', () => {
+    // US: ] is BracketRight.
+    expect(eventToChord(ev({ key: '}', code: 'BracketRight', ctrlKey: true, shiftKey: true }), 'other')).toBe(
+      'mod+shift+]'
+    )
+    expect(eventToChord(ev({ key: '{', code: 'BracketLeft', metaKey: true, shiftKey: true }), 'mac')).toBe(
+      'mod+shift+['
+    )
+    // ABNT2 (pt-BR): ] is on the Backslash code, and read as \ it was the wrong chord.
+    expect(eventToChord(ev({ key: '}', code: 'Backslash', ctrlKey: true, shiftKey: true }), 'other')).toBe(
+      'mod+shift+]'
+    )
+    expect(eventToChord(ev({ key: '{', code: 'BracketRight', ctrlKey: true, shiftKey: true }), 'other')).toBe(
+      'mod+shift+['
+    )
+  })
+
+  it('leaves a brace typed without Shift to its key', () => {
+    // German: } is AltGr+0, which Windows reports as Ctrl+Alt. Still the digit.
+    expect(eventToChord(ev({ key: '}', code: 'Digit0', ctrlKey: true, altKey: true }), 'other')).toBe(
+      'mod+alt+0'
+    )
+  })
 })
 
 describe('chordMatches', () => {

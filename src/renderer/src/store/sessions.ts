@@ -5,7 +5,9 @@ import { useRunningStore } from './running'
 import { useSettingsStore } from './settings'
 import { useBrowserStore } from './browser'
 import { usePanelTabsStore } from './panelTabs'
-import { backfillProjects, nameForPath } from './projects-migration'
+import { backfillProjects, backfillWorkspaces, nameForPath } from './projects-migration'
+import { DEFAULT_WORKSPACE_ID, activeWorkspaceId, configDirOf } from './workspaces'
+import type { ConfigDir } from '../lib/api-types'
 import { homedir } from '../lib/homedir'
 import { samePath } from '../lib/paths'
 import type { NyraSettings } from '../../../shared/types'
@@ -166,6 +168,9 @@ export type Project = {
   collapsed?: boolean
   /** Manual position in the rail (lower = higher up). */
   order?: number
+  /** The workspace — the Claude account — this project's chats, terminals and
+   *  flows run under. Moving a project moves all of them. */
+  workspaceId: string
 }
 
 /**
@@ -249,6 +254,10 @@ export type Session = {
   archivedAt?: number | null
   /** Owning project, or null/undefined for a Recents chat. */
   projectId?: string | null
+  /** The workspace a chat outside any project belongs to, stamped when it is
+   *  made. A chat in a project follows its project instead — read it through
+   *  `workspaceIdOf`, never directly. */
+  workspaceId?: string
   /** Worktree asked for in the composer, created when the first message is sent.
    *  Deferring it means a chat you never used leaves nothing behind. */
   pendingWorktree?: PendingWorktree | null
@@ -316,13 +325,23 @@ type SessionsStore = {
   windowAway: boolean
   pendingAction: PendingAction | null
   createSession: (cwd: string, projectId?: string | null) => string
-  createProject: (path: string, name?: string) => string
+  /** In the active workspace unless told otherwise. A folder that is already a
+   *  project in that workspace is selected, not added twice. */
+  createProject: (path: string, name?: string, workspaceId?: string) => string
   renameProject: (projectId: string, name: string) => void
   setProjectPath: (projectId: string, path: string) => void
   removeProject: (projectId: string) => void
   setProjectCollapsed: (projectId: string, collapsed: boolean) => void
   reorderProjects: (orderedIds: string[]) => void
   setSessionProject: (sessionId: string, projectId: string | null) => void
+  /** Move a project, and so its chats, to another workspace. Nothing running is
+   *  touched: an idle chat respawns under the new account on its next send. */
+  moveProjectToWorkspace: (projectId: string, workspaceId: string) => void
+  /** Everything in `fromId` — projects, and chats outside any project — into
+   *  `toId`. Deleting a workspace, once its transcripts are safely copied. */
+  reassignWorkspace: (fromId: string, toId: string) => void
+  /** Nothing open: switching to a workspace with no chats in it. */
+  clearActiveSession: () => void
   setActiveSession: (id: string) => void
   /** The window lost focus (alt-tab, minimise) or got it back. Counted towards
    *  the recap's time away exactly like switching to another chat. */
@@ -448,6 +467,7 @@ export const useSessionsStore = create<SessionsStore>()(
           title: 'New session',
           cwd,
           projectId,
+          ...(projectId ? {} : { workspaceId: activeWorkspaceId() }),
           createdAt: Date.now(),
           messages: [],
           tasks: [],
@@ -458,12 +478,17 @@ export const useSessionsStore = create<SessionsStore>()(
         return id
       },
 
-      createProject: (path: string, name?: string) => {
+      createProject: (path: string, name?: string, workspaceId: string = activeWorkspaceId()) => {
         // Adding a folder that is already a project selects it rather than
         // producing a second row pointing at the same checkout. `samePath`, not
         // `===`: on Windows `C:\Repo` and `c:/repo/` are one checkout, and so are
         // `\\wsl.localhost\Ubuntu\x` and `//WSL.LOCALHOST/ubuntu/x/`.
-        const existing = get().projects.find((p) => samePath(p.path, path))
+        //
+        // Within the workspace only. The same checkout can be a project in two
+        // accounts, and adding it here must not drag you into the other one.
+        const existing = get().projects.find(
+          (p) => p.workspaceId === workspaceId && samePath(p.path, path)
+        )
         if (existing) return existing.id
         const id = crypto.randomUUID()
         set((state) => ({
@@ -473,7 +498,8 @@ export const useSessionsStore = create<SessionsStore>()(
               id,
               name: name?.trim() || nameForPath(path, state.projects.map((p) => p.name)),
               path,
-              order: state.projects.length
+              order: state.projects.length,
+              workspaceId
             }
           ]
         }))
@@ -508,12 +534,16 @@ export const useSessionsStore = create<SessionsStore>()(
         }
         // Chats are never destroyed with the project — they fall back to Recents,
         // so removing a folder from the rail can't silently take history with it.
-        set((state) => ({
-          projects: state.projects.filter((p) => p.id !== projectId),
-          sessions: state.sessions.map((s) =>
-            s.projectId === projectId ? { ...s, projectId: null } : s
-          )
-        }))
+        // They stay in the project's workspace: its account holds their history.
+        set((state) => {
+          const workspaceId = state.projects.find((p) => p.id === projectId)?.workspaceId ?? DEFAULT_WORKSPACE_ID
+          return {
+            projects: state.projects.filter((p) => p.id !== projectId),
+            sessions: state.sessions.map((s) =>
+              s.projectId === projectId ? { ...s, projectId: null, workspaceId } : s
+            )
+          }
+        })
       },
 
       setProjectCollapsed: (projectId: string, collapsed: boolean) => {
@@ -533,7 +563,38 @@ export const useSessionsStore = create<SessionsStore>()(
 
       setSessionProject: (sessionId: string, projectId: string | null) => {
         set((state) => ({
-          sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, projectId } : s))
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            // Leaving a project for Recents keeps the account it was running under.
+            return projectId ? { ...s, projectId } : { ...s, projectId, workspaceId: workspaceIdOf(state, s) }
+          })
+        }))
+      },
+
+      moveProjectToWorkspace: (projectId: string, workspaceId: string) => {
+        set((state) => ({
+          projects: state.projects.map((p) => (p.id === projectId ? { ...p, workspaceId } : p))
+        }))
+      },
+
+      reassignWorkspace: (fromId: string, toId: string) => {
+        set((state) => {
+          const projects = state.projects.map((p) => (p.workspaceId === fromId ? { ...p, workspaceId: toId } : p))
+          const known = new Set(projects.map((p) => p.id))
+          const sessions = state.sessions.map((s) => {
+            if (s.projectId && known.has(s.projectId)) return s.workspaceId === fromId ? { ...s, workspaceId: toId } : s
+            return (s.workspaceId ?? DEFAULT_WORKSPACE_ID) === fromId ? { ...s, workspaceId: toId } : s
+          })
+          return { projects, sessions }
+        })
+      },
+
+      clearActiveSession: () => {
+        set((state) => ({
+          activeSessionId: null,
+          sessions: state.sessions.map((s) =>
+            s.id === state.activeSessionId ? (state.windowAway ? { ...s, away: null } : { ...leave(s), away: null }) : s
+          )
         }))
       },
 
@@ -1151,6 +1212,7 @@ export const useSessionsStore = create<SessionsStore>()(
             // A fork belongs to the same project as its source. Without this it
             // would drop into Recents and look lost.
             projectId: source.projectId ?? null,
+            workspaceId: source.workspaceId,
             createdAt: Date.now(),
             messages,
             tasks: [],
@@ -1240,7 +1302,9 @@ export const useSessionsStore = create<SessionsStore>()(
         // nothing lands in Recents just because it predates the feature.
         // Worktree sessions can't be resolved synchronously — see
         // attachWorktreeSessions, which finishes the job after hydration.
-        const { sessions, projects } = backfillProjects(normalized, stored?.projects ?? [])
+        const backfilled = backfillProjects(normalized, stored?.projects ?? [])
+        // Everything from before workspaces is Default's — it all ran in ~/.claude.
+        const { sessions, projects } = backfillWorkspaces(backfilled.sessions, backfilled.projects)
         return { ...current, ...stored, sessions, projects }
       },
     }
@@ -1307,6 +1371,35 @@ export function activeProjectCwd(state: SessionsStore): string {
  */
 export function sortProjects(projects: Project[]): Project[] {
   return [...projects].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+}
+
+/**
+ * The workspace a chat belongs to: its project's, or for a chat outside any
+ * project the one it was made in. Anything unassigned is Default.
+ */
+export function workspaceIdOf(state: Pick<SessionsStore, 'projects'>, session: Session): string {
+  const project = session.projectId ? state.projects.find((p) => p.id === session.projectId) : undefined
+  return project?.workspaceId ?? session.workspaceId ?? DEFAULT_WORKSPACE_ID
+}
+
+export function workspaceIdForSession(state: SessionsStore, sessionId: string | null | undefined): string {
+  const session = findSession(state, sessionId)
+  return session ? workspaceIdOf(state, session) : activeWorkspaceId()
+}
+
+/** The `CLAUDE_CONFIG_DIR` a chat's `claude` runs under. */
+export function configDirForSession(state: SessionsStore, sessionId: string | null | undefined): ConfigDir {
+  return configDirOf(workspaceIdForSession(state, sessionId))
+}
+
+/** A workspace's projects, as stored; `sortProjects` puts them in rail order. */
+export function projectsInWorkspace(projects: Project[], workspaceId: string): Project[] {
+  return projects.filter((p) => p.workspaceId === workspaceId)
+}
+
+/** A project's chats and the workspace's own, and nothing of anyone else's. */
+export function sessionsInWorkspace(state: Pick<SessionsStore, 'projects'>, sessions: Session[], workspaceId: string): Session[] {
+  return sessions.filter((s) => workspaceIdOf(state, s) === workspaceId)
 }
 
 export function sessionsForProject(state: SessionsStore, projectId: string): Session[] {

@@ -142,10 +142,15 @@ export type SpawnSettings = Pick<
   | 'claudeBinaryPath'
   | 'skipPermissions'
   | 'autoApproveTools'
->
+> & {
+  /** The workspace's `CLAUDE_CONFIG_DIR`; null is Default. Part of the spawn
+   *  fingerprint, so a changed account respawns the chat. */
+  configDir: string | null
+}
 
-export function spawnSettingsFor(settings: NyraSettings): SpawnSettings {
+export function spawnSettingsFor(settings: NyraSettings, configDir: string | null): SpawnSettings {
   return {
+    configDir,
     model: settings.model,
     effort: settings.effort,
     systemPrompt: settings.systemPrompt,

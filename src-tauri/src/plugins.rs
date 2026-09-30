@@ -61,6 +61,10 @@ pub struct PluginAction {
     /// echoed back only after a person has seen that command.
     #[serde(default)]
     pub accept_command: Option<String>,
+    /// The workspace's `CLAUDE_CONFIG_DIR`; absent for Default. A plugin
+    /// installed from one workspace belongs to that account's config only.
+    #[serde(default)]
+    pub config_dir: Option<String>,
 }
 
 struct Outcome {
@@ -243,14 +247,13 @@ fn meta_from_catalog(entry: &Value) -> PluginMeta {
 
 /// `name@marketplace` → what the catalog knows, for every plugin in it.
 ///
-/// Read from the cache Claude Code keeps at `~/.claude/plugins/`. That file is
+/// Read from the cache Claude Code keeps in its config dir's `plugins/`. That file is
 /// five hundred kilobytes of already-resolved catalog, and its shape is the
 /// reason the filter rail and the integrations row can be real: it is where
 /// `category` and the per-plugin component list live, neither of which the
 /// CLI's own `--available` output carries.
-fn read_cache() -> BTreeMap<String, PluginMeta> {
-    let path = util::home_dir()
-        .join(".claude")
+fn read_cache(config_dir: Option<&Path>) -> BTreeMap<String, PluginMeta> {
+    let path = util::claude_dir(&crate::environment::Environment::Host, config_dir)
         .join("plugins")
         .join("plugin-catalog-cache.json");
     let Ok(raw) = std::fs::read_to_string(&path) else {
@@ -357,13 +360,18 @@ fn inventory_on_disk(dir: &Path) -> Components {
 /// `stdin` is null on purpose. Several of these subcommands have an interactive
 /// prompt, and a GUI that handed the CLI a live terminal would hang on a
 /// question nobody can see.
-async fn run(args: &[String], cwd: Option<&str>, timeout: Duration) -> Result<Outcome, String> {
+async fn run(
+    args: &[String],
+    cwd: Option<&str>,
+    config_dir: Option<&Path>,
+    timeout: Duration,
+) -> Result<Outcome, String> {
     let binary = claude::resolve_claude_binary(&util::settings().claude_binary_path);
     let mut command = crate::platform::command(&binary);
     command
         .args(args)
         .env_clear()
-        .envs(util::clean_child_env())
+        .envs(util::claude_child_env(config_dir))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -501,12 +509,13 @@ fn string_args(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| part.to_string()).collect()
 }
 
-pub async fn catalog(cwd: Option<String>) -> Value {
+pub async fn catalog(cwd: Option<String>, config_dir: Option<&Path>) -> Value {
     let dir = cwd.filter(|cwd| !cwd.is_empty());
 
     let listing = match run(
         &string_args(&["plugin", "list", "--json", "--available"]),
         dir.as_deref(),
+        config_dir,
         CATALOG_TIMEOUT,
     )
     .await
@@ -550,6 +559,7 @@ pub async fn catalog(cwd: Option<String>) -> Value {
     let marketplaces_value = run(
         &string_args(&["plugin", "marketplace", "list", "--json"]),
         dir.as_deref(),
+        config_dir,
         CATALOG_TIMEOUT,
     )
     .await
@@ -558,7 +568,7 @@ pub async fn catalog(cwd: Option<String>) -> Value {
     .unwrap_or_else(|| json!([]));
     let marketplace_list = marketplaces_value.as_array().cloned().unwrap_or_default();
 
-    let cache = read_cache();
+    let cache = read_cache(config_dir);
 
     // Fallbacks for a marketplace the cache does not cover, plus where each
     // marketplace keeps its checkout so a component list can be read on disk.
@@ -823,7 +833,8 @@ async fn details(request: &PluginAction) -> Value {
     let Some(id) = request.id.clone().filter(|id| !id.is_empty()) else {
         return json!({ "ok": false, "error": "Which plugin?" });
     };
-    let cache = read_cache();
+    let config_dir = util::config_dir_arg(request.config_dir.clone());
+    let cache = read_cache(config_dir.as_deref());
     if let Some(meta) = cache.get(&id) {
         return json!({
             "ok": true,
@@ -841,6 +852,7 @@ async fn details(request: &PluginAction) -> Value {
     let marketplaces = run(
         &string_args(&["plugin", "marketplace", "list", "--json"]),
         request.cwd.as_deref(),
+        config_dir.as_deref(),
         CATALOG_TIMEOUT,
     )
     .await
@@ -899,6 +911,7 @@ pub async fn action(request: PluginAction) -> Value {
     }
 
     let cwd = request.cwd.clone().filter(|cwd| !cwd.is_empty());
+    let config_dir = util::config_dir_arg(request.config_dir.clone());
 
     // Marketplace management is a separate subcommand tree with no `--json`.
     if request.action.starts_with("marketplace.") {
@@ -939,7 +952,7 @@ pub async fn action(request: PluginAction) -> Value {
             }
             other => return json!({ "ok": false, "error": format!("`{other}` is not an action.") }),
         };
-        return match run(&args, cwd.as_deref(), ACTION_TIMEOUT).await {
+        return match run(&args, cwd.as_deref(), config_dir.as_deref(), ACTION_TIMEOUT).await {
             Ok(outcome) => settle(outcome, &args),
             Err(error) => json!({ "ok": false, "error": error }),
         };
@@ -949,7 +962,7 @@ pub async fn action(request: PluginAction) -> Value {
         Ok(args) => args,
         Err(error) => return json!({ "ok": false, "error": error }),
     };
-    match run(&args, cwd.as_deref(), ACTION_TIMEOUT).await {
+    match run(&args, cwd.as_deref(), config_dir.as_deref(), ACTION_TIMEOUT).await {
         Ok(outcome) => settle(outcome, &args),
         Err(error) => json!({ "ok": false, "error": error }),
     }
@@ -962,7 +975,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "reads this machine's Claude Code catalogs; run by hand"]
     async fn smoke_against_the_real_catalogs() {
-        let catalog = catalog(None).await;
+        let catalog = catalog(None, None).await;
         if catalog.get("ok").and_then(Value::as_bool) != Some(true) {
             println!(
                 "catalog failed: {}",
@@ -1003,6 +1016,7 @@ mod tests {
             source: None,
             cwd: None,
             accept_command: None,
+            config_dir: None,
         })
         .await;
         println!("details: {}", serde_json::to_string(&details).unwrap());
@@ -1053,6 +1067,7 @@ mod tests {
             source: None,
             cwd: None,
             accept_command: None,
+            config_dir: None,
         };
         let args = args_for(&request).expect("argv");
         assert!(!args.iter().any(|arg| arg == "-y" || arg == "--yes"));
@@ -1074,6 +1089,7 @@ mod tests {
             source: None,
             cwd: None,
             accept_command: Some("deadbeef".into()),
+            config_dir: None,
         };
         let args = args_for(&request).expect("argv");
         let position = args
@@ -1171,6 +1187,7 @@ mod tests {
             source: None,
             cwd: None,
             accept_command: None,
+            config_dir: None,
         };
         assert!(args_for(&request).unwrap_err().contains("format-the-disk"));
     }

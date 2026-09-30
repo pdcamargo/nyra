@@ -54,6 +54,58 @@ pub fn home_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
 }
 
+/// What points a `claude` process at a workspace's own login, settings,
+/// plugins and transcripts.
+pub const CLAUDE_CONFIG_DIR: &str = "CLAUDE_CONFIG_DIR";
+
+/// A workspace's config directory as the renderer sends it. `None`, or a blank
+/// string, is the Default workspace: it sets nothing, which is exactly the
+/// `~/.claude` every build before workspaces used.
+pub fn config_dir_arg(arg: Option<String>) -> Option<PathBuf> {
+    arg.map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The CLI's config directory: login, settings, skills, plugins, transcripts.
+///
+/// A workspace's own directory on the host, else `~/.claude`. A WSL
+/// environment always gets the distro's: nothing but PATH crosses into the
+/// distro, so a workspace's variable could never reach a claude running there.
+pub fn claude_dir(env: &Environment, config_dir: Option<&Path>) -> PathBuf {
+    match config_dir {
+        Some(dir) if env.is_host() => dir.to_path_buf(),
+        _ => env.home().join(".claude"),
+    }
+}
+
+/// The CLI's global config file: MCP servers, the account it signed in with.
+///
+/// Not simply `claude_dir()/.claude.json`. By default it sits *beside* the
+/// directory, at `~/.claude.json`; under `CLAUDE_CONFIG_DIR` it moves inside,
+/// to `<dir>/.claude.json` (checked against CLI 2.1.283). Reading the home one
+/// for a workspace would show the Default account's servers and name.
+pub fn claude_json(env: &Environment, config_dir: Option<&Path>) -> PathBuf {
+    match config_dir {
+        Some(dir) if env.is_host() => dir.join(".claude.json"),
+        _ => env.home().join(".claude.json"),
+    }
+}
+
+/// `clean_child_env`, pointed at a workspace when there is one.
+///
+/// Default adds nothing, so its children see what they always did — including a
+/// `CLAUDE_CONFIG_DIR` the user exported themselves. A workspace replaces any
+/// inherited one rather than adding a second: which of two wins is up to the OS.
+pub fn claude_child_env(config_dir: Option<&Path>) -> Vec<(String, String)> {
+    let mut env = clean_child_env();
+    if let Some(dir) = config_dir {
+        env.retain(|(k, _)| !k.eq_ignore_ascii_case(CLAUDE_CONFIG_DIR));
+        env.push((CLAUDE_CONFIG_DIR.to_string(), dir.to_string_lossy().into_owned()));
+    }
+    env
+}
+
 /// Past this many characters the CLI cuts a project directory's name and adds a
 /// hash of the full path to keep it unique.
 const PROJECT_DIR_NAME_MAX: usize = 200;
@@ -70,12 +122,12 @@ const PROJECT_DIR_NAME_MAX: usize = 200;
 /// A name past the cap ends in a hash this does not reproduce, so that case is
 /// found by its prefix among the directories that exist.
 ///
-/// In the `~/.claude` of the environment the CLI runs in, and named after the
-/// directory as that environment spells it: a WSL project's transcripts are
-/// under the distro's home, as `-home-me-repo`.
-pub fn claude_project_dir(cwd: &str) -> PathBuf {
+/// In the config directory of the environment the CLI runs in (see
+/// `claude_dir`), and named after the directory as that environment spells it:
+/// a WSL project's transcripts are under the distro's home, as `-home-me-repo`.
+pub fn claude_project_dir(cwd: &str, config_dir: Option<&Path>) -> PathBuf {
     let env = Environment::of(cwd);
-    let projects = env.home().join(".claude").join("projects");
+    let projects = claude_dir(&env, config_dir).join("projects");
     let name: String = env
         .cwd_in_env(cwd)
         .chars()
@@ -419,10 +471,52 @@ mod tests {
     fn claude_project_dir_flattens_every_non_alphanumeric() {
         let projects = home_dir().join(".claude").join("projects");
         assert_eq!(
-            claude_project_dir("/Users/x/.claude/jobs"),
+            claude_project_dir("/Users/x/.claude/jobs", None),
             projects.join("-Users-x--claude-jobs")
         );
-        assert_eq!(claude_project_dir(r"C:\Users\x\my_app"), projects.join("C--Users-x-my-app"));
+        assert_eq!(claude_project_dir(r"C:\Users\x\my_app", None), projects.join("C--Users-x-my-app"));
+    }
+
+    #[test]
+    fn a_workspace_keeps_its_transcripts_in_its_own_config_dir() {
+        let dir = PathBuf::from("/tmp/ws/.claude");
+        assert_eq!(
+            claude_project_dir("/Users/x/app", Some(&dir)),
+            dir.join("projects").join("-Users-x-app")
+        );
+    }
+
+    #[test]
+    fn the_global_config_sits_beside_the_default_dir_and_inside_a_workspace() {
+        let host = Environment::Host;
+        assert_eq!(claude_json(&host, None), home_dir().join(".claude.json"));
+        assert_eq!(claude_dir(&host, None), home_dir().join(".claude"));
+        let dir = PathBuf::from("/tmp/ws/.claude");
+        assert_eq!(claude_json(&host, Some(&dir)), dir.join(".claude.json"));
+        assert_eq!(claude_dir(&host, Some(&dir)), dir);
+    }
+
+    #[test]
+    fn only_a_workspace_sets_claude_config_dir() {
+        let named = |env: &[(String, String)]| -> Vec<String> {
+            env.iter()
+                .filter(|(k, _)| k.eq_ignore_ascii_case(CLAUDE_CONFIG_DIR))
+                .map(|(_, v)| v.clone())
+                .collect()
+        };
+        // Default passes through whatever the user exported, and adds nothing.
+        let inherited = std::env::var(CLAUDE_CONFIG_DIR).ok();
+        assert_eq!(named(&claude_child_env(None)), inherited.into_iter().collect::<Vec<_>>());
+
+        let dir = PathBuf::from("/tmp/ws/.claude");
+        assert_eq!(named(&claude_child_env(Some(&dir))), vec![dir.to_string_lossy().into_owned()]);
+    }
+
+    #[test]
+    fn a_blank_config_dir_is_the_default_workspace() {
+        assert_eq!(config_dir_arg(None), None);
+        assert_eq!(config_dir_arg(Some("  ".into())), None);
+        assert_eq!(config_dir_arg(Some("/a/.claude".into())), Some(PathBuf::from("/a/.claude")));
     }
 
     #[test]
@@ -432,7 +526,7 @@ mod tests {
             crate::environment::wsl::Probe { home: "/home/me".into(), ..Default::default() },
         );
         // Separators normalised: `join` writes this OS's, and the test runs on macOS too.
-        let dir = claude_project_dir(r"\\wsl.localhost\UtilTest\home\me\dev\my.repo");
+        let dir = claude_project_dir(r"\\wsl.localhost\UtilTest\home\me\dev\my.repo", None);
         assert_eq!(
             dir.to_string_lossy().replace('/', r"\"),
             r"\\wsl.localhost\UtilTest\home\me\.claude\projects\-home-me-dev-my-repo"

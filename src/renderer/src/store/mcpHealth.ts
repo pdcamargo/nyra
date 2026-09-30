@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { McpHealthEntry } from '../lib/api-types'
+import type { ConfigDir, McpHealthEntry } from '../lib/api-types'
+
+/** One cache entry per directory and account: user-scope servers are the
+ *  workspace's, so the same folder answers differently in two of them. */
+export function healthKey(cwd: string, configDir: ConfigDir): string {
+  return configDir ? `${configDir}\u0000${cwd}` : cwd
+}
 
 /**
  * What `claude mcp list` said about each directory's servers.
@@ -33,10 +39,11 @@ export const MCP_HEALTH_STALE_MS = 5 * 60 * 1000
 const EMPTY_CHECK: McpHealthCheck = { servers: [], checkedAt: null, loading: false }
 
 type McpHealthState = {
+  /** Keyed by `healthKey`. */
   byCwd: Record<string, McpHealthCheck>
-  /** Check `cwd` unless a check is already running, or one finished within
-   *  `maxAgeMs`. `Infinity` means "only if never checked" this launch. */
-  warm: (cwd: string, maxAgeMs?: number) => void
+  /** Check `cwd` for one workspace unless a check is already running, or one
+   *  finished within `maxAgeMs`. `Infinity` means "only if never checked" this launch. */
+  warm: (cwd: string, configDir: ConfigDir, maxAgeMs?: number) => void
 }
 
 export const useMcpHealthStore = create<McpHealthState>()(
@@ -44,21 +51,22 @@ export const useMcpHealthStore = create<McpHealthState>()(
     (set, get) => ({
       byCwd: {},
 
-      warm: (cwd, maxAgeMs = MCP_HEALTH_STALE_MS) => {
+      warm: (cwd, configDir, maxAgeMs = MCP_HEALTH_STALE_MS) => {
         if (!cwd) return
-        const current = get().byCwd[cwd]
+        const key = healthKey(cwd, configDir)
+        const current = get().byCwd[key]
         if (current?.loading) return
         if (current?.checkedAt != null && Date.now() - current.checkedAt < maxAgeMs) return
 
         const put = (patch: Partial<McpHealthCheck>): void => {
           set((state) => ({
-            byCwd: { ...state.byCwd, [cwd]: { ...(state.byCwd[cwd] ?? EMPTY_CHECK), ...patch } }
+            byCwd: { ...state.byCwd, [key]: { ...(state.byCwd[key] ?? EMPTY_CHECK), ...patch } }
           }))
         }
 
         put({ loading: true })
         void window.api.mcp
-          .health(cwd)
+          .health(cwd, configDir)
           .then((result) =>
             result.ok
               ? put({ servers: result.servers, checkedAt: Date.now(), loading: false, error: undefined })

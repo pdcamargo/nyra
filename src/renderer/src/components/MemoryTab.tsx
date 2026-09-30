@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileText } from 'lucide-react'
 import { useUiStore } from '../store/ui'
 import { openFileInPanel } from '../lib/openFile'
-import type { ScopedList } from '../lib/api-types'
+import type { ConfigDir, ScopedList } from '../lib/api-types'
+import { useActiveConfigDir } from '../store/workspaces'
+import { claudeDirLabel } from '../lib/workspaces'
 import type { LibraryItem } from './views/Library'
 import {
   DialogAction,
@@ -48,8 +50,9 @@ export default function MemoryTab(): React.JSX.Element {
   // project whose tab is open, not of the chat that happens to be running.
   const dirs = useRef<Record<string, string>>({})
 
-  const listMemory = useCallback(async (cwd: string): Promise<ScopedList<MemoryFile>> => {
-    const result = await window.api.memory.list(cwd)
+  const configDir = useActiveConfigDir()
+  const listMemory = useCallback(async (cwd: string, dir: ConfigDir): Promise<ScopedList<MemoryFile>> => {
+    const result = await window.api.memory.list(cwd, dir)
     dirs.current[cwd] = result.projectMemoryDir ?? ''
     const files = result.files ?? []
     return { global: files.filter(isGlobal), project: files.filter((f) => !isGlobal(f)) }
@@ -87,7 +90,7 @@ export default function MemoryTab(): React.JSX.Element {
   }, [pendingFilePath, everything, consumePendingFile])
 
   const card = (file: MemoryFile): React.JSX.Element => {
-    const { name, description } = cardFor(file)
+    const { name, description } = cardFor(file, claudeDirLabel(configDir))
     const tone = file.memoryType ? TYPE_TONE[file.memoryType] : null
     return (
       <LibraryCard
@@ -109,9 +112,10 @@ export default function MemoryTab(): React.JSX.Element {
     )
   }
 
-  const globalFiles = matches(global.map(withSearchText), query).map((f) => f.file)
+  const globalDir = claudeDirLabel(configDir)
+  const globalFiles = matches(global.map((f) => withSearchText(f, globalDir)), query).map((f) => f.file)
   const projectFiles = matches(
-    (activeId ? (byProject[activeId] ?? []) : []).map(withSearchText),
+    (activeId ? (byProject[activeId] ?? []) : []).map((f) => withSearchText(f, globalDir)),
     query
   ).map((f) => f.file)
 
@@ -120,7 +124,7 @@ export default function MemoryTab(): React.JSX.Element {
       <LibrarySearch value={query} onChange={setQuery} placeholder="Search memories" />
 
       <section className="mb-8">
-        <SectionHeading trailing="~/.claude/CLAUDE.md">Global</SectionHeading>
+        <SectionHeading trailing={`${claudeDirLabel(configDir)}/CLAUDE.md`}>Global</SectionHeading>
         {globalFiles.length > 0 ? (
           <LibraryGrid>{globalFiles.map(card)}</LibraryGrid>
         ) : (
@@ -148,8 +152,8 @@ export default function MemoryTab(): React.JSX.Element {
         <PreviewDialog
           open
           onClose={() => setSelected(null)}
-          name={cardFor(selected).name}
-          description={cardFor(selected).description}
+          name={cardFor(selected, claudeDirLabel(configDir)).name}
+          description={cardFor(selected, claudeDirLabel(configDir)).description}
           filePath={selected.filePath}
           kind="Memory"
           // Only a memory entry. The CLAUDE.md anchors are files someone wrote
@@ -158,7 +162,7 @@ export default function MemoryTab(): React.JSX.Element {
           onDelete={
             selected.source === 'project-memory' && !selected.isIndex && selected.exists
               ? async () => {
-                  await window.api.memory.delete(selected.filePath, cwd)
+                  await window.api.memory.delete(selected.filePath, cwd, configDir)
                   reload()
                 }
               : undefined
@@ -181,8 +185,8 @@ export default function MemoryTab(): React.JSX.Element {
 
 /** `matches` filters on name and description, and a memory file's own `name` is
  *  a filename — so it is filtered on what the card actually shows. */
-function withSearchText(file: MemoryFile): LibraryItem & { file: MemoryFile } {
-  const { name, description } = cardFor(file)
+function withSearchText(file: MemoryFile, globalDir: string): LibraryItem & { file: MemoryFile } {
+  const { name, description } = cardFor(file, globalDir)
   return { name, description, filePath: file.filePath, file }
 }
 
@@ -193,7 +197,7 @@ function withSearchText(file: MemoryFile): LibraryItem & { file: MemoryFile } {
  * anchors and the index do not — they are files, and what is worth knowing about
  * them is when they were last written and whether they exist at all.
  */
-function cardFor(file: MemoryFile): { name: string; description: string } {
+function cardFor(file: MemoryFile, globalDir: string): { name: string; description: string } {
   if (file.source === 'project-memory' && !file.isIndex) {
     return {
       name: file.name
@@ -213,7 +217,7 @@ function cardFor(file: MemoryFile): { name: string; description: string } {
       description: file.exists ? formatMeta(file) : 'Missing — open to create it'
     },
     'global-claude': {
-      name: '~/.claude/CLAUDE.md',
+      name: `${globalDir}/CLAUDE.md`,
       description: file.exists ? formatMeta(file) : 'Missing — open to create it'
     },
     'subagent-claude': { name: file.name, description: '.claude/agents/' }

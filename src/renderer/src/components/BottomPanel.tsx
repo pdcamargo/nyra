@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef } from 'react'
-import { Activity, SquareTerminal, X } from 'lucide-react'
+import { Activity, SquareTerminal, TriangleAlert, X } from 'lucide-react'
 import TerminalPanel from './TerminalPanel'
 import ProcessesView from './ProcessesView'
 import { useUiStore } from '../store/ui'
-import { useTerminalsStore, panelFor, NO_PROJECT } from '../store/terminals'
+import { useTerminalsStore, panelFor, terminalBucket, type TerminalTab } from '../store/terminals'
+import { useWorkspacesStore } from '../store/workspaces'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const PROCESSES_TAB_ID = '__processes__'
@@ -14,24 +15,33 @@ const PROCESSES_TAB_ID = '__processes__'
  * Tab state lives in the terminals store rather than here: this component is
  * unmounted whenever the panel is closed, and the tabs are per project, not per
  * chat — switching projects should show that project's shells, not re-cd the ones
- * you already had open.
+ * you already had open. Chats with no project share one set per workspace.
+ *
+ * A new shell starts under `workspaceId`, the account the project's chats use.
+ * One opened before the project moved keeps the account it started with — its
+ * environment was fixed then — and says so rather than being killed, since
+ * something may be running in it.
  */
 export default function BottomPanel({
   cwd,
-  projectId
+  projectId,
+  workspaceId
 }: {
   cwd: string
   projectId: string | null
+  workspaceId: string
 }): React.JSX.Element {
-  const key = projectId ?? NO_PROJECT
+  const key = terminalBucket(projectId, workspaceId)
   const { tabs, activeTabId } = useTerminalsStore((s) => panelFor(s, key))
+  const workspaces = useWorkspacesStore((s) => s.workspaces)
+  const nameOf = (id: string): string => workspaces.find((w) => w.id === id)?.name ?? 'another workspace'
 
   const createTerminal = useCallback(() => {
-    useTerminalsStore.getState().createTerminal(key)
-  }, [key])
+    useTerminalsStore.getState().createTerminal(key, workspaceId)
+  }, [key, workspaceId])
 
   const setTabs = useCallback(
-    (next: { id: string; title: string }[]) => {
+    (next: TerminalTab[]) => {
       useTerminalsStore.getState().setTabs(key, next)
     },
     [key]
@@ -52,12 +62,12 @@ export default function BottomPanel({
     if (seeded.current.has(key)) return
     seeded.current.add(key)
     if (panelFor(useTerminalsStore.getState(), key).tabs.length === 0) {
-      const id = useTerminalsStore.getState().createTerminal(key)
+      const id = useTerminalsStore.getState().createTerminal(key, workspaceId)
       if (useUiStore.getState().bottomPanelFocusNonce > 0) {
         useTerminalsStore.getState().setActiveTab(key, id)
       }
     }
-  }, [key])
+  }, [key, workspaceId])
 
   // Switch to Processes when an external trigger (the tasks chip, /tasks) asks.
   //
@@ -90,6 +100,21 @@ export default function BottomPanel({
             >
               <SquareTerminal className="size-3" />
               <span>{tab.title}</span>
+              {tab.workspaceId !== workspaceId && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className="flex text-warning"
+                      aria-label={`Started under ${nameOf(tab.workspaceId)}`}
+                    >
+                      <TriangleAlert className="size-3" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Started under {nameOf(tab.workspaceId)}. Open a new terminal to use {nameOf(workspaceId)}.
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

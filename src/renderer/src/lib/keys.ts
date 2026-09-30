@@ -94,6 +94,15 @@ const CODE_KEYS: Record<string, string> = {
   Slash: '/'
 }
 
+/**
+ * The bracket under a shifted one. `mod+shift+]` arrives with `e.key` `}`,
+ * which is no key token, and the `e.code` fallback is only right where the key
+ * sits where it does on US layouts: on ABNT2 (pt-BR) `]` is on the Backslash
+ * code, so Ctrl+Shift+] read as Ctrl+Shift+\. Only with Shift held — German
+ * types `}` as AltGr+0, and that must stay the digit it always was.
+ */
+const SHIFTED_BRACKETS: Record<string, string> = { '{': '[', '}': ']' }
+
 function keyTokenFromCode(code: string): string | null {
   if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase()
   if (/^Digit[0-9]$/.test(code)) return code.slice(5)
@@ -159,7 +168,10 @@ export function eventToChord(
   e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>,
   platform: Platform = currentPlatform()
 ): Chord | null {
-  const key = keyToken(e.key) ?? keyTokenFromCode(e.code ?? '')
+  const key =
+    keyToken(e.key) ??
+    (e.shiftKey ? (SHIFTED_BRACKETS[e.key] ?? null) : null) ??
+    keyTokenFromCode(e.code ?? '')
   if (key === null) return null
 
   const mods = new Set<Modifier>()

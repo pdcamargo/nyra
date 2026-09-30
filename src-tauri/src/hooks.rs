@@ -5,18 +5,20 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 use crate::environment::Environment;
+use crate::util;
 
-fn settings_path(scope: &str, cwd: &str) -> PathBuf {
+fn settings_path(scope: &str, cwd: &str, config_dir: Option<&Path>) -> PathBuf {
     if scope == "global" {
-        // The environment's own: a WSL project's global hooks are the distro's.
-        Environment::of(cwd).home().join(".claude").join("settings.json")
+        // The workspace's, in the environment's config dir: a WSL project's
+        // global hooks are the distro's whatever its workspace.
+        util::claude_dir(&Environment::of(cwd), config_dir).join("settings.json")
     } else {
         Path::new(cwd).join(".claude").join("settings.json")
     }
 }
 
-pub async fn read(scope: &str, cwd: &str) -> Value {
-    let path = settings_path(scope, cwd);
+pub async fn read(scope: &str, cwd: &str, config_dir: Option<&Path>) -> Value {
+    let path = settings_path(scope, cwd, config_dir);
     let hooks = tokio::fs::read_to_string(&path)
         .await
         .ok()
@@ -26,8 +28,8 @@ pub async fn read(scope: &str, cwd: &str) -> Value {
     json!({ "hooks": hooks })
 }
 
-pub async fn write(scope: &str, hooks: Value, cwd: &str) -> Result<(), String> {
-    let path = settings_path(scope, cwd);
+pub async fn write(scope: &str, hooks: Value, cwd: &str, config_dir: Option<&Path>) -> Result<(), String> {
+    let path = settings_path(scope, cwd, config_dir);
     let dir = path.parent().ok_or("bad settings path")?;
     tokio::fs::create_dir_all(dir)
         .await

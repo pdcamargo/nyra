@@ -9,6 +9,7 @@ import {
   mergePanelSizes,
   railDragMax,
   usePanelSizesStore,
+  WORKSPACE_RAIL_WIDTH,
   type PanelSizes,
   type RailsOpen
 } from '@renderer/store/panelSizes'
@@ -31,8 +32,16 @@ describe('clampWidths', () => {
 
   it('makes both rails give way rather than starve the conversation', () => {
     const effective = clampWidths(sizes({ sidebarWidth: 400, rightPanelWidth: 400 }), BOTH, 900)
-    expect(effective).toEqual({ sidebarWidth: 340, rightPanelWidth: 200 })
-    expect(900 - effective.sidebarWidth - effective.rightPanelWidth).toBe(CHAT_MIN_WIDTH)
+    expect(effective).toEqual({ sidebarWidth: 340 - WORKSPACE_RAIL_WIDTH, rightPanelWidth: 200 })
+    expect(900 - WORKSPACE_RAIL_WIDTH - effective.sidebarWidth - effective.rightPanelWidth).toBe(CHAT_MIN_WIDTH)
+  })
+
+  it('counts the workspace rail against the budget only while the sidebar is open', () => {
+    const desired = sizes({ sidebarWidth: 400, rightPanelWidth: 2000 })
+    const withSidebar = clampWidths(desired, BOTH, 1400)
+    expect(1400 - WORKSPACE_RAIL_WIDTH - withSidebar.sidebarWidth - withSidebar.rightPanelWidth).toBe(CHAT_MIN_WIDTH)
+    const withoutSidebar = clampWidths(desired, { sidebar: false, rightPanel: true }, 1400)
+    expect(1400 - withoutSidebar.rightPanelWidth).toBe(CHAT_MIN_WIDTH)
   })
 
   it('never takes a rail below its own minimum, even when nothing fits', () => {
@@ -47,7 +56,7 @@ describe('clampWidths', () => {
       rightPanelWidth: 0
     })
     // ...and reopening squeezes it again, because nothing was written back.
-    expect(clampWidths(desired, BOTH, 900)).toEqual({ sidebarWidth: 340, rightPanelWidth: 200 })
+    expect(clampWidths(desired, BOTH, 900)).toEqual({ sidebarWidth: 340 - WORKSPACE_RAIL_WIDTH, rightPanelWidth: 200 })
   })
 
   it('does not mutate what it was handed', () => {
@@ -60,7 +69,7 @@ describe('clampWidths', () => {
     // The whole design rests on this: a laptop screen must not destroy a layout
     // set on a large display.
     usePanelSizesStore.getState().setSize('sidebarWidth', 400)
-    expect(clampWidths(sizes({ sidebarWidth: 400 }), BOTH, 900).sidebarWidth).toBe(340)
+    expect(clampWidths(sizes({ sidebarWidth: 400 }), BOTH, 900).sidebarWidth).toBe(340 - WORKSPACE_RAIL_WIDTH)
     expect(usePanelSizesStore.getState().sidebarWidth).toBe(400)
   })
 })
@@ -70,7 +79,7 @@ describe('railDragMax', () => {
     // Not at `viewport - CHAT_MIN - rightMin`: that would let the sidebar eat
     // into the side panel, which would then jump on the next frame.
     const desired = sizes({ sidebarWidth: 256, rightPanelWidth: 400 })
-    expect(railDragMax('sidebarWidth', desired, BOTH, 1400)).toBe(1400 - CHAT_MIN_WIDTH - 400)
+    expect(railDragMax('sidebarWidth', desired, BOTH, 1400)).toBe(1400 - CHAT_MIN_WIDTH - WORKSPACE_RAIL_WIDTH - 400)
   })
 
   it('holds still as the dragged rail grows, so the ceiling does not chase the handle', () => {
@@ -88,7 +97,7 @@ describe('railDragMax', () => {
 
   it('is symmetric for the side panel', () => {
     const desired = sizes({ sidebarWidth: 400, rightPanelWidth: 256 })
-    expect(railDragMax('rightPanelWidth', desired, BOTH, 1400)).toBe(1400 - CHAT_MIN_WIDTH - 400)
+    expect(railDragMax('rightPanelWidth', desired, BOTH, 1400)).toBe(1400 - CHAT_MIN_WIDTH - WORKSPACE_RAIL_WIDTH - 400)
   })
 })
 
@@ -96,7 +105,7 @@ describe('clampRail', () => {
   it('bounds a candidate at both ends', () => {
     const desired = sizes()
     expect(clampRail('sidebarWidth', 10, desired, BOTH, 1400)).toBe(PANEL_MINS.sidebarWidth)
-    expect(clampRail('sidebarWidth', 9999, desired, BOTH, 1400)).toBe(1400 - CHAT_MIN_WIDTH - 256)
+    expect(clampRail('sidebarWidth', 9999, desired, BOTH, 1400)).toBe(1400 - CHAT_MIN_WIDTH - WORKSPACE_RAIL_WIDTH - 256)
     expect(clampRail('sidebarWidth', 300, desired, BOTH, 1400)).toBe(300)
   })
 })

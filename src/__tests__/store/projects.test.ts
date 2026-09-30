@@ -70,7 +70,7 @@ describe('backfillProjects', () => {
   })
 
   it('reuses a project that already covers the path', () => {
-    const existing: Project = { id: 'p1', name: 'one', path: '/repo/one', order: 0 }
+    const existing: Project = { id: 'p1', name: 'one', path: '/repo/one', order: 0, workspaceId: 'default' }
     const { sessions, projects } = backfillProjects([session({ id: 'a', cwd: '/repo/one' })], [existing])
     expect(projects).toHaveLength(1)
     expect(sessions[0].projectId).toBe('p1')
@@ -92,7 +92,7 @@ describe('backfillProjects', () => {
   })
 
   it('never reassigns a chat that already has a project', () => {
-    const existing: Project = { id: 'p1', name: 'one', path: '/repo/one', order: 0 }
+    const existing: Project = { id: 'p1', name: 'one', path: '/repo/one', order: 0, workspaceId: 'default' }
     const { sessions, projects } = backfillProjects(
       [session({ id: 'a', cwd: '/repo/two', projectId: 'p1' })],
       [existing]
@@ -103,7 +103,7 @@ describe('backfillProjects', () => {
 
   it('returns the input untouched when there is nothing to do', () => {
     const input = [session({ id: 'a', cwd: '/repo/one', projectId: 'p1' })]
-    const result = backfillProjects(input, [{ id: 'p1', name: 'one', path: '/repo/one' }])
+    const result = backfillProjects(input, [{ id: 'p1', name: 'one', path: '/repo/one', workspaceId: 'default' }])
     expect(result.sessions).toBe(input)
   })
 })
@@ -219,7 +219,7 @@ describe('attachWorktreeSessions', () => {
       sessions: [
         session({ id: 'a', cwd: '/wt/feat', worktree: { name: 'feat', branch: 'feat', path: '/wt/feat' } })
       ],
-      projects: [{ id: 'p1', name: 'one', path: '/repo/one', order: 0 }]
+      projects: [{ id: 'p1', name: 'one', path: '/repo/one', order: 0, workspaceId: 'default' }]
     })
     window.api.git.mainWorktreeRoot = vi.fn().mockResolvedValue('/repo/one')
 

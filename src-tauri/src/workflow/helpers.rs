@@ -460,6 +460,7 @@ mod tests {
             updated_at: 0,
             is_template: None,
             recent_cwds: None,
+            project_id: None,
             triggers: None,
             marketplace_id: None,
             marketplace_version: None,
@@ -522,7 +523,7 @@ mod tests {
         let wf = WorkflowDefinition {
             id: "wf1".into(), name: "Test".into(), description: None, inputs: None,
             nodes: vec![], edges: vec![], created_at: 0, updated_at: 0, is_template: None,
-            recent_cwds: None, triggers: None, marketplace_id: None, marketplace_version: None,
+            recent_cwds: None, project_id: None, triggers: None, marketplace_id: None, marketplace_version: None,
         };
         let m = aggregate_workflow_metrics(&wf, &[]);
         assert_eq!(m.total_runs, 0);
@@ -537,7 +538,7 @@ mod tests {
         let wf = WorkflowDefinition {
             id: "wf1".into(), name: "Test".into(), description: None, inputs: None,
             nodes: vec![], edges: vec![], created_at: 0, updated_at: 0, is_template: None,
-            recent_cwds: None, triggers: None, marketplace_id: None, marketplace_version: None,
+            recent_cwds: None, project_id: None, triggers: None, marketplace_id: None, marketplace_version: None,
         };
         let mut node_states = HashMap::new();
         node_states.insert("ghost".to_string(), WorkflowNodeRunState {

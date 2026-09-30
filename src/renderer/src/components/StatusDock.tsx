@@ -1,17 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { Info, X } from 'lucide-react'
-import { useSessionsStore } from '../store/sessions'
+import { configDirForSession, useSessionsStore } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useResourceDockStore } from '../store/resourceDock'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
-
-type AccountStatus = {
-  loggedIn: boolean
-  loginMethod: string | null
-  organization: string | null
-  email: string | null
-  error: string | null
-}
+import type { AccountStatus } from '../lib/api-types'
 
 function StatusField({ label, value }: { label: string; value: string }): React.JSX.Element {
   return (
@@ -26,6 +19,8 @@ function StatusField({ label, value }: { label: string; value: string }): React.
 export default function StatusDock({ sessionId }: { sessionId: string }): React.JSX.Element {
   const session = useSessionsStore((state) => state.sessions.find((item) => item.id === sessionId))
   const binaryPath = useSettingsStore((state) => state.claudeBinaryPath)
+  // This chat's account — its workspace's — not whichever is signed in to ~/.claude.
+  const configDir = useSessionsStore((state) => configDirForSession(state, sessionId))
   const close = useResourceDockStore((state) => state.close)
   const [version, setVersion] = useState<string | null>(null)
   const [account, setAccount] = useState<AccountStatus | null>(null)
@@ -37,13 +32,13 @@ export default function StatusDock({ sessionId }: { sessionId: string }): React.
     }).catch(() => {
       if (!cancelled) setVersion(null)
     })
-    void window.api.claude.accountStatus(binaryPath).then((result) => {
+    void window.api.claude.accountStatus(binaryPath, configDir).then((result) => {
       if (!cancelled) setAccount(result)
     }).catch(() => {
       if (!cancelled) setAccount(null)
     })
     return () => { cancelled = true }
-  }, [binaryPath])
+  }, [binaryPath, configDir])
 
   const display = (value: string | null | undefined): string => value || 'Unavailable'
 

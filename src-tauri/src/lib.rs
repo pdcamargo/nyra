@@ -36,9 +36,11 @@ mod skills;
 mod spellcheck;
 mod subagents;
 mod terminal;
+mod transcripts;
 mod util;
 mod webhook_server;
 mod workflow;
+mod workspaces;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 
@@ -174,12 +176,18 @@ pub fn run() {
             commands::claude_dispose,
             commands::claude_check_binary,
             commands::claude_account_status,
+            commands::workspace_create,
+            commands::workspace_copy_transcripts,
+            commands::workspace_logout,
+            commands::workspace_delete,
+            commands::workspaces_sync_projects,
             commands::model_alias_targets,
             commands::claude_save_image,
             commands::claude_save_temp_file,
             commands::claude_process_file,
             commands::dialog_pick_folder,
             commands::dialog_pick_file,
+            commands::dialog_pick_image,
             commands::dialog_pick_files,
             commands::dialog_save_file,
             commands::agents_list,

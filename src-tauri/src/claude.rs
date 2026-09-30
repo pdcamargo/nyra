@@ -212,9 +212,13 @@ pub fn is_auth_error(msg: &str) -> bool {
     if msg.is_empty() {
         return false;
     }
+    // "Not logged in · Please run /login" is what a config dir with no login
+    // answers — a workspace that has not signed in yet, or one signed out.
     static RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)\b401\b|authentication_error|invalid authentication|invalid api key|unauthorized")
-            .unwrap()
+        Regex::new(
+            r"(?i)\b401\b|authentication_error|authentication_failed|invalid authentication|invalid api key|unauthorized|not logged in|run /login",
+        )
+        .unwrap()
     });
     RE.is_match(msg)
 }
@@ -1366,6 +1370,8 @@ fn build_spawn_args(
         args.push(json!({ "mcpServers": servers }).to_string());
     }
 
+    // The config dir is the account: a chat whose project moved to another
+    // workspace must not keep running under the old one's process.
     let fingerprint = json!([
         cwd,
         settings.model,
@@ -1373,7 +1379,8 @@ fn build_spawn_args(
         settings.allowed_tools,
         settings.plan_mode,
         settings.system_prompt,
-        worktree_name
+        worktree_name,
+        settings.config_dir
     ])
     .to_string();
 
@@ -1511,6 +1518,13 @@ pub async fn run_claude(
         return Err("Empty prompt".into());
     }
 
+    // A WSL chat keeps the distro's own `~/.claude` whatever its workspace, so
+    // its workspace is no part of what it is — and a move must not respawn it.
+    let mut settings = settings;
+    settings.config_dir = util::config_dir_arg(settings.config_dir.take())
+        .filter(|_| Environment::of(&cwd).is_host())
+        .map(|dir| dir.to_string_lossy().into_owned());
+
     let (_, fingerprint) =
         build_spawn_args(&cwd, &settings, worktree_name.as_deref(), None, None, None);
 
@@ -1580,6 +1594,29 @@ async fn spawn_session(
         Some(own) => own,
         None => resolve_claude_binary(&settings.claude_binary_path),
     };
+    let config_dir = settings.config_dir.as_deref().map(Path::new);
+
+    // A chat whose project moved workspaces resumes under a config dir that has
+    // never held its transcript. Bring the newest copy across first: a resume
+    // that misses does not fail, it quietly starts a new conversation.
+    if let Some(id) = resume_session_id.clone().filter(|_| env.is_host()) {
+        let target = config_dir.map(Path::to_path_buf);
+        let copied = tokio::task::spawn_blocking(move || {
+            crate::transcripts::ensure_resumable(target.as_deref(), &id)
+        })
+        .await;
+        match copied {
+            Ok(Ok(true)) => crate::logf!(
+                "Copied the transcript of [{}] into {}",
+                util::short(nyra_session_id),
+                util::claude_dir(&env, config_dir).display()
+            ),
+            Ok(Ok(false)) => {}
+            Ok(Err(e)) => crate::logf!("Transcript copy for [{}] failed: {e}", util::short(nyra_session_id)),
+            Err(e) => crate::logf!("Transcript copy for [{}] panicked: {e}", util::short(nyra_session_id)),
+        }
+    }
+
     let (args, _) = build_spawn_args(
         cwd,
         settings,
@@ -1600,7 +1637,7 @@ async fn spawn_session(
         .command(&claude_bin, cwd)
         .args(&args)
         .env_clear()
-        .envs(util::clean_child_env())
+        .envs(util::claude_child_env(config_dir))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1917,8 +1954,11 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
     // The CLI writes the title it generates into the transcript rather than onto
     // stdout, so every line is worth this much: which file to go and read.
     if let Some(claude_session_id) = raw.get("session_id").and_then(Value::as_str) {
-        let cwd = sess.inner.lock().cwd.clone();
-        crate::ai_title::observe(nyra_session_id, &cwd, claude_session_id);
+        let (cwd, config_dir) = {
+            let inner = sess.inner.lock();
+            (inner.cwd.clone(), inner.settings.config_dir.clone())
+        };
+        crate::ai_title::observe(nyra_session_id, &cwd, config_dir, claude_session_id);
     }
 
     if event_type == "result" {
@@ -2880,6 +2920,8 @@ mod tests {
         assert!(is_auth_error("authentication_error"));
         assert!(is_auth_error("Invalid API key"));
         assert!(is_auth_error("invalid authentication provided"));
+        // A config dir with no login, as CLI 2.1.283 says it.
+        assert!(is_auth_error("Not logged in · Please run /login"));
     }
 
     #[test]
@@ -3249,6 +3291,27 @@ mod tests {
         let (_, fa) = build_spawn_args("/tmp/x", &a, None, None, None, None);
         let (_, fb) = build_spawn_args("/tmp/x", &b, None, None, None, None);
         assert_ne!(fa, fb);
+    }
+
+    #[test]
+    fn a_chat_moved_to_another_workspace_gets_a_new_child() {
+        // An idle chat whose project moved must respawn under the new account on
+        // its next send, and one that stayed must not.
+        let default = SpawnSettings::default();
+        let work = SpawnSettings { config_dir: Some("/h/.nyra/workspaces/w1/.claude".into()), ..SpawnSettings::default() };
+        let (_, f_default) = build_spawn_args("/tmp/x", &default, None, None, None, None);
+        let (_, f_work) = build_spawn_args("/tmp/x", &work, None, None, None, None);
+        let (_, f_work_again) = build_spawn_args("/tmp/x", &work.clone(), None, None, None, None);
+        assert_ne!(f_default, f_work);
+        assert_eq!(f_work, f_work_again);
+    }
+
+    #[test]
+    fn the_workspace_is_not_on_the_command_line() {
+        // It travels as CLAUDE_CONFIG_DIR, never as an argument.
+        let work = SpawnSettings { config_dir: Some("/h/.nyra/workspaces/w1/.claude".into()), ..SpawnSettings::default() };
+        let (args, _) = build_spawn_args("/tmp/x", &work, None, None, None, None);
+        assert!(!args.iter().any(|a| a.contains("workspaces")), "{args:?}");
     }
 
     #[test]

@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useSessionsStore, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, createSiblingSession, newMessageId } from '../store/sessions'
+import { useSessionsStore, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, createSiblingSession, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useUiStore } from '../store/ui'
 import SlashAutocomplete, { useSlashItems, type AutocompleteItem } from './SlashAutocomplete'
+import { openLogin } from '../lib/workspaces'
 import ZoomableImage from './ZoomableImage'
 import AtMentionAutocomplete, { useAtMentionItems, type MentionItem } from './AtMentionAutocomplete'
 import ComposerBar from './ComposerBar'
@@ -212,7 +213,9 @@ export default function ChatInput({
 
   // Slash autocomplete
   const slashQuery = input.startsWith('/') && !input.includes(' ') ? input.slice(1) : null
-  const acItems = useSlashItems(slashQuery ?? '', cwd)
+  // This chat's account: its skills, commands and agents are that workspace's.
+  const configDir = useSessionsStore((s) => configDirForSession(s, s.activeSessionId))
+  const acItems = useSlashItems(slashQuery ?? '', cwd, configDir)
   const autocompleteVisible = slashQuery !== null && !isLoading && acItems.length > 0
 
   useEffect(() => {
@@ -245,14 +248,14 @@ export default function ChatInput({
   // Load agent definitions from .claude/agents/ directories
   const [agentDefs, setAgentDefs] = useState<{ name: string; description: string }[]>([])
   useEffect(() => {
-    window.api.agents.list(cwd).then((result: { global: { name: string; description: string }[]; project: { name: string; description: string }[] }) => {
+    window.api.agents.list(cwd, configDir).then((result: { global: { name: string; description: string }[]; project: { name: string; description: string }[] }) => {
       const all = [...result.project, ...result.global]
       // Deduplicate by name (project overrides global)
       const seen = new Set<string>()
       const deduped = all.filter((a) => { if (seen.has(a.name)) return false; seen.add(a.name); return true })
       setAgentDefs(deduped)
     })
-  }, [cwd])
+  }, [cwd, configDir])
 
   const mentionItems = useMemo((): MentionItem[] => {
     const q = mentionQuery?.toLowerCase() ?? ''
@@ -387,7 +390,8 @@ export default function ChatInput({
       case 'logout':
         // Open the in-app login flow (spawns `claude /login` in a side PTY).
         // Forwarding `/login` to Claude returns "/login isn't available in this environment".
-        window.dispatchEvent(new CustomEvent('nyra:open-login'))
+        // This chat's account: its workspace's.
+        openLogin(workspaceIdForSession(useSessionsStore.getState(), useSessionsStore.getState().activeSessionId))
         break
       case 'fork': {
         const store = useSessionsStore.getState()

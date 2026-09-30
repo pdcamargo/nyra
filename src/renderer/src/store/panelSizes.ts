@@ -47,6 +47,13 @@ export const PANEL_MINS: PanelSizes = {
  */
 export const CHAT_MIN_WIDTH = 360
 
+/**
+ * The workspace rail down the sidebar's left edge. Fixed, and not part of the
+ * stored sidebar width: that stays the width of the list you dragged, and the
+ * rail adds its own beside it whenever the sidebar is open.
+ */
+export const WORKSPACE_RAIL_WIDTH = 52
+
 /** The 200 that was baked into the bottom panel's `innerHeight - 200`. */
 export const CHAT_MIN_HEIGHT = 200
 
@@ -106,7 +113,7 @@ export function clampWidths(
   open: RailsOpen,
   viewportWidth: number
 ): { sidebarWidth: number; rightPanelWidth: number } {
-  const budget = viewportWidth - CHAT_MIN_WIDTH
+  const budget = viewportWidth - CHAT_MIN_WIDTH - (open.sidebar ? WORKSPACE_RAIL_WIDTH : 0)
   const rightReserve = open.rightPanel ? PANEL_MINS.rightPanelWidth : 0
   const sidebarWidth = open.sidebar
     ? Math.max(PANEL_MINS.sidebarWidth, Math.min(finite(desired.sidebarWidth, PANEL_DEFAULTS.sidebarWidth), budget - rightReserve))
@@ -142,7 +149,8 @@ export function railDragMax(
 ): number {
   const otherKey: RailKey = key === 'sidebarWidth' ? 'rightPanelWidth' : 'sidebarWidth'
   const other = clampWidths({ ...desired, [key]: PANEL_MINS[key] }, open, viewportWidth)[otherKey]
-  return Math.max(PANEL_MINS[key], viewportWidth - CHAT_MIN_WIDTH - other)
+  const rail = open.sidebar ? WORKSPACE_RAIL_WIDTH : 0
+  return Math.max(PANEL_MINS[key], viewportWidth - CHAT_MIN_WIDTH - rail - other)
 }
 
 export function clampRail(

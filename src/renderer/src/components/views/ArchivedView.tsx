@@ -3,10 +3,13 @@ import { Archive, GitBranch, Trash2, Undo2 } from 'lucide-react'
 import {
   activeProject,
   archivedSessions,
+  projectsInWorkspace,
+  sessionsInWorkspace,
   sortProjects,
   useSessionsStore,
   type Session
 } from '../../store/sessions'
+import { useWorkspacesStore } from '../../store/workspaces'
 import { unarchiveChat } from '../../lib/archive'
 import { useUiStore } from '../../store/ui'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
@@ -129,7 +132,12 @@ function ArchivedCard({
 export function ArchivedView({ projectId }: { projectId?: string | null }): React.JSX.Element {
   const sessions = useSessionsStore((s) => s.sessions)
   const rawProjects = useSessionsStore((s) => s.projects)
-  const projects = useMemo(() => sortProjects(rawProjects), [rawProjects])
+  // The active workspace's archive, like the rail: its projects, its chats.
+  const workspaceId = useWorkspacesStore((s) => s.activeId)
+  const projects = useMemo(
+    () => sortProjects(projectsInWorkspace(rawProjects, workspaceId)),
+    [rawProjects, workspaceId]
+  )
   // The ui store owns which project the page is looking at — the rail's row and
   // a project's own menu both go through `openArchived`, so there is one answer
   // rather than two. The prop is the same value, for a router that would rather
@@ -151,7 +159,10 @@ export function ArchivedView({ projectId }: { projectId?: string | null }): Reac
         ? activeProjectId
         : (projects[0]?.id ?? null)
 
-  const archived = useMemo(() => archivedSessions(sessions), [sessions])
+  const archived = useMemo(
+    () => sessionsInWorkspace({ projects: rawProjects }, archivedSessions(sessions), workspaceId),
+    [sessions, rawProjects, workspaceId]
+  )
   const projectNames = useMemo(
     () => new Map(projects.map((p) => [p.id, p.name] as const)),
     [projects]

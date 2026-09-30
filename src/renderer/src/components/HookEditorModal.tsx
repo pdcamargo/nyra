@@ -3,6 +3,7 @@ import Modal from './Modal'
 import { ChevronDown } from 'lucide-react'
 import { useHookEditorStore } from '../store/hookEditor'
 import { useSessionsStore, activeProjectCwd } from '../store/sessions'
+import { useActiveConfigDir } from '../store/workspaces'
 import { homedir } from '../lib/homedir'
 import {
   HOOK_EVENTS,
@@ -18,6 +19,8 @@ export default function HookEditorModal(): React.JSX.Element | null {
   // Hooks are written into the project's .claude/settings.json.
   const projectCwd = useSessionsStore(activeProjectCwd)
   const cwd = projectCwd || homedir()
+  // Global hooks are the active workspace's settings.json, not ~/.claude's.
+  const configDir = useActiveConfigDir()
   const [scope, setScope] = useState<'global' | 'project'>(initialScope)
   const [config, setConfig] = useState<HooksConfig>({})
   const [loading, setLoading] = useState(false)
@@ -29,7 +32,7 @@ export default function HookEditorModal(): React.JSX.Element | null {
       setLoading(true)
       setError(null)
       try {
-        const result = await window.api.hooks.read(s, cwd)
+        const result = await window.api.hooks.read(s, cwd, configDir)
         setConfig((result.hooks ?? {}) as HooksConfig)
       } catch (err) {
         setError(String(err))
@@ -37,7 +40,7 @@ export default function HookEditorModal(): React.JSX.Element | null {
         setLoading(false)
       }
     },
-    [cwd]
+    [cwd, configDir]
   )
 
   useEffect(() => {
@@ -67,7 +70,7 @@ export default function HookEditorModal(): React.JSX.Element | null {
     try {
       // Strip undefined values (timeout, matcher) so structured clone doesn't choke
       const clean = JSON.parse(JSON.stringify(config))
-      const result = await window.api.hooks.write(scope, clean, cwd)
+      const result = await window.api.hooks.write(scope, clean, cwd, configDir)
       if (result.error) {
         setError(result.error)
       } else {

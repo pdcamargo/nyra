@@ -58,7 +58,15 @@ const unsub = (): (() => void) => () => {}
 Object.defineProperty(globalThis, 'api', {
   writable: true,
   value: {
-    claude: { dispose: noop, query: noop, abort: noop, respondPermission: noop, checkBinary: noop },
+    claude: {
+      dispose: noop,
+      query: noop,
+      abort: noop,
+      respondPermission: noop,
+      checkBinary: noop,
+      // No CLI here: the account cache keeps what it had rather than guessing.
+      accountStatus: () => Promise.resolve({ loggedIn: false, error: 'no claude in tests' })
+    },
     git: {
       branch: () => Promise.resolve(''),
       isRepo: () => Promise.resolve(false),
@@ -75,6 +83,7 @@ Object.defineProperty(globalThis, 'api', {
     dialog: {
       pickFolder: () => Promise.resolve(null),
       pickFile: () => Promise.resolve(null),
+      pickImage: () => Promise.resolve(null),
       pickFiles: () => Promise.resolve([]),
       saveFile: () => Promise.resolve(null)
     },
@@ -177,7 +186,14 @@ Object.defineProperty(globalThis, 'api', {
       onUpdate: unsub
     },
     subagents: { transcript: () => Promise.resolve({ model: null, entries: [] }) },
-    login: { start: noop, input: noop, resize: noop, cancel: noop, onData: unsub, onExit: unsub }
+    login: { start: noop, input: noop, resize: noop, cancel: noop, onData: unsub, onExit: unsub },
+    workspace: {
+      create: (id: string) => Promise.resolve({ configDir: `/home/test/.nyra/workspaces/${id}/.claude` }),
+      copyTranscripts: () => Promise.resolve({ ok: true, projects: 0 }),
+      logout: () => Promise.resolve({ ok: true }),
+      delete: () => Promise.resolve({ ok: true }),
+      syncProjects: () => Promise.resolve({ ok: true })
+    }
   }
 })
 

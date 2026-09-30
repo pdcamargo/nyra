@@ -4,8 +4,13 @@ import {
   activeProject,
   activeProjectCwd,
   liveSessions,
+  projectsInWorkspace,
+  sessionsInWorkspace,
   sortProjects
 } from '../store/sessions'
+import { useActiveWorkspace, useWorkspacesStore } from '../store/workspaces'
+import { moveProjectToWorkspace } from '../lib/workspaces'
+import WorkspaceAvatar from './WorkspaceAvatar'
 import { useUiStore, type MainView } from '../store/ui'
 import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
@@ -14,7 +19,7 @@ import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { Archive, Brain, Copy, Folder, Slash, Sparkles, Store, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
+import { Archive, Brain, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -43,6 +48,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from './ui/dropdown-menu'
 import { homedir } from '../lib/homedir'
@@ -78,6 +86,7 @@ export default function Sidebar(): React.JSX.Element {
   // otherwise squeeze this rail on a narrow window and --rail would start lying.
   const width = usePanelLayoutStore((s) => s.sidebarWidth)
   const { onScroll } = useAutoHideScrollbar()
+  const workspace = useActiveWorkspace()
 
   return (
     // The rail's type is set once here and everything inside is sized in `em`
@@ -99,7 +108,17 @@ export default function Sidebar(): React.JSX.Element {
           Stacked, wordmark + toggle + nav would be three bars of chrome before
           any content; on one row the first two read as a header. */}
       <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-1">
-        <span className="text-[1.08em] font-semibold tracking-tight text-foreground">Nyra</span>
+        {/* Which account everything below belongs to. Muted and italic, so the
+            wordmark stays the wordmark; a long name gives way, and the whole of
+            it is one hover away. */}
+        <span className="flex min-w-0 items-baseline gap-[0.3em] text-[1.08em] tracking-tight">
+          <span className="shrink-0 font-semibold text-foreground">Nyra</span>
+          {/* The padding is the italic's lean: without it `truncate` clips the
+              last letter's top-right, and "Shard" reads "Sharc". */}
+          <span className="min-w-0 truncate pr-[0.15em] italic text-muted-foreground" title={workspace.name}>
+            {workspace.name}
+          </span>
+        </span>
         <ModeToggle />
       </div>
 
@@ -416,6 +435,8 @@ function WaitingChip({ label }: { label: string }): React.JSX.Element {
  * must not.
  */
 function ProjectMenu({ project }: { project: Project }): React.JSX.Element {
+  const workspaces = useWorkspacesStore((s) => s.workspaces)
+  const others = workspaces.filter((w) => w.id !== project.workspaceId)
   const [open, setOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(project.name)
@@ -518,6 +539,24 @@ function ProjectMenu({ project }: { project: Project }): React.JSX.Element {
           <GitBranch />
           New permanent worktree…
         </DropdownMenuItem>
+        {/* Its chats go with it and carry on under that account — history,
+            memory and all. Nothing running is interrupted. */}
+        {others.length > 0 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <FolderInput />
+              Move to workspace
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="min-w-44">
+              {others.map((w) => (
+                <DropdownMenuItem key={w.id} onSelect={() => moveProjectToWorkspace(project.id, w.id)}>
+                  <WorkspaceAvatar workspace={w} className="size-4 rounded-[4px] text-[0.6em]" />
+                  <span className="min-w-0 truncate">{w.name}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"
@@ -537,14 +576,23 @@ function SessionsList(): React.JSX.Element {
   const onChatView = useUiStore((s) => s.mainView === 'chat')
   const showChat = useUiStore((s) => s.setMainView)
   const sessions = useSessionsStore((state) => state.sessions)
-  // Archived chats are not in the rail at all. Their own page is where they
-  // live, and it is the only place that knows how to bring one back.
-  const railSessions = useMemo(() => liveSessions(sessions), [sessions])
   // Subscribe to the raw array and sort in render: sortProjects allocates, and a
   // selector returning a fresh reference re-renders forever under zustand's
   // Object.is comparison.
   const rawProjects = useSessionsStore((state) => state.projects)
-  const projects = useMemo(() => sortProjects(rawProjects), [rawProjects])
+  // Only the active workspace's: its projects, its Recents, its pins. Chats of
+  // the others keep running; they are just not this list's.
+  const workspaceId = useWorkspacesStore((state) => state.activeId)
+  // Archived chats are not in the rail at all. Their own page is where they
+  // live, and it is the only place that knows how to bring one back.
+  const railSessions = useMemo(
+    () => sessionsInWorkspace({ projects: rawProjects }, liveSessions(sessions), workspaceId),
+    [sessions, rawProjects, workspaceId]
+  )
+  const projects = useMemo(
+    () => sortProjects(projectsInWorkspace(rawProjects, workspaceId)),
+    [rawProjects, workspaceId]
+  )
   const activeSessionId = useSessionsStore((state) => state.activeSessionId)
   const running = useRunningStore((s) => s.running)
   const browsers = useBrowserStore((s) => s.bySession)
@@ -624,7 +672,7 @@ function SessionsList(): React.JSX.Element {
 
   const newRecentChat = (): void => {
     // Spec §6: a chat with no project runs in the home directory, so it sees only
-    // the global ~/.claude scope for skills, memory, MCP and hooks.
+    // its workspace's global scope for skills, memory, MCP and hooks.
     useSessionsStore.getState().createSession(homedir(), null)
   }
 

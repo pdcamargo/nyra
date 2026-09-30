@@ -23,7 +23,9 @@ struct LoginSession {
 
 static ACTIVE: Lazy<Mutex<Option<LoginSession>>> = Lazy::new(|| Mutex::new(None));
 
-pub fn start_login(claude_binary_path: &str) -> Result<u32, String> {
+/// `claude /login` in a PTY, for one workspace: `config_dir` is its
+/// `CLAUDE_CONFIG_DIR` (`None` for Default), so the login lands in its config.
+pub fn start_login(claude_binary_path: &str, config_dir: Option<&std::path::Path>) -> Result<u32, String> {
     // One login flow at a time.
     if ACTIVE
         .lock()
@@ -47,7 +49,7 @@ pub fn start_login(claude_binary_path: &str) -> Result<u32, String> {
     let mut cmd = crate::platform::pty_command(&bin);
     cmd.arg("/login");
     cmd.cwd(util::home_dir());
-    for (k, v) in util::clean_child_env() {
+    for (k, v) in util::claude_child_env(config_dir) {
         cmd.env(k, v);
     }
     cmd.env("TERM", "xterm-256color");

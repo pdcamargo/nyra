@@ -11,6 +11,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,6 +59,9 @@ struct Exec {
     wf: WorkflowDefinition,
     cwd: String,
     settings: NyraSettings,
+    /// The `CLAUDE_CONFIG_DIR` of the workspace the flow's project belongs to;
+    /// `None` — no project, or a Default one — is `~/.claude`.
+    config_dir: Option<PathBuf>,
     input_values: HashMap<String, String>,
     depth: usize,
     triggered_by: TriggerSource,
@@ -295,6 +299,9 @@ async fn execute_prompt_node(
         );
     }
 
+    let mut spawn = node_settings.spawn();
+    spawn.config_dir = exec.config_dir.as_ref().map(|dir| dir.to_string_lossy().into_owned());
+
     let rx = claude::on_claude_result(&nyra_session_id);
     let run = tauri::async_runtime::spawn(claude::run_claude(
         resolved,
@@ -302,7 +309,7 @@ async fn execute_prompt_node(
         None,
         None,
         nyra_session_id.clone(),
-        node_settings.spawn(),
+        spawn,
         None,
     ));
 
@@ -360,7 +367,9 @@ async fn execute_script_node(
             // so a flow started from Finder could see `git`, `sed` and `curl`
             // but not `npm`, `node` or `gh` — and the failure reads as a missing
             // command rather than as a missing PATH.
-            .envs(util::clean_child_env())
+            // The flow's workspace too, so a `claude` the script runs is the
+            // same account as the flow's own Claude nodes.
+            .envs(util::claude_child_env(exec.config_dir.as_deref()))
             // Without this a timeout abandons the child rather than stopping
             // it. A release flow hit exactly that: the node went red at two
             // minutes while `tauri build` carried on for another quarter of an
@@ -978,12 +987,16 @@ pub async fn execute_workflow(
     let started_at = util::now_ms();
     let wf_id = wf.id.clone();
     let wf_name = wf.name.clone();
+    // Whichever way it started — the canvas, a trigger, `nyra_flow run` — a flow
+    // runs under its project's account, and one with no project under Default.
+    let config_dir = crate::workspaces::config_dir_for_project(wf.project_id.as_deref());
 
     let exec: ExecRef = Arc::new(Exec {
         id: execution_id.clone(),
         wf,
         cwd: cwd.to_string(),
         settings,
+        config_dir,
         input_values: input_values.unwrap_or_default(),
         depth: 0,
         triggered_by,
@@ -1128,6 +1141,7 @@ async fn run_child_workflow(
         wf,
         cwd: parent.cwd.clone(),
         settings: parent.settings.clone(),
+        config_dir: parent.config_dir.clone(),
         input_values,
         depth: parent.depth + 1,
         triggered_by: parent.triggered_by,
@@ -1331,6 +1345,7 @@ mod tests {
             wf: wf.clone(),
             cwd: "/tmp".into(),
             settings: Default::default(),
+            config_dir: None,
             input_values: HashMap::new(),
             depth: 0,
             triggered_by: TriggerSource::Manual,
@@ -1350,6 +1365,7 @@ mod tests {
             wf: other_wf,
             cwd: "/tmp".into(),
             settings: Default::default(),
+            config_dir: None,
             input_values: HashMap::new(),
             depth: 0,
             triggered_by: TriggerSource::Manual,
@@ -1404,6 +1420,7 @@ mod tests {
             updated_at: 0,
             is_template: None,
             recent_cwds: None,
+            project_id: None,
             triggers: None,
             marketplace_id: None,
             marketplace_version: None,
@@ -1430,6 +1447,7 @@ mod tests {
             wf,
             cwd: std::env::temp_dir().to_string_lossy().into_owned(),
             settings: Default::default(),
+            config_dir: None,
             input_values: HashMap::new(),
             depth: 0,
             triggered_by: TriggerSource::Manual,
@@ -1473,6 +1491,7 @@ mod tests {
             wf,
             cwd: "/tmp".into(),
             settings: Default::default(),
+            config_dir: None,
             input_values: HashMap::new(),
             depth: 0,
             triggered_by: TriggerSource::Manual,

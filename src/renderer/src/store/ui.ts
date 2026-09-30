@@ -28,8 +28,16 @@ export type SettingsTab =
   | 'advanced'
   | 'about'
 
+/** The create/edit workspace dialog, when it is open. */
+export type WorkspaceDialogState = { mode: 'create' } | { mode: 'edit'; workspaceId: string }
+
 type UiStore = {
   mainView: MainView
+  workspaceDialog: WorkspaceDialogState | null
+  /** The workspace whose delete confirmation is open. */
+  workspaceDeleteId: string | null
+  /** The project the "Move to workspace" picker is choosing for. */
+  moveProjectId: string | null
   /** Project selected when opening Archived from a project menu. */
   archivedProjectId: string | null
   pendingMemoryFilePath: string | null
@@ -63,6 +71,9 @@ type UiStore = {
   paletteMode: 'all' | 'history'
   quickOpenOpen: boolean
   setMainView: (view: MainView) => void
+  setWorkspaceDialog: (dialog: WorkspaceDialogState | null) => void
+  setWorkspaceDeleteId: (workspaceId: string | null) => void
+  setMoveProjectId: (projectId: string | null) => void
   openArchived: (projectId?: string | null) => void
   openMemoryFile: (filePath: string) => void
   consumePendingMemoryFile: () => void
@@ -125,6 +136,9 @@ export function applySessionPanels(sessionId: string | null): void {
 
 export const useUiStore = create<UiStore>()(persist((set, get) => ({
   mainView: 'chat',
+  workspaceDialog: null,
+  workspaceDeleteId: null,
+  moveProjectId: null,
   archivedProjectId: null,
   pendingMemoryFilePath: null,
   pendingInputPrefill: null,
@@ -139,6 +153,9 @@ export const useUiStore = create<UiStore>()(persist((set, get) => ({
   paletteMode: 'all',
   quickOpenOpen: false,
   setMainView: (mainView) => set({ mainView }),
+  setWorkspaceDialog: (workspaceDialog) => set({ workspaceDialog }),
+  setWorkspaceDeleteId: (workspaceDeleteId) => set({ workspaceDeleteId }),
+  setMoveProjectId: (moveProjectId) => set({ moveProjectId }),
   openArchived: (projectId = null) => set({ mainView: 'archived', archivedProjectId: projectId }),
   openMemoryFile: (filePath) =>
     set({ mainView: 'memory', pendingMemoryFilePath: filePath, projectsPanelOpen: true }),

@@ -324,6 +324,27 @@ html:not(.dark) .nyra-on-bubble {
 }
 
 /*
+ * The workspace rail, down the sidebar's left edge.
+ *
+ * Its own surface, so the column of accounts reads apart from the list beside
+ * it: the page's own near-black in dark, and a step under the sidebar in light
+ * — between it (0.974) and the border (0.922), so the border between the two
+ * still shows. Tiles on it are white in light, which leaves selection to the
+ * ring and the step in text; in dark the tiles step their fill as well.
+ */
+:root {
+  --workspace-rail: oklch(0.9500 0 0);
+  --workspace-tile: oklch(1.0000 0 0);
+  --workspace-tile-active: oklch(1.0000 0 0);
+}
+
+.dark {
+  --workspace-rail: var(--background);
+  --workspace-tile: var(--muted);
+  --workspace-tile-active: var(--rail-selected);
+}
+
+/*
  * The user's own message.
  *
  * Dark mode names the composer's fill directly: what you typed and what you are
@@ -432,6 +453,10 @@ html:not(.dark) .nyra-on-bubble {
 
   --color-rail-selected: var(--rail-selected);
   --color-rail-selected-ring: var(--rail-selected-ring);
+
+  --color-workspace-rail: var(--workspace-rail);
+  --color-workspace-tile: var(--workspace-tile);
+  --color-workspace-tile-active: var(--workspace-tile-active);
 
   /*
    * Ratios, not the theme's `calc(var(--radius) ± Npx)`.

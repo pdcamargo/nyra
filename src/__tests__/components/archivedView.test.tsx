@@ -28,8 +28,8 @@ const seed = (): void => {
   useSessionsStore.setState({
     activeSessionId: null,
     projects: [
-      { id: 'p1', name: 'nyra', path: '/repo', order: 0 },
-      { id: 'p2', name: 'helix', path: '/other', order: 1 }
+      { id: 'p1', name: 'nyra', path: '/repo', order: 0, workspaceId: 'default' },
+      { id: 'p2', name: 'helix', path: '/other', order: 1, workspaceId: 'default' }
     ],
     sessions: [
       archived({ id: 'loose', title: 'No project chat', projectId: null, cwd: '/Users/me' }),

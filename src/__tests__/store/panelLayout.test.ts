@@ -1,6 +1,12 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { handleBinding, recomputeLayout, usePanelLayoutStore } from '@renderer/store/panelLayout'
-import { CHAT_MIN_WIDTH, PANEL_DEFAULTS, PANEL_MINS, usePanelSizesStore } from '@renderer/store/panelSizes'
+import {
+  CHAT_MIN_WIDTH,
+  PANEL_DEFAULTS,
+  PANEL_MINS,
+  WORKSPACE_RAIL_WIDTH,
+  usePanelSizesStore
+} from '@renderer/store/panelSizes'
 import { useUiStore } from '@renderer/store/ui'
 
 function windowSize(width: number, height: number): void {
@@ -32,7 +38,7 @@ describe('usePanelLayoutStore', () => {
   it('reports 0 for a closed rail and frees the space for the other', () => {
     usePanelSizesStore.setState({ sidebarWidth: 400, rightPanelWidth: 400 })
     windowSize(900, 900)
-    expect(usePanelLayoutStore.getState()).toMatchObject({ sidebarWidth: 340, rightPanelWidth: 200 })
+    expect(usePanelLayoutStore.getState()).toMatchObject({ sidebarWidth: 340 - WORKSPACE_RAIL_WIDTH, rightPanelWidth: 200 })
 
     useUiStore.setState({ rightPanelOpen: false })
     expect(usePanelLayoutStore.getState()).toMatchObject({ sidebarWidth: 400, rightPanelWidth: 0 })
@@ -41,7 +47,7 @@ describe('usePanelLayoutStore', () => {
   it('gives the rails back when the window grows again', () => {
     usePanelSizesStore.setState({ sidebarWidth: 400, rightPanelWidth: 400 })
     windowSize(900, 900)
-    expect(usePanelLayoutStore.getState().sidebarWidth).toBe(340)
+    expect(usePanelLayoutStore.getState().sidebarWidth).toBe(340 - WORKSPACE_RAIL_WIDTH)
 
     windowSize(1600, 900)
     expect(usePanelLayoutStore.getState()).toMatchObject({ sidebarWidth: 400, rightPanelWidth: 400 })
@@ -53,7 +59,7 @@ describe('usePanelLayoutStore', () => {
     usePanelSizesStore.setState({ sidebarWidth: 2000, rightPanelWidth: 2000 })
     windowSize(1000, 900)
     const { sidebarWidth, rightPanelWidth } = usePanelLayoutStore.getState()
-    expect(1000 - sidebarWidth - rightPanelWidth).toBeGreaterThanOrEqual(CHAT_MIN_WIDTH)
+    expect(1000 - WORKSPACE_RAIL_WIDTH - sidebarWidth - rightPanelWidth).toBeGreaterThanOrEqual(CHAT_MIN_WIDTH)
   })
 
   it('clamps the bottom dock to the window height', () => {
@@ -68,19 +74,19 @@ describe('handleBinding', () => {
   it('reads the size on screen, not the one in the store', () => {
     usePanelSizesStore.setState({ sidebarWidth: 400, rightPanelWidth: 400 })
     windowSize(900, 900)
-    expect(handleBinding('sidebarWidth').getSize()).toBe(340)
+    expect(handleBinding('sidebarWidth').getSize()).toBe(340 - WORKSPACE_RAIL_WIDTH)
     expect(usePanelSizesStore.getState().sidebarWidth).toBe(400)
   })
 
   it('stops a rail drag at the space the other rail is using', () => {
     usePanelSizesStore.setState({ rightPanelWidth: 400 })
-    expect(handleBinding('sidebarWidth').clamp(9999)).toBe(1400 - CHAT_MIN_WIDTH - 400)
+    expect(handleBinding('sidebarWidth').clamp(9999)).toBe(1400 - CHAT_MIN_WIDTH - WORKSPACE_RAIL_WIDTH - 400)
     expect(handleBinding('sidebarWidth').clamp(-50)).toBe(PANEL_MINS.sidebarWidth)
   })
 
   it('lets a rail have the whole budget once the other is closed', () => {
     useUiStore.setState({ rightPanelOpen: false })
-    expect(handleBinding('sidebarWidth').clamp(9999)).toBe(1400 - CHAT_MIN_WIDTH)
+    expect(handleBinding('sidebarWidth').clamp(9999)).toBe(1400 - CHAT_MIN_WIDTH - WORKSPACE_RAIL_WIDTH)
   })
 
   it('bounds the bottom dock the way the old inline drag did', () => {

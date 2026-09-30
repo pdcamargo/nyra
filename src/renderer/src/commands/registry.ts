@@ -23,6 +23,9 @@ import {
   Minimize2,
   Monitor,
   Moon,
+  FolderInput,
+  Layers,
+  PencilLine,
   PanelLeft,
   PanelRight,
   PanelRightOpen,
@@ -54,11 +57,15 @@ import { useUiStore, type MainView } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
 import {
+  activeProject,
   createSiblingSession,
   cwdForSession,
   openFolderAsProject,
+  sessionsInWorkspace,
   useSessionsStore
 } from '../store/sessions'
+import { useWorkspacesStore } from '../store/workspaces'
+import { cycleWorkspace, openLogin, switchWorkspace } from '../lib/workspaces'
 import { usePanelTabsStore, panelTabsFor } from '../store/panelTabs'
 import { startBrowserTab, toggleDeviceMode } from '../components/browser/useBrowserSession'
 import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
@@ -90,6 +97,12 @@ export type CommandId =
   | 'desktop.stop'
   | 'session.pr.open'
   | 'project.add'
+  | 'project.moveToWorkspace'
+  | 'workspace.next'
+  | 'workspace.prev'
+  | `workspace.switch.${WorkspaceSlot}`
+  | 'workspace.new'
+  | 'workspace.edit'
   | 'panel.left'
   | 'panel.right'
   | 'panel.right.browser'
@@ -138,6 +151,9 @@ export type CommandId =
   | 'composer.newline'
 
 export type CommandGroup = 'General' | 'Session' | 'Panels' | 'View' | 'Composer'
+
+/** The rail positions a switch command can name. */
+type WorkspaceSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
 export type Command = {
   id: CommandId
@@ -231,8 +247,11 @@ function newestPr(): PullRequest | null {
   return prs.length === 0 ? null : sortPrs(prs)[0]
 }
 
+/** The next or previous chat, without leaving the workspace you are in. */
 function cycleSession(step: 1 | -1): void {
-  const { sessions, activeSessionId, setActiveSession } = useSessionsStore.getState()
+  const state = useSessionsStore.getState()
+  const { activeSessionId, setActiveSession } = state
+  const sessions = sessionsInWorkspace(state, state.sessions, useWorkspacesStore.getState().activeId)
   if (sessions.length < 2 || !activeSessionId) return
   const at = sessions.findIndex((s) => s.id === activeSessionId)
   if (at === -1) return
@@ -312,7 +331,85 @@ export const COMMANDS: Command[] = [
     defaultChord: null,
     icon: LogIn,
     palette: true,
-    run: () => window.dispatchEvent(new Event('nyra:open-login'))
+    // The active workspace's account; each workspace signs in on its own.
+    run: () => openLogin()
+  },
+
+  // ---- Workspaces --------------------------------------------------------
+  //
+  // One Claude account each. Next and previous mirror session.prev/next one
+  // modifier over. The nine direct switches ship unbound: mod+1–6 and
+  // mod+shift+1–6 are taken, ctrl+alt is AltGr on Windows (it types characters
+  // on PT, DE and PL layouts), and alt+digit is the composer's headings and
+  // types characters on macOS. Bound in Settings, each gets its keycap in the
+  // rail's tooltip. Deleting one is not here: rare, destructive, and reached
+  // from the rail's own menu.
+  {
+    id: 'workspace.next',
+    label: 'Next workspace',
+    group: 'General',
+    defaultChord: 'mod+shift+]',
+    icon: Layers,
+    palette: true,
+    available: () => useWorkspacesStore.getState().workspaces.length > 1,
+    run: () => cycleWorkspace(1)
+  },
+  {
+    id: 'workspace.prev',
+    label: 'Previous workspace',
+    group: 'General',
+    defaultChord: 'mod+shift+[',
+    icon: Layers,
+    palette: true,
+    available: () => useWorkspacesStore.getState().workspaces.length > 1,
+    run: () => cycleWorkspace(-1)
+  },
+  ...([1, 2, 3, 4, 5, 6, 7, 8, 9] as const).map(
+    (n): Command => ({
+      id: `workspace.switch.${n}`,
+      label: `Switch to workspace ${n}`,
+      group: 'General',
+      defaultChord: null,
+      icon: Layers,
+      available: () => useWorkspacesStore.getState().workspaces.length >= n,
+      run: () => {
+        const target = useWorkspacesStore.getState().workspaces[n - 1]
+        if (target) switchWorkspace(target.id)
+      }
+    })
+  ),
+  {
+    id: 'workspace.new',
+    label: 'New workspace…',
+    group: 'General',
+    defaultChord: null,
+    icon: Plus,
+    palette: true,
+    run: () => ui().setWorkspaceDialog({ mode: 'create' })
+  },
+  {
+    id: 'workspace.edit',
+    label: 'Edit workspace…',
+    group: 'General',
+    defaultChord: null,
+    icon: PencilLine,
+    palette: true,
+    run: () => ui().setWorkspaceDialog({ mode: 'edit', workspaceId: useWorkspacesStore.getState().activeId })
+  },
+  {
+    id: 'project.moveToWorkspace',
+    label: 'Move project to workspace…',
+    group: 'General',
+    defaultChord: null,
+    icon: FolderInput,
+    palette: true,
+    available: () =>
+      activeProject(useSessionsStore.getState()) !== null &&
+      useWorkspacesStore.getState().workspaces.length > 1,
+    run: () => {
+      const project = activeProject(useSessionsStore.getState())
+      if (project) ui().setMoveProjectId(project.id)
+    }
   },
 
   // ---- Session -----------------------------------------------------------

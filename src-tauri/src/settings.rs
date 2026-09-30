@@ -120,6 +120,10 @@ pub struct SpawnSettings {
     pub claude_binary_path: String,
     pub skip_permissions: bool,
     pub auto_approve_tools: Vec<String>,
+    /// The workspace's `CLAUDE_CONFIG_DIR`: its own login, settings and
+    /// transcripts. `None` is Default, which sets nothing. Part of the spawn
+    /// fingerprint, so a chat whose project moved respawns under the new account.
+    pub config_dir: Option<String>,
 }
 
 impl Default for SpawnSettings {
@@ -133,6 +137,7 @@ impl Default for SpawnSettings {
             claude_binary_path: default_claude_binary(),
             skip_permissions: false,
             auto_approve_tools: Vec::new(),
+            config_dir: None,
         }
     }
 }
@@ -151,6 +156,7 @@ impl NyraSettings {
             claude_binary_path: self.claude_binary_path.clone(),
             skip_permissions: self.skip_permissions,
             auto_approve_tools: self.auto_approve_tools.clone(),
+            config_dir: None,
         }
     }
 }

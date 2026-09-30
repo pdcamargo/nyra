@@ -212,6 +212,26 @@ export type PluginCatalog =
     }
   | { ok: false; error: string }
 
+/**
+ * A workspace's `CLAUDE_CONFIG_DIR`, as the backend gets it. `null` is the
+ * Default workspace — Claude's own `~/.claude` — and sets nothing. Required
+ * wherever it appears, so no call can fall back to Default by forgetting.
+ */
+export type ConfigDir = string | null
+
+/** What `claude auth status` says about one workspace, plus the display name
+ *  from that workspace's `.claude.json`. */
+export type AccountStatus = {
+  loggedIn: boolean
+  loginMethod: string | null
+  organization: string | null
+  email: string | null
+  displayName: string | null
+  subscriptionType: string | null
+  configDirectory: string | null
+  error: string | null
+}
+
 export type PluginActionRequest = {
   action:
     | 'install'

@@ -45,6 +45,9 @@ const MAX_PASS: u64 = 4 * 1024 * 1024;
 struct Tracker {
     claude_session_id: String,
     cwd: String,
+    /// The workspace's config dir the transcript is written under; `None` is
+    /// `~/.claude`.
+    config_dir: Option<String>,
     /// Resolved on first use and kept — see `locate`, which may have to search.
     path: Option<PathBuf>,
     /// How far into the transcript has been read.
@@ -67,7 +70,7 @@ static TRACKERS: Lazy<Mutex<HashMap<String, Tracker>>> =
 /// them: it is a map lookup and two string compares unless something changed.
 /// A conversation Nyra has not seen before starts a poller — that is the path
 /// where a brand new chat gets its title, seconds into its first turn.
-pub fn observe(nyra_session_id: &str, cwd: &str, claude_session_id: &str) {
+pub fn observe(nyra_session_id: &str, cwd: &str, config_dir: Option<String>, claude_session_id: &str) {
     {
         let mut trackers = TRACKERS.lock();
         if let Some(tracker) = trackers.get(nyra_session_id) {
@@ -83,6 +86,7 @@ pub fn observe(nyra_session_id: &str, cwd: &str, claude_session_id: &str) {
             Tracker {
                 claude_session_id: claude_session_id.to_string(),
                 cwd: cwd.to_string(),
+                config_dir,
                 path: None,
                 offset: 0,
                 title: None,
@@ -181,7 +185,8 @@ fn pass(nyra_session_id: &str, generation: u64) -> Pass {
             None => {
                 // The transcript does not exist until the CLI writes it, so a
                 // miss here is normal on the first pass of a new chat.
-                let Some(path) = locate(&tracker.cwd, &tracker.claude_session_id) else {
+                let config_dir = tracker.config_dir.as_deref().map(Path::new);
+                let Some(path) = locate(&tracker.cwd, config_dir, &tracker.claude_session_id) else {
                     return Pass::Nothing;
                 };
                 tracker.path = Some(path.clone());
@@ -220,13 +225,14 @@ fn pass(nyra_session_id: &str, generation: u64) -> Pass {
 /// slashes. So the guess is checked, and when it misses the file is looked for
 /// by name among the project directories — two dozen `stat` calls, once.
 ///
-/// Both under the `~/.claude` of the environment the CLI ran in — for a WSL
-/// chat, the distro's.
-fn locate(cwd: &str, claude_session_id: &str) -> Option<PathBuf> {
-    let projects = crate::environment::Environment::of(cwd).home().join(".claude").join("projects");
+/// Both under the config dir the CLI ran with, in the environment it ran in —
+/// the workspace's, or for a WSL chat the distro's.
+fn locate(cwd: &str, config_dir: Option<&Path>, claude_session_id: &str) -> Option<PathBuf> {
+    let env = crate::environment::Environment::of(cwd);
+    let projects = crate::util::claude_dir(&env, config_dir).join("projects");
     let file = format!("{claude_session_id}.jsonl");
 
-    let guess = crate::util::claude_project_dir(cwd).join(&file);
+    let guess = crate::util::claude_project_dir(cwd, config_dir).join(&file);
     if guess.is_file() {
         return Some(guess);
     }
