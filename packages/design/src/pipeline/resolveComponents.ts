@@ -178,7 +178,10 @@ function substitute(
   if (isMatch(v)) {
     const m = v as Match<unknown>
     const key = substitute(m.match, scope, at, prop, issues, depth + 1)
-    const chosen = typeof key === 'string' && key in m.cases ? m.cases[key] : m.default
+    // Cases are keyed by JSON object keys, which are strings; a boolean or
+    // number prop is matched by its spelling, so `true` finds `"true"`.
+    const k = typeof key === 'boolean' || typeof key === 'number' ? String(key) : key
+    const chosen = typeof k === 'string' && Object.hasOwn(m.cases, k) ? m.cases[k] : m.default
     if (chosen === undefined) {
       issues.push(
         err('match-no-case', `"${prop}" matched "${String(key)}", which has no case and no default`, at)
@@ -190,6 +193,17 @@ function substitute(
 
   // A run is an object whose fields are themselves value forms.
   if (isRun(v)) {
+    const out: Record<string, unknown> = {}
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (x !== undefined) out[k] = substitute(x, scope, at, prop, issues, depth + 1)
+    }
+    return out
+  }
+
+  // An object literal whose fields are forms — an inline border, a gradient.
+  // Walked the same way a run is; a field that is already a literal comes back
+  // as it went in.
+  if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
     const out: Record<string, unknown> = {}
     for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
       if (x !== undefined) out[k] = substitute(x, scope, at, prop, issues, depth + 1)

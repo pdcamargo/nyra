@@ -139,23 +139,33 @@ fn slug(name: &str) -> String {
 /// case-insensitively and scoped to the project when one is given, because
 /// "render Billing" is what a person says and two projects may both have one.
 pub fn resolve(needle: &str, project: Option<&Path>) -> Option<Entry> {
-    let index = load();
+    resolve_in(&load(), needle, project)
+}
+
+/// When a name matches more than one design, the newest wins: it is the one
+/// just created or just edited, and so the one being talked about. First in
+/// the index was the oldest, which is how `render` once drew a design from
+/// hours ago under a name that had just been reused.
+fn resolve_in(index: &Index, needle: &str, project: Option<&Path>) -> Option<Entry> {
     if let Some(hit) = index.designs.iter().find(|d| d.id == needle) {
         return Some(hit.clone());
     }
     let lower = needle.to_lowercase();
     let in_project = |d: &&Entry| project.is_none_or(|p| d.project == p);
+    let newest = |a: &&Entry, b: &&Entry| a.updated_at.cmp(&b.updated_at);
     index
         .designs
         .iter()
         .filter(in_project)
-        .find(|d| d.name.to_lowercase() == lower)
+        .filter(|d| d.name.to_lowercase() == lower)
+        .max_by(newest)
         .or_else(|| {
             index
                 .designs
                 .iter()
                 .filter(in_project)
-                .find(|d| d.name.to_lowercase().contains(&lower))
+                .filter(|d| d.name.to_lowercase().contains(&lower))
+                .max_by(newest)
         })
         .cloned()
 }
@@ -181,6 +191,21 @@ pub fn create(name: &str, project: &Path) -> Result<Entry, String> {
 
 fn create_in(root: &Path, name: &str, project: &Path) -> Result<Entry, String> {
     let mut index = load_in(root);
+    // A name is how a design is asked for, so two in one project make every
+    // later "render Billing" a guess. Refused with the answer to the obvious
+    // next question: which one already has it.
+    if let Some(taken) = index
+        .designs
+        .iter()
+        .find(|d| d.project == project && d.name.to_lowercase() == name.to_lowercase())
+    {
+        return Err(format!(
+            "a design named \"{}\" already exists in this project ({}, {}). Edit that one, or create this under a different name.",
+            taken.name,
+            taken.id,
+            taken.path.display()
+        ));
+    }
     let id = format!("d_{}", util::rand_hex(5));
     let dir = root.join("files");
     fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
@@ -206,12 +231,26 @@ pub fn adopt(name: &str, path: &Path, project: &Path) -> Result<Entry, String> {
     Ok(entry)
 }
 
+/// One file however it is spelled. `Path ==` already treats both separators
+/// alike on Windows, but not case, 8.3 short names (`ADMINI~1`) or a symlinked
+/// home, and a second spelling of an adopted design would otherwise be adopted
+/// again, as a second design. Canonical when both exist, literal when not.
+fn same_file(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
+}
+
 fn adopt_in(root: &Path, name: &str, path: &Path, project: &Path) -> Result<Entry, String> {
     if !path.exists() {
         return Err(format!("{} does not exist", path.display()));
     }
     let mut index = load_in(root);
-    if let Some(existing) = index.designs.iter().find(|d| d.path == path) {
+    if let Some(existing) = index.designs.iter().find(|d| same_file(&d.path, path)) {
         return Ok(existing.clone());
     }
     let entry = Entry {
@@ -300,6 +339,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_reused_name_resolves_to_the_newest_design() {
+        let project = PathBuf::from("/p");
+        let entry = |id: &str, name: &str, at: &str| Entry {
+            id: id.into(),
+            name: name.into(),
+            path: format!("/{id}").into(),
+            project: project.clone(),
+            updated_at: at.into(),
+        };
+        let index = Index {
+            schema: SCHEMA,
+            designs: vec![
+                entry("d_old", "Reel", "2026-09-30T04:10:00+00:00"),
+                entry("d_new", "Reel", "2026-09-30T07:20:00+00:00"),
+            ],
+        };
+        let hit = resolve_in(&index, "reel", Some(&project)).map(|d| d.id);
+        assert_eq!(hit.as_deref(), Some("d_new"));
+        let by_id = resolve_in(&index, "d_old", Some(&project)).map(|d| d.id);
+        assert_eq!(by_id.as_deref(), Some("d_old"));
+    }
+
+    #[test]
     fn slug_is_recognisable_without_being_an_identity() {
         assert_eq!(slug("Billing — desktop"), "billing-desktop");
         assert_eq!(slug("Settings / General"), "settings-general");
@@ -380,6 +442,10 @@ mod tests {
         assert!(tmp.join("files").is_dir(), "it made the files directory");
         assert!(index_path(&tmp).is_file(), "it wrote an index");
 
+        // A name already taken in the project is refused, and says by what.
+        let dup = create_in(&tmp, "billing", &project).expect_err("refuses a duplicate name");
+        assert!(dup.contains(&made.id), "names the design that has it: {dup}");
+
         // And the second one lands beside the first rather than replacing it.
         let second = create_in(&tmp, "Settings", &project).expect("creates a second");
         let reread = load_in(&tmp);
@@ -391,6 +457,10 @@ mod tests {
         fs::write(&loose, "{}").expect("write");
         let adopted = adopt_in(&tmp, "Loose", &loose, &project).expect("adopts");
         assert_eq!(adopted.path, loose);
+        // The same file reached another way is the same design, not a second.
+        let again = adopt_in(&tmp, "Loose", &tmp.join(".").join("loose.nyui.json"), &project)
+            .expect("adopts again");
+        assert_eq!(again.id, adopted.id);
         assert_eq!(load_in(&tmp).designs.len(), 3);
 
         // Adopting the same path twice is the same design, not a duplicate.

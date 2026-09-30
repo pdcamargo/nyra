@@ -607,3 +607,59 @@ describe('the raw-literal lint does not argue with the schema', () => {
     expect(colour.issues.some((i) => i.code === 'raw-literal')).toBe(true)
   })
 })
+
+describe('props reach every kind of value', () => {
+  const swatch = (root: Record<string, unknown>, props: Record<string, unknown>) => ({
+    schema: 1,
+    name: 'T',
+    components: { Swatch: { props, root: { id: 'root', type: 'box', ...root } } },
+    artboards: [
+      {
+        id: 'a',
+        name: 'A',
+        size: { width: 200, height: 200 },
+        root: {
+          id: 'r',
+          type: 'box',
+          children: [
+            { id: 'on', use: 'Swatch', props: { on: true } },
+            { id: 'off', use: 'Swatch', props: { on: false } }
+          ]
+        }
+      }
+    ]
+  })
+  const nodeOf = (d: unknown, id: string): Record<string, unknown> => {
+    const { doc } = compile(d)
+    const r = doc.artboards[0].root as unknown as { children: Record<string, unknown>[] }
+    return r.children.find((c) => String(c.id).includes(id))!
+  }
+
+  it('matches a boolean prop by its spelling', () => {
+    const d = swatch(
+      { background: { match: { prop: 'on' }, cases: { true: '$color.accent', false: '$color.surface' } } },
+      { on: { type: 'boolean', default: false } }
+    )
+    expect(nodeOf(d, 'on').background).toBeDefined()
+    expect(nodeOf(d, 'on').background).not.toEqual(nodeOf(d, 'off').background)
+  })
+
+  it('takes a prop or a match inside a gradient and an inline border', () => {
+    const d = swatch(
+      {
+        gradient: { from: { prop: 'tint' }, to: '$color.bg' },
+        border: {
+          width: 2,
+          color: { match: { prop: 'on' }, cases: { true: '$color.accent', false: '$color.border' } },
+          style: 'solid'
+        }
+      },
+      { on: { type: 'boolean', default: false }, tint: { type: 'string', default: '$color.violet.600' } }
+    )
+    const on = nodeOf(d, 'on') as { gradient: { from: unknown }; border: { color: unknown } }
+    const off = nodeOf(d, 'off') as typeof on
+    expect(typeof on.gradient.from).toBe('string')
+    expect(on.gradient.from).not.toContain('$color')
+    expect(on.border.color).not.toEqual(off.border.color)
+  })
+})

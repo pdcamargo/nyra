@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { token } from '../theme/types'
+import { value } from '../value'
 
 /** Raw colours are allowed but linted; the token form is the intended one. */
 export const CSS_COLOR_RE =
@@ -25,10 +26,12 @@ export const shadowLit = z.union([token('shadow'), z.literal('none')])
 
 export const borderLit = z.union([
   token('border'),
+  // Fields take value forms too, so a component can colour its own border
+  // from a prop without the whole border becoming a `match`.
   z.strictObject({
-    width: z.number().min(0),
-    color: colorLit,
-    style: z.enum(['solid', 'dashed'])
+    width: value(z.number().min(0)),
+    color: value(colorLit),
+    style: value(z.enum(['solid', 'dashed']))
   })
 ])
 
@@ -101,10 +104,11 @@ export const gapLit = z.union([spaceLit, z.tuple([spaceLit, spaceLit])])
 /** A ratio as width/height, or [w, h] which reads better in a document. */
 export const aspectLit = z.union([z.number().positive(), z.tuple([z.number().positive(), z.number().positive()])])
 
+/** Each stop may be a prop or a match, like any other colour. */
 export const gradientLit = z.strictObject({
-  from: colorLit,
-  to: colorLit,
-  angle: z.number().min(0).max(360).optional()
+  from: value(colorLit),
+  to: value(colorLit),
+  angle: value(z.number().min(0).max(360)).optional()
 })
 
 /**
