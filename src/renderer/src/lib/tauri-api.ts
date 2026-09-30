@@ -150,6 +150,7 @@ const EVENT_NAMES = [
   'nyra:desktop-stopped',
   'nyra:desktop-seen',
   'nyra:browser-touched',
+  'nyra:notification-clicked',
   'dictation:event'
 ] as const
 
@@ -241,6 +242,9 @@ export const api = {
 
     onEvent: (callback: (event: unknown) => void) => on('claude:event', callback),
     onPermission: (callback: (permission: unknown) => void) => on('claude:permission', callback),
+    /** One of this chat's OS notifications was clicked; Rust has already raised the window. */
+    onNotificationClicked: (callback: (p: { nyraSessionId: string }) => void) =>
+      on('nyra:notification-clicked', callback),
 
     respondPermission: (approved: boolean, nyraSessionId?: string) =>
       call<void>('claude_permission_response', {

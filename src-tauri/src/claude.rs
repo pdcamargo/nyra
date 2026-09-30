@@ -886,7 +886,7 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                     json!({ "type": "auth_required", "message": clip(err_text, 200) }),
                 );
             }
-            notify("Task Failed", &clip(err_text, 80));
+            notify("Task Failed", &clip(err_text, 80), nyra_session_id);
         } else {
             let text = clip(result_text, 80);
             notify(
@@ -896,6 +896,7 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                 } else {
                     &text
                 },
+                nyra_session_id,
             );
         }
     }
@@ -2409,6 +2410,7 @@ async fn process_tool_blocks(
         notify(
             "Permission Needed",
             &format!("Claude wants to use {}", info.tool_name),
+            nyra_session_id,
         );
     }
 

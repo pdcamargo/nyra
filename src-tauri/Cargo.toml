@@ -146,6 +146,10 @@ windows = { version = "0.61", features = [
   "Win32_UI_Shell_PropertiesSystem",
   "Win32_UI_WindowsAndMessaging",
 ] }
+# Notifications that know they were clicked (src/notify_user.rs). The toast
+# builder notify-rust uses underneath, already in the tree at this version; the
+# plugin drops the `Activated` callback it exposes.
+tauri-winrt-notification = "0.7"
 
 # `metal` makes build.rs set GGML_METAL_EMBED_LIBRARY=ON, which bakes the
 # shader source into the binary and compiles it at runtime — no .metallib to
@@ -189,6 +193,10 @@ objc2-web-kit = { version = "0.3", features = [
   "WKWebView",
   "WKSnapshotConfiguration",
 ] }
+# Notifications that know they were clicked (src/notify_user.rs). What the
+# notification plugin posts through, already in the tree at this version; the
+# plugin throws away the handle that waits for the click.
+notify-rust = "4.18"
 
 [features]
 # Used by `tauri dev` / `tauri build --debug`

@@ -132,11 +132,17 @@ export default function App(): React.JSX.Element {
     const stopProgress = window.api.updates.onProgress((p) => {
       useUpdatesStore.getState().progress(p)
     })
+    // A notification for a chat that has since been deleted opens nothing.
+    const stopNotificationClicks = window.api.claude.onNotificationClicked(({ nyraSessionId }) => {
+      const sessions = useSessionsStore.getState()
+      if (sessions.sessions.some((s) => s.id === nyraSessionId)) sessions.setActiveSession(nyraSessionId)
+    })
     return () => {
       stopControl()
       stopDesktop()
       stopUpdates()
       stopProgress()
+      stopNotificationClicks()
     }
   }, [])
 

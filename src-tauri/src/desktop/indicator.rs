@@ -44,6 +44,7 @@ impl Host for TauriHost {
                 crate::notify_user::notify(
                     &format!("Claude wants to use {}", app.name),
                     "Answer in Nyra to let it, or not.",
+                    chat,
                 );
             }
             let answer = crate::app_mcp::ask_renderer_within(
