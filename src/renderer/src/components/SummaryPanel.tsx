@@ -1,6 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Eye, FileDiff, GitBranch, Laptop, MemoryStick, MousePointerClick, RotateCw, Square, TerminalSquare } from 'lucide-react'
-import { useSessionsStore, findProject, type Agent, type TextMessage } from '../store/sessions'
+import { useSessionsStore, findProject, type Agent, type Message, type TextMessage } from '../store/sessions'
+import {
+  DESIGN_TOOL,
+  designTarget,
+  designsFor,
+  isLive as isDesignLive,
+  pathInResult,
+  useDesignActivityStore
+} from '../store/designActivity'
+import { useRunningStore } from '../store/running'
+import { useDesignEntries } from '../hooks/useDesignWatch'
+import { updatedAgo } from './design/DesignPip'
+import { designNameFromPath, openDesignInPanel } from '../lib/openFile'
+import { hostDesignPath, sameDesign } from '../lib/designPaths'
 import { useUiStore } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { EMPTY_BROWSER, useBrowserStore } from '../store/browser'
@@ -536,6 +549,13 @@ export default function SummaryPanel(): React.JSX.Element | null {
         </Section>
       )}
 
+      <DesignsSection
+        sessionId={session.id}
+        messages={session.messages}
+        cwd={cwd}
+        showPreview={browser.pipDismissed ? () => dismissPip(session.id, false) : null}
+      />
+
       <Section label="Attachments">
         {attachments.length === 0 ? (
           <p className="text-[11px] text-muted-foreground">Nothing attached</p>
@@ -577,5 +597,129 @@ export default function SummaryPanel(): React.JSX.Element | null {
         )}
       </Section>
     </div>
+  )
+}
+
+/**
+ * Every design this chat has touched: the ones it is working on now, then the
+ * ones its history names.
+ *
+ * History matters because the activity store only knows this run of Nyra, and
+ * "which designs did we make in this chat" is a question you ask a week later.
+ * A row opens the canvas, on the artboard that changed if one did.
+ */
+export function chatDesignPaths(messages: readonly Message[], cwd: string): string[] {
+  const paths: string[] = []
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.role !== 'tool_call') continue
+    const target = designTarget(m.tool_name, m.input)
+    const found = target?.path ?? (m.tool_name === DESIGN_TOOL ? pathInResult(m.result) : null)
+    const path = found ? hostDesignPath(found, cwd) : null
+    if (path && !paths.some((p) => sameDesign(p, path))) paths.push(path)
+  }
+  return paths
+}
+
+function DesignsSection({
+  sessionId,
+  messages,
+  cwd,
+  showPreview
+}: {
+  sessionId: string
+  messages: readonly Message[]
+  cwd: string
+  showPreview: (() => void) | null
+}): React.JSX.Element | null {
+  const touched = useDesignActivityStore((s) => designsFor(s, sessionId))
+  const history = React.useMemo(() => chatDesignPaths(messages, cwd), [messages, cwd])
+  const paths = [
+    ...touched.map((d) => d.path),
+    ...history.filter((p) => !touched.some((d) => sameDesign(d.path, p)))
+  ]
+  // Most chats never touch a design; they should not pay for the index or a clock.
+  if (paths.length === 0) return null
+  return <DesignRows sessionId={sessionId} paths={paths} showPreview={showPreview} />
+}
+
+function DesignRows({
+  sessionId,
+  paths,
+  showPreview
+}: {
+  sessionId: string
+  paths: string[]
+  showPreview: (() => void) | null
+}): React.JSX.Element | null {
+  const touched = useDesignActivityStore((s) => designsFor(s, sessionId))
+  const watches = useDesignActivityStore((s) => s.watches)
+  const running = useRunningStore((s) => Boolean(s.running[sessionId]))
+  const entries = useDesignEntries()
+  const now = useClock(true)
+
+  // Only designs that exist: in the index, or drawn at least once. A path the
+  // chat merely mentioned is not a design, and a row that opens onto "no
+  // longer there" is worse than no row.
+  const known = paths.filter(
+    (p) => entries.some((e) => sameDesign(e.path, p)) || Boolean(watches[p]?.doc)
+  )
+  if (known.length === 0) return null
+
+  return (
+    <Section
+      label="Designs"
+      action={
+        showPreview ? (
+          <button
+            type="button"
+            onClick={showPreview}
+            className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Show preview
+          </button>
+        ) : undefined
+      }
+    >
+      {known.map((path) => {
+        const touch = touched.find((d) => sameDesign(d.path, path))
+        const watch = watches[path]
+        const entry = entries.find((e) => sameDesign(e.path, path))
+        const live = touch ? isDesignLive(touch, running, touch === touched[0]) : false
+        const changed = watch?.changed ?? []
+        const focusId = changed[0]?.id ?? touch?.artboard ?? null
+        const focusName = focusId ? watch?.doc?.artboards.find((a) => a.id === focusId)?.name : undefined
+        const at = touch?.at ?? (entry ? Date.parse(entry.updatedAt) : NaN)
+        const detail = live
+          ? ['Claude is editing', focusName].filter(Boolean).join(' · ')
+          : [
+              watch?.doc ? `${watch.doc.artboards.length} artboards` : null,
+              changed.length > 0 ? `${changed.length} changed` : null,
+              Number.isFinite(at) ? updatedAgo(at, now).replace(/^Updated/, 'updated') : null
+            ]
+              .filter(Boolean)
+              .join(' · ')
+        return (
+          <button
+            key={path}
+            type="button"
+            title={path}
+            onClick={() => {
+              void openDesignInPanel(focusId ? `${path}#${focusId}` : path)
+              useDesignActivityStore.getState().acknowledge(path)
+            }}
+            className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+          >
+            <StatusDot className={live ? 'bg-info nyra-breathe' : 'bg-success'} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[11px] text-foreground/80">
+                {entry?.name ?? designNameFromPath(path)}
+              </span>
+              {detail && <span className="block truncate text-[10px] text-muted-foreground">{detail}</span>}
+            </span>
+          </button>
+        )
+      })}
+    </Section>
   )
 }

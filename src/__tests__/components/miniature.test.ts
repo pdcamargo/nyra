@@ -47,3 +47,18 @@ describe('seen … ago', () => {
     expect(seenAgo(5000, 1000)).toBe('seen just now')
   })
 })
+
+describe('the design miniature', () => {
+  it('joins the most-recent-wins rule', () => {
+    const all = { ...base, browserVisible: true, browserAt: 10, seenAt: 20 }
+    expect(pickMiniature({ ...all, designAt: 30 })).toBe('design')
+    expect(pickMiniature({ ...all, designAt: 5 })).toBe('desktop')
+    expect(pickMiniature({ ...base, designAt: 5 })).toBe('design')
+  })
+
+  it('steps aside while the panel shows a design, and shares the switch and dismissal', () => {
+    expect(pickMiniature({ ...base, designAt: 5, designOnScreen: true })).toBeNull()
+    expect(pickMiniature({ ...base, designAt: 5, dismissed: true })).toBeNull()
+    expect(pickMiniature({ ...base, designAt: 5, enabled: false })).toBeNull()
+  })
+})

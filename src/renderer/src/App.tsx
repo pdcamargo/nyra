@@ -12,6 +12,7 @@ import QuickOpen from './components/QuickOpen'
 import ImageLightbox from './components/ImageLightbox'
 import SettingsModal from './components/settings/SettingsModal'
 import UpdateToast from './components/UpdateToast'
+import DesignExportToast from './components/design/DesignExportToast'
 import WhatsNewDialog from './components/WhatsNewDialog'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useResolvedTheme } from './hooks/useResolvedTheme'
@@ -359,6 +360,7 @@ export default function App(): React.JSX.Element {
       <QuickOpen />
       <ImageLightbox />
       <UpdateToast />
+      <DesignExportToast />
       <WhatsNewDialog />
 
       {/* Lazy-loaded modals */}

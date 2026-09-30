@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { artboardHtml, hash, rasterRequest } from '../src/html'
+import { artboardHtml, hash, pdfRequest, rasterRequest } from '../src/html'
 import { compile } from '../src/pipeline'
 import { apply, invert, type Patch } from '../src/patch'
 import { validate } from '../src/pipeline'
@@ -133,5 +133,25 @@ describe('artboard position', () => {
       const undo = invert(v.doc, patch)
       expect(apply(apply(v.doc, patch), undo)).toEqual(v.doc)
     }
+  })
+})
+
+describe('several artboards print as one document', () => {
+  const { doc, theme } = compile(load('login.nyui.json'))
+  const boards = [doc.artboards[0], { ...doc.artboards[0], id: 'second', name: 'Second' }]
+
+  it('gives each artboard its own named page, in the order given', () => {
+    const req = pdfRequest(boards, theme)
+    expect(req.pages.map((p) => p.id)).toEqual([doc.artboards[0].id, 'second'])
+    expect(req.html).toContain('data-pdf-page="0" style="page:p0')
+    expect(req.html).toContain('data-pdf-page="1" style="page:p1')
+    expect(req.html.indexOf('data-pdf-page="0"')).toBeLessThan(req.html.indexOf('data-pdf-page="1"'))
+  })
+
+  it('stays self-contained, so the printer needs nothing but the string', () => {
+    const { html } = pdfRequest(boards, theme)
+    expect(html).not.toContain('<script')
+    expect(html.match(/(?:src|href)="(?!data:)[^"]*"/g) ?? []).toHaveLength(0)
+    expect(html).toContain('print-color-adjust:exact')
   })
 })

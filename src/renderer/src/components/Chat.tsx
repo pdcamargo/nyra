@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
-import { useSessionsStore, activeCwd, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type Agent, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
+import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type Agent, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
+import { noteDesignCall, noteDesignResult } from '../store/designActivity'
 import { useSettingsStore } from '../store/settings'
 import { wslShare } from '../lib/environment'
 import { useEnvironmentInfo } from '../hooks/useEnvironmentInfo'
@@ -907,6 +908,14 @@ export default function Chat(): React.JSX.Element {
           originalContent: event.originalContent
         })
 
+        noteDesignCall(
+          sid,
+          event.tool_id,
+          tool_name,
+          event.input,
+          cwdForSession(useSessionsStore.getState(), sid)
+        )
+
         // A PR being opened. Noted on the way past because the result is the
         // only event that carries the number.
         if (isPrCreatingCall(tool_name, event.input)) {
@@ -973,6 +982,7 @@ export default function Chat(): React.JSX.Element {
 
       if (event.type === 'tool_result') {
         updateToolResult(sid, event.tool_id, event.content, event.is_error)
+        noteDesignResult(sid, event.tool_id, event.content, cwdForSession(useSessionsStore.getState(), sid))
 
         if (prCallsRef.current.delete(event.tool_id)) {
           const ref = findCreatedPr(event.content ?? '')

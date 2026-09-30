@@ -84,6 +84,46 @@ export function rasterRequest(
   }
 }
 
+/**
+ * Several artboards as one printable document, one artboard per page.
+ *
+ * Each artboard gets a named page (`page: p0`, `p1`…) so every PDF page can be
+ * the size of its own artboard. The `@page` rules themselves are written by the
+ * printer, not here: an `auto` artboard's height is only known once Chromium
+ * has laid it out, and measuring then is cheaper than guessing now.
+ */
+export type PdfRequest = {
+  html: string
+  pages: { id: string; name: string; width: number; height: number | 'auto' }[]
+}
+
+export function pdfRequest(artboards: ResolvedArtboard[], theme: Theme): PdfRequest {
+  const body = artboards
+    .map(
+      (artboard, i) =>
+        `<div data-pdf-page="${i}" style="page:p${i};width:${artboard.size.width}px">` +
+        artboardMarkup(artboard, theme) +
+        '</div>'
+    )
+    .join('')
+  const html = [
+    '<!doctype html>',
+    '<html><head><meta charset="utf-8">',
+    // Backgrounds are the design; without exact colour adjustment Chromium
+    // prints them the way it prints a web page, which is not at all.
+    '<style>html,body{margin:0;padding:0;background:transparent}',
+    '[data-pdf-page]{break-after:page;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
+    '[data-pdf-page]:last-child{break-after:auto}</style>',
+    '</head><body>',
+    body,
+    '</body></html>'
+  ].join('')
+  return {
+    html,
+    pages: artboards.map((a) => ({ id: a.id, name: a.name, width: a.size.width, height: a.size.height }))
+  }
+}
+
 /** FNV-1a. Not cryptographic, and does not need to be — this names a cache
  *  entry, and a collision costs one wrong picture, not a security boundary. */
 export function hash(s: string): string {

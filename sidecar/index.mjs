@@ -11,6 +11,7 @@ import {
   closeDesign,
   designStats,
   listRasters,
+  printPdf,
   rasterize
 } from './design.mjs'
 import { ChatMcp } from './mcp.mjs'
@@ -842,6 +843,15 @@ const methods = {
   async 'design.raster'({ html, key, width, height, scale }) {
     await ensureBrowser()
     return rasterize(browser, { html, key, width, height, scale }, log)
+  },
+
+  /**
+   * Several artboards to one PDF at `out`. Same contract as the raster: the
+   * caller hands over finished HTML, and the sidecar only prints it.
+   */
+  async 'design.pdf'({ html, pages, out, baseDir }) {
+    await ensureBrowser()
+    return printPdf(browser, { html, pages, out, baseDir }, log)
   },
 
   'design.stats': () => ({ ...designStats(), files: listRasters() }),

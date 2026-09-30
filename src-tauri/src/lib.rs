@@ -289,6 +289,8 @@ pub fn run() {
             commands::terminal_kill,
             commands::browser_status,
             commands::design_raster,
+            commands::design_pick_pdf_path,
+            commands::design_pdf,
             commands::design_list,
             commands::design_create,
             commands::design_adopt,

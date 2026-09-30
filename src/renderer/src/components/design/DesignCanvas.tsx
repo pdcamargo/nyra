@@ -14,6 +14,34 @@ import {
 } from './layout'
 
 /**
+ * How a click changes the selection: a plain click replaces it, shift adds to
+ * it, and cmd/ctrl toggles one artboard in or out — the file-manager rules,
+ * because those are the ones people already have in their hands.
+ */
+export type SelectMode = 'replace' | 'add' | 'toggle'
+
+export function nextSelection(current: string[], id: string | null, mode: SelectMode): string[] {
+  if (id === null) return []
+  if (mode === 'replace') return current.length === 1 && current[0] === id ? current : [id]
+  if (current.includes(id)) return mode === 'toggle' ? current.filter((x) => x !== id) : current
+  // Appended, never sorted: the order you clicked in is the page order an
+  // export starts from, so it is kept exactly as it happened.
+  return [...current, id]
+}
+
+/** How far a press may travel and still count as a click rather than a pan. */
+const CLICK_SLOP = 4
+
+/**
+ * The selection colour. Blue rather than `--primary`, which in the dark theme
+ * is a near-white that disappears against a light artboard.
+ */
+const SELECTED = 'var(--info)'
+
+const modeOf = (e: React.MouseEvent): SelectMode =>
+  e.metaKey || e.ctrlKey ? 'toggle' : e.shiftKey ? 'add' : 'replace'
+
+/**
  * The surface the artboards sit on.
  *
  * Pan with a drag or a wheel, zoom with cmd/ctrl-wheel or the buttons. One
@@ -34,8 +62,9 @@ export default function DesignCanvas({
 }: {
   artboards: ResolvedArtboard[]
   theme: Theme
-  selected: string | null
-  onSelect: (id: string | null) => void
+  /** In the order they were picked. */
+  selected: string[]
+  onSelect: (id: string | null, mode?: SelectMode) => void
   /** Frame this artboard instead of fitting everything. Set when a chip
    *  pointed at one, so "see the Protocol panel" lands on the Protocol panel. */
   focus?: string | null
@@ -133,7 +162,6 @@ export default function DesignCanvas({
     if ((e.target as HTMLElement).closest('[data-artboard-frame]')) return
     dragging.current = { x: e.clientX, y: e.clientY, pan }
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
-    onSelect(null)
   }
 
   const onPointerMove = (e: React.PointerEvent): void => {
@@ -142,7 +170,20 @@ export default function DesignCanvas({
     setPan({ x: from.pan.x + (e.clientX - from.x), y: from.pan.y + (e.clientY - from.y) })
   }
 
-  const endDrag = (): void => {
+  /**
+   * A click on the background clears the selection; a pan does not.
+   *
+   * Decided on release, because at pointer-down the two look the same — and
+   * clearing there meant panning to reach the next artboard threw away the
+   * three you had just picked.
+   */
+  const endDrag = (e: React.PointerEvent): void => {
+    const from = dragging.current
+    dragging.current = null
+    if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) < CLICK_SLOP) onSelect(null)
+  }
+
+  const cancelDrag = (): void => {
     dragging.current = null
   }
 
@@ -158,21 +199,24 @@ export default function DesignCanvas({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
-        onPointerCancel={endDrag}
+        onPointerCancel={cancelDrag}
       >
         <div
           className="absolute origin-top-left"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
         >
-          {placed.map(({ artboard, x, y }) => (
+          {placed.map(({ artboard, x, y }) => {
+            const order = selected.indexOf(artboard.id)
+            const isSelected = order >= 0
+            return (
             <div key={artboard.id} className="absolute" style={{ left: x, top: y }}>
               <button
                 type="button"
                 data-artboard-frame={artboard.id}
-                onClick={() => onSelect(artboard.id)}
+                onClick={(e) => onSelect(artboard.id, modeOf(e))}
                 className={cn(
                   'absolute left-0 truncate text-left',
-                  selected === artboard.id ? 'text-primary' : 'text-muted-foreground'
+                  isSelected ? 'text-info' : 'text-muted-foreground'
                 )}
                 style={{
                   // Counter-scaled so a label stays readable at any zoom, which
@@ -184,27 +228,50 @@ export default function DesignCanvas({
               >
                 {artboard.name}
               </button>
+              {/* The pick order, shown once there is an order to show. It is the
+                  export's default page order, so it is worth seeing before
+                  the dialog says so. Counter-scaled like the title. */}
+              {isSelected && selected.length > 1 && (
+                <span
+                  className="pointer-events-none absolute z-10 flex items-center justify-center rounded-full bg-info font-medium text-info-foreground tabular-nums ring-2 ring-background"
+                  style={{
+                    top: -10 / zoom,
+                    right: -10 / zoom,
+                    width: 20 / zoom,
+                    height: 20 / zoom,
+                    fontSize: `${11 / zoom}px`
+                  }}
+                >
+                  {order + 1}
+                </span>
+              )}
               <div
                 data-artboard-frame={artboard.id}
-                onClick={() => onSelect(artboard.id)}
+                onClick={(e) => onSelect(artboard.id, modeOf(e))}
                 onContextMenu={(e) => {
                   if (!onContextMenu) return
                   e.preventDefault()
-                  onSelect(artboard.id)
+                  // Right-clicking inside a selection acts on the selection;
+                  // outside it, on that one artboard — as in every file manager.
+                  if (!selected.includes(artboard.id)) onSelect(artboard.id)
                   onContextMenu(artboard.id, { x: e.clientX, y: e.clientY })
                 }}
                 className="bg-background"
                 style={{
-                  outline:
-                    selected === artboard.id
-                      ? `${Math.max(1, 2 / zoom)}px solid var(--primary)`
-                      : `${Math.max(0.5, 1 / zoom)}px solid var(--border)`
+                  // Sized in screen pixels, so a selection reads the same at
+                  // 10% as at 200%; the offset keeps it off the artboard's own
+                  // edge, where a light design would swallow it.
+                  outline: isSelected
+                    ? `${2 / zoom}px solid ${SELECTED}`
+                    : `${Math.max(0.5, 1 / zoom)}px solid var(--border)`,
+                  outlineOffset: isSelected ? 2 / zoom : 0
                 }}
               >
                 <Artboard artboard={artboard} theme={theme} onMeasure={measure} />
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
@@ -229,7 +296,7 @@ export default function DesignCanvas({
         </button>
         <span className="ml-auto truncate">
           {artboards.length} artboard{artboards.length === 1 ? '' : 's'} · drag to pan · ⌘-scroll to
-          zoom
+          zoom · shift-click to select more
         </span>
       </div>
     </div>

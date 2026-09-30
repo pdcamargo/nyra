@@ -15,7 +15,7 @@ import {
   usePanelTabsStore,
   panelTabsFor
 } from '../store/panelTabs'
-import { basename, resolvePath } from './paths'
+import { basename, resolvePath, samePath } from './paths'
 import { absoluteInRepo } from './repoRoot'
 
 /**
@@ -237,7 +237,9 @@ export async function openDesignInPanel(ref: string): Promise<void> {
   const absolute = resolvePath(filePath, cwd)
 
   const known = await window.api.design.list()
-  let entry = known.find((d) => d.path === absolute)
+  // By the host's rules, not byte for byte: a chat may spell the path with
+  // other separators or case than the index, and it is still this design.
+  let entry = known.find((d) => samePath(d.path, absolute))
   if (!entry) {
     const name = designNameFromPath(absolute)
     const adopted = await window.api.design.adopt(name, absolute, cwd ?? '')

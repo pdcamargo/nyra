@@ -1104,6 +1104,18 @@ pub async fn design_raster(request: Value) -> Value {
     browser::design_raster(request).await
 }
 
+/// Where to write an exported PDF. Asked before rendering, so a cancelled
+/// dialog costs nothing and the progress notice only appears for real work.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn design_pick_pdf_path(app: AppHandle, default_name: String) -> Option<String> {
+    save_dialog(&app, &default_name, ("PDF", &["pdf"])).await
+}
+
+#[tauri::command]
+pub async fn design_pdf(request: Value) -> Value {
+    browser::design_pdf(request).await
+}
+
 #[tauri::command]
 pub fn design_list(project: Option<String>) -> Value {
     let project = project.map(std::path::PathBuf::from);

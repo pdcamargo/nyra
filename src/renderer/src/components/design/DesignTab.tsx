@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
-import { compile, rasterRequest, type Issue, type ResolvedDocument, type Theme } from '@nyra/design'
+import {
+  compile,
+  defaultTheme,
+  rasterRequest,
+  type Issue,
+  type ResolvedArtboard,
+  type ResolvedDocument,
+  type Theme
+} from '@nyra/design'
 import {
   Check,
   ClipboardCopy,
+  FileDown,
   Frame,
   MessageSquare,
   Pencil,
@@ -17,9 +26,18 @@ import { useFileStamp } from '../../hooks/useFileStamp'
 import { usePanelTabsStore } from '../../store/panelTabs'
 import type { DesignPanelTab } from '../../store/panelTabs'
 import type { DesignEntry } from '../../lib/api-types'
-import DesignCanvas from './DesignCanvas'
+import DesignCanvas, { nextSelection, type SelectMode } from './DesignCanvas'
+import ExportPdfDialog from './ExportPdfDialog'
+import { Button } from '../ui/button'
+import { useDesignExportStore } from '../../store/designExport'
+import { useDesignActivityStore } from '../../store/designActivity'
 
 type Loaded = { doc: ResolvedDocument; theme: Theme; issues: Issue[] }
+
+// Stable, so the empty canvas never re-renders for a fresh [] or a new callback.
+const NO_ARTBOARDS: ResolvedArtboard[] = []
+const NO_SELECTION: string[] = []
+const ignore = (): void => {}
 
 /**
  * The designs in this project, and the one on screen.
@@ -54,7 +72,14 @@ export default function DesignTab({
   const stamp = useFileStamp(path)
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<string | null>(null)
+  const [unwritten, setUnwritten] = useState(false)
+  const [selected, setSelected] = useState<string[]>([])
+  const select = useCallback(
+    (id: string | null, mode: SelectMode = 'replace') =>
+      setSelected((current) => nextSelection(current, id, mode)),
+    []
+  )
+  const [exporting, setExporting] = useState(false)
   const [menu, setMenu] = useState<{ artboardId: string; at: { x: number; y: number } } | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [draftName, setDraftName] = useState('')
@@ -75,19 +100,24 @@ export default function DesignTab({
   const open = useCallback(
     async (entry: DesignEntry) => {
       setError(null)
+      setUnwritten(false)
+      // Watched before it is read, so a file that does not exist yet is still
+      // polled — and the design appears the moment Claude writes it.
+      setPath(entry.path)
       const read = await window.api.fs.readTextFile(entry.path)
-      if (read.kind !== 'text') {
-        // A design whose file is gone is a real state — the index is a pointer,
-        // not a copy — so it is reported rather than silently dropped.
-        setError(
-          read.kind === 'missing'
-            ? `${entry.path} is no longer there. The index still points at it.`
-            : `Could not read ${entry.path} (${read.kind}).`
-        )
+      if (read.kind === 'missing') {
+        // `create` registers a design before its file is written, so a missing
+        // file is usually one about to arrive. The index is a pointer, not a
+        // copy; if the file really is gone, it simply never arrives.
+        setUnwritten(true)
         setLoaded(null)
         return
       }
-      setPath(entry.path)
+      if (read.kind !== 'text') {
+        setError(`Could not read ${entry.path} (${read.kind}).`)
+        setLoaded(null)
+        return
+      }
       try {
         setLoaded(compile(JSON.parse(read.content)))
       } catch (e) {
@@ -123,6 +153,12 @@ export default function DesignTab({
   }, [designs, tab.designId, tab.id, sessionId, open, pickDesign, stamp])
 
   const current = (designs ?? []).find((d) => d.id === tab.designId) ?? null
+
+  // On screen is looked at: what the miniature flags as changed is changed
+  // since you last saw it, and you are seeing it now.
+  useEffect(() => {
+    if (current !== null && loaded !== null) useDesignActivityStore.getState().acknowledge(current.path, { doc: loaded.doc, theme: loaded.theme })
+  }, [current, loaded])
 
   /**
    * Stop showing a design. The file is left alone.
@@ -199,6 +235,29 @@ export default function DesignTab({
     setRenaming(false)
   }, [current, draftName, refreshList])
 
+  /**
+   * Hand the chosen pages to the export, in the dialog's order.
+   *
+   * The dialog closes before the save dialog opens: two modals stacked is one
+   * too many, and the notice takes over from here.
+   */
+  const exportPdf = useCallback(
+    (ids: string[], openWhenDone: boolean) => {
+      if (current === null || loaded === null) return
+      const byId = new Map(loaded.doc.artboards.map((a) => [a.id, a]))
+      const artboards = ids.flatMap((id) => byId.get(id) ?? [])
+      setExporting(false)
+      void useDesignExportStore.getState().exportPdf({
+        artboards,
+        theme: loaded.theme,
+        designName: current.name,
+        designPath: current.path,
+        openWhenDone
+      })
+    },
+    [current, loaded]
+  )
+
   const reload = useCallback(async () => {
     const list = await refreshList()
     const entry = list.find((d) => d.id === tab.designId)
@@ -219,7 +278,7 @@ export default function DesignTab({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       {/* One row, two modes. Renaming replaces the picker in place rather than
           opening a second bar under it — the thing being renamed is the thing
           the picker names, so it should be the thing you type over. */}
@@ -286,13 +345,18 @@ export default function DesignTab({
         <pre className="m-2 overflow-auto rounded border border-destructive/40 bg-destructive/5 p-2 text-[11px] whitespace-pre-wrap text-destructive">
           {error}
         </pre>
+      ) : unwritten ? (
+        // The canvas with nothing on it yet, rather than a message about it:
+        // the first artboard lands where you are already looking, and nothing
+        // jumps when it does.
+        <DesignCanvas artboards={NO_ARTBOARDS} theme={defaultTheme} selected={NO_SELECTION} onSelect={ignore} />
       ) : loaded ? (
         <>
         <DesignCanvas
           artboards={loaded.doc.artboards}
           theme={loaded.theme}
           selected={selected}
-          onSelect={setSelected}
+          onSelect={select}
           focus={tab.artboardId}
           onContextMenu={(artboardId, at) => setMenu({ artboardId, at })}
         />
@@ -326,9 +390,48 @@ export default function DesignTab({
                 <MessageSquare className="size-3.5" />
                 Reference in chat
               </button>
+              <div className="-mx-1 my-1 h-px bg-border" />
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 hover:bg-accent"
+                onClick={() => {
+                  setExporting(true)
+                  setMenu(null)
+                }}
+              >
+                <FileDown className="size-3.5" />
+                {selected.length > 1 ? `Export ${selected.length} artboards as PDF…` : 'Export as PDF…'}
+              </button>
             </div>
           </>
         )}
+        {/* Only once there is more than one: a single artboard has the menu,
+            and a bar for one thing is a bar in the way. */}
+        {selected.length > 1 && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-10 z-30 flex justify-center">
+            <div className="pointer-events-auto flex items-center gap-2 rounded-lg border bg-popover py-1 pr-1 pl-3 text-xs shadow-panel">
+              <span>
+                <span className="font-medium tabular-nums">{selected.length}</span> artboards selected
+              </span>
+              <span className="h-4 w-px bg-border" />
+              <Button variant="ghost" size="sm" onClick={() => select(null)}>
+                Clear
+              </Button>
+              <Button size="sm" onClick={() => setExporting(true)}>
+                <FileDown />
+                Export as PDF
+              </Button>
+            </div>
+          </div>
+        )}
+        <ExportPdfDialog
+          open={exporting}
+          onOpenChange={setExporting}
+          artboards={loaded.doc.artboards}
+          theme={loaded.theme}
+          picked={selected}
+          onExport={exportPdf}
+        />
         </>
       ) : (
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">

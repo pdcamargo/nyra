@@ -18,9 +18,9 @@
  *     rule. A shared scratch directory is what broke attachments across two
  *     running instances once already.
  */
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, extname, join, resolve } from 'node:path'
 
 const DIR = join(tmpdir(), `nyra-designs-${process.pid}`)
 
@@ -123,6 +123,96 @@ export async function rasterize(browser, { html, key, width, height, scale = 2 }
     width: Math.round(box?.width ?? width),
     height: Math.round(box?.height ?? (typeof height === 'number' ? height : 0)),
     scale
+  }
+}
+
+const MIME = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  avif: 'image/avif'
+}
+
+/**
+ * Local image paths as data URIs.
+ *
+ * `setContent` puts the document on about:blank, where `./hero.png` resolves to
+ * nothing. The document's own folder is what the author meant, so that is where
+ * it is read from; a path that is not there is left alone and reported by the
+ * caller as a missing image rather than failing the whole export.
+ */
+export function inlineImages(html, baseDir) {
+  if (!baseDir) return html
+  return html.replace(/(<img\b[^>]*?\ssrc=")(\.{0,2}\/(?!\/)[^"]+)"/g, (whole, head, src) => {
+    const raw = src.replace(/&amp;/g, '&')
+    const candidates = raw.startsWith('/') ? [raw, join(baseDir, raw)] : [resolve(baseDir, raw)]
+    for (const file of candidates) {
+      try {
+        if (!existsSync(file) || !statSync(file).isFile()) continue
+        const mime = MIME[extname(file).slice(1).toLowerCase()]
+        if (!mime) continue
+        return `${head}data:${mime};base64,${readFileSync(file).toString('base64')}"`
+      } catch {
+        // Unreadable is the same as missing: report it, keep going.
+      }
+    }
+    return whole
+  })
+}
+
+/**
+ * Several artboards to one PDF, written straight to `out`.
+ *
+ * A page of its own rather than the raster page, so an export never waits on
+ * or disturbs a raster in flight. Every page is measured after layout and given
+ * a named `@page` of exactly that size, which is what lets a phone screen and
+ * a desktop screen share a document without either being letterboxed.
+ */
+export async function printPdf(browser, { html, pages, out, baseDir }, log) {
+  if (!out) throw new Error('printPdf needs an output path')
+  if (!Array.isArray(pages) || pages.length === 0) throw new Error('printPdf needs at least one page')
+
+  const ctx = await ensureContext(browser, log)
+  const p = await ctx.newPage()
+  try {
+    const widest = Math.max(...pages.map((pg) => pg.width))
+    await p.setViewportSize({ width: Math.max(320, Math.ceil(widest)), height: 800 })
+    await p.setContent(inlineImages(html, baseDir), { waitUntil: 'load' })
+
+    const measured = await p.$$eval('[data-pdf-page]', (els) =>
+      els.map((el) => {
+        const inner = el.querySelector('[data-artboard]') ?? el
+        const box = inner.getBoundingClientRect()
+        const broken = [...el.querySelectorAll('img')]
+          .filter((img) => img.complete && img.naturalWidth === 0)
+          .map((img) => img.getAttribute('src') ?? '')
+        return { width: box.width, height: box.height, broken }
+      })
+    )
+
+    const rules = measured
+      .map((m, i) => {
+        const w = Math.ceil(m.width || pages[i].width)
+        const h = Math.ceil(m.height || (typeof pages[i].height === 'number' ? pages[i].height : 800))
+        return `@page p${i}{size:${w}px ${h}px;margin:0}[data-pdf-page="${i}"]{height:${h}px}`
+      })
+      .join('')
+    await p.addStyleTag({ content: rules })
+
+    const buffer = await p.pdf({ printBackground: true, preferCSSPageSize: true })
+    mkdirSync(dirname(out), { recursive: true })
+    writeFileSync(out, buffer)
+
+    const missing = measured.flatMap((m, i) =>
+      m.broken.map((src) => ({ page: i, id: pages[i].id, src: src.startsWith('data:') ? 'embedded image' : src }))
+    )
+    log?.(`design: printed ${pages.length} page(s) to ${out}${missing.length ? `, ${missing.length} image(s) missing` : ''}`)
+    return { path: out, pages: pages.length, bytes: buffer.length, missing }
+  } finally {
+    await p.close().catch(() => {})
   }
 }
 

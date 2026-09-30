@@ -270,6 +270,15 @@ pub async fn design_raster(params: Value) -> Value {
     settle(call_with(RASTER_TIMEOUT, "design.raster", params).await)
 }
 
+/// A multi-page PDF takes longer than one raster: every page is laid out,
+/// measured and printed, and the first call may still be launching Chromium.
+const PDF_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// HTML in, PDF on disk out. The sidecar writes to `out` itself.
+pub async fn design_pdf(params: Value) -> Value {
+    settle(call_with(PDF_TIMEOUT, "design.pdf", params).await)
+}
+
 
 /// Every command answers `{ ok }` or `{ ok: false, error }` rather than
 /// rejecting: the panel renders a failure as a state, and a rejected promise

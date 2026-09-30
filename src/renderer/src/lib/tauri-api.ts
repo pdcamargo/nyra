@@ -674,6 +674,18 @@ export const api = {
         'design_raster',
         { request }
       ),
+    /** The save dialog, filtered to PDF. `null` when cancelled. */
+    pickPdfPath: (defaultName: string) => call<string | null>('design_pick_pdf_path', { defaultName }),
+    /** Print a `pdfRequest` to `out`. `baseDir` is where `./image.png` is read from. */
+    pdf: (request: { html: string; pages: unknown[]; out: string; baseDir: string | null }) =>
+      call<{
+        ok: boolean
+        path?: string
+        pages?: number
+        bytes?: number
+        missing?: { page: number; id: string; src: string }[]
+        error?: string
+      }>('design_pdf', { request }),
     list: (project?: string) => call<DesignEntry[]>('design_list', { project: project ?? null }),
     create: (name: string, project: string) =>
       call<{ ok: boolean; design?: DesignEntry; error?: string }>('design_create', { name, project }),
