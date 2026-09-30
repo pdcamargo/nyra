@@ -144,7 +144,7 @@ export default function TitleBar(): React.JSX.Element {
         </TitleBarButton>
         {/* One button, though the panel now holds two kinds of tab. The globe
             used to sit beside this as a separate browser toggle and each could
-            close the other out from under you; what opens is a workspace, and
+            close the other out from under you; what opens is the side panel, and
             what is in it is the strip's business. */}
         <TitleBarButton label={withKeys('Side panel', panelKeys)} active={rightPanelOpen} onClick={toggleRightPanel}>
           <PanelRight className="size-4" />

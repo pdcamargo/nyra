@@ -20,22 +20,22 @@ import { useSettingsStore } from '../../store/settings'
 import { cwdForSession, useSessionsStore } from '../../store/sessions'
 import {
   fileKey,
-  useWorkspaceStore,
-  workspaceFor,
-  type FileWorkspaceTab
-} from '../../store/workspace'
+  usePanelTabsStore,
+  panelTabsFor,
+  type FilePanelTab
+} from '../../store/panelTabs'
 
 export default function FileTab({
   sessionId,
   tab
 }: {
   sessionId: string
-  tab: FileWorkspaceTab
+  tab: FilePanelTab
 }): React.JSX.Element {
   // The chat's directory, which for a worktree chat is the worktree — not the
   // project it was cut from, whose files are a different checkout.
   const root = useSessionsStore((s) => cwdForSession(s, sessionId))
-  const ws = useWorkspaceStore((s) => workspaceFor(s, sessionId))
+  const ws = usePanelTabsStore((s) => panelTabsFor(s, sessionId))
   const panelWidth = usePanelLayoutStore((s) => s.rightPanelWidth)
   const treeKeys = useChordLabel('panel.right.tree')
   const wrapKeys = useChordLabel('file.wrap')
@@ -52,11 +52,11 @@ export default function FileTab({
    * actually working in should not be replaced by the next click.
    */
   const openFile = (path: string, pin = false): void => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     // Already on screen: a click takes you there, a double click also keeps it.
     // Retargeting a row that already shows this file would leave two of them.
-    const already = workspaceFor(store, sessionId).tabs.find(
-      (t): t is FileWorkspaceTab => t.kind === 'file' && t.path === path
+    const already = panelTabsFor(store, sessionId).tabs.find(
+      (t): t is FilePanelTab => t.kind === 'file' && t.path === path
     )
     if (already) {
       if (pin) store.pinFileTab(sessionId, already.id)
@@ -70,8 +70,8 @@ export default function FileTab({
   /** A folder picked from a breadcrumb: open it in the tree rather than in the
    *  preview, which is the only thing a folder can mean here. */
   const revealDir = (dir: string): void => {
-    const store = useWorkspaceStore.getState()
-    if (!workspaceFor(store, sessionId).treeExpanded.includes(dir)) {
+    const store = usePanelTabsStore.getState()
+    if (!panelTabsFor(store, sessionId).treeExpanded.includes(dir)) {
       store.toggleTreeDir(sessionId, dir)
     }
     if (!ws.treeOpen) store.setTreeOpen(sessionId, true)
@@ -120,7 +120,7 @@ export default function FileTab({
             aria-label="Toggle file tree"
             aria-pressed={showTree}
             disabled={!fits}
-            onClick={() => useWorkspaceStore.getState().setTreeOpen(sessionId, !ws.treeOpen)}
+            onClick={() => usePanelTabsStore.getState().setTreeOpen(sessionId, !ws.treeOpen)}
             className={`mr-1.5 shrink-0 rounded p-1 transition-colors disabled:opacity-30 ${
               showTree
                 ? 'bg-accent text-foreground'
@@ -150,7 +150,7 @@ export default function FileTab({
               label="Resize file tree"
               getSize={() =>
                 clampTreeWidth(
-                  workspaceFor(useWorkspaceStore.getState(), sessionId).treeWidth ??
+                  panelTabsFor(usePanelTabsStore.getState(), sessionId).treeWidth ??
                     TREE_DEFAULT_WIDTH,
                   usePanelLayoutStore.getState().rightPanelWidth
                 )
@@ -158,8 +158,8 @@ export default function FileTab({
               clamp={(candidate) =>
                 clampTreeWidth(candidate, usePanelLayoutStore.getState().rightPanelWidth)
               }
-              onSize={(px) => useWorkspaceStore.getState().setTreeWidth(sessionId, px)}
-              onReset={() => useWorkspaceStore.getState().setTreeWidth(sessionId, null)}
+              onSize={(px) => usePanelTabsStore.getState().setTreeWidth(sessionId, px)}
+              onReset={() => usePanelTabsStore.getState().setTreeWidth(sessionId, null)}
             />
             <aside
               style={{ width: treeWidth }}

@@ -1887,7 +1887,7 @@ export default function Chat(): React.JSX.Element {
 
       {/* The column is centred and width-limited, and stays put when the summary
           opens — the summary floats in the gutter rather than pushing the text.
-          Only the workspace rail changes the column's position, by narrowing the
+          Only the side panel changes the column's position, by narrowing the
           area it centres in. The measure is deliberately short so there is a
           gutter for the summary to float in. */}
       <div

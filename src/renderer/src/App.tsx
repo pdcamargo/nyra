@@ -30,7 +30,7 @@ import { announceBackgroundEnd, endedBetween } from './lib/backgroundCalls'
 import { applySessionPanels, useUiStore } from './store/ui'
 import { useUpdatesStore } from './store/updates'
 import { dropBrowserHub, useBrowserStore } from './store/browser'
-import { syncBrowserGone, syncSidecarTabs, useWorkspaceStore } from './store/workspace'
+import { syncBrowserGone, syncSidecarTabs, usePanelTabsStore } from './store/panelTabs'
 import { handleBinding } from './store/panelLayout'
 import { usePanelSizesStore } from './store/panelSizes'
 import { startAppControl } from './lib/appControl'
@@ -141,11 +141,11 @@ export default function App(): React.JSX.Element {
       .then(() => useSessionsStore.persist.rehydrate())
       .then(attachWorktreeSessions)
       .then(() => {
-        // The workspace store keeps file tabs per chat and hydrates on its own,
+        // The panel-tabs store keeps file tabs per chat and hydrates on its own,
         // so it can be holding rows for chats this one no longer has. Pruned
         // here rather than on write, because only now is the session list real.
         const ids = useSessionsStore.getState().sessions.map((x) => x.id)
-        useWorkspaceStore.getState().prune(ids)
+        usePanelTabsStore.getState().prune(ids)
       })
     void primeHomedir()
   }, [])
@@ -327,7 +327,7 @@ export default function App(): React.JSX.Element {
         <>
           <ResizeHandle
             side="right"
-            label="Resize workspace panel"
+            label="Resize side panel"
             {...handleBinding('rightPanelWidth')}
             onSize={(px) => {
               usePanelSizesStore.getState().setSize('rightPanelWidth', px)

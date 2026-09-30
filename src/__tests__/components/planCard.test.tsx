@@ -12,7 +12,7 @@ import PlanCard, { splitPlan } from '../../renderer/src/components/PlanCard'
 import { usePlanApprovalStore } from '../../renderer/src/store/planApprovals'
 import { useSessionsStore, type ToolCallMessage } from '../../renderer/src/store/sessions'
 import { useUiStore } from '../../renderer/src/store/ui'
-import { useWorkspaceStore, workspaceFor } from '../../renderer/src/store/workspace'
+import { usePanelTabsStore, panelTabsFor } from '../../renderer/src/store/panelTabs'
 
 const plan: ToolCallMessage = {
   id: 'm1',
@@ -118,7 +118,7 @@ describe('a plan still being drafted', () => {
 describe('opening a plan', () => {
   beforeEach(() => {
     usePlanApprovalStore.setState({ pending: {}, drafting: {} })
-    useWorkspaceStore.setState({ bySession: {} })
+    usePanelTabsStore.setState({ bySession: {} })
     useUiStore.setState({ rightPanelOpen: false })
     useSessionsStore.setState({
       activeSessionId: 's1',
@@ -133,7 +133,7 @@ describe('opening a plan', () => {
     await userEvent.click(screen.getByRole('button', { name: /Open plan/ }))
 
     expect(useUiStore.getState().rightPanelOpen).toBe(true)
-    expect(workspaceFor(useWorkspaceStore.getState(), 's1').tabs).toEqual([
+    expect(panelTabsFor(usePanelTabsStore.getState(), 's1').tabs).toEqual([
       { kind: 'plan', id: expect.any(String), toolId: 't1' }
     ])
   })

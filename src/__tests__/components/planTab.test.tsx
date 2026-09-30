@@ -3,10 +3,10 @@ import { render, screen } from '@testing-library/react'
 import PlanTab from '@renderer/components/plan/PlanTab'
 import { usePlanApprovalStore } from '@renderer/store/planApprovals'
 import { useSessionsStore, type ToolCallMessage } from '@renderer/store/sessions'
-import type { PlanWorkspaceTab } from '@renderer/store/workspace'
+import type { PlanPanelTab } from '@renderer/store/panelTabs'
 
 const SID = 'chat-1'
-const tab: PlanWorkspaceTab = { kind: 'plan', id: 'p1', toolId: 't1' }
+const tab: PlanPanelTab = { kind: 'plan', id: 'p1', toolId: 't1' }
 
 const plan: ToolCallMessage = {
   id: 'm1',

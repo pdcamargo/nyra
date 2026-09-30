@@ -34,7 +34,7 @@ describe('ResizeHandle drag direction', () => {
     expect(drag('left', 256, -40, 0)).toEqual([216])
   })
 
-  it('grows the workspace panel when dragged left', () => {
+  it('grows the side panel when dragged left', () => {
     expect(drag('right', 256, -40, 0)).toEqual([296])
     expect(drag('right', 256, 40, 0)).toEqual([216])
   })

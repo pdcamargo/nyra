@@ -14,8 +14,8 @@ import { IconButton } from '../ui/icon-button'
 import { useSessionsStore } from '../../store/sessions'
 import { useUiStore } from '../../store/ui'
 import { useFileStamp } from '../../hooks/useFileStamp'
-import { useWorkspaceStore } from '../../store/workspace'
-import type { DesignWorkspaceTab } from '../../store/workspace'
+import { usePanelTabsStore } from '../../store/panelTabs'
+import type { DesignPanelTab } from '../../store/panelTabs'
 import type { DesignEntry } from '../../lib/api-types'
 import DesignCanvas from './DesignCanvas'
 
@@ -34,12 +34,12 @@ export default function DesignTab({
   tab
 }: {
   sessionId: string
-  tab: DesignWorkspaceTab
+  tab: DesignPanelTab
 }): React.ReactElement {
   const cwd = useSessionsStore(
     (s) => s.sessions.find((session) => session.id === sessionId)?.cwd ?? null
   )
-  const pickDesign = useWorkspaceStore((s) => s.setDesignTabDesign)
+  const pickDesign = usePanelTabsStore((s) => s.setDesignTabDesign)
 
   const [designs, setDesigns] = useState<DesignEntry[] | null>(null)
   const [path, setPath] = useState<string | null>(null)

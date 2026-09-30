@@ -6,7 +6,7 @@
  */
 import React, { Suspense, useEffect, useState } from 'react'
 import { FileText } from 'lucide-react'
-import Empty from '../workspace/Empty'
+import Empty from '../panelTabs/Empty'
 import { useFileStamp } from '../../hooks/useFileStamp'
 import { detectLanguage } from '../../utils/diff'
 import { isImagePath, isMarkdownPath } from './media'
@@ -82,7 +82,7 @@ export default function FilePreviewPane({
         <FileText className="mb-3 size-6 text-muted-foreground" />
         <p className="mb-1 text-[12px] text-foreground">Open file</p>
         <p className="max-w-[240px] text-[11px] leading-relaxed text-muted-foreground">
-          Select a file from the workspace tree.
+          Select a file from the file tree.
         </p>
       </Empty>
     )

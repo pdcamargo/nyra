@@ -5,7 +5,7 @@ export type ResizeSide = 'left' | 'right' | 'bottom'
 /**
  * `side` names where the panel being resized sits relative to the handle, which
  * settles both the axis and which way a positive drag grows the panel: the
- * projects rail is to the handle's left and grows rightward, the workspace panel
+ * projects rail is to the handle's left and grows rightward, the side panel
  * and the bottom dock are the other way round.
  */
 const SIDES = {

@@ -1,7 +1,7 @@
 /**
  * "Open this file" — the one answer to it.
  *
- * Its own module rather than a method on the workspace store, because the store
+ * Its own module rather than a method on the panel-tabs store, because the store
  * is already imported *by* `sessions` (a deleted chat forgets its tabs) and
  * reaching back the other way would make the two mutually dependent for the
  * sake of one function. This sits downstream of both.
@@ -12,9 +12,9 @@ import { usePanelSizesStore } from '../store/panelSizes'
 import { useChangesStore, type ChangeScope } from '../store/changes'
 import {
   tabKey,
-  useWorkspaceStore,
-  workspaceFor
-} from '../store/workspace'
+  usePanelTabsStore,
+  panelTabsFor
+} from '../store/panelTabs'
 import { basename, resolvePath } from './paths'
 import { absoluteInRepo } from './repoRoot'
 
@@ -81,8 +81,8 @@ export function openFileInPanel(filePath: string): void {
   if (!sessionId) return
 
   const absolute = resolvePath(filePath, cwdForSession(sessions, sessionId))
-  const store = useWorkspaceStore.getState()
-  const ws = workspaceFor(store, sessionId)
+  const store = usePanelTabsStore.getState()
+  const ws = panelTabsFor(store, sessionId)
 
   useUiStore.getState().setRightPanelOpen(true)
 
@@ -128,7 +128,7 @@ export function openChangesInPanel(opts?: {
     sizes.setSize('rightPanelWidth', CHANGES_MIN_WIDTH)
   }
 
-  useWorkspaceStore.getState().openChangesTab(sessionId)
+  usePanelTabsStore.getState().openChangesTab(sessionId)
 }
 
 /**
@@ -156,7 +156,7 @@ export function openPlanInPanel(toolId: string): void {
     sizes.setSize('rightPanelWidth', PLAN_MIN_WIDTH)
   }
 
-  useWorkspaceStore.getState().openPlanTab(sessionId, toolId)
+  usePanelTabsStore.getState().openPlanTab(sessionId, toolId)
 }
 
 /**
@@ -182,7 +182,7 @@ export function openSubagentsInPanel(focus: string | null): void {
     sizes.setSize('rightPanelWidth', SUBAGENTS_MIN_WIDTH)
   }
 
-  useWorkspaceStore.getState().openSubagentsTab(sessionId, focus)
+  usePanelTabsStore.getState().openSubagentsTab(sessionId, focus)
 }
 
 /**
@@ -257,7 +257,7 @@ export async function openDesignInPanel(ref: string): Promise<void> {
   if (sizes.rightPanelWidth < DESIGN_MIN_WIDTH) {
     sizes.setSize('rightPanelWidth', DESIGN_MIN_WIDTH)
   }
-  useWorkspaceStore.getState().openDesignTab(sessionId, entry.id, artboard)
+  usePanelTabsStore.getState().openDesignTab(sessionId, entry.id, artboard)
 }
 
 /**

@@ -2,12 +2,12 @@ import type React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render as rtlRender, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import WorkspacePanel from '@renderer/components/workspace/WorkspacePanel'
-import WorkspaceTabStrip from '@renderer/components/workspace/WorkspaceTabStrip'
+import PanelTabs from '@renderer/components/panelTabs/PanelTabs'
+import PanelTabStrip from '@renderer/components/panelTabs/PanelTabStrip'
 import { useBrowserStore } from '@renderer/store/browser'
 import { useSessionsStore } from '@renderer/store/sessions'
 import { useUiStore } from '@renderer/store/ui'
-import { browserKey, tabKey, useWorkspaceStore, type WorkspaceTab } from '@renderer/store/workspace'
+import { browserKey, tabKey, usePanelTabsStore, type PanelTab } from '@renderer/store/panelTabs'
 import type { BrowserTab } from '@renderer/lib/api-types'
 import { TooltipProvider } from '@renderer/components/ui/tooltip'
 
@@ -31,21 +31,21 @@ const browserTab = (tabId: string, over: Partial<BrowserTab> = {}): BrowserTab =
 })
 
 beforeEach(() => {
-  useWorkspaceStore.setState({ bySession: {} })
+  usePanelTabsStore.setState({ bySession: {} })
   useBrowserStore.setState({ bySession: {}, cdpUrl: null, install: null })
   useSessionsStore.setState({ activeSessionId: SID })
   useUiStore.setState({ rightPanelOpen: true })
   vi.restoreAllMocks()
 })
 
-describe('WorkspaceTabStrip', () => {
-  const renderStrip = (tabs: WorkspaceTab[], browserTabs: BrowserTab[] = []) => {
+describe('PanelTabStrip', () => {
+  const renderStrip = (tabs: PanelTab[], browserTabs: BrowserTab[] = []) => {
     const onSelect = vi.fn()
     const onClose = vi.fn()
     const onReorder = vi.fn()
     const onPin = vi.fn()
     render(
-      <WorkspaceTabStrip
+      <PanelTabStrip
         tabs={tabs}
         activeKey={tabs[0] ? tabKey(tabs[0]) : null}
         browserTabs={browserTabs}
@@ -230,9 +230,9 @@ describe('WorkspaceTabStrip', () => {
   })
 })
 
-describe('WorkspacePanel', () => {
+describe('PanelTabs', () => {
   it('offers both choices when the panel is empty', () => {
-    render(<WorkspacePanel />)
+    render(<PanelTabs />)
     expect(screen.getByRole('button', { name: /Browser/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Files/ })).toBeInTheDocument()
   })
@@ -240,12 +240,12 @@ describe('WorkspacePanel', () => {
   // The headline requirement. Opening the panel to read a file used to mean
   // downloading a 182 MB browser engine, because mounting the panel *was* the
   // request for one.
-  it('never starts a browser for a files-only workspace', async () => {
+  it('never starts a browser for a files-only side panel', async () => {
     const status = vi.spyOn(window.api.browser, 'status')
     const openChat = vi.spyOn(window.api.browser, 'openChat')
 
-    useWorkspaceStore.getState().openFileTab(SID, '/repo/a.ts')
-    render(<WorkspacePanel />)
+    usePanelTabsStore.getState().openFileTab(SID, '/repo/a.ts')
+    render(<PanelTabs />)
     await Promise.resolve()
 
     expect(status).not.toHaveBeenCalled()
@@ -255,40 +255,40 @@ describe('WorkspacePanel', () => {
   it('starts one as soon as the chat has a browser tab', async () => {
     const status = vi.spyOn(window.api.browser, 'status').mockResolvedValue({ ok: false, error: 'nope' })
 
-    useWorkspaceStore.getState().reconcile(SID, ['t1'])
-    render(<WorkspacePanel />)
+    usePanelTabsStore.getState().reconcile(SID, ['t1'])
+    render(<PanelTabs />)
     await Promise.resolve()
 
     expect(status).toHaveBeenCalled()
   })
 
   it('shows a file tab rather than the browser when a file tab is selected', () => {
-    useWorkspaceStore.getState().reconcile(SID, ['t1'])
+    usePanelTabsStore.getState().reconcile(SID, ['t1'])
     useBrowserStore.getState().setTabs(SID, [browserTab('t1')])
-    const key = useWorkspaceStore.getState().openFileTab(SID)
-    useWorkspaceStore.getState().selectTab(SID, key)
+    const key = usePanelTabsStore.getState().openFileTab(SID)
+    usePanelTabsStore.getState().selectTab(SID, key)
 
-    render(<WorkspacePanel />)
+    render(<PanelTabs />)
 
-    expect(screen.getByText('Select a file from the workspace tree.')).toBeInTheDocument()
+    expect(screen.getByText('Select a file from the file tree.')).toBeInTheDocument()
     expect(screen.queryByLabelText('Address')).toBeNull()
   })
 
   it('shows the address bar when a browser tab is selected', () => {
-    useWorkspaceStore.getState().reconcile(SID, ['t1'])
+    usePanelTabsStore.getState().reconcile(SID, ['t1'])
     useBrowserStore.getState().setTabs(SID, [browserTab('t1')])
-    useWorkspaceStore.getState().selectTab(SID, browserKey('t1'))
+    usePanelTabsStore.getState().selectTab(SID, browserKey('t1'))
 
-    render(<WorkspacePanel />)
+    render(<PanelTabs />)
     expect(screen.getByLabelText('Address')).toBeInTheDocument()
   })
 
   // The download prompt used to take the whole panel, tab strip included.
   it('keeps the strip while Chromium is missing', () => {
-    useWorkspaceStore.getState().openFileTab(SID, '/repo/a.ts')
+    usePanelTabsStore.getState().openFileTab(SID, '/repo/a.ts')
     useBrowserStore.getState().setPhase(SID, 'needs-chromium')
 
-    render(<WorkspacePanel />)
+    render(<PanelTabs />)
 
     // Scoped to the strip: the breadcrumb says the file's name too.
     const strip = screen.getByRole('tablist')
@@ -297,7 +297,7 @@ describe('WorkspacePanel', () => {
 
   it('offers the download when something asked for a browser and there is none', () => {
     useBrowserStore.getState().setPhase(SID, 'needs-chromium')
-    render(<WorkspacePanel />)
+    render(<PanelTabs />)
     expect(screen.getByText('Nyra needs a browser engine')).toBeInTheDocument()
   })
 
@@ -306,7 +306,7 @@ describe('WorkspacePanel', () => {
   it('offers the two choices again once the tabs are gone, not a starting browser', () => {
     useBrowserStore.getState().setPhase(SID, 'ready')
 
-    render(<WorkspacePanel />)
+    render(<PanelTabs />)
 
     expect(screen.queryByText('Starting the browser…')).toBeNull()
     expect(screen.getByRole('button', { name: /Browser/ })).toBeInTheDocument()
@@ -315,9 +315,9 @@ describe('WorkspacePanel', () => {
 
   it('puts the panel away when the last tab is closed', async () => {
     const user = userEvent.setup()
-    useWorkspaceStore.getState().openFileTab(SID, '/repo/a.ts')
+    usePanelTabsStore.getState().openFileTab(SID, '/repo/a.ts')
 
-    render(<WorkspacePanel />)
+    render(<PanelTabs />)
     await user.click(screen.getByLabelText('Close tab'))
 
     expect(useUiStore.getState().rightPanelOpen).toBe(false)
@@ -325,10 +325,10 @@ describe('WorkspacePanel', () => {
 
   it('stays open while another tab is left', async () => {
     const user = userEvent.setup()
-    useWorkspaceStore.getState().openFileTab(SID, '/repo/a.ts')
-    useWorkspaceStore.getState().openFileTab(SID, '/repo/b.ts')
+    usePanelTabsStore.getState().openFileTab(SID, '/repo/a.ts')
+    usePanelTabsStore.getState().openFileTab(SID, '/repo/b.ts')
 
-    render(<WorkspacePanel />)
+    render(<PanelTabs />)
     await user.click(screen.getAllByLabelText('Close tab')[0])
 
     expect(useUiStore.getState().rightPanelOpen).toBe(true)
@@ -337,10 +337,10 @@ describe('WorkspacePanel', () => {
   it('closes on the last browser tab too, without waiting for the sidecar', async () => {
     const user = userEvent.setup()
     const tabClose = vi.spyOn(window.api.browser, 'tabClose')
-    useWorkspaceStore.getState().reconcile(SID, ['t1'])
+    usePanelTabsStore.getState().reconcile(SID, ['t1'])
     useBrowserStore.getState().setTabs(SID, [browserTab('t1')])
 
-    render(<WorkspacePanel />)
+    render(<PanelTabs />)
     await user.click(screen.getByLabelText('Close tab'))
 
     expect(tabClose).toHaveBeenCalledWith(SID, 't1')
@@ -350,17 +350,17 @@ describe('WorkspacePanel', () => {
   // The panel must not vanish because the browser went down or was evicted —
   // only because somebody put it away.
   it('stays open when the strip empties on its own', () => {
-    useWorkspaceStore.getState().reconcile(SID, ['t1'])
-    render(<WorkspacePanel />)
+    usePanelTabsStore.getState().reconcile(SID, ['t1'])
+    render(<PanelTabs />)
 
-    useWorkspaceStore.getState().reconcile(SID, [])
+    usePanelTabsStore.getState().reconcile(SID, [])
 
     expect(useUiStore.getState().rightPanelOpen).toBe(true)
   })
 
   it('says so with no chat on screen', () => {
     useSessionsStore.setState({ activeSessionId: null })
-    render(<WorkspacePanel />)
-    expect(screen.getByText('Open a chat to give it a workspace.')).toBeInTheDocument()
+    render(<PanelTabs />)
+    expect(screen.getByText('Open a chat to give it a side panel.')).toBeInTheDocument()
   })
 })

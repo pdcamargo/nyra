@@ -5,7 +5,7 @@ import { splitPlan } from '../PlanCard'
 import { usePlanApprovalStore } from '../../store/planApprovals'
 import { useSessionsStore, type ToolCallMessage } from '../../store/sessions'
 import { extractPlan } from '../../utils/permission'
-import type { PlanWorkspaceTab } from '../../store/workspace'
+import type { PlanPanelTab } from '../../store/panelTabs'
 
 /**
  * A plan, with room to read it.
@@ -24,7 +24,7 @@ export default function PlanTab({
   tab
 }: {
   sessionId: string
-  tab: PlanWorkspaceTab
+  tab: PlanPanelTab
 }): React.JSX.Element {
   // Matched on the name as well as the id, and from the back.
   //

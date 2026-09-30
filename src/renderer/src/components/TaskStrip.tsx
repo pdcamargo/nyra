@@ -21,8 +21,8 @@ function TaskMarker({ status }: { status: Task['status'] }): React.JSX.Element {
 /**
  * What Claude is working through, above the composer where you are looking.
  *
- * The task list used to live in the workspace panel, which is the wrong place
- * twice over: it is about this conversation rather than the workspace, and it
+ * The task list used to live in the side panel, which is the wrong place
+ * twice over: it is about this conversation rather than the files beside it, and it
  * was behind a tab, so the answer to "what is it doing?" was a click away while
  * the thing you were watching scrolled past.
  *

@@ -31,7 +31,7 @@ import type { DiffViewMode } from '@shared/types'
 import { clampTreeWidth, TREE_DEFAULT_WIDTH, treeFits } from '../files/treeWidth'
 import { usePanelLayoutStore } from '../../store/panelLayout'
 import { cwdForSession, useSessionsStore } from '../../store/sessions'
-import { useWorkspaceStore, workspaceFor } from '../../store/workspace'
+import { usePanelTabsStore, panelTabsFor } from '../../store/panelTabs'
 import {
   changesFor,
   scopeLabel,
@@ -303,7 +303,7 @@ function FileRow({
 export default function ChangesTab({ sessionId }: { sessionId: string }): React.JSX.Element {
   const cwd = useSessionsStore((s) => cwdForSession(s, sessionId))
   const changes = useChangesStore((s) => changesFor(s, sessionId))
-  const ws = useWorkspaceStore((s) => workspaceFor(s, sessionId))
+  const ws = usePanelTabsStore((s) => panelTabsFor(s, sessionId))
   const panelWidth = usePanelLayoutStore((s) => s.rightPanelWidth)
   const diffView = useSettingsStore((s) => s.diffView)
   const diffWrap = useSettingsStore((s) => s.diffWrap)
@@ -436,7 +436,7 @@ export default function ChangesTab({ sessionId }: { sessionId: string }): React.
               label="Toggle the changed-file tree"
               command="panel.right.tree"
               active={showTree}
-              onClick={() => useWorkspaceStore.getState().setTreeOpen(sessionId, !ws.treeOpen)}
+              onClick={() => usePanelTabsStore.getState().setTreeOpen(sessionId, !ws.treeOpen)}
             >
               <PanelLeft className="size-3" />
             </IconButton>
@@ -457,7 +457,7 @@ export default function ChangesTab({ sessionId }: { sessionId: string }): React.
               label="Resize changed-file tree"
               getSize={() =>
                 clampTreeWidth(
-                  workspaceFor(useWorkspaceStore.getState(), sessionId).treeWidth ??
+                  panelTabsFor(usePanelTabsStore.getState(), sessionId).treeWidth ??
                     TREE_DEFAULT_WIDTH,
                   usePanelLayoutStore.getState().rightPanelWidth
                 )
@@ -465,8 +465,8 @@ export default function ChangesTab({ sessionId }: { sessionId: string }): React.
               clamp={(candidate) =>
                 clampTreeWidth(candidate, usePanelLayoutStore.getState().rightPanelWidth)
               }
-              onSize={(px) => useWorkspaceStore.getState().setTreeWidth(sessionId, px)}
-              onReset={() => useWorkspaceStore.getState().setTreeWidth(sessionId, null)}
+              onSize={(px) => usePanelTabsStore.getState().setTreeWidth(sessionId, px)}
+              onReset={() => usePanelTabsStore.getState().setTreeWidth(sessionId, null)}
             />
             <aside
               style={{ width: treeWidth }}

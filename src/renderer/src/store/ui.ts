@@ -38,7 +38,7 @@ type UiStore = {
   bottomPanelFocusNonce: number
   /** The projects rail. The title bar toggles it; Codex hides it the same way. */
   projectsPanelOpen: boolean
-  /** The right panel: a workspace whose strip holds browser tabs and file tabs
+  /** The right panel: the side panel, whose strip holds browser tabs and file tabs
    *  side by side. It used to carry agents, context, MCP and memory tabs, with
    *  the browser fighting them for the same strip of window and a second
    *  title-bar button that could close it out from under you. Agents and context

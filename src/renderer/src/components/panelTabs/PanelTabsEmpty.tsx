@@ -14,7 +14,7 @@ import { NEW_TAB_CHOICES, type NewTabKind } from './tabs'
  * the pointer is anywhere near them. Centred and capped rather than stretched,
  * because a full-width row in a wide panel reads as a list header.
  */
-export default function WorkspaceEmpty({
+export default function PanelTabsEmpty({
   onPick
 }: {
   onPick: (kind: NewTabKind) => void

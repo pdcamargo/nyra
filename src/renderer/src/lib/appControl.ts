@@ -28,7 +28,7 @@ import {
 import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
 import { useSessionsStore } from '../store/sessions'
-import { useWorkspaceStore, workspaceFor } from '../store/workspace'
+import { usePanelTabsStore, panelTabsFor } from '../store/panelTabs'
 import { openFileInPanel } from './openFile'
 import { resolveTheme } from './theme'
 import { renderDesign } from './designRender'
@@ -66,7 +66,7 @@ function state(): Record<string, unknown> {
     sidePanelTabs:
       sessionId === null
         ? []
-        : workspaceFor(useWorkspaceStore.getState(), sessionId).tabs.map((tab) => ({
+        : panelTabsFor(usePanelTabsStore.getState(), sessionId).tabs.map((tab) => ({
             kind: tab.kind,
             title: tab.kind === 'file' ? tab.path : tab.kind
           }))

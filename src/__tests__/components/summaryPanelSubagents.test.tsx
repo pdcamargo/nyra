@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import SummaryPanel from '@renderer/components/SummaryPanel'
 import { TooltipProvider } from '@renderer/components/ui/tooltip'
 import { useSessionsStore, type Agent } from '@renderer/store/sessions'
-import { useWorkspaceStore, workspaceFor } from '@renderer/store/workspace'
+import { usePanelTabsStore, panelTabsFor } from '@renderer/store/panelTabs'
 import { useUiStore } from '@renderer/store/ui'
 import { useBrowserStore } from '@renderer/store/browser'
 import { useProcessesStore } from '@renderer/store/processes'
@@ -33,7 +33,7 @@ const seed = (agents: Agent[]): void => {
 }
 
 beforeEach(() => {
-  useWorkspaceStore.setState({ bySession: {} })
+  usePanelTabsStore.setState({ bySession: {} })
   useBrowserStore.setState({ bySession: {}, cdpUrl: null, install: null })
   useProcessesStore.setState({ bySession: {} } as never)
   useUiStore.setState({ summaryOpen: true, rightPanelOpen: false })
@@ -62,7 +62,7 @@ describe('the Subagents section of the summary', () => {
 
     await userEvent.click(screen.getByText('Explore the streaming pipeline'))
 
-    const tabs = workspaceFor(useWorkspaceStore.getState(), SID).tabs
+    const tabs = panelTabsFor(usePanelTabsStore.getState(), SID).tabs
     expect(tabs).toEqual([{ kind: 'subagents', id: expect.any(String), focus: 't1' }])
     // Opening it has to open the panel, or the click does nothing visible.
     expect(useUiStore.getState().rightPanelOpen).toBe(true)
@@ -74,7 +74,7 @@ describe('the Subagents section of the summary', () => {
 
     await userEvent.click(screen.getByLabelText('See all subagents'))
 
-    const tabs = workspaceFor(useWorkspaceStore.getState(), SID).tabs
+    const tabs = panelTabsFor(usePanelTabsStore.getState(), SID).tabs
     expect(tabs).toEqual([{ kind: 'subagents', id: expect.any(String), focus: null }])
   })
 
@@ -85,7 +85,7 @@ describe('the Subagents section of the summary', () => {
     await userEvent.click(screen.getByText('Explore the streaming pipeline'))
     await userEvent.click(screen.getByText('Explore the tab system'))
 
-    const tabs = workspaceFor(useWorkspaceStore.getState(), SID).tabs
+    const tabs = panelTabsFor(usePanelTabsStore.getState(), SID).tabs
     expect(tabs).toHaveLength(1)
     expect(tabs[0]).toMatchObject({ focus: 't2' })
   })

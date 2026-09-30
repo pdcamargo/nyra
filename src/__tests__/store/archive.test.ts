@@ -11,7 +11,7 @@ import { useProcessesStore } from '../../renderer/src/store/processes'
 import { useResourceDockStore } from '../../renderer/src/store/resourceDock'
 import { useRunningStore } from '../../renderer/src/store/running'
 import { useUiStore } from '../../renderer/src/store/ui'
-import { useWorkspaceStore } from '../../renderer/src/store/workspace'
+import { usePanelTabsStore } from '../../renderer/src/store/panelTabs'
 
 const CHAT = 'chat-1'
 const OTHER = 'chat-2'
@@ -46,7 +46,7 @@ beforeEach(() => {
   useRunningStore.setState({ running: {}, thinkingSince: {} })
   useBrowserStore.setState({ bySession: {} } as never)
   useProcessesStore.setState({ bySession: {} } as never)
-  useWorkspaceStore.setState({ bySession: {} } as never)
+  usePanelTabsStore.setState({ bySession: {} } as never)
   useResourceDockStore.setState({ bySession: {} })
   useUiStore.setState({ summaryOpen: false, archivedProjectId: null, mainView: 'chat' })
 })

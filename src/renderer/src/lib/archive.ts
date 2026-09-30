@@ -5,7 +5,7 @@ import { useResourceDockStore } from '../store/resourceDock'
 import { useRunningStore } from '../store/running'
 import { findProject, useSessionsStore, type Session } from '../store/sessions'
 import { useUiStore } from '../store/ui'
-import { useWorkspaceStore } from '../store/workspace'
+import { usePanelTabsStore } from '../store/panelTabs'
 
 export type ArchiveResult = { ok: true } | { ok: false; error: string }
 
@@ -60,7 +60,7 @@ async function stopChatWork(sessionId: string): Promise<ArchiveResult> {
   }
   useBrowserStore.getState().forget(sessionId)
   useDesktopStore.getState().forget(sessionId)
-  useWorkspaceStore.getState().reconcile(sessionId, [])
+  usePanelTabsStore.getState().reconcile(sessionId, [])
 
   // A /mcp or /status card open above the composer belongs to the chat that is
   // running; there is nothing left for it to describe.

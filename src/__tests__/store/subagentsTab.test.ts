@@ -1,30 +1,30 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  EMPTY_WORKSPACE,
-  sanitizeWorkspaces,
+  EMPTY_PANEL_TABS,
+  sanitizePanelTabs,
   reconcileTabs,
   tabKey,
-  useWorkspaceStore,
-  workspaceFor,
-  type ChatWorkspace
-} from '@renderer/store/workspace'
+  usePanelTabsStore,
+  panelTabsFor,
+  type ChatPanelTabs
+} from '@renderer/store/panelTabs'
 
 const SID = 'chat-1'
-const ws = (): ChatWorkspace => workspaceFor(useWorkspaceStore.getState(), SID)
+const ws = (): ChatPanelTabs => panelTabsFor(usePanelTabsStore.getState(), SID)
 
-beforeEach(() => useWorkspaceStore.setState({ bySession: {} }))
+beforeEach(() => usePanelTabsStore.setState({ bySession: {} }))
 
 describe('the subagents tab in the strip', () => {
   it('opens on the list and selects it', () => {
-    const key = useWorkspaceStore.getState().openSubagentsTab(SID, null)
+    const key = usePanelTabsStore.getState().openSubagentsTab(SID, null)
     expect(ws().tabs).toEqual([{ kind: 'subagents', id: expect.any(String), focus: null }])
     expect(ws().activeKey).toBe(key)
   })
 
   it('reuses the existing row rather than stacking one per agent', () => {
-    const first = useWorkspaceStore.getState().openSubagentsTab(SID, null)
-    useWorkspaceStore.getState().openFileTab(SID, '/repo/a.ts')
-    const second = useWorkspaceStore.getState().openSubagentsTab(SID, 'agent-1')
+    const first = usePanelTabsStore.getState().openSubagentsTab(SID, null)
+    usePanelTabsStore.getState().openFileTab(SID, '/repo/a.ts')
+    const second = usePanelTabsStore.getState().openSubagentsTab(SID, 'agent-1')
 
     expect(second).toBe(first)
     expect(ws().tabs.filter((t) => t.kind === 'subagents')).toHaveLength(1)
@@ -32,12 +32,12 @@ describe('the subagents tab in the strip', () => {
   })
 
   it('retargets focus, which is what makes the back arrow free', () => {
-    const key = useWorkspaceStore.getState().openSubagentsTab(SID, 'agent-1')
-    useWorkspaceStore.getState().openSubagentsTab(SID, 'agent-2')
+    const key = usePanelTabsStore.getState().openSubagentsTab(SID, 'agent-1')
+    usePanelTabsStore.getState().openSubagentsTab(SID, 'agent-2')
     expect(ws().tabs).toEqual([{ kind: 'subagents', id: expect.any(String), focus: 'agent-2' }])
 
     // The back arrow is the same call with a null focus — no new row, no close.
-    expect(useWorkspaceStore.getState().openSubagentsTab(SID, null)).toBe(key)
+    expect(usePanelTabsStore.getState().openSubagentsTab(SID, null)).toBe(key)
     expect(ws().tabs).toEqual([{ kind: 'subagents', id: expect.any(String), focus: null }])
   })
 
@@ -51,7 +51,7 @@ describe('the subagents tab in the strip', () => {
   })
 
   it('survives a sidecar reconcile that empties the browser half of the strip', () => {
-    useWorkspaceStore.getState().openSubagentsTab(SID, 'agent-1')
+    usePanelTabsStore.getState().openSubagentsTab(SID, 'agent-1')
     const after = reconcileTabs(ws(), [])
     expect(after.tabs).toHaveLength(1)
     expect(after.tabs[0].kind).toBe('subagents')
@@ -60,9 +60,9 @@ describe('the subagents tab in the strip', () => {
 
 describe('persistence', () => {
   it('restores the row and the agent it was focused on', () => {
-    const restored = sanitizeWorkspaces({
+    const restored = sanitizePanelTabs({
       [SID]: {
-        ...EMPTY_WORKSPACE,
+        ...EMPTY_PANEL_TABS,
         tabs: [{ kind: 'subagents', id: 's1', focus: 'agent-1' }],
         activeKey: 'subagents:s1'
       }
@@ -72,15 +72,15 @@ describe('persistence', () => {
   })
 
   it('restores a list-mode row, whose focus is legitimately null', () => {
-    const restored = sanitizeWorkspaces({
-      [SID]: { ...EMPTY_WORKSPACE, tabs: [{ kind: 'subagents', id: 's1', focus: null }] }
+    const restored = sanitizePanelTabs({
+      [SID]: { ...EMPTY_PANEL_TABS, tabs: [{ kind: 'subagents', id: 's1', focus: null }] }
     })
     expect(restored[SID].tabs).toEqual([{ kind: 'subagents', id: 's1', focus: null }])
   })
 
   it('treats a missing focus as the list rather than dropping the row', () => {
-    const restored = sanitizeWorkspaces({
-      [SID]: { ...EMPTY_WORKSPACE, tabs: [{ kind: 'subagents', id: 's1' }] }
+    const restored = sanitizePanelTabs({
+      [SID]: { ...EMPTY_PANEL_TABS, tabs: [{ kind: 'subagents', id: 's1' }] }
     })
     expect(restored[SID].tabs).toEqual([{ kind: 'subagents', id: 's1', focus: null }])
   })

@@ -13,7 +13,7 @@ import BrowserMenu, { isEmulating, type DeviceSpec } from './BrowserMenu'
 import DeviceBar from './DeviceBar'
 import { startBrowserTab } from './useBrowserSession'
 import { displayUrl, toUrl } from './url'
-import Empty from '../workspace/Empty'
+import Empty from '../panelTabs/Empty'
 import { EMPTY_BROWSER, useBrowserStore, type BrowserPhase } from '../../store/browser'
 import { fitScale } from '../../lib/browser/viewport'
 import {

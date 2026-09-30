@@ -4,7 +4,7 @@ import { createSessionsStorage } from './idbStorage'
 import { useRunningStore } from './running'
 import { useSettingsStore } from './settings'
 import { useBrowserStore } from './browser'
-import { useWorkspaceStore } from './workspace'
+import { usePanelTabsStore } from './panelTabs'
 import { backfillProjects, nameForPath } from './projects-migration'
 import { homedir } from '../lib/homedir'
 import { samePath } from '../lib/paths'
@@ -299,7 +299,7 @@ export type Session = {
   /** Which panels this conversation has open, and how wide the right one is.
    *
    *  Per chat because the answer genuinely differs per chat: one is a browsing
-   *  session with the workspace panel open, the next is a question you want the
+   *  session with the side panel open, the next is a question you want the
    *  full width for. Undefined means "whatever you last used", so a new chat
    *  inherits rather than starting from a fixed default. */
   panels?: { right?: boolean; summary?: boolean; rightWidth?: number }
@@ -868,7 +868,7 @@ export const useSessionsStore = create<SessionsStore>()(
         useBrowserStore.getState().forget(sessionId)
         // And its side-panel tabs, which outlive the browser and would otherwise
         // be restored forever for a chat that is gone.
-        useWorkspaceStore.getState().forget(sessionId)
+        usePanelTabsStore.getState().forget(sessionId)
         // And the /mcp or /status view it had open above the composer: there is
         // no chat left for one to belong to.
         useResourceDockStore.getState().forget(sessionId)

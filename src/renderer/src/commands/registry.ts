@@ -49,7 +49,7 @@ import {
 } from 'lucide-react'
 import type { Chord } from '../lib/keys'
 import { sortPrs, type PullRequest } from '../lib/pullRequests'
-import type { NewTabKind } from '../components/workspace/tabs'
+import type { NewTabKind } from '../components/panelTabs/tabs'
 import { useUiStore, type MainView } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
@@ -59,7 +59,7 @@ import {
   openFolderAsProject,
   useSessionsStore
 } from '../store/sessions'
-import { useWorkspaceStore, workspaceFor } from '../store/workspace'
+import { usePanelTabsStore, panelTabsFor } from '../store/panelTabs'
 import { startBrowserTab, toggleDeviceMode } from '../components/browser/useBrowserSession'
 import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
 import { useChangesStore } from '../store/changes'
@@ -206,11 +206,11 @@ const ui = (): ReturnType<typeof useUiStore.getState> => useUiStore.getState()
  * Deliberately `setRightPanelOpen` rather than the toggle: this is always "show
  * me this", and a toggle would close the panel half the time.
  */
-async function openWorkspaceTab(kind: NewTabKind): Promise<void> {
+async function openPanelTab(kind: NewTabKind): Promise<void> {
   const sessionId = useSessionsStore.getState().activeSessionId
   if (!sessionId) return
   ui().setRightPanelOpen(true)
-  if (kind === 'file') useWorkspaceStore.getState().openFileTab(sessionId)
+  if (kind === 'file') usePanelTabsStore.getState().openFileTab(sessionId)
   else await startBrowserTab(sessionId)
 }
 
@@ -461,7 +461,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+t',
     icon: Globe,
     palette: true,
-    run: () => void openWorkspaceTab('browser')
+    run: () => void openPanelTab('browser')
   },
   {
     // Unbound by default. Worth registering anyway — it is reached often enough
@@ -497,7 +497,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+shift+o',
     icon: FileText,
     palette: true,
-    run: () => void openWorkspaceTab('file')
+    run: () => void openPanelTab('file')
   },
   {
     id: 'panel.right.changes',
@@ -515,7 +515,7 @@ export const COMMANDS: Command[] = [
     // closed — worth a name and a rebindable key, not worth a chord of its own.
     //
     // Absent from `NEW_TAB_CHOICES` on purpose, like changes and plan: it is
-    // about this conversation, and "+" makes a blank workspace tab.
+    // about this conversation, and "+" makes a blank side-panel tab.
     id: 'panel.right.subagents',
     label: 'Open subagents',
     group: 'Panels',
@@ -556,18 +556,18 @@ export const COMMANDS: Command[] = [
     run: () => {
       const sessionId = useSessionsStore.getState().activeSessionId
       if (!sessionId) return
-      const store = useWorkspaceStore.getState()
-      store.setTreeOpen(sessionId, !workspaceFor(store, sessionId).treeOpen)
+      const store = usePanelTabsStore.getState()
+      store.setTreeOpen(sessionId, !panelTabsFor(store, sessionId).treeOpen)
     },
     setState: (on) => {
       const sessionId = useSessionsStore.getState().activeSessionId
       if (!sessionId) return
-      useWorkspaceStore.getState().setTreeOpen(sessionId, on)
+      usePanelTabsStore.getState().setTreeOpen(sessionId, on)
     },
     isOn: () => {
-      const store = useWorkspaceStore.getState()
+      const store = usePanelTabsStore.getState()
       const sessionId = useSessionsStore.getState().activeSessionId
-      return sessionId ? workspaceFor(store, sessionId).treeOpen : false
+      return sessionId ? panelTabsFor(store, sessionId).treeOpen : false
     }
   },
   {

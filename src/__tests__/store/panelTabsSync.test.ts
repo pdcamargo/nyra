@@ -6,9 +6,9 @@ import {
   syncBrowserGone,
   syncSidecarTabs,
   tabKey,
-  useWorkspaceStore,
-  workspaceFor
-} from '@renderer/store/workspace'
+  usePanelTabsStore,
+  panelTabsFor
+} from '@renderer/store/panelTabs'
 import type { BrowserTab } from '@renderer/lib/api-types'
 
 const SID = 'chat-1'
@@ -24,14 +24,14 @@ const tab = (tabId: string): BrowserTab => ({
   canGoForward: false
 })
 
-const ws = (sessionId = SID): ReturnType<typeof workspaceFor> =>
-  workspaceFor(useWorkspaceStore.getState(), sessionId)
+const ws = (sessionId = SID): ReturnType<typeof panelTabsFor> =>
+  panelTabsFor(usePanelTabsStore.getState(), sessionId)
 const browser = (sessionId = SID): typeof EMPTY_BROWSER =>
   useBrowserStore.getState().bySession[sessionId] ?? EMPTY_BROWSER
 
 describe('syncSidecarTabs', () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ bySession: {} })
+    usePanelTabsStore.setState({ bySession: {} })
     useBrowserStore.setState({ bySession: {}, cdpUrl: null })
   })
 
@@ -46,7 +46,7 @@ describe('syncSidecarTabs', () => {
   // The whole point of the split: the sidecar broadcasts its list and the strip
   // keeps the row it has never heard of.
   it('leaves a file tab alone and selected', () => {
-    const key = useWorkspaceStore.getState().openFileTab(SID, '/repo/a.ts')
+    const key = usePanelTabsStore.getState().openFileTab(SID, '/repo/a.ts')
     syncSidecarTabs(SID, [tab('t1')])
 
     expect(ws().tabs.map(tabKey)).toEqual([key, browserKey('t1')])
@@ -64,9 +64,9 @@ describe('syncSidecarTabs', () => {
   })
 
   it('degrades a mixed chat to files-only on an eviction', () => {
-    const key = useWorkspaceStore.getState().openFileTab(SID, '/repo/a.ts')
+    const key = usePanelTabsStore.getState().openFileTab(SID, '/repo/a.ts')
     syncSidecarTabs(SID, [tab('t1')])
-    useWorkspaceStore.getState().selectTab(SID, browserKey('t1'))
+    usePanelTabsStore.getState().selectTab(SID, browserKey('t1'))
 
     syncSidecarTabs(SID, [])
 
@@ -78,12 +78,12 @@ describe('syncSidecarTabs', () => {
 
 describe('syncBrowserGone', () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ bySession: {} })
+    usePanelTabsStore.setState({ bySession: {} })
     useBrowserStore.setState({ bySession: {}, cdpUrl: 'ws://localhost:1' })
   })
 
   it('clears every chat’s browser and keeps every chat’s files', () => {
-    const a = useWorkspaceStore.getState().openFileTab('chat-a', '/a.ts')
+    const a = usePanelTabsStore.getState().openFileTab('chat-a', '/a.ts')
     syncSidecarTabs('chat-a', [tab('t1')])
     syncSidecarTabs('chat-b', [tab('t2')])
 

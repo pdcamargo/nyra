@@ -5,11 +5,11 @@ export type PanelKey =
   | 'sidebarWidth'
   | 'rightPanelWidth'
   | 'bottomPanelHeight'
-  /** The flow inspector. Sized independently of the workspace rail, because it
+  /** The flow inspector. Sized independently of the side panel, because it
    *  holds a prompt you edit rather than a list you glance at. */
   | 'flowInspectorWidth'
   | 'flowPanelWidth'
-/** The two rails the workspace layout arbitrates between. The flow inspector is
+/** The two rails the window layout arbitrates between. The flow inspector is
  *  not one: it lives inside the canvas, so it competes with the canvas rather
  *  than with the chat. */
 export type RailKey = Exclude<
@@ -92,7 +92,7 @@ function sane(key: PanelKey, value: unknown): number {
  * The widths to actually render, given what else is on screen. 0 for a closed
  * rail, so callers can feed the result straight to `--rail`.
  *
- * Sequential rather than proportional: the workspace panel is the one that
+ * Sequential rather than proportional: the side panel is the one that
  * yields. Asymmetric on purpose — sharing the shortfall between both rails needs
  * iteration to respect each minimum, and "the right one gives way" is at least
  * predictable.

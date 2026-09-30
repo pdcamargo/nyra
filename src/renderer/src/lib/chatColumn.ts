@@ -188,7 +188,7 @@ export function columnVars(gutterOpen: boolean, width: ChatWidth): React.CSSProp
     '--col-min': `min(34rem, ${max})`,
     // --gutter is the floating column — summary, miniature or both — which is
     // right-aligned to the chat area rather than to the window, so it stays
-    // constant however wide the workspace panel is dragged.
+    // constant however wide the side panel is dragged.
     '--gutter': gutterOpen ? `${(SUMMARY_WIDTH + SUMMARY_INSET) / 16}rem` : '0rem',
     '--gap': '1.5rem',
     // The air the floating card may never close below. Not --gap: that is what

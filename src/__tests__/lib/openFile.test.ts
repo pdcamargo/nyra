@@ -10,10 +10,10 @@ import { useSessionsStore } from '@renderer/store/sessions'
 import { useUiStore } from '@renderer/store/ui'
 import {
   tabKey,
-  useWorkspaceStore,
-  workspaceFor,
-  type FileWorkspaceTab
-} from '@renderer/store/workspace'
+  usePanelTabsStore,
+  panelTabsFor,
+  type FilePanelTab
+} from '@renderer/store/panelTabs'
 import {
   openChangesInPanel,
   openPlanInPanel,
@@ -25,7 +25,7 @@ import { useChangesStore } from '@renderer/store/changes'
 
 const SID = 'chat-1'
 
-const ws = () => workspaceFor(useWorkspaceStore.getState(), SID)
+const ws = () => panelTabsFor(usePanelTabsStore.getState(), SID)
 const paths = (): (string | null)[] =>
   ws().tabs.map((t) =>
     t.kind === 'file'
@@ -38,7 +38,7 @@ const paths = (): (string | null)[] =>
   )
 
 beforeEach(() => {
-  useWorkspaceStore.setState({ bySession: {} })
+  usePanelTabsStore.setState({ bySession: {} })
   useUiStore.setState({ rightPanelOpen: false })
   useSessionsStore.setState({
     activeSessionId: SID,
@@ -61,7 +61,7 @@ describe('openFileInPanel', () => {
     openFileInPanel('src/a.ts')
     expect(paths()).toEqual(['/repo/src/a.ts'])
 
-    useWorkspaceStore.setState({ bySession: {} })
+    usePanelTabsStore.setState({ bySession: {} })
     openFileInPanel('./src/b.ts')
     expect(paths()).toEqual(['/repo/src/b.ts'])
   })
@@ -78,8 +78,8 @@ describe('openFileInPanel', () => {
 
   it('focuses a tab that already has the file instead of retargeting another', () => {
     openFileInPanel('/repo/a.ts')
-    const first = ws().tabs[0] as FileWorkspaceTab
-    useWorkspaceStore.getState().openFileTab(SID, '/repo/b.ts')
+    const first = ws().tabs[0] as FilePanelTab
+    usePanelTabsStore.getState().openFileTab(SID, '/repo/b.ts')
 
     openFileInPanel('/repo/a.ts')
 
@@ -88,7 +88,7 @@ describe('openFileInPanel', () => {
   })
 
   it('adds a tab rather than retargeting when a browser tab is in front', () => {
-    useWorkspaceStore.getState().reconcile(SID, ['t1'])
+    usePanelTabsStore.getState().reconcile(SID, ['t1'])
     openFileInPanel('/repo/a.ts')
 
     expect(paths()).toEqual(['browser:t1', '/repo/a.ts'])
@@ -106,8 +106,8 @@ describe('openFileInPanel', () => {
   // whatever file tab happens to be in front: retargeting a tab someone
   // double-clicked to keep would lose the thing the double click was for.
   it('adds a preview row rather than overwriting a pinned one', () => {
-    const pinned = useWorkspaceStore.getState().openFileTab(SID, '/repo/pinned.ts')
-    useWorkspaceStore.getState().selectTab(SID, pinned)
+    const pinned = usePanelTabsStore.getState().openFileTab(SID, '/repo/pinned.ts')
+    usePanelTabsStore.getState().selectTab(SID, pinned)
 
     openFileInPanel('/repo/a.ts')
 
@@ -116,7 +116,7 @@ describe('openFileInPanel', () => {
   })
 
   it('keeps replacing that one row as more paths are clicked', () => {
-    useWorkspaceStore.getState().openFileTab(SID, '/repo/pinned.ts')
+    usePanelTabsStore.getState().openFileTab(SID, '/repo/pinned.ts')
 
     openFileInPanel('/repo/a.ts')
     openFileInPanel('/repo/b.ts')
@@ -133,7 +133,7 @@ describe('openChangedFileInPanel', () => {
   }
 
   beforeEach(() => {
-    useWorkspaceStore.setState({ bySession: {} })
+    usePanelTabsStore.setState({ bySession: {} })
   })
 
   /**

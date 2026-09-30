@@ -5,9 +5,9 @@ import { EMPTY_BROWSER, useBrowserStore, type BrowserPhase } from '../../store/b
 import {
   activeBrowserTabId,
   browserKey,
-  useWorkspaceStore,
-  workspaceFor
-} from '../../store/workspace'
+  usePanelTabsStore,
+  panelTabsFor
+} from '../../store/panelTabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { useSessionsStore } from '../../store/sessions'
 import { useSettingsStore } from '../../store/settings'
@@ -83,7 +83,7 @@ export function usePipVisible(): boolean {
 export default function BrowserPip(): React.JSX.Element | null {
   const sessionId = useSessionsStore((s) => s.activeSessionId)
   const chat = useBrowserStore((s) => (sessionId ? s.bySession[sessionId] : null) ?? EMPTY_BROWSER)
-  const ws = useWorkspaceStore((s) => workspaceFor(s, sessionId))
+  const ws = usePanelTabsStore((s) => panelTabsFor(s, sessionId))
   const dismissPip = useBrowserStore((s) => s.dismissPip)
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel)
   const visible = usePipVisible()
@@ -100,7 +100,7 @@ export default function BrowserPip(): React.JSX.Element | null {
   const others = chat.tabs.length - 1
 
   const open = (tabId: string): void => {
-    useWorkspaceStore.getState().selectTab(sessionId, browserKey(tabId))
+    usePanelTabsStore.getState().selectTab(sessionId, browserKey(tabId))
     toggleRightPanel()
   }
 

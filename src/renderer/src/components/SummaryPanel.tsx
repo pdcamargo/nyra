@@ -6,7 +6,7 @@ import { useSettingsStore } from '../store/settings'
 import { EMPTY_BROWSER, useBrowserStore } from '../store/browser'
 import { useDesktopStore } from '../store/desktop'
 import { IconButton } from './ui/icon-button'
-import { browserKey, useWorkspaceStore } from '../store/workspace'
+import { browserKey, usePanelTabsStore } from '../store/panelTabs'
 import { collectAttachments, formatSize } from '../lib/summary'
 import { formatMemory, readChatMemory, type ChatMemory } from '../lib/chatMemory'
 import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
@@ -151,7 +151,7 @@ function AgentRow({ agent }: { agent: Agent }): React.JSX.Element {
  *
  * Floats over the message area rather than sitting beside it. It answers a
  * question you ask in passing — a docked panel would reflow the conversation
- * every time you glanced at it, and it is separate from the workspace panel,
+ * every time you glanced at it, and it is separate from the side panel,
  * which is about the project rather than this chat.
  */
 export default function SummaryPanel(): React.JSX.Element | null {
@@ -259,7 +259,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const agentRows = agentsExpanded ? agents : inline.shown
 
   // Glass: this is the one panel with real content behind it to blur. The
-  // workspace rail is docked with nothing underneath, so the same treatment
+  // side panel is docked with nothing underneath, so the same treatment
   // there would just be an expensive opaque surface.
   //
   // `top-3` rather than the old hand-tuned `top-[92px]` — the title bar is a
@@ -516,7 +516,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
                 if (!session) return
                 // Parks if the strip has not caught up yet, so this works
                 // whichever way the race goes.
-                useWorkspaceStore.getState().selectTab(session.id, browserKey(tab.tabId))
+                usePanelTabsStore.getState().selectTab(session.id, browserKey(tab.tabId))
                 toggleRightPanel()
               }}
               title={tab.url}

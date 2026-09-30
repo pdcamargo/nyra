@@ -18,7 +18,7 @@ import {
   type Agent,
   type ToolCallMessage
 } from '../../store/sessions'
-import type { SubagentsWorkspaceTab } from '../../store/workspace'
+import type { SubagentsPanelTab } from '../../store/panelTabs'
 
 /** A stable empty array — a fresh one per call would re-render forever. */
 const NO_AGENTS: Agent[] = []
@@ -305,7 +305,7 @@ export default function SubagentsTab({
   tab
 }: {
   sessionId: string
-  tab: SubagentsWorkspaceTab
+  tab: SubagentsPanelTab
 }): React.JSX.Element {
   const agents = useSessionsStore(
     (s) => s.sessions.find((x) => x.id === sessionId)?.agents ?? NO_AGENTS

@@ -6,17 +6,17 @@ import SubagentsTab from '@renderer/components/subagents/SubagentsTab'
 import { TooltipProvider } from '@renderer/components/ui/tooltip'
 import { useSessionsStore, type Agent } from '@renderer/store/sessions'
 import { useSubagentTranscriptsStore } from '@renderer/store/subagentTranscripts'
-import { useWorkspaceStore, workspaceFor } from '@renderer/store/workspace'
+import { usePanelTabsStore, panelTabsFor } from '@renderer/store/panelTabs'
 import { useUiStore } from '@renderer/store/ui'
-import type { SubagentsWorkspaceTab } from '@renderer/store/workspace'
+import type { SubagentsPanelTab } from '@renderer/store/panelTabs'
 
 /** The back arrow carries a real tooltip, and Radix wants the provider App mounts. */
 const render = (ui: React.ReactElement): ReturnType<typeof rtlRender> =>
   rtlRender(<TooltipProvider>{ui}</TooltipProvider>)
 
 const SID = 'chat-1'
-const list: SubagentsWorkspaceTab = { kind: 'subagents', id: 's1', focus: null }
-const focused = (toolId: string): SubagentsWorkspaceTab => ({
+const list: SubagentsPanelTab = { kind: 'subagents', id: 's1', focus: null }
+const focused = (toolId: string): SubagentsPanelTab => ({
   kind: 'subagents',
   id: 's1',
   focus: toolId
@@ -41,7 +41,7 @@ const seed = (agents: Agent[], messages: unknown[] = []): void => {
 
 beforeEach(() => {
   useSubagentTranscriptsStore.setState({ bySession: {} })
-  useWorkspaceStore.setState({ bySession: {} })
+  usePanelTabsStore.setState({ bySession: {} })
   useUiStore.setState({ rightPanelOpen: true })
   vi.restoreAllMocks()
 })
@@ -69,12 +69,12 @@ describe('the list', () => {
 
   it('focuses the tab on the agent you clicked, without opening a second row', async () => {
     seed([agent()])
-    useWorkspaceStore.getState().openSubagentsTab(SID, null)
+    usePanelTabsStore.getState().openSubagentsTab(SID, null)
     render(<SubagentsTab sessionId={SID} tab={list} />)
 
     await userEvent.click(screen.getByText('Explore the streaming pipeline'))
 
-    const tabs = workspaceFor(useWorkspaceStore.getState(), SID).tabs
+    const tabs = panelTabsFor(usePanelTabsStore.getState(), SID).tabs
     expect(tabs).toHaveLength(1)
     expect(tabs[0]).toMatchObject({ kind: 'subagents', focus: 't1' })
   })
@@ -185,12 +185,12 @@ describe('one agent', () => {
 
   it('goes back to the list without closing the tab', async () => {
     seed([agent()])
-    useWorkspaceStore.getState().openSubagentsTab(SID, 't1')
+    usePanelTabsStore.getState().openSubagentsTab(SID, 't1')
     render(<SubagentsTab sessionId={SID} tab={focused('t1')} />)
 
     await userEvent.click(screen.getByLabelText('Back to all subagents'))
 
-    const tabs = workspaceFor(useWorkspaceStore.getState(), SID).tabs
+    const tabs = panelTabsFor(usePanelTabsStore.getState(), SID).tabs
     expect(tabs).toHaveLength(1)
     expect(tabs[0]).toMatchObject({ kind: 'subagents', focus: null })
   })

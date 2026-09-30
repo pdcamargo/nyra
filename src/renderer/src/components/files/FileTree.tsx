@@ -1,5 +1,5 @@
 /**
- * The workspace tree, one directory at a time.
+ * The side panel's file tree, one directory at a time.
  *
  * Lazy because a repo is not a thing you can list: the eager alternative is
  * `git ls-files` for the whole checkout on every chat switch, which is tens of
@@ -9,7 +9,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronRight, Folder, FolderOpen, RefreshCw, Search } from 'lucide-react'
 import { ancestorsWithin, joinPath, relativeTo } from './paths'
-import { useWorkspaceStore } from '../../store/workspace'
+import { usePanelTabsStore } from '../../store/panelTabs'
 import FileRowMenu from './FileRowMenu'
 import { basenameOf } from './paths'
 import type { DirEntryInfo, DirListing } from '../../lib/api-types'
@@ -89,7 +89,7 @@ export default function FileTree({
   const revealRef = useRef<string | null>(null)
   useEffect(() => {
     if (!selectedPath || !root) return
-    useWorkspaceStore.getState().expandTreeDirs(sessionId, ancestorsWithin(root, selectedPath))
+    usePanelTabsStore.getState().expandTreeDirs(sessionId, ancestorsWithin(root, selectedPath))
     revealRef.current = selectedPath
   }, [selectedPath, root, sessionId])
 
@@ -112,7 +112,7 @@ export default function FileTree({
   }, [listings, expanded, selectedPath, searching])
 
   const toggle = (dir: string): void => {
-    useWorkspaceStore.getState().toggleTreeDir(sessionId, dir)
+    usePanelTabsStore.getState().toggleTreeDir(sessionId, dir)
   }
 
   const refresh = (): void => {

@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  EMPTY_WORKSPACE,
-  sanitizeWorkspaces,
+  EMPTY_PANEL_TABS,
+  sanitizePanelTabs,
   reconcileTabs,
   tabKey,
-  useWorkspaceStore,
-  workspaceFor,
-  type ChatWorkspace
-} from '@renderer/store/workspace'
+  usePanelTabsStore,
+  panelTabsFor,
+  type ChatPanelTabs
+} from '@renderer/store/panelTabs'
 import {
   byChurn,
   EMPTY_CHANGES,
@@ -19,7 +19,7 @@ import {
 import type { ChangedFile } from '@renderer/lib/api-types'
 
 const SID = 'chat-1'
-const ws = (): ChatWorkspace => workspaceFor(useWorkspaceStore.getState(), SID)
+const ws = (): ChatPanelTabs => panelTabsFor(usePanelTabsStore.getState(), SID)
 
 const file = (path: string, insertions = 0, deletions = 0): ChangedFile => ({
   path,
@@ -31,21 +31,21 @@ const file = (path: string, insertions = 0, deletions = 0): ChangedFile => ({
 })
 
 beforeEach(() => {
-  useWorkspaceStore.setState({ bySession: {} })
+  usePanelTabsStore.setState({ bySession: {} })
   useChangesStore.setState({ bySession: {} })
 })
 
 describe('the changes tab in the strip', () => {
   it('opens one and selects it', () => {
-    const key = useWorkspaceStore.getState().openChangesTab(SID)
+    const key = usePanelTabsStore.getState().openChangesTab(SID)
     expect(ws().tabs).toEqual([{ kind: 'changes', id: expect.any(String) }])
     expect(ws().activeKey).toBe(key)
   })
 
   it('reuses the existing row rather than stacking a second one', () => {
-    const first = useWorkspaceStore.getState().openChangesTab(SID)
-    useWorkspaceStore.getState().openFileTab(SID, '/repo/a.ts')
-    const second = useWorkspaceStore.getState().openChangesTab(SID)
+    const first = usePanelTabsStore.getState().openChangesTab(SID)
+    usePanelTabsStore.getState().openFileTab(SID, '/repo/a.ts')
+    const second = usePanelTabsStore.getState().openChangesTab(SID)
 
     expect(second).toBe(first)
     expect(ws().tabs.filter((t) => t.kind === 'changes')).toHaveLength(1)
@@ -58,7 +58,7 @@ describe('the changes tab in the strip', () => {
   })
 
   it('survives a sidecar reconcile that empties the browser half of the strip', () => {
-    useWorkspaceStore.getState().openChangesTab(SID)
+    usePanelTabsStore.getState().openChangesTab(SID)
     const before = ws()
     const after = reconcileTabs(before, [])
     // The regression this guards: the survivor filter used to be `kind === 'file'`,
@@ -70,17 +70,17 @@ describe('the changes tab in the strip', () => {
 
 describe('persistence', () => {
   it('restores a changes row — nothing behind it can be stale', () => {
-    const restored = sanitizeWorkspaces({
-      [SID]: { ...EMPTY_WORKSPACE, tabs: [{ kind: 'changes', id: 'c1' }], activeKey: 'changes:c1' }
+    const restored = sanitizePanelTabs({
+      [SID]: { ...EMPTY_PANEL_TABS, tabs: [{ kind: 'changes', id: 'c1' }], activeKey: 'changes:c1' }
     })
     expect(restored[SID].tabs).toEqual([{ kind: 'changes', id: 'c1' }])
     expect(restored[SID].activeKey).toBe('changes:c1')
   })
 
   it('still drops browser rows, whose Chromium is gone', () => {
-    const restored = sanitizeWorkspaces({
+    const restored = sanitizePanelTabs({
       [SID]: {
-        ...EMPTY_WORKSPACE,
+        ...EMPTY_PANEL_TABS,
         tabs: [{ kind: 'browser', tabId: 'b1' }, { kind: 'changes', id: 'c1' }]
       }
     })
@@ -88,8 +88,8 @@ describe('persistence', () => {
   })
 
   it('reads a corrupt row as absent rather than as a broken tab', () => {
-    const restored = sanitizeWorkspaces({
-      [SID]: { ...EMPTY_WORKSPACE, tabs: [{ kind: 'changes' }, null, 7] }
+    const restored = sanitizePanelTabs({
+      [SID]: { ...EMPTY_PANEL_TABS, tabs: [{ kind: 'changes' }, null, 7] }
     })
     expect(restored[SID]?.tabs ?? []).toEqual([])
   })

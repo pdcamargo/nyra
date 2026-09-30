@@ -14,8 +14,8 @@ import {
   activeBrowserTabId,
   browserTabIdFromKey,
   syncSidecarTabs,
-  useWorkspaceStore
-} from '../../store/workspace'
+  usePanelTabsStore
+} from '../../store/panelTabs'
 import { useSessionsStore } from '../../store/sessions'
 
 /** Long enough to be cheap, short enough that the sidecar's ten-minute idle
@@ -88,7 +88,7 @@ async function bootBrowser(sessionId: string): Promise<boolean> {
  * when `tabCreate` answers.
  */
 export async function startBrowserTab(sessionId: string, url = 'about:blank'): Promise<void> {
-  const provisional = useWorkspaceStore.getState().openProvisionalBrowserTab(sessionId)
+  const provisional = usePanelTabsStore.getState().openProvisionalBrowserTab(sessionId)
   const provisionalId = browserTabIdFromKey(provisional)
 
   // No browser to be had: the row stays, and the panel explains why where the
@@ -98,7 +98,7 @@ export async function startBrowserTab(sessionId: string, url = 'about:blank'): P
   const created = await window.api.browser.tabCreate(sessionId, url)
   if (!created.ok) return
 
-  const adopted = useWorkspaceStore
+  const adopted = usePanelTabsStore
     .getState()
     .adoptBrowserTab(sessionId, provisionalId, created.tab.tabId)
   // Adopting failed because the row is gone — the tab was closed while the
@@ -120,9 +120,9 @@ export async function startBrowserTab(sessionId: string, url = 'about:blank'): P
 export async function toggleDeviceMode(): Promise<void> {
   const sessionId = useSessionsStore.getState().activeSessionId
   if (!sessionId) return
-  const workspace = useWorkspaceStore.getState().bySession[sessionId]
-  if (!workspace) return
-  const tabId = activeBrowserTabId(workspace)
+  const panel = usePanelTabsStore.getState().bySession[sessionId]
+  if (!panel) return
+  const tabId = activeBrowserTabId(panel)
   if (!tabId) return
 
   const tab = useBrowserStore

@@ -457,7 +457,7 @@ const COMPACT_BELOW = 520
 /**
  * Below this, the labels go too.
  *
- * With the workspace panel open the bar gets narrow enough that "Approve for me"
+ * With the side panel open the bar gets narrow enough that "Approve for me"
  * wrapped onto two lines and "Plan mode on" onto three, which grew the composer
  * downward and shoved the send button into an ellipse. Dropping the two text
  * labels to their icons buys about 150 px and is reversible by widening; the

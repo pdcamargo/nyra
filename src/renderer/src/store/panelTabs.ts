@@ -28,52 +28,52 @@ import { useBrowserStore } from './browser'
  * so the row goes up first and is replaced in place, at the same index and with
  * the same selection, once `tabCreate` answers.
  */
-export type BrowserWorkspaceTab = { kind: 'browser'; tabId: string; provisional?: boolean }
+export type BrowserPanelTab = { kind: 'browser'; tabId: string; provisional?: boolean }
 /** `path` is absolute. The mtime poller keys on it, which is what lets a chat's
  *  cwd move under an open tab without the preview needing to care. `preview`
  *  marks the chat's one replaceable slot — the tab a single click in the tree
  *  lands in, drawn italic, and retargeted rather than stacked until a double
  *  click pins it. */
-export type FileWorkspaceTab = { kind: 'file'; id: string; path: string | null; preview?: boolean }
+export type FilePanelTab = { kind: 'file'; id: string; path: string | null; preview?: boolean }
 /** The repo's changes. Never reachable from "+": `NEW_TAB_CHOICES` is a separate
  *  list from this union, so a kind absent from it simply cannot be created that
  *  way. It is opened from the Pinned Summary's Changes row, or from a card in the
  *  transcript. What it is *showing* lives in `changes.ts`; this is only the row
  *  in the strip. */
-export type ChangesWorkspaceTab = { kind: 'changes'; id: string }
+export type ChangesPanelTab = { kind: 'changes'; id: string }
 /** A plan under review. Like `changes`, never reachable from "+": it is opened by
  *  clicking a plan card and by nothing else, because a plan is read once. `toolId`
  *  says which plan; the text itself stays on the session message, so a revision
  *  mid-turn updates the open tab without anything here changing. */
-export type PlanWorkspaceTab = { kind: 'plan'; id: string; toolId: string }
+export type PlanPanelTab = { kind: 'plan'; id: string; toolId: string }
 /** This chat's subagents. One tab with two modes rather than one tab per agent:
  *  a fan-out of five agents would otherwise bury every other tab in the strip.
  *  `focus` is null for the list and a `Task` toolId for that agent's stream; the
  *  back arrow just sets it to null. Like `changes` and `plan`, never reachable
- *  from "+" — it is about this conversation, not a blank workspace. */
-export type SubagentsWorkspaceTab = { kind: 'subagents'; id: string; focus: string | null }
+ *  from "+" — it is about this conversation, not a blank tab. */
+export type SubagentsPanelTab = { kind: 'subagents'; id: string; focus: string | null }
 /** A design on the canvas. `designId` is the index's id, not a path, so the tab
  *  survives the design being moved — which is the whole reason the index exists.
  *  Null means "show whichever is newest", which is what a freshly opened tab
  *  should do rather than nothing. */
-export type DesignWorkspaceTab = {
+export type DesignPanelTab = {
   kind: 'design'
   id: string
   designId: string | null
   /** The artboard the canvas is framed on, when something asked for one. */
   artboardId: string | null
 }
-export type WorkspaceTab =
-  | BrowserWorkspaceTab
-  | FileWorkspaceTab
-  | ChangesWorkspaceTab
-  | PlanWorkspaceTab
-  | SubagentsWorkspaceTab
-  | DesignWorkspaceTab
+export type PanelTab =
+  | BrowserPanelTab
+  | FilePanelTab
+  | ChangesPanelTab
+  | PlanPanelTab
+  | SubagentsPanelTab
+  | DesignPanelTab
 
-export type ChatWorkspace = {
+export type ChatPanelTabs = {
   /** The strip, in the order it is drawn. Ours, not the sidecar's. */
-  tabs: WorkspaceTab[]
+  tabs: PanelTab[]
   activeKey: string | null
   /** A tab asked for before the strip knew it existed — `tabCreate` resolves and
    *  the broadcast that would add the row may not have landed yet. */
@@ -87,7 +87,7 @@ export type ChatWorkspace = {
   treeExpanded: string[]
 }
 
-export const EMPTY_WORKSPACE: ChatWorkspace = {
+export const EMPTY_PANEL_TABS: ChatPanelTabs = {
   tabs: [],
   activeKey: null,
   pendingSelectKey: null,
@@ -106,7 +106,7 @@ export const changesKey = (id: string): string => `changes:${id}`
 export const planKey = (id: string): string => `plan:${id}`
 export const subagentsKey = (id: string): string => `subagents:${id}`
 
-export function tabKey(tab: WorkspaceTab): string {
+export function tabKey(tab: PanelTab): string {
   switch (tab.kind) {
     case 'browser':
       return browserKey(tab.tabId)
@@ -149,7 +149,7 @@ const bootKey = (sessionId: string, tabId: string): string => `${sessionId}|${ta
 // ---------------------------------------------------------------------------
 
 /** The tab that should be selected once `tabs` is the strip. */
-function nextActiveKey(ws: ChatWorkspace, tabs: WorkspaceTab[]): {
+function nextActiveKey(ws: ChatPanelTabs, tabs: PanelTab[]): {
   activeKey: string | null
   pendingSelectKey: string | null
 } {
@@ -190,7 +190,7 @@ function nextActiveKey(ws: ChatWorkspace, tabs: WorkspaceTab[]): {
  *
  * File entries are not touched by any path through here.
  */
-export function reconcileTabs(ws: ChatWorkspace, liveTabIds: string[]): ChatWorkspace {
+export function reconcileTabs(ws: ChatPanelTabs, liveTabIds: string[]): ChatPanelTabs {
   const live = new Set(liveTabIds)
   // A provisional row is ours, not the sidecar's, so its absence from the list
   // is not an eviction — the one place a browser row outlives a broadcast.
@@ -200,11 +200,11 @@ export function reconcileTabs(ws: ChatWorkspace, liveTabIds: string[]): ChatWork
   const known = new Set(
     survivors
       .filter(
-        (t): t is BrowserWorkspaceTab => t.kind === 'browser' && t.provisional !== true
+        (t): t is BrowserPanelTab => t.kind === 'browser' && t.provisional !== true
       )
       .map((t) => t.tabId)
   )
-  const appended: WorkspaceTab[] = liveTabIds
+  const appended: PanelTab[] = liveTabIds
     .filter((id) => !known.has(id))
     .map((tabId) => ({ kind: 'browser', tabId }))
 
@@ -225,9 +225,9 @@ export function reconcileTabs(ws: ChatWorkspace, liveTabIds: string[]): ChatWork
 // Rehydration
 // ---------------------------------------------------------------------------
 
-function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
+function sanitizeChatPanelTabs(raw: unknown): ChatPanelTabs | null {
   if (!raw || typeof raw !== 'object') return null
-  const r = raw as Partial<ChatWorkspace>
+  const r = raw as Partial<ChatPanelTabs>
 
   // File, changes, plan and subagents rows come back; browser rows do not, since
   // a restored one would name a page in a Chromium that does not exist any more.
@@ -241,15 +241,15 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
   // This list is a whitelist, unlike `reconcileTabs`' filter — a kind that is not
   // handled here is silently dropped on the next restart.
   const seen = new Set<string>()
-  const tabs: WorkspaceTab[] = (Array.isArray(r.tabs) ? r.tabs : []).flatMap(
-    (t): WorkspaceTab[] => {
+  const tabs: PanelTab[] = (Array.isArray(r.tabs) ? r.tabs : []).flatMap(
+    (t): PanelTab[] => {
       if (!t || typeof t !== 'object') return []
       const tab = t as Partial<
-        | FileWorkspaceTab
-        | ChangesWorkspaceTab
-        | PlanWorkspaceTab
-        | SubagentsWorkspaceTab
-        | DesignWorkspaceTab
+        | FilePanelTab
+        | ChangesPanelTab
+        | PlanPanelTab
+        | SubagentsPanelTab
+        | DesignPanelTab
       >
       if (typeof tab.id !== 'string' || seen.has(tab.id)) return []
       if (tab.kind === 'changes') {
@@ -257,21 +257,21 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
         return [{ kind: 'changes', id: tab.id }]
       }
       if (tab.kind === 'plan') {
-        const toolId = (tab as Partial<PlanWorkspaceTab>).toolId
+        const toolId = (tab as Partial<PlanPanelTab>).toolId
         if (typeof toolId !== 'string') return []
         seen.add(tab.id)
         return [{ kind: 'plan', id: tab.id, toolId }]
       }
       if (tab.kind === 'subagents') {
-        const focus = (tab as Partial<SubagentsWorkspaceTab>).focus
+        const focus = (tab as Partial<SubagentsPanelTab>).focus
         if (focus !== null && focus !== undefined && typeof focus !== 'string') return []
         seen.add(tab.id)
         return [{ kind: 'subagents', id: tab.id, focus: focus ?? null }]
       }
       if (tab.kind === 'design') {
-        const designId = (tab as Partial<DesignWorkspaceTab>).designId
+        const designId = (tab as Partial<DesignPanelTab>).designId
         if (designId !== null && designId !== undefined && typeof designId !== 'string') return []
-        const artboardId = (tab as Partial<DesignWorkspaceTab>).artboardId
+        const artboardId = (tab as Partial<DesignPanelTab>).artboardId
         if (artboardId !== null && artboardId !== undefined && typeof artboardId !== 'string') return []
         seen.add(tab.id)
         return [
@@ -279,7 +279,7 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
         ]
       }
       if (tab.kind !== 'file') return []
-      const path = (tab as Partial<FileWorkspaceTab>).path
+      const path = (tab as Partial<FilePanelTab>).path
       if (path !== null && path !== undefined && typeof path !== 'string') return []
       seen.add(tab.id)
       return [
@@ -287,7 +287,7 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
           kind: 'file',
           id: tab.id,
           path: path ?? null,
-          preview: (tab as Partial<FileWorkspaceTab>).preview === true ? true : undefined
+          preview: (tab as Partial<FilePanelTab>).preview === true ? true : undefined
         }
       ]
     }
@@ -308,7 +308,7 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
     // Never restored: it describes a request that was in flight when the app
     // closed, and nothing is going to answer it now.
     pendingSelectKey: null,
-    treeOpen: typeof r.treeOpen === 'boolean' ? r.treeOpen : EMPTY_WORKSPACE.treeOpen,
+    treeOpen: typeof r.treeOpen === 'boolean' ? r.treeOpen : EMPTY_PANEL_TABS.treeOpen,
     treeWidth,
     treeExpanded: Array.isArray(r.treeExpanded)
       ? r.treeExpanded.filter((d): d is string => typeof d === 'string')
@@ -322,23 +322,23 @@ function sanitizeWorkspace(raw: unknown): ChatWorkspace | null {
  * Exported for the same reason `mergePanelSizes` is: a corrupt blob must read as
  * an empty panel, never as a broken one.
  */
-export function sanitizeWorkspaces(persisted: unknown): Record<string, ChatWorkspace> {
+export function sanitizePanelTabs(persisted: unknown): Record<string, ChatPanelTabs> {
   if (!persisted || typeof persisted !== 'object') return {}
-  const out: Record<string, ChatWorkspace> = {}
+  const out: Record<string, ChatPanelTabs> = {}
   for (const [sessionId, raw] of Object.entries(persisted as Record<string, unknown>)) {
-    const ws = sanitizeWorkspace(raw)
+    const ws = sanitizeChatPanelTabs(raw)
     if (ws && !isForgettable(ws)) out[sessionId] = ws
   }
   return out
 }
 
 /** Nothing here a restart would miss. */
-function isForgettable(ws: ChatWorkspace): boolean {
+function isForgettable(ws: ChatPanelTabs): boolean {
   return (
     ws.tabs.length === 0 &&
     ws.treeExpanded.length === 0 &&
     ws.treeWidth === null &&
-    ws.treeOpen === EMPTY_WORKSPACE.treeOpen
+    ws.treeOpen === EMPTY_PANEL_TABS.treeOpen
   )
 }
 
@@ -346,8 +346,8 @@ function isForgettable(ws: ChatWorkspace): boolean {
 // The store
 // ---------------------------------------------------------------------------
 
-type WorkspaceStore = {
-  bySession: Record<string, ChatWorkspace>
+type PanelTabsStore = {
+  bySession: Record<string, ChatPanelTabs>
   /** The sidecar's list for one chat, folded in. */
   reconcile: (sessionId: string, liveTabIds: string[]) => void
   /** Chromium went away under every chat at once. */
@@ -372,7 +372,7 @@ type WorkspaceStore = {
   adoptBrowserTab: (sessionId: string, provisionalTabId: string, tabId: string) => string | null
   /** The design canvas. One per chat, like changes: opening a second design is
    *  still looking at designs, and the picker in the tab switches between them.
-   *  Reachable from "+" — unlike changes, a design canvas is a workspace rather
+   *  Reachable from "+" — unlike changes, a design canvas is a place to work rather
    *  than something about this conversation. */
   openDesignTab: (sessionId: string, designId?: string | null, artboardId?: string | null) => string
   /** Which design the canvas is showing. Stored on the tab so a reload comes
@@ -408,17 +408,17 @@ type WorkspaceStore = {
 }
 
 const patch = (
-  state: WorkspaceStore,
+  state: PanelTabsStore,
   sessionId: string,
-  next: Partial<ChatWorkspace> | ((ws: ChatWorkspace) => ChatWorkspace)
-): Pick<WorkspaceStore, 'bySession'> => {
-  const current = state.bySession[sessionId] ?? EMPTY_WORKSPACE
+  next: Partial<ChatPanelTabs> | ((ws: ChatPanelTabs) => ChatPanelTabs)
+): Pick<PanelTabsStore, 'bySession'> => {
+  const current = state.bySession[sessionId] ?? EMPTY_PANEL_TABS
   const updated = typeof next === 'function' ? next(current) : { ...current, ...next }
   if (updated === current) return { bySession: state.bySession }
   return { bySession: { ...state.bySession, [sessionId]: updated } }
 }
 
-export const useWorkspaceStore = create<WorkspaceStore>()(
+export const usePanelTabsStore = create<PanelTabsStore>()(
   persist(
     (set, get) => ({
       bySession: {},
@@ -434,7 +434,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         })),
 
       openFileTab: (sessionId, path = null) => {
-        const tab: FileWorkspaceTab = { kind: 'file', id: nextFileTabId(), path }
+        const tab: FilePanelTab = { kind: 'file', id: nextFileTabId(), path }
         set((s) =>
           patch(s, sessionId, (ws) => ({
             ...ws,
@@ -446,8 +446,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
 
       openFilePreviewTab: (sessionId, path = null) => {
-        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
-          (t): t is FileWorkspaceTab => t.kind === 'file' && t.preview === true
+        const existing = (get().bySession[sessionId] ?? EMPTY_PANEL_TABS).tabs.find(
+          (t): t is FilePanelTab => t.kind === 'file' && t.preview === true
         )
         if (existing) {
           const key = tabKey(existing)
@@ -462,7 +462,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           )
           return key
         }
-        const tab: FileWorkspaceTab = { kind: 'file', id: nextFileTabId(), path, preview: true }
+        const tab: FilePanelTab = { kind: 'file', id: nextFileTabId(), path, preview: true }
         set((s) =>
           patch(s, sessionId, (ws) => ({
             ...ws,
@@ -488,15 +488,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         ),
 
       openProvisionalBrowserTab: (sessionId) => {
-        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
-          (t): t is BrowserWorkspaceTab => t.kind === 'browser' && t.provisional === true
+        const existing = (get().bySession[sessionId] ?? EMPTY_PANEL_TABS).tabs.find(
+          (t): t is BrowserPanelTab => t.kind === 'browser' && t.provisional === true
         )
         if (existing) {
           const key = browserKey(existing.tabId)
           set((s) => patch(s, sessionId, (ws) => ({ ...ws, activeKey: key })))
           return key
         }
-        const tab: BrowserWorkspaceTab = {
+        const tab: BrowserPanelTab = {
           kind: 'browser',
           tabId: nextProvisionalTabId(),
           provisional: true
@@ -512,7 +512,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
 
       adoptBrowserTab: (sessionId, provisionalTabId, tabId) => {
-        const ws = get().bySession[sessionId] ?? EMPTY_WORKSPACE
+        const ws = get().bySession[sessionId] ?? EMPTY_PANEL_TABS
         const key = browserKey(tabId)
         const provisionalKey = browserKey(provisionalTabId)
         const cancelled = cancelledBoots.delete(bootKey(sessionId, provisionalTabId))
@@ -527,13 +527,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // browser was waking, which is a cancel rather than an orphan.
         if (cancelled && at === -1 && !already) return null
         if (at === -1 && !already) {
-          // Gone for some other reason — the chat's workspace was replaced, or a
+          // Gone for some other reason — the chat's tabs were replaced, or a
           // list that predated this tab reconciled it away. The page exists, so
           // it gets a row; dropping it would leave a browser with no way back.
           set((s) =>
             patch(s, sessionId, (current) => ({
               ...current,
-              tabs: [...current.tabs, { kind: 'browser', tabId } as WorkspaceTab],
+              tabs: [...current.tabs, { kind: 'browser', tabId } as PanelTab],
               activeKey:
                 current.activeKey === null || current.activeKey === provisionalKey
                   ? key
@@ -554,7 +554,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                     // Replaced at its own index rather than appended: the row
                     // was up before the sidecar answered, and where it sits is
                     // where the person put it.
-                    i === at ? ({ kind: 'browser', tabId } as WorkspaceTab) : t
+                    i === at ? ({ kind: 'browser', tabId } as PanelTab) : t
                   ),
             // The selection follows the row that was selected, not the page
             // that arrived: switching tabs while Chromium wakes must not be
@@ -568,15 +568,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
 
       openChangesTab: (sessionId) => {
-        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
-          (t): t is ChangesWorkspaceTab => t.kind === 'changes'
+        const existing = (get().bySession[sessionId] ?? EMPTY_PANEL_TABS).tabs.find(
+          (t): t is ChangesPanelTab => t.kind === 'changes'
         )
         if (existing) {
           const key = tabKey(existing)
           set((s) => patch(s, sessionId, (ws) => ({ ...ws, activeKey: key })))
           return key
         }
-        const tab: ChangesWorkspaceTab = { kind: 'changes', id: nextFileTabId() }
+        const tab: ChangesPanelTab = { kind: 'changes', id: nextFileTabId() }
         set((s) =>
           patch(s, sessionId, (ws) => ({
             ...ws,
@@ -588,8 +588,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
 
       openDesignTab: (sessionId, designId = null, artboardId = null) => {
-        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
-          (t): t is DesignWorkspaceTab => t.kind === 'design'
+        const existing = (get().bySession[sessionId] ?? EMPTY_PANEL_TABS).tabs.find(
+          (t): t is DesignPanelTab => t.kind === 'design'
         )
         if (existing) {
           const key = tabKey(existing)
@@ -606,7 +606,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           )
           return key
         }
-        const tab: DesignWorkspaceTab = {
+        const tab: DesignPanelTab = {
           kind: 'design',
           id: nextFileTabId(),
           designId,
@@ -647,8 +647,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
 
       openPlanTab: (sessionId, toolId) => {
-        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
-          (t): t is PlanWorkspaceTab => t.kind === 'plan'
+        const existing = (get().bySession[sessionId] ?? EMPTY_PANEL_TABS).tabs.find(
+          (t): t is PlanPanelTab => t.kind === 'plan'
         )
         if (existing) {
           const key = tabKey(existing)
@@ -663,7 +663,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           )
           return key
         }
-        const tab: PlanWorkspaceTab = { kind: 'plan', id: nextFileTabId(), toolId }
+        const tab: PlanPanelTab = { kind: 'plan', id: nextFileTabId(), toolId }
         set((s) =>
           patch(s, sessionId, (ws) => ({
             ...ws,
@@ -675,8 +675,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
 
       openSubagentsTab: (sessionId, focus) => {
-        const existing = (get().bySession[sessionId] ?? EMPTY_WORKSPACE).tabs.find(
-          (t): t is SubagentsWorkspaceTab => t.kind === 'subagents'
+        const existing = (get().bySession[sessionId] ?? EMPTY_PANEL_TABS).tabs.find(
+          (t): t is SubagentsPanelTab => t.kind === 'subagents'
         )
         if (existing) {
           const key = tabKey(existing)
@@ -691,7 +691,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           )
           return key
         }
-        const tab: SubagentsWorkspaceTab = { kind: 'subagents', id: nextFileTabId(), focus }
+        const tab: SubagentsPanelTab = { kind: 'subagents', id: nextFileTabId(), focus }
         set((s) =>
           patch(s, sessionId, (ws) => ({
             ...ws,
@@ -796,6 +796,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         })
     }),
     {
+      // Still 'nyra-workspace': this store was called the workspace before
+      // Workspaces meant accounts, and renaming the key would drop everyone's
+      // saved tabs. legacy-storage.ts migrates coide-workspace into this key too.
       name: 'nyra-workspace',
       // Browser rows and the in-flight selection are dropped on the way out as
       // well as on the way in, so the blob never carries something we would only
@@ -807,12 +810,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               id,
               { ...ws, tabs: ws.tabs.filter((t) => t.kind !== 'browser'), pendingSelectKey: null }
             ])
-            .filter(([, ws]) => !isForgettable(ws as ChatWorkspace))
+            .filter(([, ws]) => !isForgettable(ws as ChatPanelTabs))
         )
       }),
       merge: (persisted, current) => ({
-        ...(current as WorkspaceStore),
-        bySession: sanitizeWorkspaces((persisted as { bySession?: unknown } | undefined)?.bySession)
+        ...(current as PanelTabsStore),
+        bySession: sanitizePanelTabs((persisted as { bySession?: unknown } | undefined)?.bySession)
       })
     }
   )
@@ -822,11 +825,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 // Selectors
 // ---------------------------------------------------------------------------
 
-export function workspaceFor(state: WorkspaceStore, sessionId: string | null): ChatWorkspace {
-  return (sessionId ? state.bySession[sessionId] : null) ?? EMPTY_WORKSPACE
+export function panelTabsFor(state: PanelTabsStore, sessionId: string | null): ChatPanelTabs {
+  return (sessionId ? state.bySession[sessionId] : null) ?? EMPTY_PANEL_TABS
 }
 
-export function activeTab(ws: ChatWorkspace): WorkspaceTab | null {
+export function activeTab(ws: ChatPanelTabs): PanelTab | null {
   return ws.tabs.find((t) => tabKey(t) === ws.activeKey) ?? null
 }
 
@@ -837,18 +840,18 @@ export function activeTab(ws: ChatWorkspace): WorkspaceTab | null {
  * test, which would now mean opening it to read a file downloads a browser
  * engine and leaves a blank page in the strip.
  */
-export function wantsBrowser(ws: ChatWorkspace): boolean {
+export function wantsBrowser(ws: ChatPanelTabs): boolean {
   return ws.tabs.some((t) => t.kind === 'browser') || ws.pendingSelectKey?.startsWith('browser:') === true
 }
 
 /** Which browser tab the miniature should show, if any. */
-export function activeBrowserTabId(ws: ChatWorkspace): string | null {
+export function activeBrowserTabId(ws: ChatPanelTabs): string | null {
   const active = activeTab(ws)
   // A provisional row names a tab that does not exist yet, so pointing the
   // miniature at it would ask the sidecar about a stranger.
   if (active?.kind === 'browser' && active.provisional !== true) return active.tabId
   const first = ws.tabs.find(
-    (t): t is BrowserWorkspaceTab => t.kind === 'browser' && t.provisional !== true
+    (t): t is BrowserPanelTab => t.kind === 'browser' && t.provisional !== true
   )
   return first?.tabId ?? null
 }
@@ -864,7 +867,7 @@ export function activeBrowserTabId(ws: ChatWorkspace): string | null {
 /** The sidecar's tab list for one chat. */
 export function syncSidecarTabs(sessionId: string, tabs: BrowserTab[]): void {
   useBrowserStore.getState().setTabs(sessionId, tabs)
-  useWorkspaceStore.getState().reconcile(
+  usePanelTabsStore.getState().reconcile(
     sessionId,
     tabs.map((t) => t.tabId)
   )
@@ -873,5 +876,5 @@ export function syncSidecarTabs(sessionId: string, tabs: BrowserTab[]): void {
 /** Chromium went away under everyone. File tabs are unaffected. */
 export function syncBrowserGone(): void {
   useBrowserStore.getState().browserGone()
-  useWorkspaceStore.getState().reconcileAllEmpty()
+  usePanelTabsStore.getState().reconcileAllEmpty()
 }

@@ -1,5 +1,5 @@
 import React from 'react'
-import WorkspacePanel from './workspace/WorkspacePanel'
+import PanelTabs from './panelTabs/PanelTabs'
 import { usePanelLayoutStore } from '../store/panelLayout'
 
 /**
@@ -24,7 +24,7 @@ export default function RightPanel(): React.JSX.Element {
       style={{ width }}
       className="flex h-full shrink-0 flex-col border-l border-border/55 bg-sidebar"
     >
-      <WorkspacePanel />
+      <PanelTabs />
     </aside>
   )
 }

@@ -1,31 +1,31 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  EMPTY_WORKSPACE,
+  EMPTY_PANEL_TABS,
   activeBrowserTabId,
   browserKey,
   fileKey,
   reconcileTabs,
-  sanitizeWorkspaces,
+  sanitizePanelTabs,
   tabKey,
-  useWorkspaceStore,
+  usePanelTabsStore,
   wantsBrowser,
-  workspaceFor,
-  type ChatWorkspace,
-  type WorkspaceTab
-} from '@renderer/store/workspace'
+  panelTabsFor,
+  type ChatPanelTabs,
+  type PanelTab
+} from '@renderer/store/panelTabs'
 
 const SID = 'chat-1'
 
 /** A strip, written the way it reads: 'b:t1' is browser tab t1, 'f:x' a file tab. */
-function strip(spec: string[], activeKey: string | null = null): ChatWorkspace {
-  const tabs: WorkspaceTab[] = spec.map((s) => {
+function strip(spec: string[], activeKey: string | null = null): ChatPanelTabs {
+  const tabs: PanelTab[] = spec.map((s) => {
     const [kind, id] = s.split(':')
     return kind === 'b' ? { kind: 'browser', tabId: id } : { kind: 'file', id, path: `/repo/${id}.ts` }
   })
-  return { ...EMPTY_WORKSPACE, tabs, activeKey }
+  return { ...EMPTY_PANEL_TABS, tabs, activeKey }
 }
 
-const keys = (ws: ChatWorkspace): string[] => ws.tabs.map(tabKey)
+const keys = (ws: ChatPanelTabs): string[] => ws.tabs.map(tabKey)
 
 describe('reconcileTabs', () => {
   it('appends an agent-opened tab at the end without moving the selection', () => {
@@ -74,7 +74,7 @@ describe('reconcileTabs', () => {
   })
 
   it('selects something when nothing was selected and the strip fills', () => {
-    expect(reconcileTabs(EMPTY_WORKSPACE, ['t1']).activeKey).toBe(browserKey('t1'))
+    expect(reconcileTabs(EMPTY_PANEL_TABS, ['t1']).activeKey).toBe(browserKey('t1'))
   })
 
   it('clears the selection when the strip empties', () => {
@@ -115,13 +115,13 @@ describe('reconcileTabs', () => {
 describe('selectors', () => {
   it('wantsBrowser is false for a files-only strip', () => {
     expect(wantsBrowser(strip(['f:x', 'f:y']))).toBe(false)
-    expect(wantsBrowser(EMPTY_WORKSPACE)).toBe(false)
+    expect(wantsBrowser(EMPTY_PANEL_TABS)).toBe(false)
   })
 
   it('wantsBrowser is true once a browser tab exists or has been asked for', () => {
     expect(wantsBrowser(strip(['f:x', 'b:t1']))).toBe(true)
-    expect(wantsBrowser({ ...EMPTY_WORKSPACE, pendingSelectKey: browserKey('t1') })).toBe(true)
-    expect(wantsBrowser({ ...EMPTY_WORKSPACE, pendingSelectKey: fileKey('x') })).toBe(false)
+    expect(wantsBrowser({ ...EMPTY_PANEL_TABS, pendingSelectKey: browserKey('t1') })).toBe(true)
+    expect(wantsBrowser({ ...EMPTY_PANEL_TABS, pendingSelectKey: fileKey('x') })).toBe(false)
   })
 
   it('activeBrowserTabId prefers the active tab, then the first browser tab', () => {
@@ -132,18 +132,18 @@ describe('selectors', () => {
 })
 
 describe('the store', () => {
-  beforeEach(() => useWorkspaceStore.setState({ bySession: {} }))
+  beforeEach(() => usePanelTabsStore.setState({ bySession: {} }))
 
-  const ws = (): ChatWorkspace => workspaceFor(useWorkspaceStore.getState(), SID)
+  const ws = (): ChatPanelTabs => panelTabsFor(usePanelTabsStore.getState(), SID)
 
   it('opens a file tab, selects it, and starts it on no file at all', () => {
-    const key = useWorkspaceStore.getState().openFileTab(SID)
+    const key = usePanelTabsStore.getState().openFileTab(SID)
     expect(ws().activeKey).toBe(key)
     expect((ws().tabs[0] as { path: string | null }).path).toBeNull()
   })
 
   it('closes a file tab locally and picks the neighbour', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     store.openFileTab(SID, '/a')
     const second = store.openFileTab(SID, '/b')
     store.openFileTab(SID, '/c')
@@ -157,7 +157,7 @@ describe('the store', () => {
 
   describe('moveTab', () => {
     const setup = (): string[] => {
-      const store = useWorkspaceStore.getState()
+      const store = usePanelTabsStore.getState()
       const a = store.openFileTab(SID, '/a')
       const b = store.openFileTab(SID, '/b')
       const c = store.openFileTab(SID, '/c')
@@ -167,7 +167,7 @@ describe('the store', () => {
 
     it('moves a tab rightward, in front of the one named', () => {
       const [a, b, c] = setup()
-      useWorkspaceStore.getState().moveTab(SID, a, c)
+      usePanelTabsStore.getState().moveTab(SID, a, c)
       // Before c, so it lands between b and c — not after c. This is the
       // direction an insert-before reorder gets off by one.
       expect(order()).toEqual([b, a, c])
@@ -175,7 +175,7 @@ describe('the store', () => {
 
     it('moves a tab leftward', () => {
       const [a, b, c] = setup()
-      useWorkspaceStore.getState().moveTab(SID, c, a)
+      usePanelTabsStore.getState().moveTab(SID, c, a)
       expect(order()).toEqual([c, a, b])
     })
 
@@ -183,14 +183,14 @@ describe('the store', () => {
     // last position could never be chosen.
     it('moves a tab to the end when told nothing to go before', () => {
       const [a, b, c] = setup()
-      useWorkspaceStore.getState().moveTab(SID, a, null)
+      usePanelTabsStore.getState().moveTab(SID, a, null)
       expect(order()).toEqual([b, c, a])
     })
 
     it('keeps the selection on the tab that moved', () => {
       const [a, , c] = setup()
-      useWorkspaceStore.getState().selectTab(SID, a)
-      useWorkspaceStore.getState().moveTab(SID, a, c)
+      usePanelTabsStore.getState().selectTab(SID, a)
+      usePanelTabsStore.getState().moveTab(SID, a, c)
       expect(ws().activeKey).toBe(a)
     })
 
@@ -198,10 +198,10 @@ describe('the store', () => {
       const [a, b] = setup()
       const before = ws()
 
-      useWorkspaceStore.getState().moveTab(SID, a, a)
-      useWorkspaceStore.getState().moveTab(SID, a, b)
-      useWorkspaceStore.getState().moveTab(SID, 'file:gone', b)
-      useWorkspaceStore.getState().moveTab(SID, a, 'file:gone')
+      usePanelTabsStore.getState().moveTab(SID, a, a)
+      usePanelTabsStore.getState().moveTab(SID, a, b)
+      usePanelTabsStore.getState().moveTab(SID, 'file:gone', b)
+      usePanelTabsStore.getState().moveTab(SID, a, 'file:gone')
 
       expect(ws()).toBe(before)
     })
@@ -209,43 +209,43 @@ describe('the store', () => {
     it('leaves the last tab alone when sent to the end', () => {
       const [, , c] = setup()
       const before = ws()
-      useWorkspaceStore.getState().moveTab(SID, c, null)
+      usePanelTabsStore.getState().moveTab(SID, c, null)
       expect(ws()).toBe(before)
     })
 
     it('reorders browser tabs too, and the sidecar does not undo it', () => {
-      useWorkspaceStore.getState().reconcile(SID, ['t1', 't2'])
-      useWorkspaceStore.getState().moveTab(SID, browserKey('t2'), browserKey('t1'))
+      usePanelTabsStore.getState().reconcile(SID, ['t1', 't2'])
+      usePanelTabsStore.getState().moveTab(SID, browserKey('t2'), browserKey('t1'))
       expect(order()).toEqual([browserKey('t2'), browserKey('t1')])
 
       // The sidecar re-broadcasts in its own order on every navigation.
-      useWorkspaceStore.getState().reconcile(SID, ['t1', 't2'])
+      usePanelTabsStore.getState().reconcile(SID, ['t1', 't2'])
       expect(order()).toEqual([browserKey('t2'), browserKey('t1')])
     })
   })
 
   it('parks a selection for a tab that does not exist yet', () => {
-    useWorkspaceStore.getState().selectTab(SID, browserKey('t1'))
+    usePanelTabsStore.getState().selectTab(SID, browserKey('t1'))
     expect(ws().activeKey).toBeNull()
     expect(ws().pendingSelectKey).toBe(browserKey('t1'))
 
-    useWorkspaceStore.getState().reconcile(SID, ['t1'])
+    usePanelTabsStore.getState().reconcile(SID, ['t1'])
     expect(ws().activeKey).toBe(browserKey('t1'))
   })
 
   it('forgets a chat and prunes the ones that are gone', () => {
-    useWorkspaceStore.getState().openFileTab(SID, '/a')
-    useWorkspaceStore.getState().openFileTab('chat-2', '/b')
+    usePanelTabsStore.getState().openFileTab(SID, '/a')
+    usePanelTabsStore.getState().openFileTab('chat-2', '/b')
 
-    useWorkspaceStore.getState().forget(SID)
-    expect(SID in useWorkspaceStore.getState().bySession).toBe(false)
+    usePanelTabsStore.getState().forget(SID)
+    expect(SID in usePanelTabsStore.getState().bySession).toBe(false)
 
-    useWorkspaceStore.getState().prune([])
-    expect(useWorkspaceStore.getState().bySession).toEqual({})
+    usePanelTabsStore.getState().prune([])
+    expect(usePanelTabsStore.getState().bySession).toEqual({})
   })
 
   it('toggles a tree directory and remembers the width', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     store.toggleTreeDir(SID, 'src')
     store.toggleTreeDir(SID, 'src/lib')
     expect(ws().treeExpanded).toEqual(['src', 'src/lib'])
@@ -258,7 +258,7 @@ describe('the store', () => {
   })
 
   it('expands folders for a reveal without closing any already open', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     store.toggleTreeDir(SID, 'src')
     store.expandTreeDirs(SID, ['src', 'src/lib'])
     expect(ws().treeExpanded).toEqual(['src', 'src/lib'])
@@ -270,9 +270,9 @@ describe('the store', () => {
 })
 
 describe('the preview slot', () => {
-  beforeEach(() => useWorkspaceStore.setState({ bySession: {} }))
+  beforeEach(() => usePanelTabsStore.setState({ bySession: {} }))
 
-  const ws = (): ChatWorkspace => workspaceFor(useWorkspaceStore.getState(), SID)
+  const ws = (): ChatPanelTabs => panelTabsFor(usePanelTabsStore.getState(), SID)
   const pathOf = (key: string | null): string | null => {
     const tab = ws().tabs.find((t) => tabKey(t) === key)
     return tab?.kind === 'file' ? tab.path : null
@@ -281,7 +281,7 @@ describe('the preview slot', () => {
   // Clicking five files in a tree is five looks at them, not a request for five
   // tabs. One row is retargeted until something asks for it to stay.
   it('retargets one row instead of stacking a tab per click', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     const first = store.openFilePreviewTab(SID, '/repo/a.ts')
     const second = store.openFilePreviewTab(SID, '/repo/b.ts')
 
@@ -292,7 +292,7 @@ describe('the preview slot', () => {
   })
 
   it('leaves the preview row alone when a file is pinned', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     const preview = store.openFilePreviewTab(SID, '/repo/a.ts')
     const pinned = store.openFileTab(SID, '/repo/b.ts')
 
@@ -303,7 +303,7 @@ describe('the preview slot', () => {
   })
 
   it('keeps the row open once it is pinned', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     const key = store.openFilePreviewTab(SID, '/repo/a.ts')
     const id = (ws().tabs[0] as { id: string }).id
     store.pinFileTab(SID, id)
@@ -315,7 +315,7 @@ describe('the preview slot', () => {
   })
 
   it('pins a row that is already showing the file rather than making a second', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     store.openFilePreviewTab(SID, '/repo/a.ts')
     const id = (ws().tabs[0] as { id: string }).id
     store.pinFileTab(SID, id)
@@ -327,14 +327,14 @@ describe('the preview slot', () => {
 })
 
 describe('the provisional browser row', () => {
-  beforeEach(() => useWorkspaceStore.setState({ bySession: {} }))
+  beforeEach(() => usePanelTabsStore.setState({ bySession: {} }))
 
-  const ws = (): ChatWorkspace => workspaceFor(useWorkspaceStore.getState(), SID)
+  const ws = (): ChatPanelTabs => panelTabsFor(usePanelTabsStore.getState(), SID)
 
   // The whole feature: the row is on screen before the browser is, so a cold
   // start does not look like a button that did nothing.
   it('goes up immediately, and is selected', () => {
-    const key = useWorkspaceStore.getState().openProvisionalBrowserTab(SID)
+    const key = usePanelTabsStore.getState().openProvisionalBrowserTab(SID)
 
     expect(ws().activeKey).toBe(key)
     expect(ws().tabs).toHaveLength(1)
@@ -343,15 +343,15 @@ describe('the provisional browser row', () => {
   })
 
   it('is asked for twice, and drawn once', () => {
-    const first = useWorkspaceStore.getState().openProvisionalBrowserTab(SID)
-    const second = useWorkspaceStore.getState().openProvisionalBrowserTab(SID)
+    const first = usePanelTabsStore.getState().openProvisionalBrowserTab(SID)
+    const second = usePanelTabsStore.getState().openProvisionalBrowserTab(SID)
 
     expect(second).toBe(first)
     expect(ws().tabs).toHaveLength(1)
   })
 
   it('is replaced where it stands, with the selection following the row', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     store.openFileTab(SID, '/repo/a.ts')
     const provisional = store.openProvisionalBrowserTab(SID)
     const id = provisional.slice('browser:'.length)
@@ -373,7 +373,7 @@ describe('the provisional browser row', () => {
   })
 
   it('does not steal the selection back when the page arrives', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     const provisional = store.openProvisionalBrowserTab(SID)
     const id = provisional.slice('browser:'.length)
     const file = store.openFileTab(SID, '/repo/a.ts')
@@ -387,7 +387,7 @@ describe('the provisional browser row', () => {
   // The broadcast and the reply that created the tab race each other. Whichever
   // lands second, there is one row and not two.
   it('clears itself when the real row got there first', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     const provisional = store.openProvisionalBrowserTab(SID)
     const id = provisional.slice('browser:'.length)
     store.selectTab(SID, provisional)
@@ -401,7 +401,7 @@ describe('the provisional browser row', () => {
   })
 
   it('reports a missing placeholder, which is how a cancel is seen', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     const provisional = store.openProvisionalBrowserTab(SID)
     store.closeTab(SID, provisional)
 
@@ -412,10 +412,10 @@ describe('the provisional browser row', () => {
   // A row that left for any other reason is not a cancel: the page exists, so it
   // gets a row rather than being thrown away with the placeholder.
   it('gives the page a row when the placeholder went missing some other way', () => {
-    const store = useWorkspaceStore.getState()
+    const store = usePanelTabsStore.getState()
     const provisional = store.openProvisionalBrowserTab(SID)
     const id = provisional.slice('browser:'.length)
-    useWorkspaceStore.setState({ bySession: {} })
+    usePanelTabsStore.setState({ bySession: {} })
 
     const key = store.adoptBrowserTab(SID, id, 't9')
 
@@ -427,8 +427,8 @@ describe('the provisional browser row', () => {
   // It outlives a broadcast that leaves it out — it is ours, not the sidecar's —
   // and it never becomes the page the miniature is drawn from.
   it('survives an empty broadcast but is not a tab to draw', () => {
-    const key = useWorkspaceStore.getState().openProvisionalBrowserTab(SID)
-    useWorkspaceStore.getState().reconcile(SID, [])
+    const key = usePanelTabsStore.getState().openProvisionalBrowserTab(SID)
+    usePanelTabsStore.getState().reconcile(SID, [])
 
     expect(ws().tabs.map(tabKey)).toEqual([key])
     expect(activeBrowserTabId(ws())).toBeNull()
@@ -437,23 +437,23 @@ describe('the provisional browser row', () => {
   // A provisional row is a browser row on the way out, so the persisted blob
   // never carries a name for a tab that will not exist after a restart.
   it('is dropped on the way out, like every browser row', () => {
-    const out = sanitizeWorkspaces({
+    const out = sanitizePanelTabs({
       [SID]: { tabs: [{ kind: 'browser', tabId: 'pending-1', provisional: true }] }
     })
     expect(out[SID]).toBeUndefined()
   })
 })
 
-describe('sanitizeWorkspaces', () => {
+describe('sanitizePanelTabs', () => {
   it('restores a preview row as a preview row', () => {
-    const out = sanitizeWorkspaces({
+    const out = sanitizePanelTabs({
       [SID]: { tabs: [{ kind: 'file', id: 'x', path: '/repo/a.ts', preview: true }] }
     })
     expect(out[SID].tabs).toEqual([{ kind: 'file', id: 'x', path: '/repo/a.ts', preview: true }])
   })
 
   it('drops browser entries and re-resolves an activeKey that named one', () => {
-    const out = sanitizeWorkspaces({
+    const out = sanitizePanelTabs({
       [SID]: {
         tabs: [
           { kind: 'browser', tabId: 't1' },
@@ -467,32 +467,32 @@ describe('sanitizeWorkspaces', () => {
   })
 
   it('clamps a width that would render a zero-width pane', () => {
-    const out = sanitizeWorkspaces({
+    const out = sanitizePanelTabs({
       [SID]: { tabs: [{ kind: 'file', id: 'x', path: null }], treeWidth: Number.NaN }
     })
     expect(out[SID].treeWidth).toBeNull()
   })
 
   it('never restores an in-flight selection', () => {
-    const out = sanitizeWorkspaces({
+    const out = sanitizePanelTabs({
       [SID]: { tabs: [{ kind: 'file', id: 'x', path: null }], pendingSelectKey: browserKey('t1') }
     })
     expect(out[SID].pendingSelectKey).toBeNull()
   })
 
   it('forgets a chat with nothing worth restoring', () => {
-    expect(sanitizeWorkspaces({ [SID]: { tabs: [], treeExpanded: [] } })).toEqual({})
+    expect(sanitizePanelTabs({ [SID]: { tabs: [], treeExpanded: [] } })).toEqual({})
   })
 
   it('keeps a chat that only customised its tree', () => {
-    const out = sanitizeWorkspaces({ [SID]: { tabs: [], treeOpen: false } })
+    const out = sanitizePanelTabs({ [SID]: { tabs: [], treeOpen: false } })
     expect(out[SID].treeOpen).toBe(false)
   })
 
   it('survives a garbage blob', () => {
-    expect(sanitizeWorkspaces(undefined)).toEqual({})
-    expect(sanitizeWorkspaces('nope')).toEqual({})
-    expect(sanitizeWorkspaces({ [SID]: { tabs: 'nope' } })).toEqual({})
-    expect(sanitizeWorkspaces({ [SID]: { tabs: [{ kind: 'file' }, null, 7] } })).toEqual({})
+    expect(sanitizePanelTabs(undefined)).toEqual({})
+    expect(sanitizePanelTabs('nope')).toEqual({})
+    expect(sanitizePanelTabs({ [SID]: { tabs: 'nope' } })).toEqual({})
+    expect(sanitizePanelTabs({ [SID]: { tabs: [{ kind: 'file' }, null, 7] } })).toEqual({})
   })
 })

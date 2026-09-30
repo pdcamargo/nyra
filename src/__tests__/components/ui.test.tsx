@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NEW_TAB_CHOICES } from '@renderer/components/workspace/tabs'
+import { NEW_TAB_CHOICES } from '@renderer/components/panelTabs/tabs'
 import { COMMANDS_BY_ID } from '@renderer/commands/registry'
 import { render, screen } from '@testing-library/react'
 import { Button } from '../../renderer/src/components/ui/button'

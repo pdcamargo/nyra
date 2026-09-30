@@ -17,7 +17,7 @@ describe('pipVisible', () => {
 
   it('stays out of the way when the panel is already showing the browser', () => {
     // The panel is the browser now, so its being open is the whole test — there
-    // are no workspace tabs left for it to be open on instead.
+    // are no side-panel tabs left for it to be open on instead.
     expect(pipVisible({ ...showing, rightPanelOpen: true })).toBe(false)
   })
 

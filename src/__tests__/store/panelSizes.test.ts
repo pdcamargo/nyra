@@ -68,7 +68,7 @@ describe('clampWidths', () => {
 describe('railDragMax', () => {
   it('stops a drag at the space the other rail is actually using', () => {
     // Not at `viewport - CHAT_MIN - rightMin`: that would let the sidebar eat
-    // into the workspace panel, which would then jump on the next frame.
+    // into the side panel, which would then jump on the next frame.
     const desired = sizes({ sidebarWidth: 256, rightPanelWidth: 400 })
     expect(railDragMax('sidebarWidth', desired, BOTH, 1400)).toBe(1400 - CHAT_MIN_WIDTH - 400)
   })
@@ -86,7 +86,7 @@ describe('railDragMax', () => {
     expect(after).toEqual({ sidebarWidth: max, rightPanelWidth: 400 })
   })
 
-  it('is symmetric for the workspace panel', () => {
+  it('is symmetric for the side panel', () => {
     const desired = sizes({ sidebarWidth: 400, rightPanelWidth: 256 })
     expect(railDragMax('rightPanelWidth', desired, BOTH, 1400)).toBe(1400 - CHAT_MIN_WIDTH - 400)
   })

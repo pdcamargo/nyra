@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, Loader2, X } from 'lucide-react'
 import NewTabMenu from './NewTabMenu'
 import type { NewTabKind } from './tabs'
-import { tabKey, type WorkspaceTab } from '../../store/workspace'
+import { tabKey, type PanelTab } from '../../store/panelTabs'
 import type { BrowserPhase } from '../../store/browser'
 import type { BrowserTab } from '../../lib/api-types'
 import { basename as basenameOf } from '../../lib/paths'
@@ -23,7 +23,7 @@ import { basename as basenameOf } from '../../lib/paths'
  * chat's single replaceable slot, drawn italic; a double click keeps a tab of its
  * own. A middle click closes whatever it lands on, preview or not.
  */
-export default function WorkspaceTabStrip({
+export default function PanelTabStrip({
   tabs,
   activeKey,
   browserTabs,
@@ -34,7 +34,7 @@ export default function WorkspaceTabStrip({
   onReorder,
   onNew
 }: {
-  tabs: WorkspaceTab[]
+  tabs: PanelTab[]
   activeKey: string | null
   /** The sidecar's mirror, for the browser rows' titles and spinners. */
   browserTabs: BrowserTab[]

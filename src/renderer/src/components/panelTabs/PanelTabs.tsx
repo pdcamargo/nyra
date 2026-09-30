@@ -7,8 +7,8 @@
  * is what mounting this used to mean.
  */
 import React from 'react'
-import WorkspaceTabStrip from './WorkspaceTabStrip'
-import WorkspaceEmpty from './WorkspaceEmpty'
+import PanelTabStrip from './PanelTabStrip'
+import PanelTabsEmpty from './PanelTabsEmpty'
 import Empty from './Empty'
 import type { NewTabKind } from './tabs'
 import BrowserSurface, { BrowserPhaseState, browserPending } from '../browser/BrowserSurface'
@@ -22,15 +22,15 @@ import { useBrowserStore } from '../../store/browser'
 import type { BrowserTab } from '../../lib/api-types'
 import { useSessionsStore } from '../../store/sessions'
 import { useUiStore } from '../../store/ui'
-import { activeTab, tabKey, useWorkspaceStore, wantsBrowser, workspaceFor } from '../../store/workspace'
+import { activeTab, tabKey, usePanelTabsStore, wantsBrowser, panelTabsFor } from '../../store/panelTabs'
 
 /** Hoisted: a fresh `[]` from the selector is a new identity every call, which
  *  zustand reads as a change and re-renders into forever. */
 const NO_BROWSER_TABS: BrowserTab[] = []
 
-export default function WorkspacePanel(): React.JSX.Element {
+export default function PanelTabs(): React.JSX.Element {
   const sessionId = useSessionsStore((s) => s.activeSessionId)
-  const ws = useWorkspaceStore((s) => workspaceFor(s, sessionId))
+  const ws = usePanelTabsStore((s) => panelTabsFor(s, sessionId))
   const browserTabs = useBrowserStore(
     (s) => (sessionId ? s.bySession[sessionId] : null)?.tabs ?? NO_BROWSER_TABS
   )
@@ -40,23 +40,23 @@ export default function WorkspacePanel(): React.JSX.Element {
   // nothing at all — no status probe, no openChat, no heartbeat.
   useBrowserSession(wantsBrowser(ws) && sessionId ? sessionId : null)
 
-  if (!sessionId) return <Empty>Open a chat to give it a workspace.</Empty>
+  if (!sessionId) return <Empty>Open a chat to give it a side panel.</Empty>
 
   const newTab = (kind: NewTabKind): void => {
     if (kind === 'browser') void startBrowserTab(sessionId)
-    else useWorkspaceStore.getState().openFileTab(sessionId)
+    else usePanelTabsStore.getState().openFileTab(sessionId)
   }
 
   const active = activeTab(ws)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <WorkspaceTabStrip
+      <PanelTabStrip
         tabs={ws.tabs}
         activeKey={ws.activeKey}
         browserTabs={browserTabs}
         browserPhase={phase}
-        onSelect={(key) => useWorkspaceStore.getState().selectTab(sessionId, key)}
+        onSelect={(key) => usePanelTabsStore.getState().selectTab(sessionId, key)}
         onClose={(key) => {
           const tab = ws.tabs.find((t) => tabKey(t) === key)
           if (!tab) return
@@ -73,7 +73,7 @@ export default function WorkspacePanel(): React.JSX.Element {
           } else {
             // A provisional row is ours, so there is nothing to ask about; and
             // closing it is how a browser still waking up gets cancelled.
-            useWorkspaceStore.getState().closeTab(sessionId, key)
+            usePanelTabsStore.getState().closeTab(sessionId, key)
           }
 
           // Closing the last tab is a way of putting the panel away. Tied to the
@@ -82,11 +82,11 @@ export default function WorkspacePanel(): React.JSX.Element {
           if (wasLast) useUiStore.getState().setRightPanelOpen(false)
         }}
         onReorder={(fromKey, beforeKey) =>
-          useWorkspaceStore.getState().moveTab(sessionId, fromKey, beforeKey)
+          usePanelTabsStore.getState().moveTab(sessionId, fromKey, beforeKey)
         }
         onPin={(key) => {
           const tab = ws.tabs.find((t) => tabKey(t) === key)
-          if (tab?.kind === 'file') useWorkspaceStore.getState().pinFileTab(sessionId, tab.id)
+          if (tab?.kind === 'file') usePanelTabsStore.getState().pinFileTab(sessionId, tab.id)
         }}
         onNew={newTab}
       />
@@ -112,7 +112,7 @@ export default function WorkspacePanel(): React.JSX.Element {
           // — the download prompt lives here rather than taking the whole panel.
           <BrowserPhaseState sessionId={sessionId} />
         ) : (
-          <WorkspaceEmpty onPick={newTab} />
+          <PanelTabsEmpty onPick={newTab} />
         )}
       </div>
     </div>

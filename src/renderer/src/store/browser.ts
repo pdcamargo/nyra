@@ -11,7 +11,7 @@
  * though there is one Chromium underneath.
  *
  * This is a mirror of what the sidecar says, and only that. Which tab is on
- * screen is not something the sidecar knows, so it lives in `workspace.ts`
+ * screen is not something the sidecar knows, so it lives in `panelTabs.ts`
  * alongside the file tabs the sidecar has never heard of.
  */
 import { create } from 'zustand'
@@ -114,7 +114,7 @@ export const useBrowserStore = create<BrowserStore>()((set) => ({
     set((s) => patch(s, sessionId, { phase, error })),
   // A mirror write and nothing more. Selection used to be computed here, which
   // made the sidecar's list the only thing that could decide what you were
-  // looking at — see `workspace.ts`, which owns that now.
+  // looking at — see `panelTabs.ts`, which owns that now.
   setTabs: (sessionId, tabs) =>
     set((s) => {
       // Sizes ride along with the tabs, so there is no second channel to keep
