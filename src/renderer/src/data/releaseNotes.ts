@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.7.1',
+    date: '2026-09-30',
     notes: [
       'Added PDF export for designs, one page per artboard, in the order you choose',
       "The chat's miniature shows a design live while Claude edits it",
