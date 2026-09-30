@@ -109,6 +109,11 @@ Every property takes one of exactly three forms, and there is no fourth:
 a vertical divider works: it must set no `height` at all, because an explicit
 cross-axis size defeats `alignSelf: "stretch"`.
 
+The fields of an object value take the same forms, so an inline border or a
+gradient can take one colour from a prop:
+`{ "from": { "prop": "tint" }, "to": "$color.bg" }`. A `boolean` prop matches
+on `"true"` and `"false"`.
+
 There are no template strings, no expressions and no JavaScript. Mixed text is
 an array — see `value` below.
 
@@ -241,16 +246,28 @@ Designs are **named, not filed**. You never choose or remember a location — th
 
 1. **Register it.** `nyra_design action:"create", name:"Billing"` returns the
    path to write to.
-2. **Write the `.nyui.json`** to exactly that path. Ask about sizes you are
-   unsure of rather than guessing a device.
-3. **Build repeated things as components.** Two buttons differing only in colour
-   are one component with a `variant` prop and a `match`, never two trees.
-4. **Render it.** `nyra_design action:"render", design:"Billing"` gives one PNG
-   per artboard, plus anything the validator objected to. If it did not compile,
-   the errors come back instead — read them and fix the document.
-5. **Look at the PNG yourself.** Never describe a design you have not seen —
-   the validator catches broken documents, not ugly ones.
-6. **Hand it over as a chip, not a picture.** Write the design's path in
+2. **Write the rough layout first**, to exactly that path. Structure only: the
+   artboards at their real sizes, the main regions as boxes, the headings and
+   key controls where they will live. No polish. Ask about sizes you are unsure
+   of rather than guessing a device.
+3. **Render it and look.** `nyra_design action:"render", design:"Billing"` gives
+   one PNG per artboard, plus anything the validator objected to. If it did not
+   compile, the errors come back instead — read them and fix the document.
+   Look at the PNG yourself: proportions, hierarchy, what is crowded, what is
+   empty. A wrong layout is cheap to fix now and expensive once it is styled.
+4. **Refine in passes, rendering after each.** One concern per pass — layout
+   and spacing, then real content and copy, then states and components, then
+   colour, type and finish. Edit the document rather than rewriting it, render,
+   look, and go again; `artboard:"<id>"` renders just the one you touched. The
+   user is watching the canvas follow the file, so each pass is progress they
+   can see rather than a long silence followed by a finished design.
+5. **Build repeated things as components** as they appear. Two buttons
+   differing only in colour are one component with a `variant` prop and a
+   `match`, never two trees.
+6. **Stop when a pass finds nothing worth changing.**
+   Never describe a design you have not seen — the validator catches broken
+   documents, not ugly ones.
+7. **Hand it over as a chip, not a picture.** Write the design's path in
    backticks and Nyra renders it as a chip that opens the live canvas:
 
    ```
@@ -275,7 +292,7 @@ Designs are **named, not filed**. You never choose or remember a location — th
    "show me here", "put it in chat", "what does it look like" — or when you are
    pointing at one specific detail in a reply they will read later.
 
-7. **Take feedback the way a designer would** and revise the document. The
+8. **Take feedback the way a designer would** and revise the document. The
    canvas follows the file, so a revision appears without them clicking
    anything — say what changed and let them look.
 
