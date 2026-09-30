@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.7.0',
+    date: '2026-09-30',
     notes: [
       'Added workspaces, each signed in to its own Claude account, so Work and Personal can run chats side by side',
       "Switch workspaces from the rail on the sidebar's left edge, and move a project to another with Move to workspace",
