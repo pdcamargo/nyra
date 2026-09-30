@@ -4,10 +4,10 @@
 //!
 //! Clicking one brings the window up and opens the chat that posted it. The
 //! notification plugin can't do that on desktop: it shows through notify-rust and
-//! drops the handle, so nothing ever hears the click. Windows and macOS post
-//! through the layer below it instead, each with its own way of reporting the
-//! click; everywhere else still goes through the plugin, and a click there only
-//! does what the OS does.
+//! drops the handle, so nothing ever hears the click. Windows posts through the
+//! toast layer below it, and macOS through `UNUserNotificationCenter`, each with
+//! its own way of reporting the click; everywhere else still goes through the
+//! plugin, and a click there only does what the OS does.
 //!
 //! Never through `osascript`. It used to be insurance against an unsigned build
 //! dropping the plugin's notification, but macOS attributes a notification to
@@ -26,6 +26,7 @@ use crate::util;
 /// busy main thread stall the whole event stream for that session.
 pub fn notify(title: &str, body: &str, nyra_session_id: &str) {
     if !util::settings().notifications {
+        crate::logf!("notification skipped, turned off in settings: {title}");
         return;
     }
     let (title, body, chat) = (
@@ -46,6 +47,7 @@ fn notify_blocking(title: &str, body: &str, chat: String) {
         .and_then(|w| w.is_focused().ok())
         .unwrap_or(false);
     if focused {
+        crate::logf!("notification skipped, window is focused: {title}");
         return;
     }
 
@@ -115,50 +117,137 @@ fn toast_app_id(app: &AppHandle) -> String {
     }
 }
 
-/// Sent on a thread of its own, which blocks until the notification is clicked
-/// or dismissed.
+/// Posted through `UNUserNotificationCenter`, whose delegate hears the click.
 ///
-/// Through mac-notification-sys rather than notify-rust: it only waits when the
-/// notification asks for a response — a button, or `wait_for_click` — and
-/// notify-rust sets neither on a plain notification, so its `wait_for_action`
-/// returns on delivery and the click goes nowhere. The wait can last as long as
-/// the notification sits in Notification Center, hence a dedicated thread and
-/// not the async runtime's. The delegate it waits on is called on the main run
-/// loop, which Tauri is already pumping.
+/// Not through notify-rust or the plugin: both use `NSUserNotificationCenter`,
+/// deprecated since macOS 11, which neither waits for a click on a notification
+/// without buttons nor posts as the real app — it swizzles the bundle id.
 #[cfg(target_os = "macos")]
-fn post(app: &AppHandle, title: &str, body: &str, chat: String) {
-    use mac_notification_sys::{Notification, NotificationResponse};
-    use std::sync::Once;
+fn post(_app: &AppHandle, title: &str, body: &str, chat: String) {
+    mac::post(title, body, &chat);
+}
 
-    // Attributes every notification to an app, once per process. `tauri dev`
-    // has no bundle of its own, so it borrows Terminal's, as the plugin does.
-    // It fails when LaunchServices has never seen that bundle id, and then every
-    // notification after it silently goes nowhere — worth a line in the log.
-    static APPLICATION: Once = Once::new();
-    APPLICATION.call_once(|| {
-        let bundle = if tauri::is_dev() {
-            "com.apple.Terminal".to_string()
-        } else {
-            app.config().identifier.clone()
+/// Registers the click handler. Call once at startup, so a click on a
+/// notification left in Notification Center by an earlier turn still lands.
+#[cfg(target_os = "macos")]
+pub fn init() {
+    mac::init();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn init() {}
+
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use block2::{DynBlock, RcBlock};
+    use objc2::rc::Retained;
+    use objc2::runtime::{Bool, ProtocolObject};
+    use objc2::{define_class, msg_send, AllocAnyThread};
+    use objc2_foundation::{NSBundle, NSError, NSObject, NSObjectProtocol, NSString};
+    use objc2_user_notifications::{
+        UNAuthorizationOptions, UNMutableNotificationContent, UNNotification,
+        UNNotificationDefaultActionIdentifier, UNNotificationPresentationOptions,
+        UNNotificationRequest, UNNotificationResponse, UNUserNotificationCenter,
+        UNUserNotificationCenterDelegate,
+    };
+
+    /// The chat rides in the request identifier, `{chat}#{n}`. The counter keeps
+    /// two notifications for one chat from replacing each other.
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    define_class!(
+        // SAFETY: NSObject has no subclassing requirements, and this has no Drop.
+        #[unsafe(super = NSObject)]
+        #[name = "NyraNotificationDelegate"]
+        struct Delegate;
+
+        unsafe impl NSObjectProtocol for Delegate {}
+
+        unsafe impl UNUserNotificationCenterDelegate for Delegate {
+            // Without this a notification posted while Nyra is the active app is
+            // dropped — and it can be active with the main window unfocused.
+            #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
+            fn will_present(
+                &self,
+                _center: &UNUserNotificationCenter,
+                _notification: &UNNotification,
+                done: &DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
+            ) {
+                done.call((UNNotificationPresentationOptions::Banner
+                    | UNNotificationPresentationOptions::List,));
+            }
+
+            #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
+            fn did_receive(
+                &self,
+                _center: &UNUserNotificationCenter,
+                response: &UNNotificationResponse,
+                done: &DynBlock<dyn Fn()>,
+            ) {
+                let clicked = response
+                    .actionIdentifier()
+                    .isEqualToString(unsafe { UNNotificationDefaultActionIdentifier });
+                let id = response.notification().request().identifier().to_string();
+                if let (true, Some((chat, _))) = (clicked, id.rsplit_once('#')) {
+                    super::open_chat(chat);
+                }
+                done.call(());
+            }
+        }
+    );
+
+    /// None outside an `.app`. The center raises for a process with no bundle,
+    /// which is `tauri dev` — so dev gets the Dock bounce and nothing else.
+    fn center() -> Option<Retained<UNUserNotificationCenter>> {
+        let bundled = NSBundle::mainBundle().bundlePath().to_string().ends_with(".app");
+        bundled.then(UNUserNotificationCenter::currentNotificationCenter)
+    }
+
+    pub fn init() {
+        let Some(center) = center() else {
+            crate::logf!("notifications: not in an .app bundle, so none will show");
+            return;
         };
-        if let Err(e) = mac_notification_sys::set_application(&bundle) {
-            crate::logf!("notification: could not post as {bundle}: {e:?}");
-        }
-    });
+        let delegate: Retained<Delegate> = unsafe { msg_send![Delegate::alloc(), init] };
+        center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        // The property is weak; the delegate lives as long as the process.
+        std::mem::forget(delegate);
+    }
 
-    let (title, body) = (title.to_string(), body.to_string());
-    std::thread::spawn(move || {
-        match Notification::new()
-            .title(&title)
-            .message(&body)
-            .wait_for_click(true)
-            .send()
-        {
-            Ok(NotificationResponse::Click) => open_chat(&chat),
-            Ok(_) => {}
-            Err(e) => crate::logf!("notification failed: {e:?}"),
-        }
-    });
+    /// Asks for permission first, every time. Once answered that returns without
+    /// a prompt, and the first notification after a fresh install is the one
+    /// that asks, rather than a dialog at launch before anything has happened.
+    pub fn post(title: &str, body: &str, chat: &str) {
+        let Some(center) = center() else { return };
+
+        let content = UNMutableNotificationContent::new();
+        content.setTitle(&NSString::from_str(title));
+        content.setBody(&NSString::from_str(body));
+        let id = format!("{chat}#{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
+            &NSString::from_str(&id),
+            &content,
+            None,
+        );
+
+        let poster = center.clone();
+        let granted = RcBlock::new(move |granted: Bool, error: *mut NSError| {
+            if granted.as_bool() {
+                crate::logf!("notification posted: {}", request.identifier());
+                poster.addNotificationRequest_withCompletionHandler(&request, None);
+            } else if let Some(error) = unsafe { error.as_ref() } {
+                crate::logf!("notifications not allowed: {}", error.localizedDescription());
+            } else {
+                crate::logf!("notifications turned off for Nyra in System Settings");
+            }
+        });
+        center.requestAuthorizationWithOptions_completionHandler(
+            UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound,
+            &granted,
+        );
+    }
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]

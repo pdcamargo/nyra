@@ -112,6 +112,7 @@ pub fn run() {
         )
         .setup(|app| {
             util::set_app_handle(app.handle().clone());
+            notify_user::init();
 
             // Resolve the user's real PATH before anything is spawned. A GUI
             // launch inherits launchd's, which has no node, no npx, no bun —

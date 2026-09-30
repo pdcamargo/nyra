@@ -177,7 +177,7 @@ default-features = false
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSError", "NSDictionary", "NSValue", "NSUserDefaults", "NSGeometry"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSError", "NSDictionary", "NSValue", "NSUserDefaults", "NSGeometry", "NSBundle"] }
 objc2-app-kit = { version = "0.3", features = [
   "NSImage",
   "NSImageRep",
@@ -193,10 +193,20 @@ objc2-web-kit = { version = "0.3", features = [
   "WKWebView",
   "WKSnapshotConfiguration",
 ] }
-# Notifications that know they were clicked (src/notify_user.rs). What the
-# notification plugin posts through, via notify-rust, already in the tree at this
-# version. Directly, because notify-rust never asks it to wait for a click.
-mac-notification-sys = "0.6"
+# Notifications that know they were clicked (src/notify_user.rs), through
+# UNUserNotificationCenter. The plugin posts through NSUserNotificationCenter,
+# deprecated since macOS 11, by swapping its own bundle id in at runtime.
+objc2-user-notifications = { version = "0.3", default-features = false, features = [
+  "std",
+  "block2",
+  "UNNotification",
+  "UNNotificationContent",
+  "UNNotificationRequest",
+  "UNNotificationResponse",
+  "UNNotificationSound",
+  "UNNotificationTrigger",
+  "UNUserNotificationCenter",
+] }
 
 [features]
 # Used by `tauri dev` / `tauri build --debug`
