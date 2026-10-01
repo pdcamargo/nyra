@@ -19,7 +19,7 @@ import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { Archive, Brain, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
+import { ALargeSmall, Archive, ArrowDown, ArrowDownWideNarrow, ArrowUp, Brain, CalendarPlus, Check, CircleDot, CopyCheck, GitPullRequest, MessageSquare, RotateCcw, type LucideIcon, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -61,6 +61,18 @@ import type { WorkflowDefinition } from '../../../shared/workflow-types'
 import { basename } from '../lib/paths'
 import { environmentLabel } from '../lib/environment'
 import EnvironmentBadge from './EnvironmentBadge'
+import {
+  CHAT_SORT_DIRECTIONS,
+  CHAT_SORT_KEYS,
+  CHAT_SORT_LABEL,
+  DEFAULT_CHAT_SORT,
+  chatSortOf,
+  describeChatSort,
+  isDefaultChatSort,
+  sortChats,
+  type ChatSort,
+  type ChatSortKey
+} from '../lib/chatSort'
 
 // Lazy so monaco-editor only loads when Memory is opened.
 const MemoryTab = React.lazy(() => import('./MemoryTab'))
@@ -434,6 +446,123 @@ function WaitingChip({ label }: { label: string }): React.JSX.Element {
  * open state is controlled: committing a name closes it, and typing in the field
  * must not.
  */
+const SORT_ICONS: Record<ChatSortKey, LucideIcon> = {
+  created: CalendarPlus,
+  activity: MessageSquare,
+  status: CircleDot,
+  pr: GitPullRequest,
+  name: ALargeSmall
+}
+
+/**
+ * The last slot of a project's hover cluster. On the default sort it hides
+ * with the rest; off it, it stays, tinted — and being last, it rests flush
+ * right in the rows' trailing column, so ⋯ and New chat fade in beside it on
+ * hover without anything moving.
+ *
+ * Choosing a key or a direction keeps the menu open: the list reorders behind
+ * it, which is the quickest way to see what a key does.
+ */
+function ChatSortMenu({ project }: { project: Project }): React.JSX.Element {
+  const sort = chatSortOf(project.chatSort)
+  const isDefault = isDefaultChatSort(project.chatSort)
+  const [natural, reversed] = CHAT_SORT_DIRECTIONS[sort.key]
+  const store = useSessionsStore.getState
+  const setSort = (next: ChatSort): void => store().setProjectChatSort(project.id, next)
+
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Sort chats in ${project.name}`}
+            className={`rounded-sm p-1 transition-[color,opacity] aria-expanded:opacity-100 focus-visible:opacity-100 ${
+              isDefault
+                ? 'text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground aria-expanded:text-foreground'
+                : 'text-info/80 hover:text-info'
+            }`}
+          >
+            <ArrowDownWideNarrow className="size-3.5" />
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{`Sort: ${describeChatSort(sort)}`}</TooltipContent>
+      </Tooltip>
+      {/* Out to the right, over the chat: inside the rail it covers the very rows
+          it is reordering. Sized to its content, so the longest pair of
+          direction labels still sits on one line. */}
+      <DropdownMenuContent
+        side="right"
+        align="start"
+        sideOffset={10}
+        className="w-auto min-w-56"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DropdownMenuLabel className="truncate font-normal text-muted-foreground">
+          Sort chats in {project.name}
+        </DropdownMenuLabel>
+        {CHAT_SORT_KEYS.map((key) => {
+          const Icon = SORT_ICONS[key]
+          const checked = key === sort.key
+          return (
+            <DropdownMenuItem
+              key={key}
+              onSelect={(e) => {
+                e.preventDefault()
+                // A new key starts at its own natural end: "Oldest first"
+                // carried over onto Status would mean nothing.
+                if (!checked) setSort({ key, reverse: false })
+              }}
+              className={checked ? 'bg-accent/60' : ''}
+            >
+              <Icon className="text-muted-foreground" />
+              <span className="flex-1">{CHAT_SORT_LABEL[key]}</span>
+              {key === DEFAULT_CHAT_SORT.key && (
+                <span className="text-[0.85em] text-muted-foreground">default</span>
+              )}
+              <Check className={checked ? '' : 'invisible'} />
+            </DropdownMenuItem>
+          )
+        })}
+        <DropdownMenuSeparator />
+        {/* Two items laid out as a segmented control, so arrow keys still reach
+            both: a pair of plain buttons would be skipped by the menu's own
+            keyboard handling. */}
+        <div className="flex gap-0.5 rounded-md bg-muted/60 p-0.5">
+          {[false, true].map((reverse) => {
+            const on = sort.reverse === reverse
+            const Arrow = reverse ? ArrowUp : ArrowDown
+            return (
+              <DropdownMenuItem
+                key={String(reverse)}
+                onSelect={(e) => {
+                  e.preventDefault()
+                  if (!on) setSort({ key: sort.key, reverse })
+                }}
+                className={`min-h-6 flex-1 justify-center gap-1 py-0.5 whitespace-nowrap ${
+                  on ? 'bg-background text-foreground shadow-sm dark:bg-accent' : 'text-muted-foreground'
+                }`}
+              >
+                <Arrow className="size-3" />
+                {reverse ? reversed : natural}
+              </DropdownMenuItem>
+            )
+          })}
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => store().applyChatSortToWorkspace(project.workspaceId, sort)}>
+          <CopyCheck />
+          Apply to all projects
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={isDefault} onSelect={() => setSort(DEFAULT_CHAT_SORT)}>
+          <RotateCcw />
+          Reset to default
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function ProjectMenu({ project }: { project: Project }): React.JSX.Element {
   const workspaces = useWorkspacesStore((s) => s.workspaces)
   const others = workspaces.filter((w) => w.id !== project.workspaceId)
@@ -876,8 +1005,14 @@ function SessionsList(): React.JSX.Element {
     // A chat with nothing in it is not worth a row — it reads as a stray
     // "New session" line. The one you are looking at stays, or it would vanish
     // from under you the moment you started it.
-    const children = railSessions.filter(
-      (s) => s.projectId === project.id && (s.messages.length > 0 || s.id === activeSessionId)
+    // Sorted before the cap, so Show more hides the bottom of the chosen
+    // order rather than the oldest chats.
+    const children = sortChats(
+      railSessions.filter(
+        (s) => s.projectId === project.id && (s.messages.length > 0 || s.id === activeSessionId)
+      ),
+      project.chatSort,
+      { running, planPending }
     )
     const collapsed = project.collapsed === true
     const showingAll = expandedAll.has(project.id)
@@ -909,23 +1044,26 @@ function SessionsList(): React.JSX.Element {
             </span>
             <EnvironmentBadge cwd={project.path} />
           </button>
-          <div className="flex items-center shrink-0 pr-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            <ProjectMenu project={project} />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    newChatIn(project)
-                  }}
-                  className="p-1 text-muted-foreground hover:text-foreground/80 transition-colors"
-                  aria-label={`New chat in ${project.name}`}
-                >
-                  <SquarePen className="size-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{`New chat in ${project.name}`}</TooltipContent>
-            </Tooltip>
+          <div className="flex items-center shrink-0 pr-1.5">
+            <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <ProjectMenu project={project} />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      newChatIn(project)
+                    }}
+                    className="p-1 text-muted-foreground hover:text-foreground/80 transition-colors"
+                    aria-label={`New chat in ${project.name}`}
+                  >
+                    <SquarePen className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{`New chat in ${project.name}`}</TooltipContent>
+              </Tooltip>
+            </div>
+            <ChatSortMenu project={project} />
           </div>
         </div>
         {!collapsed && (

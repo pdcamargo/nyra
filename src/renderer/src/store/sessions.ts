@@ -15,6 +15,7 @@ import { useTerminalsStore } from './terminals'
 import { useResourceDockStore } from './resourceDock'
 import type { ChangeBlock } from '../lib/changeBlocks'
 import type { PullRequest } from '../lib/pullRequests'
+import { isDefaultChatSort, type ChatSort } from '../lib/chatSort'
 
 type PersistedState = { sessions: Session[]; projects: Project[]; activeSessionId: string | null }
 
@@ -168,6 +169,9 @@ export type Project = {
   collapsed?: boolean
   /** Manual position in the rail (lower = higher up). */
   order?: number
+  /** How its chats are listed. Unset is the default, Created / newest first —
+   *  stored that way so choosing the default leaves nothing behind. */
+  chatSort?: ChatSort
   /** The workspace — the Claude account — this project's chats, terminals and
    *  flows run under. Moving a project moves all of them. */
   workspaceId: string
@@ -332,6 +336,10 @@ type SessionsStore = {
   setProjectPath: (projectId: string, path: string) => void
   removeProject: (projectId: string) => void
   setProjectCollapsed: (projectId: string, collapsed: boolean) => void
+  setProjectChatSort: (projectId: string, sort: ChatSort) => void
+  /** One-shot copy onto every project in the workspace, not a link: each one
+   *  can be changed on its own afterwards. */
+  applyChatSortToWorkspace: (workspaceId: string, sort: ChatSort) => void
   reorderProjects: (orderedIds: string[]) => void
   setSessionProject: (sessionId: string, projectId: string | null) => void
   /** Move a project, and so its chats, to another workspace. Nothing running is
@@ -549,6 +557,20 @@ export const useSessionsStore = create<SessionsStore>()(
       setProjectCollapsed: (projectId: string, collapsed: boolean) => {
         set((state) => ({
           projects: state.projects.map((p) => (p.id === projectId ? { ...p, collapsed } : p))
+        }))
+      },
+
+      setProjectChatSort: (projectId: string, sort: ChatSort) => {
+        const chatSort = isDefaultChatSort(sort) ? undefined : sort
+        set((state) => ({
+          projects: state.projects.map((p) => (p.id === projectId ? { ...p, chatSort } : p))
+        }))
+      },
+
+      applyChatSortToWorkspace: (workspaceId: string, sort: ChatSort) => {
+        const chatSort = isDefaultChatSort(sort) ? undefined : sort
+        set((state) => ({
+          projects: state.projects.map((p) => (p.workspaceId === workspaceId ? { ...p, chatSort } : p))
         }))
       },
 
