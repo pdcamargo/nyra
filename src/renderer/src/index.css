@@ -886,6 +886,23 @@ html:not(.dark) .nyra-on-bubble {
   }
 }
 
+/* DotSpinner's ring: each cluster starts its fade one eighth of a turn behind
+ * the one before it, so the bright head travels clockwise. The negative delay
+ * puts every cluster mid-fade on the first frame instead of all lit at once. */
+.nyra-dot-spinner-segment {
+  animation: nyra-dot-spinner-fade 1s linear infinite;
+  animation-delay: calc(1s * (var(--step) - 8) / 8);
+}
+
+@keyframes nyra-dot-spinner-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.2;
+  }
+}
+
 /*
  * A pair of cat eyes, for the front of the running label.
  *
@@ -1100,6 +1117,11 @@ html:not(.dark) .nyra-on-bubble {
 
   .nyra-breathe {
     animation: none;
+  }
+
+  .nyra-dot-spinner-segment {
+    animation: none;
+    opacity: 0.6;
   }
 
   /* The wash settles rather than stopping mid-sweep, so a running row still

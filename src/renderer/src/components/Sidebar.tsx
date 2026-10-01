@@ -40,6 +40,7 @@ import {
 } from './ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { ChatRowPrChip, PrCardLines } from './PullRequestChips'
+import { DotSpinner } from './ui/dot-spinner'
 import UsageMenu from './UsageMenu'
 import { CommandKbd, useChordLabel } from './ui/kbd'
 import {
@@ -700,11 +701,10 @@ function SessionsList(): React.JSX.Element {
       <ContextMenuTrigger
         /* --rail-selected rather than --accent: on the light rail --accent is
            0.9702 against a 0.9740 sidebar and the list read as having nothing
-           selected at all. A running chat also washes, because a shimmering
-           title alone is not findable in a list this long. */
+           selected at all. */
         className={`group relative flex items-center rounded-md transition-colors ${
           isActive ? 'bg-rail-selected ring-1 ring-rail-selected-ring' : 'hover:bg-accent/50'
-        } ${isRunning ? 'nyra-shimmer-bg' : ''} ${
+        } ${
           dragId === session.id ? 'opacity-40' : ''
         }`}
         onDragOver={
@@ -720,7 +720,7 @@ function SessionsList(): React.JSX.Element {
         onDrop={isPinned ? () => handleDrop(session.id) : undefined}
       >
         {dragOverId === session.id && dragId !== session.id && (
-          <div className="absolute top-[-2px] left-1 right-1 h-0.5 rounded-full bg-info" />
+          <div className="absolute top-[-3.5px] left-1 right-1 h-0.5 rounded-full bg-info" />
         )}
         {isPinned && !opts.indented && (
           <Tooltip>
@@ -753,7 +753,7 @@ function SessionsList(): React.JSX.Element {
             setRenamingId(session.id)
             setRenameValue(session.title)
           }}
-          className={`min-w-0 flex-1 py-1.5 pr-2 text-left ${opts.indented ? 'pl-[27px]' : 'pl-2'} ${
+          className={`min-w-0 flex-1 py-1 pr-2 text-left ${opts.indented ? 'pl-[27px]' : 'pl-2'} ${
             isActive ? 'text-foreground' : 'text-foreground/80'
           }`}
         >
@@ -773,9 +773,9 @@ function SessionsList(): React.JSX.Element {
             />
           ) : (
             <div className="flex min-w-0 items-center gap-1.5">
-              {/* Running is said by the title itself rather than by a spinner
-                  beside it. One less thing in the row, and it is the same
-                  signal the transcript uses for the same state. */}
+              {/* Running shimmers the title, the transcript's signal for the
+                  same state, and puts a spinner in the trailing slot so the
+                  row is findable in a long list. */}
               <p
                 className={`truncate text-[0.92em] ${
                   isRunning ? 'nyra-shimmer' : unread ? 'font-medium text-foreground' : ''
@@ -787,7 +787,12 @@ function SessionsList(): React.JSX.Element {
               {/* Pushed right by whichever of these comes first, so a row with
                   both a PR and an unread dot keeps them together at the end. */}
               <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                <ChatRowPrChip sessionId={session.id} />
+                {/* The spinner holds the PR icon's place while the turn runs;
+                    hovering hands the slot back, alongside the pin. */}
+                {isRunning && <DotSpinner className="text-muted-foreground group-hover:hidden" />}
+                <span className={isRunning ? 'hidden group-hover:contents' : 'contents'}>
+                  <ChatRowPrChip sessionId={session.id} />
+                </span>
                 {/* Held back until the turn ends: a dot on a running chat
                     invites a click that lands on half a thought. */}
                 {!waiting && !isRunning && unread > 0 && (
@@ -887,11 +892,11 @@ function SessionsList(): React.JSX.Element {
     })
 
     return (
-      <div key={project.id} className="relative space-y-px">
+      <div key={project.id} className="relative space-y-[5px]">
         <div className="group flex items-center rounded-md hover:bg-accent/50 transition-colors">
           <button
             onClick={() => useSessionsStore.getState().setProjectCollapsed(project.id, !collapsed)}
-            className="min-w-0 flex-1 flex items-center gap-1.5 px-2 py-1.5 text-left text-foreground/80"
+            className="min-w-0 flex-1 flex items-center gap-1.5 px-2 py-1 text-left text-foreground/80"
             title={project.path}
           >
             {collapsed ? (
@@ -944,13 +949,13 @@ function SessionsList(): React.JSX.Element {
                     return next
                   })
                 }
-                className="py-1 pl-[27px] pr-2 text-left text-[0.77em] text-muted-foreground transition-colors hover:text-foreground/80"
+                className="pt-0.5 pb-1 pl-[27px] pr-2 text-left text-[0.77em] text-muted-foreground transition-colors hover:text-foreground/80"
               >
                 {showingAll ? 'Show less' : `Show more (${hiddenCount})`}
               </button>
             )}
             {children.length === 0 && (
-              <p className="py-1 pl-[27px] pr-2 text-[0.77em] text-muted-foreground">No chats yet</p>
+              <p className="pt-0.5 pb-1 pl-[27px] pr-2 text-[0.77em] text-muted-foreground">No chats yet</p>
             )}
           </>
         )}
@@ -968,7 +973,7 @@ function SessionsList(): React.JSX.Element {
               Pinned
             </span>
           </div>
-          <div className="space-y-px">{pinned.map((s) => renderRow(s))}</div>
+          <div className="space-y-[5px]">{pinned.map((s) => renderRow(s))}</div>
         </div>
       )}
 
@@ -1023,7 +1028,7 @@ function SessionsList(): React.JSX.Element {
         {recents.length === 0 ? (
           <p className="px-2 py-1 text-[0.77em] text-muted-foreground">Nothing outside a project</p>
         ) : (
-          <div className="space-y-px">{recents.map((s) => renderRow(s))}</div>
+          <div className="space-y-[5px]">{recents.map((s) => renderRow(s))}</div>
         )}
       </div>
 
