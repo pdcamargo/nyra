@@ -179,8 +179,26 @@ const RENDERABLE_IMAGE_RE = /\.(png|jpe?g)$/i
 // Anything carrying a scheme. In practice only http(s) and `nyra:` reach us:
 // react-markdown's default urlTransform blanks `data:` and `file:` before the
 // component sees them, and `nyra:` only survives because `passNyraLinks` below
-// puts it back.
-const HAS_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i
+// puts it back. Two characters at least, so `C:\…` reads as the drive it is.
+const HAS_SCHEME_RE = /^[a-z][a-z0-9+.-]+:/i
+
+// `C:\Users\…` or `C:/Users/…`. A one-letter "scheme" to react-markdown, which
+// blanks it like any other it does not know. By the time the transform sees it
+// the src is percent-encoded, so the backslash arrives as `%5C`.
+const DRIVE_PATH_RE = /^[a-z]:(?:[\\/]|%5c)/i
+
+/**
+ * The path a markdown src names. mdast-util-to-hast percent-encodes every URL,
+ * which a POSIX path mostly survives — but `\` becomes `%5C`, a non-ASCII letter
+ * in a folder name becomes its UTF-8 bytes, and neither is a file on disk.
+ */
+function srcToPath(src: string): string {
+  try {
+    return decodeURI(src)
+  } catch {
+    return src
+  }
+}
 
 // ---------------------------------------------------------------------------
 // nyra:// links
@@ -244,6 +262,7 @@ function resolveNyraLink(href: string): NyraLink | null {
  */
 function passNyraLinks(url: string, key: string): string {
   if (key === 'href' && url.startsWith('nyra://')) return url
+  if (key === 'src' && DRIVE_PATH_RE.test(url)) return url
   return defaultUrlTransform(url)
 }
 
@@ -286,8 +305,9 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }): React.JSX.
     // A relative path only means something beside the dir the chat runs in, and
     // MarkdownRenderer also draws plan cards and the memory preview, where there
     // may be no session to resolve against.
-    if (!isAbsolute(src) && !cwd) return null
-    const full = resolvePath(src, cwd)
+    const path = srcToPath(src)
+    if (!isAbsolute(path) && !cwd) return null
+    const full = resolvePath(path, cwd)
     return RENDERABLE_IMAGE_RE.test(full.split(/[?#]/)[0]) ? full : null
   }, [src, cwd])
 

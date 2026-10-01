@@ -1,11 +1,16 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import MarkdownRenderer from '../../renderer/src/components/MarkdownRenderer'
 import { resetImageCache } from '../../renderer/src/lib/imageCache'
+import { setPlatformForTest } from '../../renderer/src/lib/platform'
 
 describe('markdown images', () => {
   beforeEach(() => {
     resetImageCache()
+  })
+
+  afterEach(() => {
+    setPlatformForTest(null)
   })
 
   it('renders a PNG Claude wrote to an absolute path', async () => {
@@ -18,6 +23,18 @@ describe('markdown images', () => {
     const img = await screen.findByAltText('sales chart')
     expect(img).toHaveAttribute('src', 'data:image/png;base64,AAAA')
     expect(img).toHaveAttribute('title', '/tmp/chart.png')
+  })
+
+  it('renders a PNG at a Windows drive path rather than mistaking the drive for a scheme', async () => {
+    setPlatformForTest('windows')
+    const read = vi.fn().mockResolvedValue({ base64: 'AAAA', mediaType: 'image/png' })
+    window.api.fs.readImage = read
+
+    render(<MarkdownRenderer>{'![chart](C:\\Users\\me\\AppData\\Local\\Temp\\chart.png)'}</MarkdownRenderer>)
+
+    const img = await screen.findByAltText('chart')
+    expect(img).toHaveAttribute('src', 'data:image/png;base64,AAAA')
+    expect(read.mock.calls[0][0]).toBe('C:\\Users\\me\\AppData\\Local\\Temp\\chart.png')
   })
 
   it('links a remote image instead of rendering it', async () => {

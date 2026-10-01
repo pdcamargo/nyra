@@ -1055,16 +1055,42 @@ const ASK_CONVENTION: &str = concat!(
 /// Narrow on purpose. A broad "you can show images" fires on prose that read fine
 /// as text, and the render path is best-effort, so an instruction that
 /// over-triggers costs more than one that under-triggers.
-const IMAGE_CONVENTION: &str = concat!(
-    "\n\nNyra shows images inline, so a PNG or JPEG you generate can be displayed ",
-    "rather than described: write the file to disk, then reference it on its own line ",
-    "as `![alt](/absolute/path.png)`. The path must be absolute and free of spaces, and ",
-    "the file must already exist when you write that line. Use it for output that is ",
-    "only legible as a picture — a chart you plotted, a screenshot you captured, a ",
-    "rendered visual diff — and not to decorate an answer that reads fine as text. PNG ",
-    "and JPEG only; other formats, including SVG, will not render. You cannot see what ",
-    "Nyra displays, so if it matters whether the image came out right, read the file back."
+///
+/// The example path is the one thing that differs by OS. A Windows session
+/// follows a POSIX example with the Git Bash form its shell uses, `/c/Users/…`,
+/// which no Windows API opens. Forward slashes after the drive, because a
+/// backslash before `_` or `.` is a markdown escape and drops out of the path.
+macro_rules! image_convention {
+    ($example:literal, $form:literal) => {
+        concat!(
+            "\n\nNyra shows images inline, so a PNG or JPEG you generate can be displayed ",
+            "rather than described: write the file to disk, then reference it on its own line ",
+            "as `![alt](", $example, ")`. The path must be absolute and free of spaces, and ",
+            $form,
+            "the file must already exist when you write that line. Use it for output that is ",
+            "only legible as a picture — a chart you plotted, a screenshot you captured, a ",
+            "rendered visual diff — and not to decorate an answer that reads fine as text. PNG ",
+            "and JPEG only; other formats, including SVG, will not render. You cannot see what ",
+            "Nyra displays, so if it matters whether the image came out right, read the file back."
+        )
+    };
+}
+
+const IMAGE_CONVENTION: &str = image_convention!("/absolute/path.png", "");
+
+const IMAGE_CONVENTION_WINDOWS: &str = image_convention!(
+    "C:/absolute/path.png",
+    "written with its drive letter and forward slashes, never as a Git Bash `/c/...` path; "
 );
+
+/// A session whose directory is `C:\…` runs on Windows itself. WSL arrives here
+/// as the Linux path it sees, and takes the POSIX example with it.
+fn image_convention_for(cwd: &str) -> &'static str {
+    match cwd.as_bytes() {
+        [drive, b':', b'\\' | b'/', ..] if drive.is_ascii_alphabetic() => IMAGE_CONVENTION_WINDOWS,
+        _ => IMAGE_CONVENTION,
+    }
+}
 
 /// Also taught to every session, and for the same reason: `TodoWrite`,
 /// `TaskCreate` and the rest do not exist in the headless CLI either, so the
@@ -1221,7 +1247,7 @@ fn compose_system_prompt(
     );
     parts.push(&cwd_line);
     parts.push(ASK_CONVENTION);
-    parts.push(IMAGE_CONVENTION);
+    parts.push(image_convention_for(cwd));
     parts.push(TASKS_CONVENTION);
     parts.push(CHANGES_CONVENTION);
     if has_browser {
@@ -3393,6 +3419,21 @@ mod tests {
             assert!(with.contains(shared), "{shared}");
             assert!(without.contains(shared), "{shared}");
         }
+    }
+
+    #[test]
+    fn a_windows_session_is_shown_a_drive_letter_image_path() {
+        let windows = compose_system_prompt(r"C:\Users\me\repo", "", false, false, false);
+        let forward = compose_system_prompt("C:/Users/me/repo", "", false, false, false);
+        let wsl = compose_system_prompt("/home/me/repo", "", false, false, false);
+
+        for prompt in [&windows, &forward] {
+            assert!(prompt.contains("![alt](C:/absolute/path.png)"));
+            assert!(prompt.contains("never as a Git Bash"));
+            assert!(!prompt.contains("![alt](/absolute/path.png)"));
+        }
+        assert!(wsl.contains("![alt](/absolute/path.png)"));
+        assert!(!wsl.contains("Git Bash"));
     }
 
     /// The same rule as the browser, and it earns its own test for the same
