@@ -40,7 +40,7 @@ const browser = await chromium.launch({
   headless: true,
   args: [
     `--remote-debugging-port=${PORT}`,
-    '--remote-allow-origins=tauri://localhost,http://localhost:1420'
+    '--remote-allow-origins=tauri://localhost,http://localhost:7420'
   ]
 })
 console.log(`launched: ${CHANNEL} ${browser.version()}`)

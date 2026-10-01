@@ -10,7 +10,7 @@ installed app hosting the conversation, and a dev one under `npm run dev`. This
 talks to the dev one.
 
 It goes at the real `WKWebView`, not a browser tab. Loading the renderer at
-`localhost:1420` in Chromium is not equivalent — there is no Tauri IPC there, so
+`localhost:7420` in Chromium is not equivalent — there is no Tauri IPC there, so
 `window.api` is missing and nothing the bug involves actually runs.
 
 ## Commands

@@ -5,7 +5,7 @@
   "identifier": "com.nyra.app",
   "build": {
     "beforeDevCommand": "npm run vite:dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:7420",
     "beforeBuildCommand": "npm run sidecar:install && npm run vite:build",
     "frontendDist": "../dist"
   },

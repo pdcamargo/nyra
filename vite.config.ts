@@ -1,9 +1,16 @@
+import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 const host = process.env.TAURI_DEV_HOST
+
+// The dev port is set once, in tauri.conf.json's devUrl: Tauri loads that URL,
+// so Vite serves on its port rather than keeping a second copy that can drift.
+// HMR takes the next one up.
+const tauriConf = JSON.parse(readFileSync(resolve(__dirname, 'src-tauri/tauri.conf.json'), 'utf8'))
+const port = Number(new URL(tauriConf.build.devUrl).port)
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -20,10 +27,10 @@ export default defineConfig({
   // Tauri expects a fixed port and fails the dev command if it isn't available.
   clearScreen: false,
   server: {
-    port: 1420,
+    port,
     strictPort: true,
     host: host || false,
-    hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined,
+    hmr: host ? { protocol: 'ws', host, port: port + 1 } : undefined,
     watch: {
       // src-tauri churns constantly during cargo builds; watching it wedges HMR.
       ignored: ['**/src-tauri/**']

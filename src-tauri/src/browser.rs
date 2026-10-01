@@ -206,16 +206,26 @@ pub fn stop() {
 
 /// Where the webview loads from, which is the only origin allowed to open a CDP
 /// socket. Tauri serves `tauri://localhost` on macOS and `http://tauri.localhost`
-/// on Windows; a debug build runs off the Vite dev server instead.
+/// on Windows; a debug build runs off the Vite dev server instead, at whatever
+/// `devUrl` tauri.conf.json names.
 fn allowed_origins() -> Vec<String> {
     let mut origins = vec![
         "tauri://localhost".to_string(),
         "http://tauri.localhost".to_string(),
     ];
     if cfg!(debug_assertions) {
-        origins.push("http://localhost:1420".to_string());
+        if let Some(origin) = dev_origin() {
+            origins.push(origin);
+        }
     }
     origins
+}
+
+/// `devUrl` without its trailing slash, which an Origin header never carries.
+fn dev_origin() -> Option<String> {
+    let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).ok()?;
+    let url = conf.pointer("/build/devUrl")?.as_str()?;
+    Some(url.trim_end_matches('/').to_string())
 }
 
 // ---------------------------------------------------------------------------
