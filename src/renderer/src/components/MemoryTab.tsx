@@ -18,7 +18,7 @@ import {
   matches,
   useScopedLibrary
 } from './views/Library'
-import { basename } from '../lib/paths'
+import { basename, samePath } from '../lib/paths'
 
 const TYPE_TONE: Record<NonNullable<MemoryType>, { fg: string; bg: string }> = {
   project: { fg: 'text-info/80', bg: 'bg-info/15' },
@@ -77,7 +77,7 @@ export default function MemoryTab(): React.JSX.Element {
   // Honour cross-view "open this memory file" requests.
   useEffect(() => {
     if (!pendingFilePath) return
-    const match = everything.find((f) => f.filePath === pendingFilePath)
+    const match = everything.find((f) => samePath(f.filePath, pendingFilePath))
     if (match) {
       setSelected(match)
       consumePendingFile()

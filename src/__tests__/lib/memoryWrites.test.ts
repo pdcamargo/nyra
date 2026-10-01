@@ -53,6 +53,12 @@ describe('memoryFilePath', () => {
   it('is about writing, not reading — recall leaves no tool call to show', () => {
     expect(memoryFilePath('Read', { file_path: MEM })).toBeNull()
   })
+
+  it('claims a Windows path, and keeps the form it arrived in', () => {
+    const win = 'C:\\Users\\x\\.claude\\projects\\C--Users-x-repo\\memory\\a-fact.md'
+    expect(memoryFilePath('Write', { file_path: win })).toBe(win)
+    expect(memoryFilePath('Write', { file_path: 'C:\\repo\\src\\memory\\store.md' })).toBeNull()
+  })
 })
 
 describe('isMemoryWrite', () => {
@@ -187,6 +193,11 @@ describe('isMemoryPeek', () => {
   it('recognises a cat of the index and a Read of a memory', () => {
     expect(isMemoryPeek(call({ tool_name: 'Bash', input: { command: `cat ${INDEX}` } }))).toBe(true)
     expect(isMemoryPeek(call({ tool_name: 'Read', input: { file_path: MEM } }))).toBe(true)
+  })
+
+  it('recognises a Read of a memory on Windows', () => {
+    const win = 'C:\\Users\\x\\.claude\\projects\\C--Users-x-repo\\memory\\a-fact.md'
+    expect(isMemoryPeek(call({ tool_name: 'Read', input: { file_path: win } }))).toBe(true)
   })
 
   it('leaves writes to isMemoryWrite, and ignores the rest of .claude', () => {

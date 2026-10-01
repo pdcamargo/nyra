@@ -61,12 +61,24 @@ export function memoryFilePath(
 export function isMemoryPeek(message: ToolCallMessage): boolean {
   if (message.denied || WRITE_TOOLS.has(message.tool_name)) return false
   const input = message.input
-  const target = String(input.command ?? input.file_path ?? input.path ?? input.pattern ?? '')
+  const target = forwardSlashes(
+    String(input.command ?? input.file_path ?? input.path ?? input.pattern ?? '')
+  )
   return target.includes('/.claude/projects/') && target.includes('/memory')
 }
 
 function isMemoryPath(path: string): boolean {
-  return path.endsWith('.md') && path.includes('/.claude/projects/') && path.includes('/memory/')
+  const p = forwardSlashes(path)
+  return p.endsWith('.md') && p.includes('/.claude/projects/') && p.includes('/memory/')
+}
+
+/**
+ * Windows hands these over as `C:\Users\me\.claude\projects\…\memory\a.md`, and
+ * the rules above are written in `/`. For matching only: the path a write
+ * reports keeps the form it arrived in, since that is the one to open.
+ */
+function forwardSlashes(path: string): string {
+  return path.replace(/\\/g, '/')
 }
 
 /**
