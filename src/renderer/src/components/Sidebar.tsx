@@ -40,7 +40,6 @@ import {
 } from './ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { ChatRowPrChip, PrCardLines } from './PullRequestChips'
-import { DotSpinner } from './ui/dot-spinner'
 import UsageMenu from './UsageMenu'
 import { CommandKbd, useChordLabel } from './ui/kbd'
 import {
@@ -774,7 +773,7 @@ function SessionsList(): React.JSX.Element {
           ) : (
             <div className="flex min-w-0 items-center gap-1.5">
               {/* Running shimmers the title, the transcript's signal for the
-                  same state, and puts a spinner in the trailing slot so the
+                  same state; the trailing slot carries a spinner too, so the
                   row is findable in a long list. */}
               <p
                 className={`truncate text-[0.92em] ${
@@ -784,24 +783,6 @@ function SessionsList(): React.JSX.Element {
                 {session.title}
               </p>
               {waiting && <WaitingChip label={waiting} />}
-              {/* Pushed right by whichever of these comes first, so a row with
-                  both a PR and an unread dot keeps them together at the end. */}
-              <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                {/* The spinner holds the PR icon's place while the turn runs;
-                    hovering hands the slot back, alongside the pin. */}
-                {isRunning && <DotSpinner className="text-muted-foreground group-hover:hidden" />}
-                <span className={isRunning ? 'hidden group-hover:contents' : 'contents'}>
-                  <ChatRowPrChip sessionId={session.id} />
-                </span>
-                {/* Held back until the turn ends: a dot on a running chat
-                    invites a click that lands on half a thought. */}
-                {!waiting && !isRunning && unread > 0 && (
-                  <span
-                    title={`${unread} new message${unread === 1 ? '' : 's'}`}
-                    className="size-1.5 shrink-0 rounded-full bg-info"
-                  />
-                )}
-              </span>
             </div>
           )}
         </button>
@@ -818,26 +799,45 @@ function SessionsList(): React.JSX.Element {
           <ChatCard session={session} hasBrowser={hasBrowser} />
         </TooltipContent>
         </Tooltip>
-        <div className="flex items-center shrink-0 pr-1.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  toggleFavorite(session.id)
-                }}
-                className={`p-1 transition-all ${
-                  isPinned
-                    ? 'text-warning/80 hover:text-warning'
-                    : 'text-muted-foreground hover:text-foreground/80 opacity-0 group-hover:opacity-100'
-                }`}
-                aria-label={isPinned ? 'Unpin' : 'Pin'}
-              >
-                <Star className="size-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{isPinned ? 'Unpin' : 'Pin'}</TooltipContent>
-          </Tooltip>
+        {/* One slot, two faces: the row's status at rest, its actions on
+            hover. Both share a grid cell, so the slot is as wide as the wider
+            of the two either way and the title never re-truncates as the
+            pointer crosses it. Keyboard focus counts as hover, or the pin
+            could be tabbed to without ever being seen. */}
+        <div className="grid shrink-0 items-center justify-items-end pr-1.5 *:[grid-area:1/1]">
+          {/* 5px in from the right puts a 12px mark on the 14px star's centre. */}
+          <span className="flex items-center gap-1.5 pr-[5px] group-hover:invisible group-has-[:focus-visible]:invisible">
+            {/* Held back until the turn ends: a dot on a running chat invites
+                a click that lands on half a thought. */}
+            {!waiting && !isRunning && unread > 0 && (
+              <span
+                title={`${unread} new message${unread === 1 ? '' : 's'}`}
+                className="size-1.5 shrink-0 rounded-full bg-info"
+              />
+            )}
+            <ChatRowPrChip sessionId={session.id} running={isRunning} />
+          </span>
+          <div className="invisible flex items-center group-hover:visible group-has-[:focus-visible]:visible">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleFavorite(session.id)
+                  }}
+                  className={`p-1 transition-colors ${
+                    isPinned
+                      ? 'text-warning/80 hover:text-warning'
+                      : 'text-muted-foreground hover:text-foreground/80'
+                  }`}
+                  aria-label={isPinned ? 'Unpin' : 'Pin'}
+                >
+                  <Star className="size-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{isPinned ? 'Unpin' : 'Pin'}</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent

@@ -20,6 +20,7 @@ import {
   GitPullRequestClosed,
   GitPullRequestDraft
 } from 'lucide-react'
+import { DotSpinner } from './ui/dot-spinner'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { useSessionsStore } from '../store/sessions'
@@ -204,32 +205,34 @@ export function ComposerPrPills({ compact = false }: { compact?: boolean }): Rea
 }
 
 /**
- * The sidebar row's mark: an icon, or an icon and a count.
+ * The sidebar row's mark: an icon, or a count and an icon.
  *
- * Trailing, with the unread dot — not next to the spinner, which sits left of
- * the title and would shove it sideways every time a chat opened a PR. The
- * numbers themselves are in the hover card, which already exists to say what a
- * chat is.
+ * It sits in the row's trailing slot, where the pin appears on hover, so the
+ * icon is always the rightmost thing in it. The count goes on its left for the
+ * same reason: an icon that moved over to make room for a second PR's "2" would
+ * leave a column of rows ragged. The numbers themselves are in the hover card,
+ * which already exists to say what a chat is.
+ *
+ * While the chat runs, a spinner takes the icon's place and the count steps
+ * aside — how many PRs a chat has is not what a working row is saying.
  */
-export function ChatRowPrChip({ sessionId }: { sessionId: string }): React.JSX.Element | null {
+export function ChatRowPrChip({
+  sessionId,
+  running = false
+}: {
+  sessionId: string
+  running?: boolean
+}): React.JSX.Element | null {
   const prs = usePullRequests(sessionId)
+  if (running) return <DotSpinner className="text-muted-foreground" />
   if (prs.length === 0) return null
   const sorted = sortPrs(prs)
   return (
     <span className="flex shrink-0 items-center gap-0.5">
+      {sorted.length > 1 && (
+        <span className="font-mono text-[0.7em] text-muted-foreground">{sorted.length}</span>
+      )}
       <PrIcon pr={sorted[0]} className="size-3" />
-      {/* The count's space is reserved even when there is nothing to count.
-          These chips are trailing, so a number that appears only for the second
-          PR pushes that row's icon a character to the left — a column of rows
-          then reads as ragged instead of as a list. */}
-      <span
-        aria-hidden={sorted.length <= 1}
-        className={`w-2.5 text-center font-mono text-[0.7em] text-muted-foreground ${
-          sorted.length > 1 ? '' : 'invisible'
-        }`}
-      >
-        {sorted.length}
-      </span>
     </span>
   )
 }
