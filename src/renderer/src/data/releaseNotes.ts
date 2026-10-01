@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.7.2',
+    date: '2026-10-01',
     notes: [
       "Added sorting for a project's chats by created date, last activity, status, pull request or name, and you can apply one sort to the whole workspace",
       'Running chats show a spinner in the sidebar, in the same slot as the PR icon and pin',
