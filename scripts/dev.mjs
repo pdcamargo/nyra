@@ -18,6 +18,14 @@ const env = { ...process.env }
 if (active) delete env.NYRA_DEV_PASSIVE
 else env.NYRA_DEV_PASSIVE = '1'
 
+// Dev and the installed app share an identifier, so on Windows they would share
+// one WebView2 profile under %LOCALAPPDATA%\com.nyra.app. WebView2 will not open
+// a second app on a profile already in use with different options: the dev
+// window stays hidden and never loads. Its own folder sidesteps that.
+if (process.platform === 'win32' && !env.WEBVIEW2_USER_DATA_FOLDER && env.LOCALAPPDATA) {
+  env.WEBVIEW2_USER_DATA_FOLDER = `${env.LOCALAPPDATA}\\com.nyra.app.dev\\EBWebView`
+}
+
 // npm puts node_modules/.bin on PATH; a shell is what resolves `tauri.cmd` there.
 const child = spawn('tauri', ['dev', ...args.filter((a) => a !== '--active')], {
   stdio: 'inherit',
