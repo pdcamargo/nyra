@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -22,7 +23,10 @@ describe('the skill is generated from the registry', () => {
   // while the rest of the suite competes for the CPU — past the 5s default.
   it('is current with the registry', () => {
     const out = join(mkdtempSync(join(tmpdir(), 'nyra-skill-')), 'SKILL.md')
-    execFileSync('npx', ['vite-node', 'scripts/generate-skill.mts', out], {
+    // Node runs vite-node's CLI directly rather than through `npx`, which on
+    // Windows is `npx.cmd` and cannot be spawned without a shell.
+    const viteNode = createRequire(import.meta.url).resolve('vite-node/cli')
+    execFileSync(process.execPath, [viteNode, 'scripts/generate-skill.mts', out], {
       cwd: resolve(__dirname, '..'),
       stdio: 'pipe'
     })
@@ -49,7 +53,8 @@ describe('the skill is generated from the registry', () => {
 
 describe('the app installs it, rather than the user copying it', () => {
   it('lives at the path managed_skills.rs bundles', () => {
-    expect(SKILL).toMatch(/\.agents\/skills\/nyra-design\/SKILL\.md$/)
+    // Forward slashes whatever the platform, to match how the Rust side spells it.
+    expect(SKILL.replaceAll('\\', '/')).toMatch(/\.agents\/skills\/nyra-design\/SKILL\.md$/)
     const rust = readFileSync(resolve(__dirname, '../../../src-tauri/src/managed_skills.rs'), 'utf8')
     expect(rust).toContain('.agents/skills/nyra-design/SKILL.md')
     expect(rust).toContain('name: "nyra-design"')

@@ -6,11 +6,16 @@
  * name stops helping, so the date takes over.
  *
  * Locale-formatted throughout: the ordering, the separators and whether it says
- * PM at all are not ours to decide.
+ * PM at all are not ours to decide. `locale` exists so tests can pin one; the
+ * app leaves it to the system.
  */
-export function formatMessageTime(timestamp: number, now: number = Date.now()): string {
+export function formatMessageTime(
+  timestamp: number,
+  now: number = Date.now(),
+  locale?: Intl.LocalesArgument
+): string {
   const then = new Date(timestamp)
-  const time = then.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  const time = then.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
 
   const startOfToday = new Date(now)
   startOfToday.setHours(0, 0, 0, 0)
@@ -18,11 +23,11 @@ export function formatMessageTime(timestamp: number, now: number = Date.now()): 
 
   const sixDaysBack = startOfToday.getTime() - 6 * 24 * 60 * 60 * 1000
   if (then.getTime() >= sixDaysBack) {
-    return `${then.toLocaleDateString(undefined, { weekday: 'long' })} ${time}`
+    return `${then.toLocaleDateString(locale, { weekday: 'long' })} ${time}`
   }
 
   const sameYear = then.getFullYear() === new Date(now).getFullYear()
-  const date = then.toLocaleDateString(undefined, {
+  const date = then.toLocaleDateString(locale, {
     day: 'numeric',
     month: 'short',
     ...(sameYear ? {} : { year: 'numeric' })
