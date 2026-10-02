@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="cat-calico" width="256" height="256" viewBox="0 0 256 256">
+<style>.cat-calico .fur { fill: var(--cat-fur, #FFF9EC); }
+.cat-calico .patch1 { fill: var(--cat-patch1, #BB6542); }
+.cat-calico .patch2 { fill: var(--cat-patch2, #D9A64B); }
+.cat-calico .inner { fill: var(--cat-inner, #E8B4AD); }
+.cat-calico .iris { fill: var(--cat-iris, #272B2A); }
+.cat-calico .pupil { fill: var(--cat-pupil, #272B2A); }
+.cat-calico .shine { fill: var(--cat-shine, #FFFFFF); }
+.cat-calico .nose { fill: var(--cat-nose, #D77D84); }
+.cat-calico .blush { fill: var(--cat-blush, #E9AFAD); }
+.cat-calico .ink { fill: none; stroke: var(--cat-ink, #8B5D59); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.cat-calico .outline { fill: none; stroke: var(--cat-outline, #DDCBB9); stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; }</style>
+<defs><clipPath id="cat-calico-clip"><path d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/></clipPath></defs>
+<path class="fur" d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/>
+<g clip-path="url(#cat-calico-clip)">
+<path class="patch1" d="M34 123 Q40 85 79 74 Q101 83 102 110 Q95 135 63 149 Q41 147 34 123Z"/><path class="patch2" d="M155 77 Q183 73 209 99 Q223 118 222 135 Q200 146 175 130 Q159 114 155 77Z"/>
+<path class="inner" d="M68 52 C76 60 83 70 87 81 L56 102 C57 83 62 63 68 52Z"/><path class="inner" d="M188 52 C180 60 173 70 169 81 L200 102 C199 83 194 63 188 52Z"/>
+</g>
+<path class="outline" d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/>
+<circle class="iris" cx="88" cy="145" r="12"/><ellipse class="shine" cx="85" cy="141" rx="2.7" ry="4"/><circle class="iris" cx="168" cy="145" r="12"/><ellipse class="shine" cx="165" cy="141" rx="2.7" ry="4"/>
+<ellipse class="blush" cx="67" cy="173" rx="11" ry="4.5"/><ellipse class="blush" cx="189" cy="173" rx="11" ry="4.5"/>
+<path class="nose" d="M122 169 Q128 166 134 169 L128 175Z"/><path class="ink" d="M128 175 Q120 183 113 179 M128 175 Q136 183 143 179"/>
+</svg>

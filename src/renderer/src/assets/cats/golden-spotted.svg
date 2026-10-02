@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="cat-golden-spotted" width="256" height="256" viewBox="0 0 256 256">
+<style>.cat-golden-spotted .fur { fill: var(--cat-fur, #E4A932); }
+.cat-golden-spotted .patch1 { fill: var(--cat-patch1, #C7832E); }
+.cat-golden-spotted .patch2 { fill: var(--cat-patch2, #F2CE70); }
+.cat-golden-spotted .inner { fill: var(--cat-inner, #EBC384); }
+.cat-golden-spotted .iris { fill: var(--cat-iris, #C9E783); }
+.cat-golden-spotted .pupil { fill: var(--cat-pupil, #202325); }
+.cat-golden-spotted .shine { fill: var(--cat-shine, #FFFFFF); }
+.cat-golden-spotted .nose { fill: var(--cat-nose, #D9777F); }
+.cat-golden-spotted .blush { fill: var(--cat-blush, #DEA088); }
+.cat-golden-spotted .ink { fill: none; stroke: var(--cat-ink, #9F684D); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.cat-golden-spotted .outline { fill: none; stroke: var(--cat-outline, #C68E2F); stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; }</style>
+<defs><clipPath id="cat-golden-spotted-clip"><path d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/></clipPath></defs>
+<path class="fur" d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/>
+<g clip-path="url(#cat-golden-spotted-clip)">
+<path class="patch2" d="M77 179 Q100 163 128 170 Q156 163 179 179 Q162 211 128 213 Q94 211 77 179Z"/><g class="patch1"><circle cx="67" cy="103" r="3"/><circle cx="84" cy="89" r="2.8"/><circle cx="105" cy="98" r="2.2"/><circle cx="128" cy="86" r="3"/><circle cx="151" cy="98" r="2.2"/><circle cx="172" cy="89" r="2.8"/><circle cx="189" cy="103" r="3"/><circle cx="58" cy="157" r="2.4"/><circle cx="69" cy="167" r="2"/><circle cx="198" cy="157" r="2.4"/><circle cx="187" cy="167" r="2"/></g>
+<path class="inner" d="M68 52 C76 60 83 70 87 81 L56 102 C57 83 62 63 68 52Z"/><path class="inner" d="M188 52 C180 60 173 70 169 81 L200 102 C199 83 194 63 188 52Z"/>
+</g>
+<path class="outline" d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/>
+<circle class="iris" cx="88" cy="144" r="18"/><circle class="pupil" cx="88" cy="146" r="12"/><ellipse class="shine" cx="84" cy="137" rx="3.5" ry="5"/><circle class="iris" cx="168" cy="144" r="18"/><circle class="pupil" cx="168" cy="146" r="12"/><ellipse class="shine" cx="164" cy="137" rx="3.5" ry="5"/>
+<ellipse class="blush" cx="67" cy="173" rx="11" ry="4.5"/><ellipse class="blush" cx="189" cy="173" rx="11" ry="4.5"/>
+<path class="nose" d="M122 169 Q128 166 134 169 L128 175Z"/><path class="ink" d="M128 175 Q119 185 110 178 M128 175 Q137 185 146 178"/>
+</svg>

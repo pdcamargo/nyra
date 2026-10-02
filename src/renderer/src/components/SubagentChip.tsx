@@ -11,29 +11,8 @@ import React from 'react'
 import type { ToolCallMessage } from '../store/sessions'
 import { useSessionsStore } from '../store/sessions'
 import { openSubagentsInPanel } from '../lib/openFile'
-
-/** Warm first, so the first subagent gets the Claude clay. */
-const SPARK_TINTS = ['#D97757', '#6A9BCC', '#788C5D', '#C46686', '#CC9B4A']
-
-/**
- * Claude's spark: uneven rays from a common centre. Drawn once at module load —
- * the jitter is fixed so every spark in the app is the same shape.
- */
-const SPARK_RAYS = Array.from({ length: 11 }, (_, i) => {
-  const angle = (i / 11) * Math.PI * 2 + (i % 3) * 0.06
-  const length = 8.5 + ((i * 7) % 4) * 0.9
-  const x = 12 + Math.cos(angle) * length
-  const y = 12 + Math.sin(angle) * length
-  return `M12 12L${x.toFixed(2)} ${y.toFixed(2)}`
-}).join('')
-
-function Spark({ color, className }: { color: string; className?: string }): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden className={className}>
-      <path d={SPARK_RAYS} stroke={color} strokeWidth={2.6} strokeLinecap="round" fill="none" />
-    </svg>
-  )
-}
+import { catOf } from '../lib/agentCats'
+import CatIcon from './CatIcon'
 
 /** "A", "A and B", "A, B and C". */
 export function joinNames(names: string[]): string {
@@ -66,10 +45,10 @@ export default function SubagentChip({
     const status = ended
       ? String(m.input.status)
       : (agent?.status ?? (m.result === undefined ? 'running' : 'done'))
-    // Tinted by the agent's place in the session, so its end line wears the
-    // same colour as its spawn line.
-    const tint = SPARK_TINTS[Math.max(at, 0) % SPARK_TINTS.length]
-    return { key: m.id, toolId, name, status, tint }
+    // The agent's own cat, so its end line and its row in the pinned summary
+    // wear the same face as its spawn line.
+    const cat = catOf(agent, at)
+    return { key: m.id, toolId, name, status, cat }
   })
 
   const running = !ended && rows.some((r) => r.status === 'running')
@@ -91,10 +70,10 @@ export default function SubagentChip({
       >
         <span className="flex shrink-0 items-center gap-0.5">
           {rows.slice(0, 3).map((r) => (
-            <Spark
+            <CatIcon
               key={r.key}
-              color={r.tint}
-              className={`size-3.5 ${!ended && r.status === 'running' ? 'nyra-breathe' : ''}`}
+              cat={r.cat}
+              className={`size-[17px] ${!ended && r.status === 'running' ? 'nyra-breathe' : ''}`}
             />
           ))}
         </span>

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="cat-ginger-bicolor" width="256" height="256" viewBox="0 0 256 256">
+<style>.cat-ginger-bicolor .fur { fill: var(--cat-fur, #B85B38); }
+.cat-ginger-bicolor .patch1 { fill: var(--cat-patch1, #FFF7EC); }
+.cat-ginger-bicolor .patch2 { fill: var(--cat-patch2, #D37647); }
+.cat-ginger-bicolor .inner { fill: var(--cat-inner, #DB9586); }
+.cat-ginger-bicolor .iris { fill: var(--cat-iris, #563B35); }
+.cat-ginger-bicolor .pupil { fill: var(--cat-pupil, #563B35); }
+.cat-ginger-bicolor .shine { fill: var(--cat-shine, #FFFFFF); }
+.cat-ginger-bicolor .nose { fill: var(--cat-nose, #CE7880); }
+.cat-ginger-bicolor .blush { fill: var(--cat-blush, #E5A2A0); }
+.cat-ginger-bicolor .ink { fill: none; stroke: var(--cat-ink, #884D47); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.cat-ginger-bicolor .outline { fill: none; stroke: var(--cat-outline, #9A4935); stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; }</style>
+<defs><clipPath id="cat-ginger-bicolor-clip"><path d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/></clipPath></defs>
+<path class="fur" d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/>
+<g clip-path="url(#cat-ginger-bicolor-clip)">
+<path class="patch1" d="M78 112 Q100 126 128 102 Q156 126 178 112 Q196 126 219 153 L226 221 L30 221 L37 153 Q60 126 78 112Z"/><path class="patch2" d="M39 135 Q57 139 74 158 L37 157Z M217 135 Q199 139 182 158 L219 157Z"/>
+<path class="inner" d="M68 52 C76 60 83 70 87 81 L56 102 C57 83 62 63 68 52Z"/><path class="inner" d="M188 52 C180 60 173 70 169 81 L200 102 C199 83 194 63 188 52Z"/>
+</g>
+<path class="outline" d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/>
+<path class="ink" d="M72 146 Q88 127 104 146"/><path class="ink" d="M152 146 Q168 127 184 146"/>
+<ellipse class="blush" cx="67" cy="173" rx="11" ry="4.5"/><ellipse class="blush" cx="189" cy="173" rx="11" ry="4.5"/>
+<path class="nose" d="M122 169 Q128 166 134 169 L128 175Z"/><path class="ink" d="M128 175 Q119 185 110 178 M128 175 Q137 185 146 178"/>
+</svg>

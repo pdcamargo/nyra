@@ -16,6 +16,7 @@ import { useResourceDockStore } from './resourceDock'
 import type { ChangeBlock } from '../lib/changeBlocks'
 import type { PullRequest } from '../lib/pullRequests'
 import { isDefaultChatSort, type ChatSort } from '../lib/chatSort'
+import { pickCat, type AgentCat } from '../lib/agentCats'
 
 type PersistedState = { sessions: Session[]; projects: Project[]; activeSessionId: string | null }
 
@@ -105,6 +106,8 @@ export type Agent = {
   model?: string
   /** Its transcript on disk, so a tab opened later still has something to show. */
   outputFile?: string
+  /** Its face in the transcript and the pinned summary. Assigned by `addAgent`. */
+  cat?: AgentCat
 }
 
 export type McpServerInfo = {
@@ -1155,7 +1158,15 @@ export const useSessionsStore = create<SessionsStore>()(
       addAgent: (sessionId: string, agent: Agent) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === sessionId ? { ...s, agents: [...(s.agents ?? []), agent] } : s
+            s.id === sessionId
+              ? {
+                  ...s,
+                  agents: [
+                    ...(s.agents ?? []),
+                    { ...agent, cat: agent.cat ?? pickCat((s.agents ?? []).map((a) => a.cat)) }
+                  ]
+                }
+              : s
           )
         }))
       },

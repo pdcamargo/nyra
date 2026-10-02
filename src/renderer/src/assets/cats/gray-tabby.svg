@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="cat-gray-tabby" width="256" height="256" viewBox="0 0 256 256">
+<style>.cat-gray-tabby .fur { fill: var(--cat-fur, #B9BBBA); }
+.cat-gray-tabby .patch1 { fill: var(--cat-patch1, #7C8082); }
+.cat-gray-tabby .patch2 { fill: var(--cat-patch2, #E4E0DB); }
+.cat-gray-tabby .inner { fill: var(--cat-inner, #D3B8BA); }
+.cat-gray-tabby .iris { fill: var(--cat-iris, #2D3438); }
+.cat-gray-tabby .pupil { fill: var(--cat-pupil, #2D3438); }
+.cat-gray-tabby .shine { fill: var(--cat-shine, #FFFFFF); }
+.cat-gray-tabby .nose { fill: var(--cat-nose, #D9808C); }
+.cat-gray-tabby .blush { fill: var(--cat-blush, #DAA4A9); }
+.cat-gray-tabby .ink { fill: none; stroke: var(--cat-ink, #5C6165); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.cat-gray-tabby .outline { fill: none; stroke: var(--cat-outline, #94999A); stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; }</style>
+<defs><clipPath id="cat-gray-tabby-clip"><path d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/></clipPath></defs>
+<path class="fur" d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/>
+<g clip-path="url(#cat-gray-tabby-clip)">
+<g class="patch1"><path d="M101 78 L112 76 Q113 94 108 105Z M121 74 L135 74 Q134 95 128 105 Q122 95 121 74Z M144 76 L155 78 L148 105 Q143 94 144 76Z"/><path d="M37 137 Q60 139 77 150 L40 154Z M40 162 Q64 157 79 166 L50 181Z M219 137 Q196 139 179 150 L216 154Z M216 162 Q192 157 177 166 L206 181Z"/></g>
+<path class="inner" d="M68 52 C76 60 83 70 87 81 L56 102 C57 83 62 63 68 52Z"/><path class="inner" d="M188 52 C180 60 173 70 169 81 L200 102 C199 83 194 63 188 52Z"/>
+</g>
+<path class="outline" d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/>
+<path class="ink" d="M72 146 Q88 127 104 146"/><path class="ink" d="M152 146 Q168 127 184 146"/>
+<ellipse class="blush" cx="67" cy="173" rx="11" ry="4.5"/><ellipse class="blush" cx="189" cy="173" rx="11" ry="4.5"/>
+<path class="nose" d="M122 169 Q128 166 134 169 L128 175Z"/><path class="ink" d="M128 175 Q119 185 110 178 M128 175 Q137 185 146 178"/>
+</svg>

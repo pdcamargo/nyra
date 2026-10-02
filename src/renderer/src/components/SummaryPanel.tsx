@@ -23,6 +23,8 @@ import { browserKey, usePanelTabsStore } from '../store/panelTabs'
 import { collectAttachments, formatSize } from '../lib/summary'
 import { formatMemory, readChatMemory, type ChatMemory } from '../lib/chatMemory'
 import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
+import { catOf } from '../lib/agentCats'
+import CatIcon from './CatIcon'
 import { useChordLabel } from './ui/kbd'
 import { useProcessesStore, type BgProcess } from '../store/processes'
 import { formatElapsed } from './ActivityStrip'
@@ -120,24 +122,28 @@ export function inlineAgents(
   return { shown, hidden: agents.length - shown.length }
 }
 
-function AgentRow({ agent }: { agent: Agent }): React.JSX.Element {
+function AgentRow({ agent, index }: { agent: Agent; index: number }): React.JSX.Element {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
           onClick={() => openSubagentsInPanel(agent.toolId)}
-          className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+          // Pulled out by its own padding, so the cat starts where the
+          // Environment icons above it do.
+          className="-mx-1 flex w-[calc(100%+0.5rem)] items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
         >
-          <StatusDot
-            className={
-              agent.status === 'running'
-                ? 'bg-info nyra-breathe'
-                : agent.status === 'failed'
-                  ? 'bg-danger'
-                  : 'bg-success'
-            }
-          />
+          {/* The same cat its transcript line shows. It breathes while the agent
+              runs; a failure gets a badge, since the cat alone cannot say so. */}
+          <span className="relative -my-px flex size-[17px] shrink-0">
+            <CatIcon
+              cat={catOf(agent, index)}
+              className={`size-[17px] ${agent.status === 'running' ? 'nyra-breathe' : ''}`}
+            />
+            {agent.status === 'failed' && (
+              <span className="absolute -bottom-px -right-px size-1.5 rounded-full bg-danger ring-1 ring-background dark:ring-card" />
+            )}
+          </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[11px] text-foreground/80">{agent.name}</span>
             {agent.status === 'running' && agent.activity && (
@@ -454,7 +460,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
           }
         >
           {agentRows.map((agent) => (
-            <AgentRow key={agent.toolId} agent={agent} />
+            <AgentRow key={agent.toolId} agent={agent} index={agents.indexOf(agent)} />
           ))}
           {inline.hidden > 0 && (
             <button

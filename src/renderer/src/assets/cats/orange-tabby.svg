@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="cat-orange-tabby" width="256" height="256" viewBox="0 0 256 256">
+<style>.cat-orange-tabby .fur { fill: var(--cat-fur, #F3AD32); }
+.cat-orange-tabby .patch1 { fill: var(--cat-patch1, #C77724); }
+.cat-orange-tabby .patch2 { fill: var(--cat-patch2, #F9D38D); }
+.cat-orange-tabby .inner { fill: var(--cat-inner, #F4D09D); }
+.cat-orange-tabby .iris { fill: var(--cat-iris, #3B2A1F); }
+.cat-orange-tabby .pupil { fill: var(--cat-pupil, #3B2A1F); }
+.cat-orange-tabby .shine { fill: var(--cat-shine, #FFFFFF); }
+.cat-orange-tabby .nose { fill: var(--cat-nose, #CC777A); }
+.cat-orange-tabby .blush { fill: var(--cat-blush, #DD8C72); }
+.cat-orange-tabby .ink { fill: none; stroke: var(--cat-ink, #9E5B4C); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.cat-orange-tabby .outline { fill: none; stroke: var(--cat-outline, #CE8A28); stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; }</style>
+<defs><clipPath id="cat-orange-tabby-clip"><path d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/></clipPath></defs>
+<path class="fur" d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/>
+<g clip-path="url(#cat-orange-tabby-clip)">
+<path class="patch2" d="M79 170 Q95 155 128 162 Q161 155 177 170 Q167 205 128 209 Q89 205 79 170Z"/><g class="patch1"><path d="M102 77 L111 75 Q112 94 108 104Z M122 74 L134 74 Q132 95 128 104 Q124 95 122 74Z M145 75 L154 77 L148 104 Q144 94 145 75Z"/><path d="M34 138 Q56 139 75 151 L38 157Z M38 167 Q57 158 77 164 L50 184Z M222 138 Q200 139 181 151 L218 157Z M218 167 Q199 158 179 164 L206 184Z"/></g>
+<path class="inner" d="M68 52 C76 60 83 70 87 81 L56 102 C57 83 62 63 68 52Z"/><path class="inner" d="M188 52 C180 60 173 70 169 81 L200 102 C199 83 194 63 188 52Z"/>
+</g>
+<path class="outline" d="M33 133 C33 101 51 55 63 42 Q68 36 73 41 C85 51 93 64 98 76 Q128 72 158 76 C165 62 175 47 184 41 Q190 36 195 43 C210 62 223 101 223 133 C224 184 183 216 128 216 C73 216 32 184 33 133Z"/>
+<circle class="iris" cx="88" cy="143" r="7"/><circle class="shine" cx="86" cy="140" r="1.8"/><circle class="iris" cx="168" cy="143" r="7"/><circle class="shine" cx="166" cy="140" r="1.8"/>
+<ellipse class="blush" cx="67" cy="173" rx="11" ry="4.5"/><ellipse class="blush" cx="189" cy="173" rx="11" ry="4.5"/>
+<path class="nose" d="M122 169 Q128 166 134 169 L128 175Z"/><path class="ink" d="M128 175 Q119 185 110 178 M128 175 Q137 185 146 178"/>
+</svg>
