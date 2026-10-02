@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useSessionsStore, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, queueOf, createSiblingSession, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useUiStore } from '../store/ui'
+import { forkChat } from '../lib/fork'
 import SlashAutocomplete, { useSlashItems, type AutocompleteItem } from './SlashAutocomplete'
 import { openLogin } from '../lib/workspaces'
 import ZoomableImage from './ZoomableImage'
@@ -416,21 +417,11 @@ export default function ChatInput({
         // This chat's account: its workspace's.
         openLogin(workspaceIdForSession(useSessionsStore.getState(), useSessionsStore.getState().activeSessionId))
         break
-      case 'fork': {
-        const store = useSessionsStore.getState()
-        const currentSid = store.activeSessionId
-        if (!currentSid) {
-          addInfo('No active session to fork.')
-          break
-        }
-        const newId = store.forkSession(currentSid)
-        if (newId) {
-          const forkInfo = useSessionsStore.getState().sessions.find((s) => s.id === newId)?.forkOf
-          useSessionsStore.getState().addMessage(newId, {
-            id: newMessageId(),
-            role: 'assistant',
-            text: `⑂ Forked from **"${forkInfo?.title ?? 'previous session'}"**. History copied up to this point.\n\nOriginal session is unchanged. Claude picks up from here, remembering everything above.`
-          })
+      case 'fork':
+      case 'fork worktree': {
+        const currentSid = useSessionsStore.getState().activeSessionId
+        if (!currentSid || !forkChat(currentSid, { kind: 'latest' }, name === 'fork' ? 'local' : 'worktree')) {
+          addInfo('Nothing to fork yet.')
         }
         break
       }
@@ -558,6 +549,12 @@ export default function ChatInput({
     if (text.trim().toLowerCase() === '/tasks') {
       setInput('')
       useUiStore.getState().focusProcessesTab()
+      return
+    }
+
+    // Two words, so the bare-command match below would not see it.
+    if (text.trim().toLowerCase() === '/fork worktree') {
+      executeCommand('fork worktree')
       return
     }
 

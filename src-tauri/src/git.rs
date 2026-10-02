@@ -432,7 +432,20 @@ async fn seed_worktree(main: &str, worktree: &str) -> Value {
     json!({ "patchApplied": applied_patch, "filesCopied": copied })
 }
 
+/// Whether two paths name one directory, however they are spelled.
+fn same_dir(a: &str, b: &str) -> bool {
+    a == b
+        || matches!(
+            (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+            (Ok(x), Ok(y)) if x == y
+        )
+}
+
 /// Create a managed worktree for one chat.
+///
+/// `cwd` is the checkout to branch from. The main one for a new chat; a linked
+/// worktree for a fork of a chat that runs in one, which then starts from that
+/// worktree's HEAD and is seeded with its uncommitted work.
 ///
 /// `base_ref` empty means the current HEAD. Seeding only runs when the worktree
 /// starts from the current HEAD — applying the main tree's diff on top of some
@@ -454,7 +467,21 @@ pub async fn worktree_create_managed(
         }
     }
 
-    let base = base_ref.filter(|b| !b.is_empty()).unwrap_or("HEAD");
+    // The checkout this was asked from. Usually the main one; a fork of a
+    // worktree chat asks from its worktree, and then "HEAD" and "the changes"
+    // must both mean that worktree's, not whatever the main checkout is on.
+    let source = worktree_root(cwd).await.unwrap_or_else(|| root.clone());
+    let from_linked = !same_dir(&source, &root);
+    let source_head = if from_linked {
+        match git(&source, &["rev-parse", "HEAD"], 5000).await {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+            _ => "HEAD".to_string(),
+        }
+    } else {
+        "HEAD".to_string()
+    };
+    let asked = base_ref.filter(|b| !b.is_empty());
+    let base = asked.unwrap_or(&source_head);
     let dest_arg = env_path(&root, &dest);
     let mut args = vec!["worktree", "add", "-b", branch_name, &dest_arg, base];
     let mut out = git(&root, &args, 20_000).await;
@@ -467,9 +494,9 @@ pub async fn worktree_create_managed(
 
     match out {
         Ok(o) if o.status.success() => {
-            let current = branch(&root).await;
-            let seeded = if seed && (base == "HEAD" || base == current) {
-                seed_worktree(&root, &dest).await
+            let current = branch(&source).await;
+            let seeded = if seed && asked.is_none_or(|b| b == current) {
+                seed_worktree(&source, &dest).await
             } else {
                 json!({ "patchApplied": false, "filesCopied": 0 })
             };
@@ -1129,6 +1156,43 @@ mod tests {
 
         repo.git(&["worktree", "remove", &dest, "--force"]);
         let _ = std::fs::remove_dir_all(wt.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_worktree_made_from_a_linked_worktree_starts_from_its_work() {
+        let repo = TempRepo::new("fromlinked");
+        let first = worktree_create_managed(repo.path().to_str().unwrap(), "feat/first", None, false).await;
+        let first_path = first["path"].as_str().unwrap_or_default().to_string();
+        assert!(!first_path.is_empty(), "create failed: {first}");
+
+        // The first worktree has a commit main does not, and work on top of it.
+        let first_dir = std::path::Path::new(&first_path);
+        std::fs::write(first_dir.join("committed.txt"), "on feat/first\n").unwrap();
+        repo.git_in(first_dir, &["add", "."]);
+        repo.git_in(first_dir, &["commit", "-m", "first"]);
+        std::fs::write(first_dir.join("README.md"), "base\nedited in the first worktree\n").unwrap();
+        std::fs::write(first_dir.join("scratch.txt"), "untracked there\n").unwrap();
+
+        // Forking that chat into a new worktree asks from inside the first one.
+        let fork = worktree_create_managed(&first_path, "feat/fork", None, true).await;
+        let fork_path = fork["path"].as_str().unwrap_or_default().to_string();
+        assert!(!fork_path.is_empty(), "create failed: {fork}");
+        let fork_dir = std::path::Path::new(&fork_path);
+
+        assert!(fork_dir.join("committed.txt").exists(), "did not start from the worktree's HEAD");
+        assert_eq!(
+            std::fs::read_to_string(fork_dir.join("README.md")).unwrap(),
+            "base\nedited in the first worktree\n",
+            "the worktree's uncommitted edit did not follow"
+        );
+        assert!(fork_dir.join("scratch.txt").exists(), "the worktree's untracked file did not follow");
+        // And main was left alone.
+        assert_eq!(std::fs::read_to_string(repo.path().join("README.md")).unwrap(), "base\n");
+
+        for p in [&fork_path, &first_path] {
+            repo.git(&["worktree", "remove", p, "--force"]);
+            let _ = std::fs::remove_dir_all(std::path::Path::new(p).parent().unwrap());
+        }
     }
 
     #[tokio::test]

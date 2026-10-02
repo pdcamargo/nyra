@@ -24,6 +24,8 @@ import {
   Monitor,
   Moon,
   FolderInput,
+  FolderGit2,
+  GitFork,
   Layers,
   PencilLine,
   PanelLeft,
@@ -52,12 +54,14 @@ import {
 } from 'lucide-react'
 import type { Chord } from '../lib/keys'
 import { sortPrs, type PullRequest } from '../lib/pullRequests'
+import { canForkIntoWorktree, forkChat } from '../lib/fork'
 import type { NewTabKind } from '../components/panelTabs/tabs'
 import { useUiStore, type MainView } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
 import {
   activeProject,
+  activeSession,
   createSiblingSession,
   cwdForSession,
   openFolderAsProject,
@@ -93,6 +97,8 @@ export type CommandId =
   | 'session.next'
   | 'session.clear'
   | 'session.copy'
+  | 'session.fork.local'
+  | 'session.fork.worktree'
   | 'session.abort'
   | 'desktop.stop'
   | 'session.pr.open'
@@ -462,6 +468,41 @@ export const COMMANDS: Command[] = [
     icon: ClipboardCopy,
     palette: true,
     run: () => window.dispatchEvent(new Event('nyra:copy-conversation'))
+  },
+  // Both from the latest reply. Forking from an earlier point is done on the
+  // message, where the point is.
+  {
+    id: 'session.fork.local',
+    agent: false,
+    agentReason: 'Switches the user away from the conversation they are reading.',
+    label: 'Fork into local',
+    group: 'Session',
+    defaultChord: null,
+    icon: GitFork,
+    palette: true,
+    available: () => (activeSession(useSessionsStore.getState())?.messages.length ?? 0) > 0,
+    run: () => {
+      const id = useSessionsStore.getState().activeSessionId
+      if (id) forkChat(id, { kind: 'latest' }, 'local')
+    }
+  },
+  {
+    id: 'session.fork.worktree',
+    agent: false,
+    agentReason: 'Switches the user away from the conversation they are reading.',
+    label: 'Fork into new worktree',
+    group: 'Session',
+    defaultChord: null,
+    icon: FolderGit2,
+    palette: true,
+    available: () => {
+      const session = activeSession(useSessionsStore.getState())
+      return (session?.messages.length ?? 0) > 0 && canForkIntoWorktree(session ?? undefined)
+    },
+    run: () => {
+      const id = useSessionsStore.getState().activeSessionId
+      if (id) forkChat(id, { kind: 'latest' }, 'worktree')
+    }
   },
   {
     id: 'session.abort',

@@ -285,12 +285,52 @@ describe('Sessions Store', () => {
       expect(session(id).title).toBe('Mine')
     })
 
-    it('leaves a fork wearing its fork suffix', () => {
+    // A fork that resumes its source inherits the source's title records. Taking
+    // them made a list of forks all called the same thing.
+    describe('a fork that resumes its source', () => {
+      const forkOfTitled = (): string => {
+        const id = createTestSession()
+        useSessionsStore.getState().renameSession(id, 'My conversation')
+        useSessionsStore.getState().addMessage(id, { id: 'm1', role: 'user', text: 'Hi' })
+        useSessionsStore.getState().setAnchor(id, { sessionId: 'cli-1', uuid: 'r1' })
+        return useSessionsStore.getState().forkSession(id)
+      }
+
+      it('is a new fork, not another copy of its source title', () => {
+        expect(session(forkOfTitled()).title).toBe('New fork')
+      })
+
+      it('ignores the source title its transcript carries', () => {
+        const forkId = forkOfTitled()
+        useSessionsStore.getState().applyAiTitle(forkId, 'My conversation')
+        expect(session(forkId).title).toBe('New fork')
+      })
+
+      it('takes the fresh title of its first message, once', () => {
+        const forkId = forkOfTitled()
+        useSessionsStore.getState().applyAiTitle(forkId, 'Pause queue on 401', true)
+        expect(session(forkId).title).toBe('Pause queue on 401')
+        useSessionsStore.getState().applyAiTitle(forkId, 'My conversation')
+        useSessionsStore.getState().applyAiTitle(forkId, 'Something else', true)
+        expect(session(forkId).title).toBe('Pause queue on 401')
+      })
+    })
+
+    it('titles a fork with nothing to resume like any chat', () => {
       const id = createTestSession()
       useSessionsStore.getState().renameSession(id, 'Panel resizing')
       const forkId = useSessionsStore.getState().forkSession(id)
+      expect(session(forkId).title).toBe('Panel resizing')
       useSessionsStore.getState().applyAiTitle(forkId, 'Panel resizing and persistence')
-      expect(session(forkId).title).toBe('Panel resizing – fork')
+      expect(session(forkId).title).toBe('Panel resizing and persistence')
+    })
+
+    // An edit rewinds the same way a fork does, and gets a fresh title back.
+    it('keeps an ordinary chat named what it was when a fresh title arrives', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().applyAiTitle(id, 'Upload token expiry')
+      useSessionsStore.getState().applyAiTitle(id, 'Re-signing parts', true)
+      expect(session(id).title).toBe('Upload token expiry')
     })
 
     it('starts over on a cleared chat', () => {
@@ -377,6 +417,29 @@ describe('Sessions Store', () => {
 
       const forkId = useSessionsStore.getState().forkSession(id)
       expect(session(forkId).resumeFrom).toEqual({ sessionId: 'cli-1', uuid: 'last' })
+    })
+
+    it('records where each side of the fork is marked', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().addMessage(id, { id: 'msg-1', role: 'user', text: 'First' })
+      useSessionsStore.getState().addMessage(id, { id: 'msg-2', role: 'assistant', text: 'Response' })
+      useSessionsStore.getState().addMessage(id, { id: 'msg-3', role: 'user', text: 'Second' })
+
+      const forkId = useSessionsStore.getState().forkSession(id, 'msg-3', 'worktree')
+      const fork = session(forkId)
+      expect(fork.forkOf).toMatchObject({ sessionId: id, messageId: 'msg-2', mode: 'worktree' })
+      // The fork's own copy of the source's msg-2.
+      expect(fork.forkOf?.forkedAt).toBe(fork.messages[1].id)
+    })
+
+    it('works in the source worktree when forked into local, and gets its own otherwise', () => {
+      const id = createTestSession()
+      useSessionsStore.getState().addMessage(id, { id: 'msg-1', role: 'user', text: 'Hello' })
+      const worktree = { name: 'feat', branch: 'feat', path: '/wt/feat' }
+      useSessionsStore.getState().setWorktree(id, worktree)
+
+      expect(session(useSessionsStore.getState().forkSession(id, undefined, 'local')).worktree).toEqual(worktree)
+      expect(session(useSessionsStore.getState().forkSession(id, undefined, 'worktree')).worktree).toBeNull()
     })
 
     it('falls back to a recap for history recorded before anchors', () => {

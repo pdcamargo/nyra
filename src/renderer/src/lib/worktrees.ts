@@ -1,4 +1,4 @@
-import { useSessionsStore, findProject, type PendingWorktree, type Session } from '../store/sessions'
+import { useSessionsStore, findProject, worktreeInUse, type PendingWorktree, type Session } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useRunningStore } from '../store/running'
 
@@ -32,6 +32,8 @@ export function prunableSessions(sessions: Session[], running: Record<string, tr
     // chat, a chat still working, and a permanent worktree are all off limits.
     .filter((s) => !s.favorite)
     .filter((s) => running[s.id] !== true)
+    // A worktree a fork shares is still in use by the fork.
+    .filter((s) => !worktreeInUse(sessions, s.worktree!.path, s.id))
     .sort((a, b) => a.createdAt - b.createdAt)
 }
 
@@ -103,7 +105,7 @@ export async function materializeWorktree(sessionId: string): Promise<Materializ
   if (!session || !pending) return { ok: false, error: 'Nothing to create' }
 
   const project = findProject(state, session.projectId)
-  const base = project?.path ?? session.cwd
+  const base = pending.from ?? project?.path ?? session.cwd
   if (!base) return { ok: false, error: 'This chat has no project to branch from' }
 
   const branch = pending.branch.trim() || defaultBranchName()

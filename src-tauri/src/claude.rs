@@ -328,6 +328,11 @@ struct SessionInner {
     /// conversation, not per process: a respawn resumes a chat that already has
     /// one, and asking again spends a model call to rename it.
     title_requested: bool,
+    /// The conversation was forked at a point, so the title it carries is its
+    /// source's: the forked transcript starts with copies of those records, and
+    /// a persisted request just hands that title back. Its title is asked for
+    /// unpersisted, from its own first message, and reported as fresh.
+    title_fresh: bool,
     /// API message ids whose usage has already been reported this turn. The CLI
     /// splits one response into an `assistant` line per content block and each
     /// line repeats the whole response's usage, so counting lines counts a
@@ -368,6 +373,7 @@ impl SessionInner {
             retry_in_flight: false,
             plan_writes: HashMap::new(),
             title_requested: false,
+            title_fresh: false,
             counted_messages: HashSet::new(),
         }
     }
@@ -911,9 +917,9 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
         if let Some(commands) = offered_commands(raw) {
             emit_event(nyra_session_id, json!({ "type": "commands", "commands": commands }));
         }
-        if let Some(title) = requested_title(raw) {
+        if let Some((title, fresh)) = requested_title(raw) {
             crate::logf!("AI title [{}]: {title}", util::short(nyra_session_id));
-            emit_event(nyra_session_id, json!({ "type": "ai_title", "title": title }));
+            emit_event(nyra_session_id, json!({ "type": "ai_title", "title": title, "fresh": fresh }));
         }
         return;
     }
@@ -1464,9 +1470,12 @@ async fn send_prompt_to_session(
     }
 
     let mut payload = format_user_message(prompt);
-    let ask_title = !std::mem::replace(&mut sess.inner.lock().title_requested, true);
+    let (ask_title, fresh) = {
+        let mut inner = sess.inner.lock();
+        (!std::mem::replace(&mut inner.title_requested, true), inner.title_fresh)
+    };
     if ask_title {
-        payload.push_str(&title_request(prompt));
+        payload.push_str(&title_request(prompt, fresh));
     }
     let mut guard = sess.stdin.lock().await;
     let write = match guard.as_mut() {
@@ -1703,8 +1712,10 @@ async fn spawn_session(
             stale_resume_detected: false,
             retry_in_flight: false,
             plan_writes: HashMap::new(),
-            // A resumed conversation was titled when it began.
-            title_requested: resumed,
+            // A resumed conversation was titled when it began — unless it is
+            // forked at a point, and what it was titled is its source.
+            title_requested: resumed && resume_at.is_none(),
+            title_fresh: resumed && resume_at.is_some(),
             counted_messages: HashSet::new(),
         }),
         stdin: AsyncMutex::new(Some(stdin)),
@@ -1913,34 +1924,43 @@ fn offered_commands(raw: &Value) -> Option<Value> {
 /// Written straight after the prompt it describes. The CLI cuts the description
 /// at a thousand characters; this cuts it first so a pasted file is not sent
 /// twice.
-fn title_request(prompt: &str) -> String {
+///
+/// `fresh` is for a conversation forked at a point. It inherits its source's
+/// title records, and a persisted request answers with that title rather than
+/// a new one — so it is asked unpersisted, which titles the description alone,
+/// under its own id so the renderer can tell the fork's own name from its
+/// source's.
+fn title_request(prompt: &str, fresh: bool) -> String {
     let description: String = prompt.chars().take(1000).collect();
     format!(
         "{}\n",
         json!({
             "type": "control_request",
-            "request_id": TITLE_REQUEST_ID,
+            "request_id": if fresh { FRESH_TITLE_REQUEST_ID } else { TITLE_REQUEST_ID },
             "request": {
                 "subtype": "generate_session_title",
                 "description": description,
-                "persist": true,
+                "persist": !fresh,
             },
         })
     )
 }
 
 const TITLE_REQUEST_ID: &str = "nyra-title";
+const FRESH_TITLE_REQUEST_ID: &str = "nyra-title-fresh";
 
 /// The title from the answer to [`title_request`]. None for any other control
 /// response, an error, or a CLI that had nothing to offer — a slash command
 /// gets no title.
-fn requested_title(raw: &Value) -> Option<String> {
+fn requested_title(raw: &Value) -> Option<(String, bool)> {
     let response = raw.get("response")?;
-    if response.get("request_id").and_then(Value::as_str) != Some(TITLE_REQUEST_ID) {
-        return None;
-    }
+    let fresh = match response.get("request_id").and_then(Value::as_str) {
+        Some(TITLE_REQUEST_ID) => false,
+        Some(FRESH_TITLE_REQUEST_ID) => true,
+        _ => return None,
+    };
     let title = response.get("response")?.get("title")?.as_str()?.trim();
-    (!title.is_empty()).then(|| title.to_string())
+    (!title.is_empty()).then(|| (title.to_string(), fresh))
 }
 
 /// The context window the turn ran against, from the result's `modelUsage`.
@@ -2664,7 +2684,7 @@ mod tests {
 
     #[test]
     fn asks_for_a_persisted_title_described_by_the_prompt() {
-        let line = title_request(&"x".repeat(1500));
+        let line = title_request(&"x".repeat(1500), false);
         assert!(line.ends_with('\n'));
         let value: Value = serde_json::from_str(line.trim()).unwrap();
         assert_eq!(value["type"], "control_request");
@@ -2672,6 +2692,15 @@ mod tests {
         assert_eq!(value["request"]["subtype"], "generate_session_title");
         assert_eq!(value["request"]["persist"], true);
         assert_eq!(value["request"]["description"].as_str().unwrap().len(), 1000);
+    }
+
+    // A fork's transcript carries its source's title, and a persisted request
+    // answers with that. Unpersisted, the CLI titles the fork's own message.
+    #[test]
+    fn asks_a_fork_for_a_fresh_title_of_its_own() {
+        let value: Value = serde_json::from_str(title_request("Rust haiku", true).trim()).unwrap();
+        assert_eq!(value["request_id"], FRESH_TITLE_REQUEST_ID);
+        assert_eq!(value["request"]["persist"], false);
     }
 
     #[test]
@@ -2684,7 +2713,11 @@ mod tests {
         };
         assert_eq!(
             requested_title(&answer(TITLE_REQUEST_ID, json!(" DNS resolution "))),
-            Some("DNS resolution".into())
+            Some(("DNS resolution".into(), false))
+        );
+        assert_eq!(
+            requested_title(&answer(FRESH_TITLE_REQUEST_ID, json!("Rust haiku"))),
+            Some(("Rust haiku".into(), true))
         );
         assert_eq!(requested_title(&answer("nyra-initialize", json!("Nope"))), None);
         // A slash command has no title to give.

@@ -11,6 +11,7 @@ import {
 import { useActiveWorkspace, useWorkspacesStore } from '../store/workspaces'
 import { moveProjectToWorkspace } from '../lib/workspaces'
 import WorkspaceAvatar from './WorkspaceAvatar'
+import { canForkIntoWorktree, forkChat, forkLocalLabel, nestForks } from '../lib/fork'
 import { useUiStore, type MainView } from '../store/ui'
 import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
@@ -19,7 +20,7 @@ import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { ALargeSmall, Archive, ArrowDown, ArrowDownWideNarrow, ArrowUp, Brain, CalendarPlus, Check, CircleDot, CopyCheck, GitPullRequest, MessageSquare, RotateCcw, type LucideIcon, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
+import { ALargeSmall, Archive, ArrowDown, ArrowDownWideNarrow, ArrowUp, Brain, CalendarPlus, Check, CircleDot, CopyCheck, GitPullRequest, MessageSquare, RotateCcw, type LucideIcon, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, FolderGit2, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -807,7 +808,7 @@ function SessionsList(): React.JSX.Element {
 
   const renderRow = (
     session: Session,
-    opts: { indented?: boolean; showFolder?: boolean } = {}
+    opts: { indented?: boolean; showFolder?: boolean; depth?: number } = {}
   ): React.JSX.Element => {
     const isPinned = !!session.favorite
     const isActive = session.id === activeSessionId && onChatView
@@ -881,7 +882,10 @@ function SessionsList(): React.JSX.Element {
             setRenamingId(session.id)
             setRenameValue(session.title)
           }}
-          className={`min-w-0 flex-1 py-1 pr-2 text-left ${opts.indented ? 'pl-[27px]' : 'pl-2'} ${
+          className={`min-w-0 flex-1 py-1 pr-2 text-left ${
+            // A fork sits one step in from the chat it came from.
+            !opts.indented ? 'pl-2' : !opts.depth ? 'pl-[27px]' : opts.depth === 1 ? 'pl-[41px]' : 'pl-[55px]'
+          } ${
             isActive ? 'text-foreground' : 'text-foreground/80'
           }`}
         >
@@ -901,6 +905,7 @@ function SessionsList(): React.JSX.Element {
             />
           ) : (
             <div className="flex min-w-0 items-center gap-1.5">
+              {session.forkOf && <GitFork className="size-3 shrink-0 text-muted-foreground" aria-label="Fork" />}
               {/* Running shimmers the title, the transcript's signal for the
                   same state; the trailing slot carries a spinner too, so the
                   row is findable in a long list. */}
@@ -987,6 +992,22 @@ function SessionsList(): React.JSX.Element {
           <Pencil />
           Rename chat
         </ContextMenuItem>
+        {/* From the latest reply. The two the reply menu offers, so forking a
+            chat from the list means the same thing as forking it on screen. */}
+        <ContextMenuItem
+          disabled={session.messages.length === 0 || isRunning}
+          onSelect={() => forkChat(session.id, { kind: 'latest' }, 'local')}
+        >
+          <GitFork />
+          {forkLocalLabel(session)}
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={session.messages.length === 0 || isRunning || !canForkIntoWorktree(session)}
+          onSelect={() => forkChat(session.id, { kind: 'latest' }, 'worktree')}
+        >
+          <FolderGit2 />
+          Fork into new worktree
+        </ContextMenuItem>
         <ContextMenuItem onSelect={() => requestArchive(session)}>
           <Archive />
           Archive chat
@@ -1016,12 +1037,13 @@ function SessionsList(): React.JSX.Element {
     )
     const collapsed = project.collapsed === true
     const showingAll = expandedAll.has(project.id)
-    const visible = showingAll ? children : children.slice(0, VISIBLE_PER_PROJECT)
+    const nested = nestForks(children)
+    const visible = showingAll ? nested : nested.slice(0, VISIBLE_PER_PROJECT)
     const hiddenCount = children.length - visible.length
 
     const projectSpinner = projectSpinnerVisible({
       collapsed,
-      childIds: children.map((s) => s.id),
+      childIds: nested.map(({ session: s }) => s.id),
       visibleCount: visible.length,
       running
     })
@@ -1068,7 +1090,7 @@ function SessionsList(): React.JSX.Element {
         </div>
         {!collapsed && (
           <>
-            {visible.map((s) => renderRow(s, { indented: true, showFolder: false }))}
+            {visible.map(({ session: s, depth }) => renderRow(s, { indented: true, showFolder: false, depth }))}
             {/* One control, both directions. `Show more` was a one-way door: a
                 project opened to forty chats stayed forty rows tall for the
                 rest of the session, and the only way back was a reload.

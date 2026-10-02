@@ -153,6 +153,39 @@ export type PendingWorktree = {
   branch: string
   baseRef: string
   seed: boolean
+  /** The checkout to branch from, when it is not the project's own. A fork of
+   *  a worktree chat branches from that worktree, and carries its changes. */
+  from?: string
+}
+
+/** Where a fork runs: the source's own checkout, or a new worktree of its own. */
+export type ForkMode = 'local' | 'worktree'
+
+/** Where a chat was forked from. */
+export type ForkOf = {
+  sessionId: string
+  /** The source's last message the fork copied. Its "Forked into" mark goes
+   *  under it; empty when the fork took nothing. */
+  messageId: string
+  /** The source's title when forked, for when the source is gone. */
+  title: string
+  /** The fork's own copy of that message, which its "Forked from" mark sits
+   *  under. Absent on forks made before the mark existed. */
+  forkedAt?: string
+  mode?: ForkMode
+  /** Where the fork's own name comes from. A fork that resumes its source
+   *  inherits the source's title records, so it waits (`awaiting`) for the
+   *  fresh title asked of its first message, takes that once (`named`), and
+   *  ignores the transcript's from then on. Absent: titled like any chat. */
+  naming?: 'awaiting' | 'named'
+}
+
+/** What a fork is called until Claude names it after its first message. */
+export const NEW_FORK_TITLE = 'New fork'
+
+/** Whether a chat other than `exceptId` works in the worktree at `path`. */
+export function worktreeInUse(sessions: Session[], path: string, exceptId: string): boolean {
+  return sessions.some((s) => s.id !== exceptId && s.worktree?.path === path)
 }
 
 /**
@@ -238,7 +271,7 @@ export type Session = {
   /** A fork with no anchor to resume from — its history predates them — so the
    *  first message carries a recap of it instead. */
   needsRecap?: boolean
-  forkOf?: { sessionId: string; messageId: string; title: string }
+  forkOf?: ForkOf
   /** The title was chosen deliberately — renamed by hand, or derived for a fork
    *  — so the one Claude generates must not take it away again. */
   titleManual?: boolean
@@ -380,7 +413,9 @@ type SessionsStore = {
   setAnchor: (sessionId: string, anchor: Anchor | null) => void
   setContext: (sessionId: string, context: { contextTokens?: number; contextWindow?: number }) => void
   renameSession: (sessionId: string, title: string) => void
-  applyAiTitle: (sessionId: string, title: string) => void
+  /** `fresh` marks a title asked of a fork's own first message, rather than
+   *  one read from a transcript that may be its source's. */
+  applyAiTitle: (sessionId: string, title: string, fresh?: boolean) => void
   toggleFavorite: (sessionId: string) => void
   reorderFavorites: (orderedIds: string[]) => void
   /**
@@ -414,7 +449,9 @@ type SessionsStore = {
   /** Put a message back at `index`, clamped to the queue's length. */
   insertQueuedMessage: (sessionId: string, index: number, msg: QueuedMessage) => void
   clearQueue: (sessionId: string) => void
-  forkSession: (sourceSessionId: string, upToMessageId?: string) => string
+  /** Copy a chat into a new one, cut before `upToMessageId` (or whole), and open
+   *  it. A worktree fork gets a pending worktree, created on its first send. */
+  forkSession: (sourceSessionId: string, upToMessageId?: string, mode?: ForkMode) => string
   truncateAtMessage: (sessionId: string, messageId: string) => void
   setAutoCompacted: (sessionId: string, value: boolean) => void
   setPendingAutoCompact: (sessionId: string, value: boolean) => void
@@ -867,13 +904,31 @@ export const useSessionsStore = create<SessionsStore>()(
        * It keeps up with Claude's own later revisions, and stops the moment you
        * rename the chat yourself: a name you typed is never overwritten.
        */
-      applyAiTitle: (sessionId: string, title: string) => {
+      applyAiTitle: (sessionId: string, title: string, fresh = false) => {
         const next = title.trim().slice(0, 80)
         if (!next) return
         // Checked before `set`, because rebuilding the array re-renders every
         // chat row — and a title Claude has not changed arrives on every turn.
         const current = get().sessions.find((s) => s.id === sessionId)
-        if (!current || current.titleManual || current.title === next) return
+        if (!current || current.titleManual) return
+        // A fork's transcript begins with its source's title, which arrives
+        // here looking like Claude's latest word on the fork. Taking it is how
+        // three rows in a row ended up called the same thing. A fork takes the
+        // one fresh title of its first message, and nothing after.
+        const naming = current.forkOf?.naming
+        if (naming === 'named') return
+        if (naming === 'awaiting') {
+          if (!fresh) return
+          set((state) => ({
+            sessions: state.sessions.map((s) =>
+              s.id === sessionId && s.forkOf ? { ...s, title: next, forkOf: { ...s.forkOf, naming: 'named' } } : s
+            )
+          }))
+          return
+        }
+        // Fresh titles only answer a fork's first message; anywhere else (an
+        // edit rewinds the same way) the chat keeps the name it has.
+        if (fresh || current.title === next) return
         set((state) => ({
           sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, title: next } : s))
         }))
@@ -964,7 +1019,14 @@ export const useSessionsStore = create<SessionsStore>()(
         if (doomed?.worktreeSnapshotted) {
           void window.api.git.snapshotDiscard(sessionId).catch(() => {})
         }
-        if (doomed?.worktree && !doomed.worktree.permanent) {
+        // Nor one a fork still works in: forked into local, it shares this
+        // chat's worktree, and removing it would pull the floor out from under
+        // a chat that is still in the list.
+        if (
+          doomed?.worktree &&
+          !doomed.worktree.permanent &&
+          !worktreeInUse(get().sessions, doomed.worktree.path, sessionId)
+        ) {
           const { path, branch } = doomed.worktree
           try {
             void window.api.git
@@ -1208,7 +1270,7 @@ export const useSessionsStore = create<SessionsStore>()(
         }))
       },
 
-      forkSession: (sourceSessionId: string, upToMessageId?: string) => {
+      forkSession: (sourceSessionId: string, upToMessageId?: string, mode: ForkMode = 'local') => {
         let newId = ''
         set((state) => {
           const source = state.sessions.find((s) => s.id === sourceSessionId)
@@ -1238,10 +1300,10 @@ export const useSessionsStore = create<SessionsStore>()(
           const forked: Session = {
             id: newId,
             claudeSessionId: null,
-            title: `${source.title.slice(0, 30)} – fork`,
-            // Ours, not a placeholder: the suffix is the only thing on screen
-            // that says this chat is a fork, so Claude's title must not eat it.
-            titleManual: true,
+            // Not the source's title: a family of forks wearing one name is a
+            // list of identical rows. Claude names it after its first message.
+            title: resumeFrom ? NEW_FORK_TITLE : source.title,
+            titleManual: false,
             cwd: source.cwd,
             // A fork belongs to the same project as its source. Without this it
             // would drop into Recents and look lost.
@@ -1253,10 +1315,22 @@ export const useSessionsStore = create<SessionsStore>()(
             agents: [],
             branch: source.branch,
             isGitRepo: source.isGitRepo,
-            worktree: null,
+            // Forked into local works where the source does, its worktree
+            // included — shared, which is why removing one checks for the other.
+            // A worktree fork gets its own on the first send.
+            worktree: mode === 'local' && source.worktree ? { ...source.worktree } : null,
             usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
             mcpServers: source.mcpServers ? [...source.mcpServers] : undefined,
-            forkOf: { sessionId: sourceSessionId, messageId: lastMsgId, title: source.title },
+            forkOf: {
+              sessionId: sourceSessionId,
+              messageId: lastMsgId,
+              title: source.title,
+              forkedAt: messages[messages.length - 1]?.id,
+              mode,
+              // Without an anchor the fork starts a conversation of its own,
+              // titled the ordinary way.
+              ...(resumeFrom ? { naming: 'awaiting' as const } : {})
+            },
             resumeFrom,
             // The fork's first message records this as the reply it followed.
             anchor: resumeFrom,

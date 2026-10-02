@@ -49,8 +49,9 @@ describe('prunableSessions', () => {
   it('offers the oldest managed worktree first', () => {
     const list = prunableSessions(
       [
-        session({ id: 'new', createdAt: 200, worktree: wt() }),
-        session({ id: 'old', createdAt: 100, worktree: wt() })
+        // Each chat's own: one two chats share is in use, and never offered.
+        session({ id: 'new', createdAt: 200, worktree: wt({ path: '/wt/new' }) }),
+        session({ id: 'old', createdAt: 100, worktree: wt({ path: '/wt/old' }) })
       ],
       {}
     )

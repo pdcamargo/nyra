@@ -1,13 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
-import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type Agent, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
+import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
 import { noteDesignCall, noteDesignResult } from '../store/designActivity'
 import { useSettingsStore } from '../store/settings'
 import { wslShare } from '../lib/environment'
 import { useEnvironmentInfo } from '../hooks/useEnvironmentInfo'
 import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
+import { forkChat, forkMarks, type ForkMarkSpec, type ForkPoint } from '../lib/fork'
+import { ForkMark, ForkMenu } from './ForkMenu'
 import MarkdownRenderer from './MarkdownRenderer'
 import ToolCallCard from './ToolCallCard'
 import AskUserQuestionCard from './AskUserQuestionCard'
@@ -101,7 +103,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'subagent_reset'; tool_id: string }
   | { type: 'plan_ready'; tool_id: string; path: string; plan: string }
   | { type: 'session_reset'; reason: string }
-  | { type: 'ai_title'; title: string }
+  | { type: 'ai_title'; title: string; fresh?: boolean }
   | { type: 'models'; models: OfferedModel[] }
   | { type: 'commands'; commands: CommandDetail[] }
   | { type: 'auth_required'; message: string }
@@ -489,6 +491,17 @@ export default function Chat(): React.JSX.Element {
     return ends
   }, [messages, isLoading])
 
+  // The fork lines, keyed by the message each goes under. Selected as a string
+  // so a store change that moves no line re-renders nothing.
+  const forkMarksKey = useSessionsStore((state) => JSON.stringify(forkMarks(state.sessions, state.activeSessionId)))
+  const marksAfter = useMemo(() => {
+    const byMessage = new Map<string, ForkMarkSpec[]>()
+    for (const mark of JSON.parse(forkMarksKey) as ForkMarkSpec[]) {
+      byMessage.set(mark.after, [...(byMessage.get(mark.after) ?? []), mark])
+    }
+    return byMessage
+  }, [forkMarksKey])
+
   // Virtualizer setup
   const virtualizer = useVirtualizer({
     count: virtualItems.length,
@@ -793,7 +806,7 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'ai_title') {
-        useSessionsStore.getState().applyAiTitle(sid, event.title)
+        useSessionsStore.getState().applyAiTitle(sid, event.title, event.fresh === true)
         return
       }
 
@@ -1847,18 +1860,9 @@ export default function Chat(): React.JSX.Element {
     setEditText(text)
   }, [])
 
-  const handleForkFromMessage = useCallback((messageId: string) => {
+  const handleFork = useCallback((at: ForkPoint, mode: ForkMode) => {
     const sid = useSessionsStore.getState().activeSessionId
-    if (!sid) return
-    const newId = useSessionsStore.getState().forkSession(sid, messageId)
-    if (newId) {
-      const forkInfo = useSessionsStore.getState().sessions.find((s) => s.id === newId)?.forkOf
-      useSessionsStore.getState().addMessage(newId, {
-        id: newMessageId(),
-        role: 'assistant',
-        text: `⑂ Forked from **"${forkInfo?.title ?? 'previous session'}"**. History copied up to this point.\n\nOriginal session is unchanged. Claude picks up from here, remembering everything above.`
-      })
-    }
+    if (sid) forkChat(sid, at, mode)
   }, [])
 
   // Only show permission dialogs for the currently viewed session
@@ -2158,14 +2162,25 @@ export default function Chat(): React.JSX.Element {
                   <div data-message-id={msg.id} className={gap}>
                     <MessageRow
                       message={msg}
+                      sessionId={activeSessionId}
                       isLoading={isLoading}
                       showActions={turnEnds.has(msg.id)}
                       onEdit={msg.role === 'user' && !isLoading ? handleStartEdit : undefined}
-                      onFork={msg.role === 'user' && !isLoading ? handleForkFromMessage : undefined}
+                      // Not mid-turn: the turn has no anchor to fork from yet.
+                      onFork={!isLoading ? handleFork : undefined}
                       onPlanAnswer={handlePlanAnswer}
                       onQuestionAnswer={handleQuestionAnswer}
                     />
                   </div>
+                  {marksAfter.get(msg.id)?.map((mark) => (
+                    <ForkMark
+                      key={`${mark.direction}:${mark.to ?? mark.title}`}
+                      direction={mark.direction}
+                      title={mark.title}
+                      to={mark.to}
+                      note={mark.note}
+                    />
+                  ))}
                 </div>
               )
             })}
@@ -2399,7 +2414,7 @@ function WaitingIndicator({ tasks }: { tasks: WaitingTask[] }): React.JSX.Elemen
   )
 }
 
-const MessageRow = React.memo(function MessageRow({ message, isLoading, showActions, onEdit, onFork, onPlanAnswer, onQuestionAnswer }: { message: Message; isLoading?: boolean; showActions?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (id: string) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
+const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoading, showActions, onEdit, onFork, onPlanAnswer, onQuestionAnswer }: { message: Message; sessionId?: string | null; isLoading?: boolean; showActions?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (at: ForkPoint, mode: ForkMode) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
 
@@ -2433,18 +2448,22 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, showActi
               <TooltipContent>Edit message</TooltipContent>
             </Tooltip>
           )}
-          {onFork && (
+          {onFork && sessionId && (
             <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => onFork(textMsg.id)}
-                  className="absolute -left-14 top-2 rounded-md p-1 text-transparent transition-colors group-hover/msg:text-muted-foreground hover:text-foreground!"
-                  aria-label="Fork from this message"
-                >
-                  <GitFork className="size-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Fork from this message</TooltipContent>
+              {/* Forks from just before this message and hands it back to the
+                  composer — Edit, keeping the original. */}
+              <ForkMenu sessionId={sessionId} align="end" onFork={(mode) => onFork({ kind: 'before', messageId: textMsg.id }, mode)}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="absolute -left-14 top-2 rounded-md p-1 text-transparent transition-colors group-hover/msg:text-muted-foreground hover:text-foreground! data-[state=open]:text-foreground"
+                    aria-label="Fork from before this message"
+                  >
+                    <GitFork className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+              </ForkMenu>
+              <TooltipContent>Fork from before this message</TooltipContent>
             </Tooltip>
           )}
           <div className="nyra-on-bubble">
@@ -2532,7 +2551,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, showActi
       {/* Actions sit under the reply, not floating beside its first line — a long
           answer's controls belong where you finish reading it. */}
       {showActions && (
-      <div className="mt-1 flex opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
+      <div className="mt-1 flex opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -2548,6 +2567,17 @@ const MessageRow = React.memo(function MessageRow({ message, isLoading, showActi
           </TooltipTrigger>
           <TooltipContent>Copy response</TooltipContent>
         </Tooltip>
+        {onFork && sessionId && (
+          <ForkMenu sessionId={sessionId} onFork={(mode) => onFork({ kind: 'reply', messageId: message.id }, mode)}>
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-c-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground data-[state=open]:bg-accent/50 data-[state=open]:text-foreground"
+            >
+              <GitFork className="size-3.5" />
+              Fork
+            </button>
+          </ForkMenu>
+        )}
         {message.timestamp && (
           <span className="flex items-center px-1.5 text-c-md text-muted-foreground">
             {formatMessageTime(message.timestamp)}
