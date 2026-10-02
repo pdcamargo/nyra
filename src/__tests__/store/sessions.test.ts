@@ -487,6 +487,19 @@ describe('Sessions Store', () => {
       expect(queueOf(session(id))).toEqual([{ text: 'a' }, { text: 'c' }])
     })
 
+    it('puts an edited message back in its slot, clamped to the queue', () => {
+      const id = useSessionsStore.getState().createSession('/tmp')
+      const store = useSessionsStore.getState()
+      store.enqueueMessage(id, { text: 'a' })
+      store.enqueueMessage(id, { text: 'c' })
+
+      useSessionsStore.getState().insertQueuedMessage(id, 1, { text: 'b' })
+      expect(queueOf(session(id))).toEqual([{ text: 'a' }, { text: 'b' }, { text: 'c' }])
+
+      useSessionsStore.getState().insertQueuedMessage(id, 99, { text: 'd' })
+      expect(queueOf(session(id)).at(-1)).toEqual({ text: 'd' })
+    })
+
     it('clears the whole queue', () => {
       const id = useSessionsStore.getState().createSession('/tmp')
       useSessionsStore.getState().enqueueMessage(id, { text: 'a' })

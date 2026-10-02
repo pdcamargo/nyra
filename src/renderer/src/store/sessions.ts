@@ -411,6 +411,8 @@ type SessionsStore = {
   /** Takes the next queued message off the front, or null if the queue is empty. */
   dequeueMessage: (sessionId: string) => QueuedMessage | null
   removeQueuedMessage: (sessionId: string, index: number) => void
+  /** Put a message back at `index`, clamped to the queue's length. */
+  insertQueuedMessage: (sessionId: string, index: number, msg: QueuedMessage) => void
   clearQueue: (sessionId: string) => void
   forkSession: (sourceSessionId: string, upToMessageId?: string) => string
   truncateAtMessage: (sessionId: string, messageId: string) => void
@@ -1174,6 +1176,16 @@ export const useSessionsStore = create<SessionsStore>()(
         return next
       },
 
+      insertQueuedMessage: (sessionId: string, index: number, msg: QueuedMessage) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const queue = [...queueOf(s)]
+            queue.splice(Math.min(Math.max(0, index), queue.length), 0, msg)
+            return { ...s, queuedMessages: queue, queuedMessage: null }
+          })
+        }))
+      },
       removeQueuedMessage: (sessionId: string, index: number) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>

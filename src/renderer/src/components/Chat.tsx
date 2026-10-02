@@ -1659,12 +1659,15 @@ export default function Chat(): React.JSX.Element {
 
 
   /** Answer a question card: record it on the message, then say it. */
-  const handleQuestionAnswer = useCallback((toolId: string, answer: string): void => {
-    const sid = useSessionsStore.getState().activeSessionId
-    if (!sid) return
-    useSessionsStore.getState().updateToolResult(sid, toolId, answer)
-    void sendMessageRef.current?.(answer, undefined, undefined, sid)
-  }, [])
+  const handleQuestionAnswer = useCallback(
+    (toolId: string, answer: string, images?: ImageAttachment[], files?: FileAttachment[]): void => {
+      const sid = useSessionsStore.getState().activeSessionId
+      if (!sid) return
+      useSessionsStore.getState().updateToolResult(sid, toolId, answer)
+      void sendMessageRef.current?.(answer, images, files, sid)
+    },
+    []
+  )
 
   /**
    * Answer a plan that came in as a file.
@@ -1674,14 +1677,21 @@ export default function Chat(): React.JSX.Element {
    * because the spawn now carries `--resume`.
    */
   const handlePlanAnswer = useCallback(
-    (toolId: string, verdict: PlanAnswer, planPath?: string, note?: string): void => {
+    (
+      toolId: string,
+      verdict: PlanAnswer,
+      planPath?: string,
+      note?: string,
+      images?: ImageAttachment[],
+      files?: FileAttachment[]
+    ): void => {
       const sid = useSessionsStore.getState().activeSessionId
       usePlanApprovalStore.getState().resolve(toolId)
       if (!sid) return
       if (verdict === 'reject') {
         useSessionsStore.getState().markToolDenied(sid, toolId)
         // Plan mode stays on, so nothing respawns and Claude keeps the thread.
-        if (note) void sendMessageRef.current?.(note, undefined, undefined, sid)
+        if (note) void sendMessageRef.current?.(note, images, files, sid)
         return
       }
       // Leaving plan mode is what lets Claude write at all, so both yeses do it.

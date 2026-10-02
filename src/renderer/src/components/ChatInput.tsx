@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useSessionsStore, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, createSiblingSession, newMessageId } from '../store/sessions'
+import { useSessionsStore, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, queueOf, createSiblingSession, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useUiStore } from '../store/ui'
 import SlashAutocomplete, { useSlashItems, type AutocompleteItem } from './SlashAutocomplete'
@@ -19,7 +19,7 @@ import {
   type Edit
 } from '../lib/markdownEditing'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
-import { CornerDownLeft, Navigation, Trash2 } from 'lucide-react'
+import { CornerDownLeft, Navigation, Pencil, Trash2 } from 'lucide-react'
 import { useDictationStore } from '../store/dictation'
 import { useLoopsStore } from '../store/loops'
 import { compressImage } from '../utils/imageCompression'
@@ -60,10 +60,17 @@ type ChatInputProps = {
   isLoading: boolean
   /** The plan waiting on a verdict, fused into the top of the composer. */
   pendingPlan?: ToolCallMessage | null
-  onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void
+  onPlanAnswer?: (
+    toolId: string,
+    answer: PlanAnswer,
+    planPath?: string,
+    note?: string,
+    images?: ImageAttachment[],
+    files?: FileAttachment[]
+  ) => void
   /** The question waiting on an answer, fused into the top of the composer. */
   liveQuestion?: ToolCallMessage | null
-  onQuestionAnswer?: (toolId: string, answer: string) => void
+  onQuestionAnswer?: (toolId: string, answer: string, images?: ImageAttachment[], files?: FileAttachment[]) => void
   sendMessage: (text: string, images?: ImageAttachment[], files?: FileAttachment[]) => Promise<void>
   /**
    * Send a queued message into the turn that is already running. Resolves false
@@ -157,6 +164,22 @@ export default function ChatInput({
     removeImage,
     removeFile
   } = useAttachmentStaging(editorRef, setInput)
+  /**
+   * Hand over what is staged and empty the strip. An answer carries its
+   * attachments like a message does; clearing only the text left them sitting
+   * in the composer after the answer had already sent them.
+   */
+  const takeAttachments = useCallback((): { images?: ImageAttachment[]; files?: FileAttachment[] } => {
+    const taken = {
+      images: stagedImages.length > 0 ? stagedImages : undefined,
+      files: stagedFiles.length > 0 ? stagedFiles : undefined
+    }
+    setStagedImages([])
+    setStagedFiles([])
+    return taken
+  }, [stagedImages, stagedFiles])
+  /** The queued row being edited, so sending it re-queues it in place. */
+  const editingQueueRef = useRef<{ sid: string; index: number; length: number } | null>(null)
   const [mentionAnchorLeft, setMentionAnchorLeft] = useState(0)
   const stashRef = useRef<string>('')
   const [hasStash, setHasStash] = useState(false)
@@ -495,12 +518,14 @@ export default function ChatInput({
     if (intent.kind === 'answer') {
       setInput('')
       qs.clear()
-      onQuestionAnswer?.(intent.toolId, intent.answer)
+      const { images, files } = takeAttachments()
+      onQuestionAnswer?.(intent.toolId, intent.answer, images, files)
       return
     }
     if (intent.kind === 'keep-planning') {
       setInput('')
-      onPlanAnswer?.(intent.toolId, 'reject', intent.path, intent.note)
+      const { images, files } = takeAttachments()
+      onPlanAnswer?.(intent.toolId, 'reject', intent.path, intent.note, images, files)
       return
     }
     const text = input
@@ -567,10 +592,22 @@ export default function ChatInput({
           ...(images.length > 0 ? { images } : {}),
           ...(files.length > 0 ? { files } : {})
         }
-        useSessionsStore.getState().enqueueMessage(sid, queued)
+        // A queued message taken back to edit goes back where it was, not to
+        // the end of the line. Rows that drained meanwhile pull that slot
+        // forward; the store clamps it.
+        const editing = editingQueueRef.current
+        editingQueueRef.current = null
+        if (editing && editing.sid === sid) {
+          const now = queueOf(useSessionsStore.getState().sessions.find((x) => x.id === sid) ?? {}).length
+          const drained = Math.max(0, editing.length - now)
+          useSessionsStore.getState().insertQueuedMessage(sid, editing.index - drained, queued)
+        } else {
+          useSessionsStore.getState().enqueueMessage(sid, queued)
+        }
       }
       return
     }
+    editingQueueRef.current = null
 
     await sendMessage(text.trim(), images.length > 0 ? images : undefined, files.length > 0 ? files : undefined)
   }, [
@@ -583,8 +620,42 @@ export default function ChatInput({
     question,
     pendingPlan,
     onQuestionAnswer,
-    onPlanAnswer
+    onPlanAnswer,
+    takeAttachments
   ])
+
+  /**
+   * Take a queued message back into the composer to change it.
+   *
+   * It leaves the queue while you edit, so the drain cannot send the half-edited
+   * version from under you, and sending it again puts it back in its old slot.
+   * Anything already in the composer is kept, after the queued text, rather
+   * than overwritten.
+   */
+  const editQueued = useCallback(
+    (index: number): void => {
+      const store = useSessionsStore.getState()
+      const sid = store.activeSessionId
+      const session = sid ? store.sessions.find((x) => x.id === sid) : undefined
+      if (!sid || !session) return
+      const queue = queueOf(session)
+      const queued = queue[index]
+      if (!queued) return
+      store.removeQueuedMessage(sid, index)
+      editingQueueRef.current = { sid, index, length: queue.length - 1 }
+      setInput((prev) => (prev.trim() ? `${queued.text}\n\n${prev}` : queued.text))
+      if (queued.images?.length) setStagedImages((prev) => [...queued.images!, ...prev])
+      if (queued.files?.length) setStagedFiles((prev) => [...queued.files!, ...prev])
+      requestAnimationFrame(() => {
+        const editor = editorRef.current
+        if (!editor) return
+        editor.focus()
+        const end = Number.MAX_SAFE_INTEGER
+        editor.setSelectionRange(end, end)
+      })
+    },
+    []
+  )
 
 
   const handleStash = useCallback((): void => {
@@ -903,6 +974,19 @@ export default function ChatInput({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
+                    type="button"
+                    onClick={() => editQueued(i)}
+                    aria-label="Edit queued message"
+                    className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-colors group-hover/q:opacity-100 hover:bg-accent/50 hover:text-foreground"
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Edit</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
                     onClick={() => {
                       const sid = useSessionsStore.getState().activeSessionId
                       if (sid) useSessionsStore.getState().removeQueuedMessage(sid, i)
@@ -956,7 +1040,8 @@ export default function ChatInput({
               onSubmit={(answer) => {
                 setInput('')
                 useQuestionAnswerStore.getState().clear()
-                onQuestionAnswer?.(question.tool_id, answer)
+                const { images, files } = takeAttachments()
+                onQuestionAnswer?.(question.tool_id, answer, images, files)
               }}
             />
           </div>
