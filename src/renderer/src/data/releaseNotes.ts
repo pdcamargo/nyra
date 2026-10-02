@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.7.3',
+    date: '2026-10-02',
     notes: [
       'Each subagent now gets its own cat, and it is the same cat in the chat and in the summary',
       'Added Fork into local and Fork into new worktree, from a reply, from your own message, or with /fork',
