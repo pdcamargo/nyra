@@ -8,7 +8,14 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Each subagent now gets its own cat, and it is the same cat in the chat and in the summary',
+      'Added Fork into local and Fork into new worktree, from a reply, from your own message, or with /fork',
+      'Queued messages get a pencil, so you can edit one before it sends',
+      'Fixed attachments staying in the composer after you answered a question or a plan',
+      'Fixed designs made from a chat in the background being filed under the wrong project',
+      'Fixed a design chip sometimes opening a different design'
+    ]
   },
   {
     version: '0.7.2',
