@@ -328,7 +328,7 @@ const PROTOCOL_VERSION: &str = "2024-11-05";
 
 /// Handle one message. `Null` means it was a notification and there is nothing
 /// to answer with — the route turns that into a 202.
-pub async fn handle(message: Value) -> Value {
+pub async fn handle(chat_id: &str, message: Value) -> Value {
     let id = message.get("id").cloned();
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
 
@@ -361,7 +361,7 @@ pub async fn handle(message: Value) -> Value {
                 .cloned()
                 .unwrap_or_else(|| json!({}));
 
-            match call_tool(name, args).await {
+            match call_tool(chat_id, name, args).await {
                 // The call happened and did not work: an MCP tool error, not a
                 // JSON-RPC one, so the model reads why and tries something else
                 // rather than seeing a protocol fault.
@@ -384,10 +384,10 @@ fn reply(id: Value, result: Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "result": result })
 }
 
-async fn call_tool(name: &str, args: Value) -> Result<String, String> {
+async fn call_tool(chat_id: &str, name: &str, args: Value) -> Result<String, String> {
     match name {
         "nyra_ui" => ui_tool(args).await,
-        "nyra_design" => design_tool(args).await,
+        "nyra_design" => design_tool(chat_id, args).await,
         "nyra_flow" => flow_tool(args).await,
         "nyra_update" => update_tool().await,
         other => Err(format!(
@@ -502,11 +502,11 @@ const DESIGN_TIMEOUT: Duration = Duration::from_secs(60);
 /// renderer here parks a request in the process-wide `PENDING` map, which is
 /// precisely the race `the_bridge_delivers_an_answer_and_gives_up_without_one`
 /// exists to warn about.
-async fn design_project(args: &Value) -> Option<std::path::PathBuf> {
+async fn design_project(chat_id: &str, args: &Value) -> Option<std::path::PathBuf> {
     if let Some(p) = arg_str(args, "project") {
         return Some(std::path::PathBuf::from(p));
     }
-    ask_renderer("design.project", json!({}))
+    ask_renderer("design.project", json!({ "sessionId": chat_id }))
         .await
         .ok()
         .and_then(|v| {
@@ -516,12 +516,12 @@ async fn design_project(args: &Value) -> Option<std::path::PathBuf> {
         })
 }
 
-async fn design_tool(args: Value) -> Result<String, String> {
+async fn design_tool(chat_id: &str, args: Value) -> Result<String, String> {
     let action = arg_str(&args, "action").ok_or("nyra_design needs an action.")?;
 
     match action.as_str() {
         "list" => {
-            let project = design_project(&args).await;
+            let project = design_project(chat_id, &args).await;
             let designs = crate::designs::list(project.as_deref());
             if designs.is_empty() {
                 return Ok("No designs yet. action:\"create\" with a name registers one and tells you where to write it.".into());
@@ -531,7 +531,7 @@ async fn design_tool(args: Value) -> Result<String, String> {
         "create" => {
             let name = arg_str(&args, "name")
                 .ok_or("nyra_design action:\"create\" needs a name — a short human one, like \"Billing\".")?;
-            let project = design_project(&args).await.ok_or(
+            let project = design_project(chat_id, &args).await.ok_or(
                 "nyra_design action:\"create\" could not tell which project this is. Pass `project` with the absolute path.",
             )?;
             let entry = crate::designs::create(&name, &project)?;
@@ -546,7 +546,7 @@ async fn design_tool(args: Value) -> Result<String, String> {
         "render" => {
             let needle = arg_str(&args, "design")
                 .ok_or("nyra_design action:\"render\" needs a design name or id. Use action:\"list\".")?;
-            let project = design_project(&args).await;
+            let project = design_project(chat_id, &args).await;
             let entry = crate::designs::resolve(&needle, project.as_deref()).ok_or_else(|| {
                 format!("No design matches \"{needle}\". Use action:\"list\" to see what there is.")
             })?;
@@ -930,7 +930,7 @@ mod tests {
 
     #[tokio::test]
     async fn tools_list_carries_exactly_the_four() {
-        let listed = handle(json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await;
+        let listed = handle("chat", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await;
         let tools = listed["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["nyra_ui", "nyra_design", "nyra_flow", "nyra_update"]);
@@ -945,20 +945,20 @@ mod tests {
     async fn design_actions_say_what_they_need_rather_than_failing_vaguely() {
         // Each of these is a message the model reads and acts on, so the text
         // has to name the missing argument.
-        let no_action = design_tool(json!({})).await.unwrap_err();
+        let no_action = design_tool("chat", json!({})).await.unwrap_err();
         assert!(no_action.contains("action"), "{no_action}");
 
-        let no_name = design_tool(json!({ "action": "create", "project": "/p" }))
+        let no_name = design_tool("chat", json!({ "action": "create", "project": "/p" }))
             .await
             .unwrap_err();
         assert!(no_name.contains("name"), "{no_name}");
 
         // `render` with no design errors before it asks the app anything, which
         // is what keeps this test out of the shared PENDING map.
-        let no_design = design_tool(json!({ "action": "render" })).await.unwrap_err();
+        let no_design = design_tool("chat", json!({ "action": "render" })).await.unwrap_err();
         assert!(no_design.contains("list"), "{no_design}");
 
-        let bogus = design_tool(json!({ "action": "teleport" })).await.unwrap_err();
+        let bogus = design_tool("chat", json!({ "action": "teleport" })).await.unwrap_err();
         assert!(bogus.contains("list, create, render"), "{bogus}");
     }
 
@@ -990,7 +990,7 @@ mod tests {
     async fn an_unknown_tool_is_a_tool_error_not_a_protocol_error() {
         // The call happened; it just did not work. A JSON-RPC error would read
         // as a broken server and take the session down with it.
-        let answered = handle(json!({
+        let answered = handle("chat", json!({
             "jsonrpc": "2.0", "id": 2, "method": "tools/call",
             "params": { "name": "nyra_teleport", "arguments": {} }
         }))
@@ -1003,13 +1003,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_notification_gets_no_reply() {
-        let answered = handle(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await;
+        let answered = handle("chat", json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await;
         assert_eq!(answered, Value::Null);
     }
 
     #[tokio::test]
     async fn initialize_answers_with_the_servers_name() {
-        let answered = handle(json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize" })).await;
+        let answered = handle("chat", json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize" })).await;
         assert_eq!(answered["result"]["serverInfo"]["name"], json!("nyra-app"));
         assert!(answered["result"]["capabilities"]["tools"].is_object());
     }

@@ -3,6 +3,7 @@ import { handleAppRequest } from '@renderer/lib/appControl'
 import { useUiStore } from '@renderer/store/ui'
 import { useSettingsStore } from '@renderer/store/settings'
 import { useWorkflowStore } from '@renderer/store/workflow'
+import { useSessionsStore } from '@renderer/store/sessions'
 import {
   PANEL_DEFAULTS,
   PANEL_MINS,
@@ -73,6 +74,19 @@ describe('app control ops', () => {
   it('says so when the flow is not there, rather than opening an empty canvas', async () => {
     load.mockResolvedValue(null)
     await expect(handleAppRequest('open_flow', { id: 'ghost' })).rejects.toThrow(/ghost/)
+  })
+
+  it('answers design.project for the chat that asked, not the one on screen', async () => {
+    useSessionsStore.setState({
+      sessions: [
+        { id: 'here', cwd: '/repo/closeup' },
+        { id: 'asker', cwd: '/repo/nyra' }
+      ] as never,
+      activeSessionId: 'here'
+    })
+    expect(await handleAppRequest('design.project', { sessionId: 'asker' })).toEqual({ ok: true, project: '/repo/nyra' })
+    // No id, or one that names no chat: the active one is all there is to go on.
+    expect(await handleAppRequest('design.project', {})).toEqual({ ok: true, project: '/repo/closeup' })
   })
 
   it('refuses an op it does not have', async () => {

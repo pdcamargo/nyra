@@ -133,7 +133,7 @@ async fn browser_mcp(
 /// the panels belong to the renderer, which Rust can ask directly.
 async fn app_mcp(
     method: axum::http::Method,
-    Path(_chat_id): Path<String>,
+    Path(chat_id): Path<String>,
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
@@ -157,7 +157,7 @@ async fn app_mcp(
             .into_response();
     };
 
-    match crate::app_mcp::handle(message).await {
+    match crate::app_mcp::handle(&chat_id, message).await {
         Value::Null => StatusCode::ACCEPTED.into_response(),
         response => (StatusCode::OK, Json(response)).into_response(),
     }

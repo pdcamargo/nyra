@@ -166,10 +166,17 @@ const OPS: Record<string, Op> = {
    * you supply a fact it could have looked up costs a round trip on every
    * call, which is exactly what a cold session showed.
    */
-  'design.project'() {
+  'design.project'(args) {
+    // The chat that asked, not the one on screen. Answering with the active
+    // chat filed a design under whatever project you happened to be looking
+    // at while Claude worked in another, and its chip then opened a different
+    // design. The active chat is only the fallback for a caller with no id.
     const sessions = useSessionsStore.getState()
-    const active = sessions.sessions.find((s) => s.id === sessions.activeSessionId)
-    return { ok: true, project: active?.cwd ?? null }
+    const asked = typeof args.sessionId === 'string' ? args.sessionId : null
+    const chat =
+      sessions.sessions.find((s) => s.id === asked) ??
+      sessions.sessions.find((s) => s.id === sessions.activeSessionId)
+    return { ok: true, project: chat?.cwd ?? null }
   },
 
   /**

@@ -84,11 +84,24 @@ export default function DesignTab({
   const [renaming, setRenaming] = useState(false)
   const [draftName, setDraftName] = useState('')
 
+  /**
+   * This project's designs, plus the one the tab was opened on.
+   *
+   * A chip can name a design filed under another project — one registered
+   * while a different chat was on screen, or simply one from elsewhere. Listing
+   * only this project's left it out, and the follow effect below then fell back
+   * to the first design here and wrote that over the tab: you clicked one
+   * design and got shown another.
+   */
   const refreshList = useCallback(async () => {
     const list = await window.api.design.list(cwd ?? undefined)
+    if (tab.designId !== null && !list.some((d) => d.id === tab.designId)) {
+      const wanted = (await window.api.design.list()).find((d) => d.id === tab.designId)
+      if (wanted) list.unshift(wanted)
+    }
     setDesigns(list)
     return list
-  }, [cwd])
+  }, [cwd, tab.designId])
 
   useEffect(() => {
     void refreshList()
