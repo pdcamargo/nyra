@@ -276,7 +276,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "nyra_design",
-            "description": "Design documents Nyra renders, and design systems. Load the nyra-design skill for the vocabulary, nyra-design-system for systems and questionnaires.",
+            "description": "Design documents Nyra renders, and design systems. Load the nyra-design skill for the vocabulary and questionnaires, nyra-design-system for systems.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

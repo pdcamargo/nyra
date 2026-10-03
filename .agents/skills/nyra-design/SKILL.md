@@ -299,8 +299,9 @@ Designs are **named, not filed**. You never choose or remember a location — th
    path to write to.
 2. **Write the rough layout first**, to exactly that path. Structure only: the
    artboards at their real sizes, the main regions as boxes, the headings and
-   key controls where they will live. No polish. Ask about sizes you are unsure
-   of rather than guessing a device.
+   key controls where they will live. No polish. Ask about what you cannot
+   infer — sizes, platform, who it is for — rather than guessing (see *Asking
+   before you draw*).
 3. **Render it and look.** `nyra_design action:"render", design:"Billing"` gives
    one PNG per artboard, plus anything the validator objected to. If it did not
    compile, the errors come back instead — read them and fix the document.
@@ -350,13 +351,42 @@ Designs are **named, not filed**. You never choose or remember a location — th
 `nyra_design action:"list"` shows the designs already in this project, and
 `artboard:"<id>"` renders just one of them.
 
+**Asking before you draw.** When several things are the user's to decide —
+who it is for, the platform, a direction, a size — ask them together with a
+questionnaire rather than a list in prose:
+`nyra_design action:"ask", name:"Billing", questions:[…]`. It opens beside the
+chat, answers save as the user goes, and they arrive as the user's next
+message, so end your turn after asking. A few questions, not a form; skip
+what the request or the code already answers.
+
+```json
+{ "id": "density", "question": "How dense should the table be?", "kind": "single",
+  "options": [
+    { "label": "Compact", "preview": { "density": "compact" }, "suggested": true, "why": "the app's other tables are" },
+    { "label": "Comfortable", "preview": { "density": "comfortable" } }
+  ] }
+```
+
+`kind` is `single`, `multi`, `text`, `scale`
+(`"scale": { "min": 0, "max": 16, "unit": "px" }`), `color` or `files`. An
+option can show a `palette`, `swatch`, `radius`, `density` or `type` preview,
+or a drawing of yours: `{ "artboard": "<absolute path>#<artboard id>" }`. That
+is how to let the user **choose between directions**: draw two or three as
+artboards, render them, and ask one short questionnaire whose options are
+those artboards — never by adding the question to an earlier, longer one. An
+answer of *Decide for me* is yours to decide; *Explore options* means draw
+directions and ask that way.
+
 **Feedback and comments from the canvas.** The user can right-click a design
 and send you feedback on a whole artboard (`<design_feedback …>`), or a
 comment pinned to one element (`<design_comment …>`). A comment names the
 element, the file and node to edit (`edit at`), and where its component is
 defined. Act on it, render, then close it:
 `nyra_design action:"resolve", id:"<c_id>", note:"<what you changed, one line>"`.
-The note shows on the comment's pin on the canvas. `action:"comments",
+The note is a reply on the comment's pin. A comment is a thread: when the
+user writes back, their message carries every round so far (`thread:`),
+newest last. Read the reply against what you already tried, change what it
+asks, and resolve again with a new note. `action:"comments",
 design:"<name>"` lists the open ones, for when the user says "go through my
 comments".
 
