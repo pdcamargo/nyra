@@ -8,7 +8,17 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      "Added design systems. Ask Claude for one and it asks a few questions, then builds the tokens, components and screens in a folder in your repo or in Nyra's own folder",
+      'A design system opens as an overview, with pages for its colours and type and one page per component, pattern or screen showing its props, usage and where it is used',
+      'Claude asks its questions in a form in the side panel that saves as you go, with previews for colours, type sizes, density and corner radius, and room for a logo and reference files',
+      'Choosing Explore options on a question gets you two or three drawn directions to pick from',
+      'Right-click a design to give feedback on it, or pin a comment to one element. When Claude acts on a comment it replies on the pin, and you can answer back',
+      'If a project already has a design system, Claude tells you before starting another one',
+      'Nyra now finds the design systems and designs committed to your projects when it starts, and lists them in the summary and the command palette',
+      'Design files no longer have a size limit. Files made by older versions still open, with a button to upgrade them',
+      'Added Create a design system to the command palette'
+    ]
   },
   {
     version: '0.7.3',
