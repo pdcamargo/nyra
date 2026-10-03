@@ -1116,6 +1116,261 @@ pub async fn design_pdf(request: Value) -> Value {
     browser::design_pdf(request).await
 }
 
+/// Reads in flight, by the id the renderer gave them, so closing a tab can stop
+/// a 40 MB read it no longer wants.
+static DESIGN_READS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// A design file, streamed: one JSON message with the size, then the bytes in
+/// raw chunks, then the outcome as the return value.
+///
+/// Raw chunks skip the serde -> JSON -> string round trip that makes the bounded
+/// preview read bounded, and arriving in pieces is what gives the panel a real
+/// progress bar instead of a spinner over a frozen window.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn design_read(
+    file_path: String,
+    cwd: Option<String>,
+    id: String,
+    on_chunk: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
+) -> fs_ops::StreamOutcome {
+    use tauri::ipc::InvokeResponseBody;
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if let Ok(mut reads) = DESIGN_READS.lock() {
+        reads.insert(id.clone(), flag.clone());
+    }
+    let path = in_host(cwd.as_deref(), &file_path);
+    let outcome = fs_ops::stream_file(
+        &path,
+        |size| {
+            let _ = on_chunk.send(InvokeResponseBody::Json(json!({ "total": size }).to_string()));
+        },
+        |chunk| on_chunk.send(InvokeResponseBody::Raw(chunk)).is_ok(),
+        &flag,
+    )
+    .await;
+    if let Ok(mut reads) = DESIGN_READS.lock() {
+        reads.remove(&id);
+    }
+    outcome
+}
+
+#[tauri::command]
+pub fn design_read_cancel(id: String) {
+    if let Some(flag) = DESIGN_READS.lock().ok().and_then(|reads| reads.get(&id).cloned()) {
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Replace a design with its upgraded text, after backing up the original.
+#[tauri::command]
+pub fn design_write_upgraded(path: String, content: String, from: u32) -> Value {
+    match crate::designs::write_upgraded(std::path::Path::new(&path), &content, from) {
+        Ok(backup) => json!({ "ok": true, "backup": backup }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+// ---- design systems ----
+
+fn system_reply(r: Result<crate::design_systems::SystemEntry, String>) -> Value {
+    match r {
+        Ok(system) => json!({ "ok": true, "system": system }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command]
+pub fn system_list(project: Option<String>) -> Value {
+    let project = project.map(std::path::PathBuf::from);
+    json!(crate::design_systems::list(project.as_deref()))
+}
+
+/// `location` is `nyra` (Nyra's folder) or `repo`; `dir` is the folder inside
+/// the project for `repo`, `design` when omitted.
+#[tauri::command]
+pub fn system_create(name: String, project: String, location: String, dir: Option<String>) -> Value {
+    use crate::design_systems::Location;
+    let where_ = match location.as_str() {
+        "repo" => Location::Repo(dir.unwrap_or_else(|| "design".into()).into()),
+        _ => Location::Nyra,
+    };
+    system_reply(crate::design_systems::create(&name, std::path::Path::new(&project), where_))
+}
+
+#[tauri::command]
+pub fn system_adopt(root: String, project: String) -> Value {
+    system_reply(crate::design_systems::adopt(std::path::Path::new(&root), std::path::Path::new(&project)))
+}
+
+/// A system's files. `root` reads a copy of it — a worktree's — rather than
+/// the registered folder.
+#[tauri::command]
+pub fn system_files(id: String, root: Option<String>) -> Value {
+    match crate::design_systems::entry_at(&id, root.as_deref().map(std::path::Path::new)) {
+        Ok(system) => json!({ "ok": true, "root": system.root, "files": crate::design_systems::files(&system) }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+/// The system a file belongs to, and its path inside it.
+#[tauri::command]
+pub fn system_of(path: String) -> Value {
+    match crate::design_systems::system_of(std::path::Path::new(&path)) {
+        Some((system, rel, moved)) => json!({ "system": system, "rel": rel, "moved": moved }),
+        None => Value::Null,
+    }
+}
+
+#[tauri::command]
+pub fn system_relocate(id: String, to: String) -> Value {
+    system_reply(crate::design_systems::relocate(&id, std::path::Path::new(&to)))
+}
+
+#[tauri::command]
+pub fn system_rename(id: String, name: String) -> Value {
+    system_reply(crate::design_systems::rename(&id, &name))
+}
+
+#[tauri::command]
+pub fn system_forget(id: String) -> Value {
+    match crate::design_systems::forget(&id) {
+        Ok(()) => json!({ "ok": true }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn system_set_project_skill(id: String, on: bool) -> Value {
+    system_reply(crate::design_systems::set_project_skill(&id, on))
+}
+
+#[tauri::command]
+pub fn system_write_project_skill(id: String, content: String, root: Option<String>) -> Value {
+    match crate::design_systems::write_project_skill(&id, &content, root.as_deref().map(std::path::Path::new)) {
+        Ok(path) => json!({ "ok": true, "path": path }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+/// What design work a project already has, adopted into Nyra's lists.
+///
+/// The launch pass is skipped by a passive dev instance: it adopts into the
+/// design lists the installed app reads too, and a dev build is there to be
+/// looked at, not to file things under every project in its sidebar. Asked
+/// for directly, it still runs.
+#[tauri::command]
+pub async fn system_discover(project: String, launch: Option<bool>) -> Value {
+    let project = std::path::Path::new(&project);
+    if launch == Some(true) && crate::passive_dev() {
+        return json!({ "systems": crate::design_systems::list(Some(project)), "designs": 0, "skipped": true });
+    }
+    json!(crate::design_systems::discover(project).await)
+}
+
+// ---- design comments ----
+
+fn comment_reply(r: Result<Value, String>) -> Value {
+    match r {
+        Ok(comment) => json!({ "ok": true, "comment": comment }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command]
+pub fn comments_list(scope: String) -> Value {
+    match crate::comments::list(&scope) {
+        Ok(list) => json!({ "ok": true, "comments": list }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command]
+pub fn comments_add(scope: String, comment: Value) -> Value {
+    comment_reply(crate::comments::add(&scope, comment))
+}
+
+#[tauri::command]
+pub fn comments_update(scope: String, id: String, change: Value) -> Value {
+    comment_reply(crate::comments::update(&scope, &id, &change))
+}
+
+#[tauri::command]
+pub fn comments_delete(scope: String, id: String) -> Value {
+    match crate::comments::delete(&scope, &id) {
+        Ok(()) => json!({ "ok": true }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+// ---- questionnaires ----
+
+#[tauri::command]
+pub fn questionnaire_get(id: String) -> Value {
+    crate::questionnaires::get(&id).unwrap_or(Value::Null)
+}
+
+#[tauri::command]
+pub fn questionnaire_list(project: Option<String>) -> Value {
+    json!(crate::questionnaires::list(project.as_deref()))
+}
+
+#[tauri::command]
+pub fn questionnaire_set_answers(id: String, answers: Value) -> Value {
+    match crate::questionnaires::set_answers(&id, answers) {
+        Ok(q) => json!({ "ok": true, "questionnaire": q }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command]
+pub fn questionnaire_mark_sent(id: String, count: u64) -> Value {
+    match crate::questionnaires::mark_sent(&id, count) {
+        Ok(q) => json!({ "ok": true, "questionnaire": q }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+/// Copy files picked for an answer. One that fails is reported and the rest
+/// are still added.
+#[tauri::command]
+pub fn questionnaire_add_files(id: String, paths: Vec<String>) -> Value {
+    let mut files = Vec::new();
+    let mut errors = Vec::new();
+    for p in &paths {
+        let path = std::path::Path::new(p);
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+        match crate::questionnaires::add_file(&id, name, Some(path), None) {
+            Ok(f) => files.push(f),
+            Err(e) => errors.push(e),
+        }
+    }
+    json!({ "files": files, "errors": errors })
+}
+
+/// A dropped or pasted file, which arrives as bytes with no path.
+#[tauri::command(rename_all = "camelCase")]
+pub fn questionnaire_add_file_bytes(id: String, name: String, base64: String) -> Value {
+    use base64::Engine;
+    let bytes = match base64::engine::general_purpose::STANDARD.decode(base64) {
+        Ok(b) => b,
+        Err(_) => return json!({ "files": [], "errors": [format!("could not read {name}")] }),
+    };
+    match crate::questionnaires::add_file(&id, &name, None, Some(&bytes)) {
+        Ok(f) => json!({ "files": [f], "errors": [] }),
+        Err(e) => json!({ "files": [], "errors": [e] }),
+    }
+}
+
+#[tauri::command]
+pub fn questionnaire_remove_file(id: String, path: String) -> Value {
+    match crate::questionnaires::remove_file(&id, std::path::Path::new(&path)) {
+        Ok(()) => json!({ "ok": true }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
 #[tauri::command]
 pub fn design_list(project: Option<String>) -> Value {
     let project = project.map(std::path::PathBuf::from);

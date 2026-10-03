@@ -110,7 +110,7 @@ describe('emitted markup', () => {
 
   it('draws an icon as inline SVG from lucide node data', () => {
     const { doc, theme } = compile({
-      schema: 1,
+      schema: 2,
       name: 'Icon',
       artboards: [
         {
@@ -130,7 +130,7 @@ describe('emitted markup', () => {
   it('refuses an icon name that does not exist, rather than rendering a hole', () => {
     expect(() =>
       compile({
-        schema: 1,
+        schema: 2,
         name: 'Icon',
         artboards: [
           {

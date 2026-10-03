@@ -276,19 +276,25 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "nyra_design",
-            "description": "Draft and render UI as a design document Nyra turns into a picture. action:\"list\" for this project's designs, \"create\" to get a path to write a new one to, \"render\" to produce PNGs. Designs are named, not filed — you never pick or remember a location. Load the nyra-design skill for the document vocabulary.",
+            "description": "Design documents Nyra renders, and design systems. Load the nyra-design skill for the vocabulary, nyra-design-system for systems and questionnaires.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["list", "create", "render"],
-                        "description": "list: designs in this project. create: registers a name and returns the path to write. render: PNG per artboard."
+                        "enum": ["list", "create", "render", "upgrade", "ask", "answers", "comments", "resolve"],
+                        "description": "list: designs and systems (design:<system> gives its digest). create: where to write a new one. render: PNG per artboard. upgrade: to the current format. ask/answers: questionnaires. comments: open ones on a design. resolve: close one."
                     },
-                    "name": { "type": "string", "description": "For action:\"create\". A short human name — \"Billing\", not a filename." },
-                    "design": { "type": "string", "description": "For action:\"render\": the name or id from list/create." },
-                    "artboard": { "type": "string", "description": "Render only this artboard id. Omit for all of them." },
-                    "project": { "type": "string", "description": "Absolute project path. Defaults to the session's directory." }
+                    "name": { "type": "string", "description": "For create and ask: a short human name." },
+                    "design": { "type": "string", "description": "A name or id from list, or a file's absolute path." },
+                    "artboard": { "type": "string", "description": "Render only this artboard id." },
+                    "kind": { "type": "string", "enum": ["design", "system"], "description": "For create and ask." },
+                    "location": { "type": "string", "enum": ["nyra", "repo"], "description": "For create kind:system." },
+                    "anyway": { "type": "boolean", "description": "kind:system when the project has one. Only once the user said so." },
+                    "questions": { "type": "array", "items": { "type": "object" }, "description": "For ask." },
+                    "id": { "type": "string", "description": "A questionnaire or comment id." },
+                    "note": { "type": "string", "description": "For resolve: what you changed, in one line." },
+                    "project": { "type": "string", "description": "Absolute project path. Defaults to the chat's." }
                 },
                 "required": ["action"]
             }
@@ -522,11 +528,33 @@ async fn design_tool(chat_id: &str, args: Value) -> Result<String, String> {
     match action.as_str() {
         "list" => {
             let project = design_project(chat_id, &args).await;
+            if let Some(needle) = arg_str(&args, "design") {
+                if let Some(system) = crate::design_systems::resolve(&needle, project.as_deref()) {
+                    let answer =
+                        ask_renderer_within(DESIGN_TIMEOUT, "design.system", json!({ "id": system.id, "root": system.root })).await?;
+                    return answer
+                        .get("digest")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .ok_or_else(|| {
+                            answer.get("error").and_then(Value::as_str).unwrap_or("could not read the system").to_string()
+                        });
+                }
+            }
             let designs = crate::designs::list(project.as_deref());
-            if designs.is_empty() {
+            let systems = crate::design_systems::list(project.as_deref());
+            if designs.is_empty() && systems.is_empty() {
                 return Ok("No designs yet. action:\"create\" with a name registers one and tells you where to write it.".into());
             }
-            Ok(pretty(&json!(designs)))
+            let systems: Vec<Value> = systems
+                .iter()
+                .map(|s| json!({ "id": s.id, "name": s.name, "root": s.root, "kind": "system" }))
+                .collect();
+            let mut out = pretty(&json!({ "systems": systems, "designs": designs }));
+            if !systems.is_empty() {
+                out.push_str("\n\nlist with design:\"<system name>\" returns a system's digest: its tokens, components and rules.");
+            }
+            Ok(out)
         }
         "create" => {
             let name = arg_str(&args, "name")
@@ -534,6 +562,15 @@ async fn design_tool(chat_id: &str, args: Value) -> Result<String, String> {
             let project = design_project(chat_id, &args).await.ok_or(
                 "nyra_design action:\"create\" could not tell which project this is. Pass `project` with the absolute path.",
             )?;
+            if arg_str(&args, "kind").as_deref() == Some("system") {
+                check_no_system(&project, &args)?;
+                let location = match arg_str(&args, "location").as_deref() {
+                    Some("repo") => crate::design_systems::Location::Repo("design".into()),
+                    _ => crate::design_systems::Location::Nyra,
+                };
+                let system = crate::design_systems::create(&name, &project, location)?;
+                return Ok(system_created(&system));
+            }
             let entry = crate::designs::create(&name, &project)?;
             Ok(format!(
                 "Registered \"{}\" as {}.\n\nWrite the document to:\n{}\n\nThen render it with action:\"render\", design:\"{}\".",
@@ -545,17 +582,15 @@ async fn design_tool(chat_id: &str, args: Value) -> Result<String, String> {
         }
         "render" => {
             let needle = arg_str(&args, "design")
-                .ok_or("nyra_design action:\"render\" needs a design name or id. Use action:\"list\".")?;
+                .ok_or("nyra_design action:\"render\" needs a design name or id, or a file's path. Use action:\"list\".")?;
             let project = design_project(chat_id, &args).await;
-            let entry = crate::designs::resolve(&needle, project.as_deref()).ok_or_else(|| {
-                format!("No design matches \"{needle}\". Use action:\"list\" to see what there is.")
-            })?;
+            let (path, name, id) = design_target(&needle, project.as_deref())?;
 
             let answer = ask_renderer_within(
                 DESIGN_TIMEOUT,
                 "design.render",
                 json!({
-                    "path": entry.path,
+                    "path": path,
                     "artboard": args.get("artboard").cloned(),
                 }),
             )
@@ -568,11 +603,111 @@ async fn design_tool(chat_id: &str, args: Value) -> Result<String, String> {
                     .unwrap_or("the render failed")
                     .to_string());
             }
-            crate::designs::touch(&entry.id).ok();
-            Ok(render_summary(&entry.name, &answer))
+            if let Some(id) = id {
+                crate::designs::touch(&id).ok();
+            }
+            Ok(render_summary(&name, &answer))
+        }
+        "upgrade" => {
+            let needle = arg_str(&args, "design")
+                .ok_or("nyra_design action:\"upgrade\" needs a design or system name, or a file's path. Use action:\"list\".")?;
+            let project = design_project(chat_id, &args).await;
+            if let Some(system) = crate::design_systems::resolve(&needle, project.as_deref()) {
+                let answer =
+                    ask_renderer_within(DESIGN_TIMEOUT, "design.upgradeSystem", json!({ "id": system.id, "root": system.root })).await?;
+                if answer.get("ok").and_then(Value::as_bool) == Some(false) {
+                    return Err(answer.get("error").and_then(Value::as_str).unwrap_or("the upgrade failed").to_string());
+                }
+                return Ok(system_upgrade_summary(&system.name, &answer));
+            }
+            let (path, name, id) = design_target(&needle, project.as_deref())?;
+            let answer = ask_renderer_within(DESIGN_TIMEOUT, "design.upgrade", json!({ "path": path })).await?;
+            if answer.get("ok").and_then(Value::as_bool) == Some(false) {
+                return Err(answer
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("the upgrade failed")
+                    .to_string());
+            }
+            if let Some(id) = id {
+                crate::designs::touch(&id).ok();
+            }
+            Ok(upgrade_summary(&name, &answer))
+        }
+        "ask" => {
+            let questions = args.get("questions").and_then(Value::as_array).cloned().unwrap_or_default();
+            let id = arg_str(&args, "id");
+            if questions.is_empty() && id.is_none() && arg_str(&args, "kind").as_deref() != Some("system") {
+                return Err("nyra_design action:\"ask\" needs questions, or the id of a questionnaire to open again.".into());
+            }
+            let project = design_project(chat_id, &args).await;
+            // A system's questionnaire: the brief is Nyra's to add. Naming a
+            // system the project has is filling that one in, so where it lives
+            // is settled; otherwise it is a new one, and a project that has a
+            // system already is told so first.
+            let brief = match (&project, id.is_none() && arg_str(&args, "kind").as_deref() == Some("system")) {
+                (Some(p), true) => match arg_str(&args, "design").and_then(|d| crate::design_systems::resolve(&d, Some(p))) {
+                    Some(_) => Some(false),
+                    None => {
+                        check_no_system(p, &args)?;
+                        Some(p.join(".git").exists())
+                    }
+                },
+                _ => None,
+            };
+            let project = project.map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+            let title = arg_str(&args, "name").unwrap_or_default();
+            let q = crate::questionnaires::ask(id.as_deref(), &title, &project, chat_id, &questions, brief)?;
+            let qid = q["id"].as_str().unwrap_or_default().to_string();
+            // A round added to one already asked opens on its first question,
+            // not on the first page of everything asked before.
+            let focus = match (&id, questions.is_empty()) {
+                (Some(_), false) => q["rounds"].as_array().and_then(|r| r.last()).and_then(|r| r["questions"][0]["id"].as_str()),
+                _ => None,
+            };
+            // Opened in the chat that asked; a failure to open is not a failure
+            // to ask — the chip in the transcript opens it too.
+            ask_renderer("design.openQuestionnaire", json!({ "id": qid, "sessionId": chat_id, "focus": focus })).await.ok();
+            let opened = questionnaire_opened(&q, !questions.is_empty() || brief.is_some());
+            Ok(match brief {
+                Some(_) => format!(
+                    "{opened}\n\nNyra put the brief around your questions: the product, a logo and references (files), \
+                     where the system lives (for a new one in a git repo) and anything else. Files arrive as paths; read them. \
+                     The user can see all of it, so don't describe it."
+                ),
+                None => opened,
+            })
+        }
+        "answers" => {
+            let id = arg_str(&args, "id").ok_or("nyra_design action:\"answers\" needs the questionnaire's id.")?;
+            let answer = ask_renderer("design.questionnaireAnswers", json!({ "id": id })).await?;
+            answer
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| answer.get("error").and_then(Value::as_str).unwrap_or("could not read it").to_string())
+        }
+        "comments" => {
+            let needle = arg_str(&args, "design")
+                .ok_or("nyra_design action:\"comments\" needs a design or system name, or a file's path.")?;
+            let project = design_project(chat_id, &args).await;
+            let (scope, label) = comment_scope(&needle, project.as_deref())?;
+            let all = crate::comments::list(&scope)?;
+            Ok(comments_summary(&label, &all))
+        }
+        "resolve" => {
+            let id = arg_str(&args, "id").ok_or("nyra_design action:\"resolve\" needs the comment's id.")?;
+            let note = arg_str(&args, "note").unwrap_or_default();
+            let scope = crate::comments::scope_of(&id).ok_or_else(|| format!("no comment {id}"))?;
+            let c = crate::comments::update(&scope, &id, &json!({ "status": "resolved", "note": note, "by": "claude" }))?;
+            Ok(format!(
+                "Resolved comment {} (#{}). Your note is a reply on its pin; the user can answer it there.",
+                id,
+                c["n"].as_u64().unwrap_or(0)
+            ))
         }
         other => Err(format!(
-            "nyra_design has no action \"{other}\". It has: list, create, render."
+            "nyra_design has no action \"{other}\". It has: list, create, render, upgrade, ask, answers, comments, resolve."
         )),
     }
 }
@@ -613,6 +748,17 @@ fn render_summary(name: &str, answer: &Value) -> String {
         }
     }
 
+    // An old file renders from its upgraded copy, but an edit written into it
+    // would still be in the old format. Said here, where Claude is about to edit.
+    if let Some(format) = answer.get("format").filter(|f| !f.is_null()) {
+        let from = format.get("from").and_then(Value::as_i64).unwrap_or(0);
+        let to = format.get("to").and_then(Value::as_i64).unwrap_or(0);
+        out.push_str(&format!(
+            "\nThis file is format v{from}; it was rendered from an upgraded copy (current is v{to}). \
+             Run action:\"upgrade\" before editing it, or your edits land in the old format.\n"
+        ));
+    }
+
     // What the model reads immediately before deciding how to hand this over.
     // The skill says the same thing; this is the reminder at the point of use.
     out.push_str(
@@ -620,6 +766,191 @@ fn render_summary(name: &str, answer: &Value) -> String {
          — the document path in backticks — not as an image. Post a PNG only if they asked to see \
          it in the conversation.",
     );
+    out
+}
+
+/// Which comment scope a design, system or file names: a system's comments are
+/// shared by all its files; a draft has its own.
+fn comment_scope(needle: &str, project: Option<&std::path::Path>) -> Result<(String, String), String> {
+    if let Some(s) = crate::design_systems::resolve(needle, project) {
+        return Ok((format!("sys:{}", s.id), s.name));
+    }
+    let path = std::path::Path::new(needle);
+    if path.is_absolute() {
+        if let Some((s, _, _)) = crate::design_systems::system_of(path) {
+            return Ok((format!("sys:{}", s.id), s.name));
+        }
+        if let Some(d) = crate::designs::list(None).into_iter().find(|d| d.path == path) {
+            return Ok((format!("design:{}", d.id), d.name));
+        }
+    }
+    let d = crate::designs::resolve(needle, project).ok_or_else(|| format!("No design or system matches \"{needle}\"."))?;
+    Ok((format!("design:{}", d.id), d.name))
+}
+
+/// Open comments, each with what it is pinned to and where to make the change.
+fn comments_summary(label: &str, all: &[Value]) -> String {
+    let open: Vec<&Value> = all.iter().filter(|c| c["status"] != "resolved").collect();
+    if open.is_empty() {
+        return format!("No open comments on \"{label}\".");
+    }
+    let mut out = format!("Open comments on \"{label}\" ({}):\n", open.len());
+    for c in open {
+        let a = &c["anchor"];
+        let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+        let o = &a["origin"];
+        let edit = if o.is_object() {
+            let file = s(&o["file"]);
+            let at = format!("{}#{}", s(&o["scope"]), s(&o["id"]));
+            if file.is_empty() { at } else { format!("{file} · {at}") }
+        } else {
+            "the artboard (the element it was on is gone)".to_string()
+        };
+        let file = c["rel"].as_str().filter(|r| !r.is_empty()).map_or_else(|| s(&c["file"]), str::to_string);
+        out.push_str(&format!(
+            "\n{} · pin {} · {} · artboard \"{}\"\n  on: {}\n  edit at: {}\n  \"{}\"\n",
+            s(&c["id"]),
+            c["n"].as_u64().unwrap_or(0),
+            file,
+            s(&c["artboardId"]),
+            s(&a["label"]),
+            edit,
+            s(&c["text"])
+        ));
+        // The rounds so far: what was tried, and what the user said back.
+        for r in c["replies"].as_array().into_iter().flatten() {
+            let who = if r["by"] == "claude" { "you (Claude)" } else { "the user" };
+            out.push_str(&format!("  ↳ {who}: \"{}\"\n", s(&r["text"])));
+        }
+    }
+    out.push_str("\nAfter acting on one, resolve it with action:\"resolve\", id, and a one-line note.");
+    out
+}
+
+/// What Claude reads after asking: where the questions are, and that the turn
+/// should end — the answers come as the user's next message.
+fn questionnaire_opened(q: &Value, asked: bool) -> String {
+    let id = q["id"].as_str().unwrap_or_default();
+    let total: usize = q["rounds"]
+        .as_array()
+        .map(|r| r.iter().map(|x| x["questions"].as_array().map_or(0, Vec::len)).sum())
+        .unwrap_or(0);
+    let answered = q["answers"].as_object().map_or(0, |a| a.len());
+    let head = if asked {
+        format!("Opened the questionnaire {id} in the side panel: {total} question(s), {answered} answered.")
+    } else {
+        format!("Opened the questionnaire {id} again: {answered} of {total} answered; nothing was lost.")
+    };
+    format!(
+        "{head}\n\nEnd your turn now. The answers arrive as the user's next message, whenever they send them — \
+         possibly partial; anything unanswered is yours to decide. Read the current answers any time with \
+         action:\"answers\", id:\"{id}\". To add questions later, ask again with this id."
+    )
+}
+
+/// A design by name or id, or a `.nyui.json` file by absolute path — which is
+/// how a file inside a design system is named, since those are found by
+/// folder rather than registered one by one.
+fn design_target(needle: &str, project: Option<&std::path::Path>) -> Result<(std::path::PathBuf, String, Option<String>), String> {
+    let as_path = std::path::Path::new(needle);
+    if as_path.is_absolute() && needle.ends_with(".nyui.json") {
+        let name = as_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.trim_end_matches(".nyui.json").to_string())
+            .unwrap_or_else(|| needle.to_string());
+        return Ok((as_path.to_path_buf(), name, None));
+    }
+    let entry = crate::designs::resolve(needle, project).ok_or_else(|| {
+        format!("No design matches \"{needle}\". Use action:\"list\" to see what there is, or pass a file's absolute path.")
+    })?;
+    Ok((entry.path, entry.name, Some(entry.id)))
+}
+
+/// What Claude reads after creating a system: where it is, and how it is laid
+/// out — files are found by folder, so there is nothing to register.
+/// Refuse to start a second design system for a project unless the user has
+/// said they want one. Someone asking for "a design system" may well have
+/// forgotten theirs, and a second one splits every component and token in two.
+fn check_no_system(project: &std::path::Path, args: &Value) -> Result<(), String> {
+    if args.get("anyway").and_then(Value::as_bool) == Some(true) {
+        return Ok(());
+    }
+    let systems = crate::design_systems::list(Some(project));
+    match system_exists(project, &systems) {
+        Some(warning) => Err(warning),
+        None => Ok(()),
+    }
+}
+
+fn system_exists(project: &std::path::Path, systems: &[crate::design_systems::SystemEntry]) -> Option<String> {
+    let first = systems.first()?;
+    let place = |s: &crate::design_systems::SystemEntry| {
+        if s.root.starts_with(project) {
+            format!("in the repo at {}", s.root.display())
+        } else {
+            format!("in Nyra's folder at {}", s.root.display())
+        }
+    };
+    let head = if systems.len() == 1 {
+        format!("This project already has a design system: \"{}\", {}.", first.name, place(first))
+    } else {
+        let all: Vec<String> = systems.iter().map(|s| format!("\"{}\", {}", s.name, place(s))).collect();
+        format!("This project already has {} design systems: {}.", systems.len(), all.join("; "))
+    };
+    Some(format!(
+        "{head}\n\nDon't start another one. Tell the user it exists — they may have forgotten — and ask whether \
+         to build on it or make a second one. action:\"list\", design:\"{name}\" shows what is in it; to ask about \
+         building on it, use kind:\"system\" with design:\"{name}\". Only if they want a second one, repeat this \
+         call with anyway:true.",
+        name = first.name
+    ))
+}
+
+fn system_created(s: &crate::design_systems::SystemEntry) -> String {
+    format!(
+        "Created the \"{name}\" design system ({id}) at:\n{root}\n\n\
+         Write files into it; Nyra finds them by folder, so there is nothing to register:\n\
+         \x20 components/<family>.nyui.json — a component family and its specimen artboards\n\
+         \x20 patterns/<name>.nyui.json — compositions of components\n\
+         \x20 screens/<name>.nyui.json — product screens built from the system\n\
+         \x20 guidelines/brief.md — what was decided, and why\n\n\
+         tokens.json is seeded with the built-in theme; change it to the system's colours, type and spacing.\n\
+         Render a file with action:\"render\", design:\"<its absolute path>\". Load the nyra-design-system skill for the rest.",
+        name = s.name,
+        id = s.id,
+        root = s.root.display()
+    )
+}
+
+fn system_upgrade_summary(name: &str, answer: &Value) -> String {
+    let files = answer.get("upgraded").and_then(Value::as_array).cloned().unwrap_or_default();
+    if files.is_empty() {
+        return format!("Every file in \"{name}\" is already the current format. Nothing to do.");
+    }
+    let backup = answer.get("backup").and_then(Value::as_str).unwrap_or("");
+    let mut out = format!("Upgraded {} file(s) in \"{name}\". Originals are kept in {backup}.\n", files.len());
+    for f in files.iter().filter_map(Value::as_str) {
+        out.push_str(&format!("  {f}\n"));
+    }
+    out
+}
+
+/// What the model reads after an upgrade: what happened, where the original
+/// went, and anything a migration step could not carry over.
+fn upgrade_summary(name: &str, answer: &Value) -> String {
+    if answer.get("current").and_then(Value::as_bool) == Some(true) {
+        let v = answer.get("version").and_then(Value::as_i64).unwrap_or(0);
+        return format!("\"{name}\" is already format v{v}. Nothing to do.");
+    }
+    let from = answer.get("from").and_then(Value::as_i64).unwrap_or(0);
+    let to = answer.get("to").and_then(Value::as_i64).unwrap_or(0);
+    let backup = answer.get("backup").and_then(Value::as_str).unwrap_or("");
+    let mut out = format!("Upgraded \"{name}\" from format v{from} to v{to}. The original is kept at {backup}.\n");
+    let notes = answer.get("notes").and_then(Value::as_array).cloned().unwrap_or_default();
+    for n in notes.iter().filter_map(Value::as_str) {
+        out.push_str(&format!("  {n}\n"));
+    }
     out
 }
 
@@ -928,6 +1259,29 @@ mod tests {
         deliver_response("never-asked", json!({ "ok": true }));
     }
 
+    #[test]
+    fn a_second_system_is_refused_until_the_user_says_so() {
+        let project = std::path::Path::new("/repo");
+        let entry = |name: &str, root: &str| crate::design_systems::SystemEntry {
+            id: "s_1".into(),
+            name: name.into(),
+            root: root.into(),
+            project: project.into(),
+            updated_at: String::new(),
+            previous_roots: vec![],
+            project_skill: false,
+        };
+        assert_eq!(system_exists(project, &[]), None);
+        let one = system_exists(project, &[entry("Closeup", "/repo/design")]).unwrap();
+        assert!(one.starts_with("This project already has a design system: \"Closeup\", in the repo at /repo/design."));
+        assert!(one.contains("anyway:true"));
+        let two = system_exists(project, &[entry("Closeup", "/repo/design"), entry("Docs", "/Users/me/.nyra/designs/systems/docs-s_2")]).unwrap();
+        assert!(two.contains("2 design systems"));
+        assert!(two.contains("\"Docs\", in Nyra's folder at"));
+        assert!(check_no_system(std::path::Path::new("/nowhere/at/all"), &json!({})).is_ok());
+        assert!(check_no_system(project, &json!({ "anyway": true })).is_ok());
+    }
+
     #[tokio::test]
     async fn tools_list_carries_exactly_the_four() {
         let listed = handle("chat", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await;
@@ -984,6 +1338,52 @@ mod tests {
         // The chip is the handoff; a PNG in chat is on request only.
         assert!(text.contains("as a chip"), "{text}");
         assert!(text.contains("not as an image"), "{text}");
+    }
+
+    // An old file renders fine from its upgraded copy, which is exactly why
+    // Claude has to be told: its edits would still land in the old format.
+    #[test]
+    fn open_comments_say_what_they_are_on_and_where_to_edit() {
+        let all = vec![
+            json!({ "id": "c_1", "n": 1, "status": "open", "text": "Say Allow", "file": "/r/design/screens/settings.nyui.json",
+                    "rel": "screens/settings.nyui.json", "artboardId": "settings",
+                    "anchor": { "label": "Grant access", "origin": { "scope": "Button", "id": "label", "file": "components/button.nyui.json" } } }),
+            json!({ "id": "c_2", "n": 2, "status": "resolved", "text": "Done already" }),
+            json!({ "id": "c_3", "n": 3, "status": "open", "text": "Too much air", "file": "/d.nyui.json", "artboardId": "a",
+                    "anchor": { "label": "a", "origin": null },
+                    "replies": [{ "by": "claude", "text": "Halved the padding" }, { "by": "you", "text": "Now it's cramped" }] })
+        ];
+        let out = comments_summary("Closeup", &all);
+        assert!(out.starts_with("Open comments on \"Closeup\" (2):"));
+        assert!(out.contains("c_1 · pin 1 · screens/settings.nyui.json · artboard \"settings\""));
+        assert!(out.contains("edit at: components/button.nyui.json · Button#label"));
+        assert!(out.contains("edit at: the artboard (the element it was on is gone)"));
+        assert!(out.contains("  ↳ you (Claude): \"Halved the padding\"\n  ↳ the user: \"Now it's cramped\""));
+        assert!(!out.contains("Done already"));
+        assert_eq!(comments_summary("Closeup", &all[1..2]), "No open comments on \"Closeup\".");
+    }
+
+    #[test]
+    fn a_render_of_an_old_file_says_to_upgrade_before_editing() {
+        let answer = json!({ "ok": true, "artboards": [], "issues": [],
+                             "format": { "from": 1, "to": 2, "notes": [] } });
+        let text = render_summary("Billing", &answer);
+        assert!(text.contains("format v1"), "{text}");
+        assert!(text.contains("action:\"upgrade\""), "{text}");
+        let current = json!({ "ok": true, "artboards": [], "issues": [], "format": null });
+        assert!(!render_summary("Billing", &current).contains("upgrade"));
+    }
+
+    #[test]
+    fn an_upgrade_summary_names_the_backup_and_the_notes() {
+        let done = json!({ "ok": true, "from": 1, "to": 2, "backup": "/b/billing.v1.nyui.json",
+                           "notes": ["v1 → v2: slots", "theme \"brand\" was dropped"] });
+        let text = upgrade_summary("Billing", &done);
+        assert!(text.contains("from format v1 to v2"), "{text}");
+        assert!(text.contains("/b/billing.v1.nyui.json"), "{text}");
+        assert!(text.contains("was dropped"), "{text}");
+        let current = json!({ "ok": true, "current": true, "version": 2 });
+        assert!(upgrade_summary("Billing", &current).contains("already format v2"));
     }
 
     #[tokio::test]

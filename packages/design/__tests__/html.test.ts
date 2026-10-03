@@ -99,7 +99,7 @@ describe('the raster cache key', () => {
 
 describe('artboard position', () => {
   const doc = (position?: unknown): unknown => ({
-    schema: 1,
+    schema: 2,
     name: 'T',
     artboards: [
       {

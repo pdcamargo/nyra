@@ -64,6 +64,13 @@ pub const BUNDLED: &[Bundled] = &[
         name: "nyra-design",
         content: include_str!("../../.agents/skills/nyra-design/SKILL.md"),
     },
+    // Systems: a folder of designs sharing tokens and components. Its own
+    // skill so "make a design system" and "design inside this project's
+    // system" load it, and a one-off mock does not carry it.
+    Bundled {
+        name: "nyra-design-system",
+        content: include_str!("../../.agents/skills/nyra-design-system/SKILL.md"),
+    },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

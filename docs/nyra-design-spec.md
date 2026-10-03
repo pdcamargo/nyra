@@ -257,3 +257,156 @@ structural (the value forms are wrong, components do not compose, layout fights
 you). Additive gaps are a morning's work. Structural gaps mean the schema is
 wrong, and finding that out in a day instead of three weeks is the entire point
 of the spike.
+
+## Design systems (format v2)
+
+A design was one file. It is now also a **project**: a folder of files that
+share one theme and one set of components. Single files stay, as drafts.
+
+### Format versions and migrations
+
+Every file kind carries `"schema"`; `FORMAT_VERSION` in
+`packages/design/src/migrations/` is the current one. Backwards compatibility
+is not a goal. A safe way forward is: each breaking change ships a step
+`{ from, to, migrate(json) → { json, notes } }` that works on **raw JSON**,
+because an old shape cannot type-check against the new schema. `upgrade()`
+runs the chain.
+
+- An old file opens upgraded in memory, with a banner. **Upgrade** backs the
+  original up to `~/.nyra/designs/backups/` and writes the new version,
+  pretty-printed. A system upgrades all its files in one go.
+- A file newer than this Nyra is refused, never half-drawn.
+- Claude's `render` says when a file is old; `action:"upgrade"` rewrites it.
+  `npm run design:upgrade -- <paths>` does it without the app.
+- The tests make a breaking change without a migration impossible to ship:
+  every older version needs a step, and the examples must be current.
+
+### No size limit
+
+The old ceiling was the generic text read (1 MiB, 20,000 lines), which ships a
+file across IPC as one JSON string. Designs no longer use it. `design_read`
+streams raw bytes over a Tauri `Channel`, a Web Worker parses and compiles, the
+tab shows progress once an open takes long enough to notice, and the canvas
+only draws artboards near the viewport. What is left are memory, Chromium's
+16k-pixel texture limit for PNGs, and Claude's own Read tool, which cannot read
+a huge single-line file in pieces. That last one is why upgrades pretty-print
+and the skill says to split big files.
+
+### A system is a folder
+
+```text
+<root>/                      ~/.nyra/designs/systems/<slug>-<id>/  or  <repo>/design/
+  nyra.design.json           name, id, description
+  tokens.json                the theme, with modes (dark is an override, never an addition)
+  components/*.nyui.json     a component family per file, with specimen artboards
+  patterns/*.nyui.json       compositions
+  screens/*.nyui.json        product screens
+  guidelines/*.md            principles, voice, and brief.md
+```
+
+- **Registered in `~/.nyra/designs/systems.json`, not `index.json`.** The
+  installed app and dev share both files, and an older build loads `index.json`
+  leniently and drops fields it does not know on save. A system in there would
+  be stripped within one render.
+- **Membership is a path prefix**, canonicalised, and only those three
+  folders, one level deep. Nothing is found by scanning the disk. `#` is not
+  allowed in member file names, because a chip splits on the first `#`.
+- **Moving a system** (Nyra's folder into the repo) is copy, verify, delete,
+  and the old root goes into `previousRoots`, so chips that name it still open.
+- **Worktrees.** A repo system is checked out in every worktree, and a worktree
+  chat edits its own copy. `list`, `system_of` and the system prompt all give
+  back a *view* of the entry with its root moved into the worktree
+  (`git::linked_worktree` reads the `.git` file, so no git process). `files`
+  takes the root the caller holds and refuses one whose manifest names another
+  system.
+
+### One namespace, slots, and the address of a node
+
+Every component in every file is visible to every other file, through one
+`Registry`. A name defined twice is an error naming both files. A container
+declares a `{ "type": "slot" }` prop, places `{ "slot": "body" }` in its
+children, and an instance fills it under `"slots"`. Slotted content resolves
+in the caller's scope and stack, otherwise Card-in-Card reads as a cycle.
+`Address` gained `file`, so an issue or a comment says which file to edit.
+
+### What Claude knows, and how
+
+- **Skills:** `nyra-design` is the vocabulary, generated from the registry;
+  `nyra-design-system` is how to build and use a system. Both are managed by
+  Nyra.
+- **A pointer:** when the chat's project has a system, the system prompt gets
+  one line naming it.
+- **A digest:** `nyra_design action:"list", design:"<system>"` returns tokens,
+  components with their props, the guidelines and what needs fixing. It is
+  generated from the files every time, so it cannot drift.
+- **A project skill**, for repo systems that opt in: the digest written to
+  `.claude/skills/<slug>-design-system/`, so plain Claude Code and teammates
+  get it too.
+
+### Questionnaire
+
+`action:"ask"` saves a questionnaire, opens it in the side panel and tells
+Claude to end its turn. It does not block: a blocking call would hold the turn
+for minutes and lose the answers on a restart. Answers save on every change, a
+transcript chip reopens it, and Send posts them as the user's next message,
+partial or not. The bubble shows one line; the full record goes to Claude.
+State lives in `~/.nyra/designs/questionnaires/`.
+
+`ask` with `kind:"system"` starts a new system's questionnaire, and Nyra adds
+the brief around Claude's questions: the product, a logo and references (a
+`files` question), where the system lives (only in a git repo) and, last,
+anything else. Those are Nyra's, so every new system asks them the same way.
+Files added to an answer are copied to `questionnaires/<id>/`, and Claude gets
+the copies' paths.
+
+**Choosing between drawings.** *Explore options* on an answer asks Claude to
+draw directions, not describe them: it draws two or three artboards, then asks
+a new, short questionnaire about that one decision, each option previewed as
+its artboard (`"preview": { "artboard": "<path>#<id>" }`, drawn live). It never
+adds the follow-up to the long questionnaire, which would bury it on a page
+the user has already left. When Claude does add a round to one (`ask` with an
+`id`), the tab and the chip open on the round's first question.
+
+**One system per project unless the user says otherwise.** `kind:"system"`,
+on `create` or `ask`, is refused for a project that already has one, and the
+refusal names it so Claude can say so. The user may have forgotten it, and a
+second system splits every component and token in two. `anyway:true` goes
+through, once the user has asked for a second one.
+
+### Feedback and comments
+
+A right-click on an artboard offers **Give feedback on this design…** (the
+whole artboard, visible as a chip in the bubble) and **Comment here…**, which
+is pinned to an element, not to a point. The hit test reads `composedPath()`
+through the shadow root to the nearest `data-node`, and the comment keeps that
+node's resolved id, its authored address, the instance it sits in, and where
+inside its box the pin goes. The artboard point is only a fallback. A point
+goes stale as soon as Claude moves anything, and it cannot say which of three
+overlapping things was meant.
+
+- The anchor travels as hidden message context: the bubble shows the pin and
+  your words, and Claude gets `<design_comment>` with the file, the node, where
+  to edit it and where its component is defined.
+- Pins are placed from the element's live box, so they follow edits. A comment
+  whose node is gone is found again by its authored address, but only if that
+  names exactly one node, so it never guesses which of several Buttons.
+- A comment is a thread. Claude closes a round with `action:"resolve"` and a
+  one-line note, which becomes a reply on the pin. The user answers in the
+  card: the reply is saved to the thread, reopens the comment, and is sent with
+  every round so far (`thread:` in `<design_comment>`), so each iteration stays
+  with the element it was about. Reopen on its own sends nothing; it only
+  says the last round did not settle it.
+- Comments live in `~/.nyra/designs/comments/<scope>.json`, one file per
+  system or draft, never in the repo. A system's comments match files by path
+  inside the system, so a worktree and the main checkout show the same ones.
+
+### Found on launch
+
+A few seconds after startup, each sidebar project is asked, one at a time, what
+design work it has: `git ls-files` (tracked, plus untracked files that are not
+ignored) finds committed `nyra.design.json` folders, which become systems, and
+loose `.nyui.json` files, which become drafts named by their own `"name"`.
+After that they are in the Pinned Summary (*In this project*), the design
+picker, the command palette and `action:"list"`, so Claude never searches for
+them. A passive dev instance skips the launch pass, because it would file
+designs into the lists the installed app reads.

@@ -12,7 +12,7 @@
  * React mounts — so component-level subscribe/unsubscribe is synchronous and no
  * event can slip through the gap between mount and listener registration.
  */
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
 import type {
@@ -25,6 +25,11 @@ import type {
   BrowserReply,
   BrowserStatus,
   DesignEntry,
+  DesignReadOptions,
+  DesignReadResult,
+  SystemEntry,
+  SystemFileInfo,
+  SystemReply,
   BrowserTab,
   DevicePreset,
   TabDevice,
@@ -52,6 +57,8 @@ import type {
 } from './api-types'
 import type { AccountStatus, ConfigDir, FontFamily } from './api-types'
 import type { SpawnSettings } from '@shared/types'
+import type { AnswerFile, Questionnaire } from './questionnaire'
+import type { DesignComment } from './designComments'
 import type {
   MarketplaceIndex,
   WorkflowDefinition,
@@ -145,6 +152,8 @@ const EVENT_NAMES = [
   'nyra:update-available',
   'nyra:update-progress',
   'nyra:designs-changed',
+  'nyra:questionnaires-changed',
+  'nyra:comments-changed',
   'nyra:desktop-activity',
   'nyra:desktop-blocked',
   'nyra:desktop-stopped',
@@ -182,6 +191,101 @@ function emit(name: EventName, payload: unknown): void {
 /** Commands whose Rust side returns `()` still resolve; callers ignore the value. */
 const call = <T>(command: string, args?: Record<string, unknown>): Promise<T> =>
   invoke<T>(command, args)
+
+/** Raw chunks arrive as ArrayBuffers; a typed array is accepted too, in case a
+ *  transport hands one over instead. By tag rather than `instanceof`, which is
+ *  false for a buffer made in another realm (a worker, an iframe, a test). */
+const asBytes = (msg: unknown): Uint8Array | null => {
+  if (ArrayBuffer.isView(msg)) return new Uint8Array(msg.buffer, msg.byteOffset, msg.byteLength)
+  if (Object.prototype.toString.call(msg) === '[object ArrayBuffer]') return new Uint8Array(msg as ArrayBuffer)
+  return null
+}
+
+type StreamOutcome =
+  | { kind: 'done'; totalBytes: number; mtimeMs: number; ino: number }
+  | { kind: 'missing' }
+  | { kind: 'notAFile' }
+  | { kind: 'cancelled' }
+  | { kind: 'error'; message: string }
+
+/** How long to wait for chunks that are still in flight once Rust says it has
+ *  sent them all. The command's reply and the channel's messages travel
+ *  separately, so the reply can land first. */
+const DRAIN_TIMEOUT_MS = 30_000
+
+let designReadSeq = 0
+
+/**
+ * A design file, whole, streamed in chunks.
+ *
+ * Decoded as it arrives — `TextDecoder` in streaming mode carries a character
+ * split across two chunks into the next one — so the only full copy is the
+ * string handed back.
+ */
+async function readDesignFile(
+  filePath: string,
+  { cwd, onProgress, signal }: DesignReadOptions = {}
+): Promise<DesignReadResult> {
+  const id = `dr-${Date.now().toString(36)}-${++designReadSeq}`
+  const decoder = new TextDecoder('utf-8')
+  const parts: string[] = []
+  let total = 0
+  let loaded = 0
+  let expected: number | null = null
+  let drained: () => void = () => {}
+  const allArrived = new Promise<void>((resolve) => (drained = resolve))
+  const settle = (): void => {
+    if (expected !== null && loaded >= expected) drained()
+  }
+
+  const channel = new Channel<unknown>()
+  channel.onmessage = (msg) => {
+    const bytes = asBytes(msg)
+    if (bytes) {
+      parts.push(decoder.decode(bytes, { stream: true }))
+      loaded += bytes.byteLength
+      onProgress?.(loaded, total)
+      settle()
+      return
+    }
+    if (msg && typeof msg === 'object' && 'total' in msg) {
+      total = Number((msg as { total: number }).total) || 0
+      onProgress?.(0, total)
+    }
+  }
+
+  const cancel = (): void => void call('design_read_cancel', { id })
+  if (signal?.aborted) return { kind: 'cancelled' }
+  signal?.addEventListener('abort', cancel, { once: true })
+  try {
+    const outcome = await call<StreamOutcome>('design_read', {
+      filePath,
+      cwd: cwd ?? null,
+      id,
+      onChunk: channel
+    })
+    if (outcome.kind !== 'done') return outcome
+    expected = outcome.totalBytes
+    settle()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<'late'>((resolve) => (timer = setTimeout(() => resolve('late'), DRAIN_TIMEOUT_MS)))
+    const how = await Promise.race([allArrived.then(() => 'ok' as const), late])
+    clearTimeout(timer)
+    if (how === 'late') {
+      return { kind: 'error', message: `read ${loaded} of ${expected} bytes of ${filePath} before the stream stalled` }
+    }
+    parts.push(decoder.decode())
+    return {
+      kind: 'text',
+      content: parts.join(''),
+      totalBytes: outcome.totalBytes,
+      mtimeMs: outcome.mtimeMs,
+      ino: outcome.ino
+    }
+  } finally {
+    signal?.removeEventListener('abort', cancel)
+  }
+}
 
 export const api = {
   /** Checking for a newer Nyra, and taking it. */
@@ -673,6 +777,12 @@ export const api = {
    * itself: durable storage and a headless browser.
    */
   design: {
+    /** A design file, whole and however large, with progress. */
+    read: (filePath: string, options?: DesignReadOptions) => readDesignFile(filePath, options),
+    /** Replace a design with its upgraded text; the original is backed up to
+     *  `~/.nyra/designs/backups/` first. `from` is the version it was. */
+    writeUpgraded: (path: string, content: string, from: number) =>
+      call<{ ok: boolean; backup?: string; error?: string }>('design_write_upgraded', { path, content, from }),
     raster: (request: Record<string, unknown>) =>
       call<{ ok: boolean; path?: string; width?: number; height?: number; cached?: boolean; error?: string }>(
         'design_raster',
@@ -704,6 +814,71 @@ export const api = {
     /** Fires when the index changes, so a list never has to be refreshed by
      *  hand after Claude registers a design mid-conversation. */
     onChanged: (callback: () => void) => on<unknown>('nyra:designs-changed', () => callback())
+  },
+
+  /** Comments pinned to designs, one file per system or draft. */
+  comments: {
+    list: (scope: string) => call<{ ok: boolean; comments?: DesignComment[]; error?: string }>('comments_list', { scope }),
+    add: (scope: string, comment: Omit<DesignComment, 'id' | 'n' | 'status' | 'createdAt'>) =>
+      call<{ ok: boolean; comment?: DesignComment; error?: string }>('comments_add', { scope, comment }),
+    update: (
+      scope: string,
+      id: string,
+      change: { status?: 'open' | 'resolved'; note?: string; by?: string; text?: string; reply?: { text: string; by: 'you' | 'claude' } }
+    ) =>
+      call<{ ok: boolean; comment?: DesignComment; error?: string }>('comments_update', { scope, id, change }),
+    delete: (scope: string, id: string) => call<{ ok: boolean; error?: string }>('comments_delete', { scope, id }),
+    onChanged: (callback: (p: { scope: string }) => void) => on<{ scope: string }>('nyra:comments-changed', callback)
+  },
+
+  /** Questionnaires Claude asks to shape a design. Rust keeps the file; the
+   *  renderer autosaves answers into it. */
+  questionnaire: {
+    get: (id: string) => call<Questionnaire | null>('questionnaire_get', { id }),
+    list: (project?: string) =>
+      call<{ id: string; title: string; project: string; chatId: string; updatedAt: string; questions: number; answered: number }[]>(
+        'questionnaire_list',
+        { project: project ?? null }
+      ),
+    setAnswers: (id: string, answers: Questionnaire['answers']) =>
+      call<{ ok: boolean; questionnaire?: Questionnaire; error?: string }>('questionnaire_set_answers', { id, answers }),
+    markSent: (id: string, count: number) =>
+      call<{ ok: boolean; questionnaire?: Questionnaire; error?: string }>('questionnaire_mark_sent', { id, count }),
+    /** Copy files into the questionnaire's folder; the answer keeps the copies. */
+    addFiles: (id: string, paths: string[]) =>
+      call<{ files: AnswerFile[]; errors: string[] }>('questionnaire_add_files', { id, paths }),
+    /** A dropped or pasted file, which has bytes but no path. */
+    addFileBytes: (id: string, name: string, base64: string) =>
+      call<{ files: AnswerFile[]; errors: string[] }>('questionnaire_add_file_bytes', { id, name, base64 }),
+    removeFile: (id: string, path: string) =>
+      call<{ ok: boolean; error?: string }>('questionnaire_remove_file', { id, path }),
+    onChanged: (callback: (p: { id: string }) => void) => on<{ id: string }>('nyra:questionnaires-changed', callback)
+  },
+
+  /**
+   * Design systems: folders of design files sharing a theme and components.
+   * Rust owns the registry and the files on disk; reading, compiling and the
+   * outline happen in the renderer, like single designs.
+   */
+  designSystem: {
+    list: (project?: string) => call<SystemEntry[]>('system_list', { project: project ?? null }),
+    create: (name: string, project: string, location: 'nyra' | 'repo', dir?: string) =>
+      call<SystemReply>('system_create', { name, project, location, dir: dir ?? null }),
+    adopt: (root: string, project: string) => call<SystemReply>('system_adopt', { root, project }),
+    /** `root` reads a copy of the system — a worktree's — instead of its registered folder. */
+    files: (id: string, root?: string) =>
+      call<{ ok: boolean; root?: string; files?: SystemFileInfo[]; error?: string }>('system_files', { id, root: root ?? null }),
+    /** The system a file is in, if any — and whether it was under an old root. */
+    of: (path: string) => call<{ system: SystemEntry; rel: string; moved: boolean } | null>('system_of', { path }),
+    relocate: (id: string, to: string) => call<SystemReply>('system_relocate', { id, to }),
+    rename: (id: string, name: string) => call<SystemReply>('system_rename', { id, name }),
+    forget: (id: string) => call<{ ok: boolean; error?: string }>('system_forget', { id }),
+    setProjectSkill: (id: string, on: boolean) => call<SystemReply>('system_set_project_skill', { id, on }),
+    writeProjectSkill: (id: string, content: string, root?: string) =>
+      call<{ ok: boolean; path?: string | null; error?: string }>('system_write_project_skill', { id, content, root: root ?? null }),
+    /** `launch` marks the pass on startup, which a passive dev instance skips. */
+    discover: (project: string, launch = false) =>
+      call<{ systems: SystemEntry[]; designs: number; skipped?: boolean }>('system_discover', { project, launch })
   },
 
   browser: {

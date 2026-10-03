@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
-import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, Loader2, X } from 'lucide-react'
+import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, Loader2, MessageCircleQuestion, SwatchBook, X } from 'lucide-react'
 import NewTabMenu from './NewTabMenu'
 import type { NewTabKind } from './tabs'
 import { tabKey, type PanelTab } from '../../store/panelTabs'
 import type { BrowserPhase } from '../../store/browser'
 import type { BrowserTab } from '../../lib/api-types'
 import { basename as basenameOf } from '../../lib/paths'
+import { systemTabLabel, useSystemNames } from '../design/SystemTab'
 
 /**
  * The tab strip Codex's browser does not have.
@@ -52,6 +53,8 @@ export default function PanelTabStrip({
   const [dragKey, setDragKey] = useState<string | null>(null)
   /** The key the dragged tab would land in front of; `END` for past the last. */
   const [dropAt, setDropAt] = useState<string | null>(null)
+  /** A design system's name and its files', learnt where the system loads. */
+  const systemNames = useSystemNames()
 
   const endDrag = (): void => {
     setDragKey(null)
@@ -76,8 +79,12 @@ export default function PanelTabStrip({
                 : tab.kind === 'subagents'
                   ? 'Subagents'
                   : tab.kind === 'design'
-                    ? 'Design'
-                    : (basename(tab.path) ?? 'Open file')
+                    ? tab.systemId
+                      ? systemTabLabel(tab, systemNames)
+                      : 'Design'
+                    : tab.kind === 'questionnaire'
+                      ? 'Questions'
+                      : (basename(tab.path) ?? 'Open file')
         const hint =
           tab.kind === 'browser'
             ? live?.url
@@ -88,7 +95,11 @@ export default function PanelTabStrip({
                 : tab.kind === 'subagents'
                   ? "This chat's subagents"
                   : tab.kind === 'design'
-                    ? 'The design canvas'
+                    ? tab.systemId
+                      ? 'The design system'
+                      : 'The design canvas'
+                    : tab.kind === 'questionnaire'
+                      ? "Claude's questions. Answers save as you go."
                     : tab.preview
                       ? `${tab.path ?? 'No file open'} — double-click to keep it open`
                       : (tab.path ?? 'No file open')
@@ -176,7 +187,13 @@ export default function PanelTabStrip({
             ) : tab.kind === 'subagents' ? (
               <Bot className="size-3 shrink-0 text-muted-foreground" />
             ) : tab.kind === 'design' ? (
-              <Frame className="size-3 shrink-0 text-muted-foreground" />
+              tab.systemId ? (
+                <SwatchBook className="size-3 shrink-0 text-muted-foreground" />
+              ) : (
+                <Frame className="size-3 shrink-0 text-muted-foreground" />
+              )
+            ) : tab.kind === 'questionnaire' ? (
+              <MessageCircleQuestion className="size-3 shrink-0 text-muted-foreground" />
             ) : (
               <FileText className="size-3 shrink-0 text-muted-foreground" />
             )}

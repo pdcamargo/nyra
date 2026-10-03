@@ -149,3 +149,33 @@ export function frame(
     }
   }
 }
+
+/**
+ * The artboards worth drawing: those within reach of the viewport.
+ *
+ * World space is the viewport undone by pan and zoom, grown by `margin` of a
+ * viewport on every side so an artboard is drawn just before it scrolls in
+ * rather than as it does. Everything else is an outline at its real size,
+ * which is what lets a design with hundreds of artboards open at all.
+ */
+export function visibleArtboards(
+  placed: Placed[],
+  viewport: { width: number; height: number },
+  pan: { x: number; y: number },
+  zoom: number,
+  margin = 0.5
+): Set<string> {
+  const seen = new Set<string>()
+  if (viewport.width === 0 || zoom <= 0) return seen
+  const w = viewport.width / zoom
+  const h = viewport.height / zoom
+  const left = -pan.x / zoom - w * margin
+  const top = -pan.y / zoom - h * margin
+  const right = left + w * (1 + 2 * margin)
+  const bottom = top + h * (1 + 2 * margin)
+  for (const p of placed) {
+    const inside = p.x < right && p.x + p.width > left && p.y - TITLE_SPACE < bottom && p.y + p.height > top
+    if (inside) seen.add(p.artboard.id)
+  }
+  return seen
+}

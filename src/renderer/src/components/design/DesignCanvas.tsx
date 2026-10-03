@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Minus, Plus } from 'lucide-react'
 import type { ResolvedArtboard, Theme } from '@nyra/design'
 import { cn } from 'cn'
 import Artboard from './Artboard'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+import { hitTest, type Hit } from '../../lib/designComments'
 import {
   centre,
   clampZoom,
@@ -10,6 +13,7 @@ import {
   frame,
   layout,
   TITLE_SPACE,
+  visibleArtboards,
   zoomAbout
 } from './layout'
 
@@ -33,10 +37,10 @@ export function nextSelection(current: string[], id: string | null, mode: Select
 const CLICK_SLOP = 4
 
 /**
- * The selection colour. Blue rather than `--primary`, which in the dark theme
- * is a near-white that disappears against a light artboard.
+ * The selection colour: the design accent, rather than `--primary`, which in
+ * the dark theme is a near-white that disappears against a light artboard.
  */
-const SELECTED = 'var(--info)'
+const SELECTED = 'var(--design-accent)'
 
 const modeOf = (e: React.MouseEvent): SelectMode =>
   e.metaKey || e.ctrlKey ? 'toggle' : e.shiftKey ? 'add' : 'replace'
@@ -58,7 +62,8 @@ export default function DesignCanvas({
   selected,
   onSelect,
   focus,
-  onContextMenu
+  onContextMenu,
+  overlay
 }: {
   artboards: ResolvedArtboard[]
   theme: Theme
@@ -68,7 +73,11 @@ export default function DesignCanvas({
   /** Frame this artboard instead of fitting everything. Set when a chip
    *  pointed at one, so "see the Protocol panel" lands on the Protocol panel. */
   focus?: string | null
-  onContextMenu?: (artboardId: string, at: { x: number; y: number }) => void
+  /** A right-click on an artboard: what it landed on, and where on screen.
+   *  The event is left alone, so a context menu around the canvas opens. */
+  onContextMenu?: (hit: Hit, at: { x: number; y: number }) => void
+  /** Drawn over each artboard, in its pixels: comment pins, a highlight. */
+  overlay?: (artboard: ResolvedArtboard, zoom: number) => React.ReactNode
 }): React.ReactElement {
   const viewport = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -100,6 +109,27 @@ export default function DesignCanvas({
         .join('|'),
     [artboards, measured]
   )
+
+  /**
+   * Drawn once, kept drawn.
+   *
+   * Only what is near the viewport is drawn at all, so a design with hundreds
+   * of artboards opens as outlines and fills in where you look. Once drawn an
+   * artboard stays — panning back and forth should not re-run its markup — and
+   * the set is keyed by id, so a reload keeps it.
+   */
+  const near = useMemo(() => visibleArtboards(placed, size, pan, zoom), [placed, size, pan, zoom])
+  const [drawn, setDrawn] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    setDrawn((prev) => {
+      let grew = false
+      for (const id of near) if (!prev.has(id)) grew = true
+      if (!grew) return prev
+      const next = new Set(prev)
+      for (const id of near) next.add(id)
+      return next
+    })
+  }, [near])
 
   useLayoutEffect(() => {
     const node = viewport.current
@@ -192,7 +222,7 @@ export default function DesignCanvas({
       <div
         ref={viewport}
         className={cn(
-          'relative min-h-0 flex-1 overflow-hidden bg-muted/40',
+          'relative min-h-0 flex-1 overflow-hidden bg-muted',
           dragging.current ? 'cursor-grabbing' : 'cursor-grab'
         )}
         onWheel={onWheel}
@@ -200,14 +230,20 @@ export default function DesignCanvas({
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={cancelDrag}
+        onContextMenu={(e) => {
+          // Only an artboard has a menu. Anywhere else, neither the app's nor
+          // the webview's.
+          if (!(e.target as Element).closest('div[data-artboard-frame]')) e.preventDefault()
+        }}
       >
         <div
           className="absolute origin-top-left"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
         >
-          {placed.map(({ artboard, x, y }) => {
+          {placed.map(({ artboard, x, y, height }) => {
             const order = selected.indexOf(artboard.id)
             const isSelected = order >= 0
+            const isDrawn = drawn.has(artboard.id) || near.has(artboard.id)
             return (
             <div key={artboard.id} className="absolute" style={{ left: x, top: y }}>
               <button
@@ -215,14 +251,14 @@ export default function DesignCanvas({
                 data-artboard-frame={artboard.id}
                 onClick={(e) => onSelect(artboard.id, modeOf(e))}
                 className={cn(
-                  'absolute left-0 truncate text-left',
-                  isSelected ? 'text-info' : 'text-muted-foreground'
+                  'absolute left-0 truncate text-left leading-[1.4] font-medium',
+                  isSelected ? 'text-design-accent' : 'text-muted-foreground'
                 )}
                 style={{
                   // Counter-scaled so a label stays readable at any zoom, which
                   // is the whole reason it is not part of the artboard.
-                  bottom: `calc(100% + ${8 / zoom}px)`,
-                  fontSize: `${13 / zoom}px`,
+                  bottom: `calc(100% + ${4 / zoom}px)`,
+                  fontSize: `${11.5 / zoom}px`,
                   maxWidth: artboard.size.width
                 }}
               >
@@ -233,7 +269,7 @@ export default function DesignCanvas({
                   the dialog says so. Counter-scaled like the title. */}
               {isSelected && selected.length > 1 && (
                 <span
-                  className="pointer-events-none absolute z-10 flex items-center justify-center rounded-full bg-info font-medium text-info-foreground tabular-nums ring-2 ring-background"
+                  className="pointer-events-none absolute z-10 flex items-center justify-center rounded-full bg-design-accent font-medium text-design-accent-foreground tabular-nums ring-2 ring-background"
                   style={{
                     top: -10 / zoom,
                     right: -10 / zoom,
@@ -249,57 +285,116 @@ export default function DesignCanvas({
                 data-artboard-frame={artboard.id}
                 onClick={(e) => onSelect(artboard.id, modeOf(e))}
                 onContextMenu={(e) => {
-                  if (!onContextMenu) return
-                  e.preventDefault()
+                  if (!onContextMenu) {
+                    e.preventDefault()
+                    return
+                  }
                   // Right-clicking inside a selection acts on the selection;
                   // outside it, on that one artboard — as in every file manager.
                   if (!selected.includes(artboard.id)) onSelect(artboard.id)
-                  onContextMenu(artboard.id, { x: e.clientX, y: e.clientY })
+                  const host = e.currentTarget.querySelector<HTMLElement>('[data-artboard-host], [data-artboard-outline]')
+                  if (!host) return
+                  onContextMenu(hitTest(e.nativeEvent, host, artboard.id), { x: e.clientX, y: e.clientY })
                 }}
-                className="bg-background"
+                // A board not drawn yet is only its dashed outline: no fill,
+                // and no second, solid edge around the dashes.
+                className={isDrawn ? 'bg-background' : undefined}
                 style={{
                   // Sized in screen pixels, so a selection reads the same at
                   // 10% as at 200%; the offset keeps it off the artboard's own
                   // edge, where a light design would swallow it.
                   outline: isSelected
                     ? `${2 / zoom}px solid ${SELECTED}`
-                    : `${Math.max(0.5, 1 / zoom)}px solid var(--border)`,
+                    : isDrawn
+                      ? `${Math.max(0.5, 1 / zoom)}px solid var(--border)`
+                      : 'none',
                   outlineOffset: isSelected ? 2 / zoom : 0
                 }}
               >
-                <Artboard artboard={artboard} theme={theme} onMeasure={measure} />
+                {isDrawn ? (
+                  <Artboard artboard={artboard} theme={theme} onMeasure={measure} />
+                ) : (
+                  <ArtboardOutline artboard={artboard} height={height} zoom={zoom} />
+                )}
               </div>
+              {overlay && isDrawn && overlay(artboard, zoom)}
             </div>
             )
           })}
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-1 border-t px-2 py-1 text-[11px] text-muted-foreground">
-        <span className="tabular-nums">{Math.round(zoom * 100)}%</span>
-        <button
-          type="button"
-          className="rounded px-1.5 py-0.5 hover:bg-accent"
-          onClick={() => setZoom((z) => clampZoom(z / 1.25))}
-        >
-          −
-        </button>
-        <button
-          type="button"
-          className="rounded px-1.5 py-0.5 hover:bg-accent"
-          onClick={() => setZoom((z) => clampZoom(z * 1.25))}
-        >
-          +
-        </button>
-        <button type="button" className="rounded px-1.5 py-0.5 hover:bg-accent" onClick={fit}>
+      {/* Floating over the canvas rather than a bar under it: the canvas
+          keeps the whole height, and this is all the chrome it needs. */}
+      <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-[8px] border bg-background px-2 py-0.5 text-[12.5px] leading-[1.5]">
+        <ZoomButton label="Zoom out" onClick={() => setZoom((z) => clampZoom(z / 1.25))}>
+          <Minus className="size-3" />
+        </ZoomButton>
+        <span className="text-foreground tabular-nums">{Math.round(zoom * 100)}%</span>
+        <ZoomButton label="Zoom in" onClick={() => setZoom((z) => clampZoom(z * 1.25))}>
+          <Plus className="size-3" />
+        </ZoomButton>
+        <button type="button" className="pl-2 text-muted-foreground hover:text-foreground" onClick={fit}>
           Fit
         </button>
-        <span className="ml-auto truncate">
-          {artboards.length} artboard{artboards.length === 1 ? '' : 's'} · drag to pan · ⌘-scroll to
-          zoom · shift-click to select more
-        </span>
       </div>
     </div>
+  )
+}
+
+/** An icon in the zoom pill. The negative margin keeps the pill's spacing to
+ *  the icon itself while the target stays a few pixels larger. */
+function ZoomButton({
+  label,
+  onClick,
+  children
+}: {
+  label: string
+  onClick: () => void
+  children: React.ReactNode
+}): React.ReactElement {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          onClick={onClick}
+          className="-m-0.5 flex items-center justify-center rounded-[4px] p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * Where an artboard will be, before it has been drawn: a dashed edge in the
+ * strong border tier, and nothing inside it. The edge is counter-scaled like
+ * the label, so it stays one screen pixel at any zoom rather than vanishing
+ * when the canvas is zoomed out to see everything.
+ */
+function ArtboardOutline({
+  artboard,
+  height,
+  zoom
+}: {
+  artboard: ResolvedArtboard
+  height: number | undefined
+  zoom: number
+}): React.ReactElement {
+  return (
+    <div
+      data-artboard-outline={artboard.id}
+      className="border-dashed border-border-strong"
+      style={{
+        borderWidth: 1 / zoom,
+        width: artboard.size.width,
+        height: artboard.size.height === 'auto' ? (height ?? 720) : artboard.size.height
+      }}
+    />
   )
 }
 

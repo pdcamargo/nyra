@@ -62,7 +62,33 @@ export type DesignPanelTab = {
   designId: string | null
   /** The artboard the canvas is framed on, when something asked for one. */
   artboardId: string | null
+  /**
+   * A design system, when the tab shows one rather than a single draft. The
+   * system's id in `systems.json`; `designId` is then unused.
+   */
+  systemId?: string | null
+  /** For a system: the file on the canvas, system-relative. */
+  file?: string | null
+  /** For a system: the docs-style overview, or one file on the canvas. */
+  view?: 'overview' | 'canvas'
+  /** For a system's overview: the section in view, so a reload lands there. */
+  section?: string | null
 }
+
+/** What can change about a design tab after it is open. */
+export type DesignTabPatch = Partial<Pick<DesignPanelTab, 'designId' | 'artboardId' | 'systemId' | 'file' | 'view' | 'section'>>
+/** Questions Claude asked, being answered. Like `plan`, opened by the chip in
+ *  the transcript or by Claude, never from "+". The answers live in Rust's file,
+ *  not here, so closing this loses nothing. */
+export type QuestionnairePanelTab = {
+  kind: 'questionnaire'
+  id: string
+  questionnaireId: string
+  /** A question to bring into view: the first of a round Claude just added.
+   *  `at` makes asking for the same one twice a change. Not persisted. */
+  focus?: { question: string; at: number }
+}
+
 export type PanelTab =
   | BrowserPanelTab
   | FilePanelTab
@@ -70,6 +96,7 @@ export type PanelTab =
   | PlanPanelTab
   | SubagentsPanelTab
   | DesignPanelTab
+  | QuestionnairePanelTab
 
 export type ChatPanelTabs = {
   /** The strip, in the order it is drawn. Ours, not the sidecar's. */
@@ -105,6 +132,8 @@ export const fileKey = (id: string): string => `file:${id}`
 export const changesKey = (id: string): string => `changes:${id}`
 export const planKey = (id: string): string => `plan:${id}`
 export const subagentsKey = (id: string): string => `subagents:${id}`
+export const designKey = (id: string): string => `design:${id}`
+export const questionnaireKey = (id: string): string => `questionnaire:${id}`
 
 export function tabKey(tab: PanelTab): string {
   switch (tab.kind) {
@@ -116,6 +145,10 @@ export function tabKey(tab: PanelTab): string {
       return planKey(tab.id)
     case 'subagents':
       return subagentsKey(tab.id)
+    case 'design':
+      return designKey(tab.id)
+    case 'questionnaire':
+      return questionnaireKey(tab.id)
     default:
       return changesKey(tab.id)
   }
@@ -250,6 +283,7 @@ function sanitizeChatPanelTabs(raw: unknown): ChatPanelTabs | null {
         | PlanPanelTab
         | SubagentsPanelTab
         | DesignPanelTab
+        | QuestionnairePanelTab
       >
       if (typeof tab.id !== 'string' || seen.has(tab.id)) return []
       if (tab.kind === 'changes') {
@@ -268,15 +302,33 @@ function sanitizeChatPanelTabs(raw: unknown): ChatPanelTabs | null {
         seen.add(tab.id)
         return [{ kind: 'subagents', id: tab.id, focus: focus ?? null }]
       }
-      if (tab.kind === 'design') {
-        const designId = (tab as Partial<DesignPanelTab>).designId
-        if (designId !== null && designId !== undefined && typeof designId !== 'string') return []
-        const artboardId = (tab as Partial<DesignPanelTab>).artboardId
-        if (artboardId !== null && artboardId !== undefined && typeof artboardId !== 'string') return []
+      if (tab.kind === 'questionnaire') {
+        const questionnaireId = (tab as Partial<QuestionnairePanelTab>).questionnaireId
+        if (typeof questionnaireId !== 'string') return []
         seen.add(tab.id)
-        return [
-          { kind: 'design', id: tab.id, designId: designId ?? null, artboardId: artboardId ?? null }
-        ]
+        return [{ kind: 'questionnaire', id: tab.id, questionnaireId }]
+      }
+      if (tab.kind === 'design') {
+        const d = tab as Partial<DesignPanelTab>
+        const optionalString = (v: unknown): v is string | null | undefined =>
+          v === null || v === undefined || typeof v === 'string'
+        if (!optionalString(d.designId) || !optionalString(d.artboardId)) return []
+        seen.add(tab.id)
+        const out: DesignPanelTab = {
+          kind: 'design',
+          id: tab.id,
+          designId: d.designId ?? null,
+          artboardId: d.artboardId ?? null
+        }
+        // A system tab keeps which system, file and section it was on; a
+        // value of the wrong type is dropped rather than the whole tab.
+        if (typeof d.systemId === 'string') {
+          out.systemId = d.systemId
+          if (typeof d.file === 'string') out.file = d.file
+          if (d.view === 'overview' || d.view === 'canvas') out.view = d.view
+          if (typeof d.section === 'string') out.section = d.section
+        }
+        return [out]
       }
       if (tab.kind !== 'file') return []
       const path = (tab as Partial<FilePanelTab>).path
@@ -375,6 +427,12 @@ type PanelTabsStore = {
    *  Reachable from "+" — unlike changes, a design canvas is a place to work rather
    *  than something about this conversation. */
   openDesignTab: (sessionId: string, designId?: string | null, artboardId?: string | null) => string
+  /** Show a design system in the chat's design tab — its overview, or one of
+   *  its files on the canvas. */
+  openSystemTab: (sessionId: string, systemId: string, at?: DesignTabPatch) => string
+  updateDesignTab: (sessionId: string, tabId: string, patch: DesignTabPatch) => void
+  /** The questionnaire's tab, reused if it is already open. */
+  openQuestionnaireTab: (sessionId: string, questionnaireId: string, focus?: string) => string
   /** Which design the canvas is showing. Stored on the tab so a reload comes
    *  back to the same one. */
   setDesignTabDesign: (sessionId: string, tabId: string, designId: string | null) => void
@@ -599,7 +657,9 @@ export const usePanelTabsStore = create<PanelTabsStore>()(
               // An explicit id wins; opening the tab with none leaves it where
               // it was rather than resetting what someone was looking at.
               tabs: ws.tabs.map((t) =>
-                t.kind === 'design' && designId !== null ? { ...t, designId, artboardId } : t
+                t.kind === 'design' && designId !== null
+                  ? { kind: 'design', id: t.id, designId, artboardId }
+                  : t
               ),
               activeKey: key
             }))
@@ -622,6 +682,69 @@ export const usePanelTabsStore = create<PanelTabsStore>()(
         return tabKey(tab)
       },
 
+      openSystemTab: (sessionId, systemId, at = {}) => {
+        const existing = (get().bySession[sessionId] ?? EMPTY_PANEL_TABS).tabs.find(
+          (t): t is DesignPanelTab => t.kind === 'design'
+        )
+        const view: DesignPanelTab['view'] = at.view ?? (at.file ? 'canvas' : 'overview')
+        const shown = (id: string): DesignPanelTab => ({
+          kind: 'design',
+          id,
+          designId: null,
+          artboardId: at.artboardId ?? null,
+          systemId,
+          file: at.file ?? (existing?.systemId === systemId ? (existing.file ?? null) : null),
+          view,
+          section: at.section ?? null
+        })
+        if (existing) {
+          const key = tabKey(existing)
+          set((s) =>
+            patch(s, sessionId, (ws) => ({
+              ...ws,
+              tabs: ws.tabs.map((t) => (t.kind === 'design' && t.id === existing.id ? shown(t.id) : t)),
+              activeKey: key
+            }))
+          )
+          return key
+        }
+        const tab = shown(nextFileTabId())
+        set((s) =>
+          patch(s, sessionId, (ws) => ({ ...ws, tabs: [...ws.tabs, tab], activeKey: tabKey(tab) }))
+        )
+        return tabKey(tab)
+      },
+
+      openQuestionnaireTab: (sessionId, questionnaireId, question) => {
+        const focus = question ? { question, at: Date.now() } : undefined
+        const existing = (get().bySession[sessionId] ?? EMPTY_PANEL_TABS).tabs.find(
+          (t): t is QuestionnairePanelTab => t.kind === 'questionnaire' && t.questionnaireId === questionnaireId
+        )
+        if (existing) {
+          const key = tabKey(existing)
+          set((s) =>
+            patch(s, sessionId, (ws) => ({
+              ...ws,
+              tabs: focus ? ws.tabs.map((t) => (t === existing ? { ...existing, focus } : t)) : ws.tabs,
+              activeKey: key
+            }))
+          )
+          return key
+        }
+        const tab: QuestionnairePanelTab = { kind: 'questionnaire', id: nextFileTabId(), questionnaireId, ...(focus ? { focus } : {}) }
+        set((s) => patch(s, sessionId, (ws) => ({ ...ws, tabs: [...ws.tabs, tab], activeKey: tabKey(tab) })))
+        return tabKey(tab)
+      },
+
+      updateDesignTab: (sessionId, tabId, change) => {
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: ws.tabs.map((t) => (t.kind === 'design' && t.id === tabId ? { ...t, ...change } : t))
+          }))
+        )
+      },
+
       setDesignTabDesign: (sessionId, tabId, designId) => {
         set((s) =>
           patch(s, sessionId, (ws) => ({
@@ -629,7 +752,8 @@ export const usePanelTabsStore = create<PanelTabsStore>()(
             tabs: ws.tabs.map((t) =>
               // Switching design clears the frame: an artboard id from one
               // document means nothing in another.
-              t.kind === 'design' && t.id === tabId ? { ...t, designId, artboardId: null } : t
+              // Picking a draft leaves any system the tab was showing.
+              t.kind === 'design' && t.id === tabId ? { kind: 'design', id: t.id, designId, artboardId: null } : t
             )
           }))
         )

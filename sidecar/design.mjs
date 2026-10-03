@@ -29,7 +29,13 @@ const MAX_ENTRIES = 400
 
 let context = null
 let page = null
-/** key -> absolute path, for the entries this process has written. */
+/**
+ * key -> { path, width, height } for the entries this process has written.
+ *
+ * The measured size travels with the path: a hit used to answer with the size
+ * it was *asked* for, which for an `auto`-height artboard is the word "auto",
+ * and the render summary then reported every cached artboard as 0 tall.
+ */
 const cache = new Map()
 
 export function rasterDir() {
@@ -69,7 +75,7 @@ function evict(log) {
   // Oldest first by mtime, which is also least-recently-written. Rasters are
   // regenerated on demand, so evicting the wrong one costs a re-render.
   const entries = [...cache.entries()]
-    .map(([key, path]) => {
+    .map(([key, { path }]) => {
       try {
         return { key, path, at: statSync(path).mtimeMs }
       } catch {
@@ -94,7 +100,7 @@ export async function rasterize(browser, { html, key, width, height, scale = 2 }
   if (!key) throw new Error('rasterize needs a key')
 
   const hit = cache.get(key)
-  if (hit && existsSync(hit)) return { path: hit, cached: true, width, height, scale }
+  if (hit && existsSync(hit.path)) return { path: hit.path, cached: true, width: hit.width, height: hit.height, scale }
 
   mkdirSync(DIR, { recursive: true })
   const p = await ensurePage(browser, log)
@@ -114,16 +120,14 @@ export async function rasterize(browser, { html, key, width, height, scale = 2 }
 
   const path = join(DIR, `${key}.png`)
   await el.screenshot({ path, scale: 'device' })
-  cache.set(key, path)
+  const measured = {
+    width: Math.round(box?.width ?? width),
+    height: Math.round(box?.height ?? (typeof height === 'number' ? height : 0))
+  }
+  cache.set(key, { path, ...measured })
   evict(log)
 
-  return {
-    path,
-    cached: false,
-    width: Math.round(box?.width ?? width),
-    height: Math.round(box?.height ?? (typeof height === 'number' ? height : 0)),
-    scale
-  }
+  return { path, cached: false, ...measured, scale }
 }
 
 const MIME = {

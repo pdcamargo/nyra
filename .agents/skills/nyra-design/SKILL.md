@@ -19,7 +19,7 @@ is what makes the user's approval mean something.
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "name": "Settings",
   "theme": "default",
   "components": { "Button": { "props": { … }, "root": { … } } },
@@ -31,6 +31,10 @@ is what makes the user's approval mean something.
   ]
 }
 ```
+
+Write `"schema": 2`, and write the file pretty-printed — two-space
+indent, one property per line where it reads well. You read files in line
+ranges, and a design written on one line cannot be read in pieces.
 
 Every node needs a unique `id` within its artboard or component. Artboard
 `height` may be `"auto"` to fit its content — prefer that for anything list-
@@ -92,7 +96,54 @@ gets wrong most often, so it is written out in full:
 
 Used as `{ "id": "save", "use": "Button", "props": { "label": "Save changes" } }`.
 A prop with no `default` must be given by every instance. Component names are
-PascalCase; node ids are unique within their artboard or component.
+PascalCase; node ids are unique within their artboard or component. A component
+may carry a one- or two-sentence `"description"` of what it is for, and each
+prop a short `"description"` of its own (`{ "type": "string", "description":
+"The words on it. Start with a verb." }`) — a design system's props table shows it.
+
+### Slots: components that hold other nodes
+
+A Card, a Modal or an inspector group should not decide what goes inside it.
+Declare a `slot` prop, place it with `{ "slot": "<name>" }` among a box's
+children, and each instance fills it under `"slots"` — not `"props"`:
+
+```json
+"Group": {
+  "props": { "title": { "type": "string" }, "body": { "type": "slot" } },
+  "root": { "id": "root", "type": "box", "layout": "stack", "direction": "column", "children": [
+    { "id": "head", "type": "text", "value": { "prop": "title" }, "font": "$font.h4" },
+    { "slot": "body" }
+  ] }
+}
+```
+
+```json
+{ "id": "anim", "use": "Group", "props": { "title": "Animation" },
+  "slots": { "body": [
+    { "id": "fade", "use": "SwitchRow", "props": { "label": "Fade in" } }
+  ] } }
+```
+
+Slot content belongs to the file that wrote it: its ids share that artboard's
+namespace. A slot has no default — an unfilled slot is simply empty — and may be
+placed once per component. To pass a slot through, fill the inner component's
+slot with `{ "slot": "<yours>" }`. Never put a slot in `props`, and never
+read it as a value with `{ "prop": "body" }`.
+
+### What a file says about itself
+
+An optional `"meta"` at the top of a document feeds a design system's pages
+and nav; none of it draws anything:
+
+```json
+"meta": { "group": "Inputs", "order": 1, "status": "ready",
+          "description": "The one clickable action.",
+          "usage": { "do": ["One primary per surface."], "dont": ["Two primaries side by side."] } }
+```
+
+An artboard may pin itself to one of the theme's modes with
+`"mode": "dark"` — for a screen that is always dark. Leave it off otherwise,
+and it follows the viewer's light/dark toggle.
 
 ## Values
 
@@ -298,6 +349,21 @@ Designs are **named, not filed**. You never choose or remember a location — th
 
 `nyra_design action:"list"` shows the designs already in this project, and
 `artboard:"<id>"` renders just one of them.
+
+**Feedback and comments from the canvas.** The user can right-click a design
+and send you feedback on a whole artboard (`<design_feedback …>`), or a
+comment pinned to one element (`<design_comment …>`). A comment names the
+element, the file and node to edit (`edit at`), and where its component is
+defined. Act on it, render, then close it:
+`nyra_design action:"resolve", id:"<c_id>", note:"<what you changed, one line>"`.
+The note shows on the comment's pin on the canvas. `action:"comments",
+design:"<name>"` lists the open ones, for when the user says "go through my
+comments".
+
+**An older file.** If `render` says a design is an older format, run
+`nyra_design action:"upgrade", design:"<name>"` before you edit it — it is
+drawn from an upgraded copy, but anything you write into the file is still in
+the old format until it is upgraded. The original is kept.
 
 ## Things that will bite you
 

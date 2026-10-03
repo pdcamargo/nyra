@@ -6,13 +6,16 @@ import type { NodeKind } from '../registry/define'
 import type { PropName } from '../registry/types'
 import {
   childrenOf,
+  containersOf,
   documentSchema,
+  isSlotRef,
   isUseNode,
   SCHEMA_VERSION,
   type ComponentDef,
   type DesignDocument,
   type DocNode
 } from '../schema'
+import { definedIn, localRegistry, type Registry } from './registry'
 import { isMatch, isPropRef, type Match, type PropRef } from '../value'
 import { isTokenPath } from '../theme/resolve'
 import { err, warn, type Issue } from './types'
@@ -25,7 +28,7 @@ const kindOf = (n: DocNode): NodeKind => (isUseNode(n) ? 'use' : n.type)
 
 /** Walks a node's property values, ignoring `id`, `type`, `use`, `children`. */
 function* propEntries(n: DocNode): Generator<[PropName, unknown]> {
-  const skip = new Set(['id', 'type', 'use', 'children', 'props'])
+  const skip = new Set(['id', 'type', 'use', 'children', 'props', 'slots'])
   for (const [k, v] of Object.entries(n)) {
     if (skip.has(k) || v === undefined) continue
     yield [k as PropName, v]
@@ -62,7 +65,7 @@ function* refs(v: unknown, path: (string | number)[] = []): Generator<[PropRef, 
  * references between parts of one document, and cross-property combinations
  * that parse but mean nothing.
  */
-export function validate(input: unknown): ValidateResult {
+export function validate(input: unknown, options: { registry?: Registry } = {}): ValidateResult {
   const parsed = documentSchema.safeParse(input)
   if (!parsed.success) {
     return {
@@ -87,18 +90,31 @@ export function validate(input: unknown): ValidateResult {
     }
   }
 
-  const components = doc.components ?? {}
+  // Inside a system, every component of every file; otherwise this file's own.
+  const components = options.registry ?? localRegistry(doc)
 
   const seenArtboards = new Set<string>()
   for (const a of doc.artboards) {
     if (seenArtboards.has(a.id)) issues.push(err('duplicate-artboard', `two artboards share the id "${a.id}"`))
     seenArtboards.add(a.id)
+    // An address's scope is an artboard id or a component name, so the two
+    // must not collide — a specimen artboard called "Button" would make
+    // "Button#label" mean two different nodes.
+    if (components.has(a.id)) {
+      issues.push(
+        err(
+          'artboard-shadows-component',
+          `the artboard "${a.id}" has the same name as a component; rename the artboard (e.g. "${a.id.toLowerCase()}-specimens")`
+        )
+      )
+    }
   }
 
   // A `{ prop }` outside a component has no scope to resolve against. That is
   // not a structural error, so it lands here rather than in the schema.
   for (const a of doc.artboards) checkTree(a.root, a.id, null, components, issues)
-  for (const [name, def] of Object.entries(components)) {
+  // Only this file's own components: the others are validated with their files.
+  for (const [name, def] of Object.entries(doc.components ?? {})) {
     checkTree(def.root, name, def, components, issues)
   }
 
@@ -110,10 +126,13 @@ function checkTree(
   root: DocNode,
   scope: string,
   owner: ComponentDef | null,
-  components: Record<string, ComponentDef>,
+  components: Registry,
   issues: Issue[]
 ): void {
   const seen = new Set<string>()
+  /** Each slot may be placed once: twice would put the same authored nodes in
+   *  two places, and two DOM nodes would share one `data-node`. */
+  const placed = new Map<string, number>()
 
   const visit = (n: DocNode): void => {
     const at: Address = { scope, id: n.id }
@@ -136,12 +155,43 @@ function checkTree(
     }
 
     if (isUseNode(n)) {
-      checkInstance(n.use, n.props ?? {}, at, owner, components, issues)
+      checkInstance(n.use, n.props ?? {}, n.slots ?? {}, at, owner, components, issues)
     } else {
       lintCombination(n, at, issues)
     }
 
-    for (const c of childrenOf(n)) visit(c)
+    for (const { items } of containersOf(n)) {
+      for (const c of items) {
+        if (!isSlotRef(c)) {
+          visit(c)
+          continue
+        }
+        if (!owner) {
+          issues.push(
+            err('slot-outside-component', `{ "slot": "${c.slot}" } is in an artboard; slots only exist inside a component`, at)
+          )
+          continue
+        }
+        const declared = owner.props?.[c.slot]
+        if (declared?.type !== 'slot') {
+          issues.push(
+            err(
+              'unknown-slot',
+              declared
+                ? `"${c.slot}" is a ${declared.type} prop, not a slot; declare it { "type": "slot" }`
+                : `{ "slot": "${c.slot}" } names no slot; declare "${c.slot}": { "type": "slot" } in this component's props`,
+              at
+            )
+          )
+          continue
+        }
+        const count = (placed.get(c.slot) ?? 0) + 1
+        placed.set(c.slot, count)
+        if (count === 2) {
+          issues.push(err('slot-placed-twice', `the slot "${c.slot}" is placed more than once in "${scope}"`, at))
+        }
+      }
+    }
   }
 
   visit(root)
@@ -173,6 +223,15 @@ function checkValue(
           prop,
           ...path
         ])
+      )
+    } else if (declared.type === 'slot') {
+      issues.push(
+        err(
+          'slot-as-value',
+          `"${prop}" uses the slot "${ref.prop}" as a value; a slot holds nodes — place it with { "slot": "${ref.prop}" } among a box's children`,
+          at,
+          [prop, ...path]
+        )
       )
     }
   }
@@ -239,20 +298,43 @@ function checkValue(
 function checkInstance(
   name: string,
   props: Record<string, unknown>,
+  slots: Record<string, unknown>,
   at: Address,
   owner: ComponentDef | null,
-  components: Record<string, ComponentDef>,
+  components: Registry,
   issues: Issue[]
 ): void {
-  const target = components[name]
-  if (!target) {
+  const entry = components.get(name)
+  if (!entry) {
     issues.push(err('unknown-component', `no component named "${name}"`, at))
     return
   }
-  const declared = target.props ?? {}
+  if (entry.conflicts?.length) {
+    issues.push(err('ambiguous-component', `"${name}" is ambiguous: it is defined in ${definedIn(entry).join(' and ')}`, at))
+    return
+  }
+  const declared = entry.def.props ?? {}
+
+  for (const k of Object.keys(slots)) {
+    const d = declared[k]
+    if (d?.type !== 'slot') {
+      const have = Object.entries(declared).filter(([, x]) => x.type === 'slot').map(([s]) => `"${s}"`)
+      issues.push(
+        err(
+          'unknown-instance-slot',
+          `"${name}" has no slot "${k}" (its slots: ${have.join(', ') || 'none'})`,
+          at
+        )
+      )
+    }
+  }
 
   for (const [k, v] of Object.entries(props)) {
     const d = declared[k]
+    if (d?.type === 'slot') {
+      issues.push(err('slot-in-props', `"${k}" is a slot on "${name}"; pass its content under "slots", not "props"`, at))
+      continue
+    }
     if (!d) {
       issues.push(
         err(
@@ -282,6 +364,8 @@ function checkInstance(
   }
 
   for (const [k, d] of Object.entries(declared)) {
+    // An unfilled slot is empty, never missing.
+    if (d.type === 'slot') continue
     if (!(k in props) && d.default === undefined) {
       issues.push(err('missing-instance-prop', `"${name}" needs "${k}", which has no default`, at))
     }

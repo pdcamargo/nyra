@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest'
 const RENDERER = resolve(__dirname, '../../renderer/src')
 
 /** Every alpha below full on a token that is already dim. */
-const MUTED_ALPHA = /\btext-(?:muted-foreground|info|danger|success|warning|merged)\/(?:[0-9]|[1-6][0-9]|7[0-9])(?![0-9[])/g
+const MUTED_ALPHA = /\btext-(?:muted-foreground|info|danger|success|warning|merged|design-accent)\/(?:[0-9]|[1-6][0-9]|7[0-9])(?![0-9[])/g
 
 /** --foreground is not dim to begin with, so it keeps a second tier with a floor. */
 const FOREGROUND_ALPHA = /\btext-foreground\/(?:[0-9]|[1-7][0-9])(?![0-9[])/g

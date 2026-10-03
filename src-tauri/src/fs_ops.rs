@@ -321,6 +321,99 @@ pub async fn read_text_file(file_path: &str) -> ReadTextOutcome {
     })
 }
 
+/// Bytes per message when a design streams in. Small enough that the first
+/// progress tick lands at once, large enough that a 40 MB file is forty
+/// messages rather than four thousand.
+pub const STREAM_CHUNK_BYTES: usize = 1024 * 1024;
+
+/// How a streamed read ended.
+// `rename_all` on an enum renames the variants, not the fields inside them;
+// `rename_all_fields` is what makes `total_bytes` arrive as `totalBytes`.
+// Without it the reader waited forever for a byte count it could not see.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum StreamOutcome {
+    /// `total_bytes` is what was actually sent, which is what the reader waits
+    /// for — not the size at the start, because a file can grow mid-read.
+    Done { total_bytes: u64, mtime_ms: i64, ino: u64 },
+    Missing,
+    NotAFile,
+    Cancelled,
+    Error { message: String },
+}
+
+/// A whole file, in chunks, with no size ceiling.
+///
+/// The preview read above is bounded because one IPC message carries it. A
+/// design has no such excuse: a document that is cut off is not a shorter
+/// document, it is invalid JSON. So this sends the file in pieces and leaves
+/// the only real limit — memory — where it already is.
+///
+/// `on_start` gets the size before the first byte, so a progress bar has a
+/// denominator; `on_chunk` returns false when nobody is listening any more.
+/// Neither is a Tauri type, so this is testable without a window.
+pub async fn stream_file(
+    file_path: &str,
+    on_start: impl FnOnce(u64),
+    mut on_chunk: impl FnMut(Vec<u8>) -> bool,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> StreamOutcome {
+    use std::sync::atomic::Ordering;
+    use tokio::io::AsyncReadExt;
+
+    if let Err(message) = validate_absolute(file_path) {
+        return StreamOutcome::Error { message };
+    }
+    let meta = match tokio::fs::metadata(file_path).await {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return StreamOutcome::Missing,
+        Err(e) => return StreamOutcome::Error { message: e.to_string() },
+    };
+    if !meta.is_file() {
+        return StreamOutcome::NotAFile;
+    }
+    let mut file = match tokio::fs::File::open(file_path).await {
+        Ok(f) => f,
+        Err(e) => return StreamOutcome::Error { message: e.to_string() },
+    };
+
+    on_start(meta.len());
+    let mut sent: u64 = 0;
+    loop {
+        if cancelled.load(Ordering::Relaxed) {
+            return StreamOutcome::Cancelled;
+        }
+        let mut buf = vec![0u8; STREAM_CHUNK_BYTES];
+        let mut filled = 0;
+        // Fill the chunk before sending it: `read` may return a few KB at a
+        // time, and a message per short read would multiply the IPC cost.
+        while filled < buf.len() {
+            match file.read(&mut buf[filled..]).await {
+                Ok(0) => break,
+                Ok(n) => filled += n,
+                Err(e) => return StreamOutcome::Error { message: e.to_string() },
+            }
+        }
+        if filled == 0 {
+            break;
+        }
+        buf.truncate(filled);
+        sent += filled as u64;
+        if !on_chunk(buf) {
+            return StreamOutcome::Cancelled;
+        }
+        if filled < STREAM_CHUNK_BYTES {
+            break;
+        }
+    }
+
+    StreamOutcome::Done {
+        total_bytes: sent,
+        mtime_ms: mtime_ms_of(&meta),
+        ino: ino_of(&meta),
+    }
+}
+
 /// Enough to notice a file changed underneath an open preview.
 ///
 /// Polled rather than watched: an inotify watch on a *file* survives on an
@@ -883,6 +976,87 @@ mod tests {
             }
             other => panic!("expected text, got {other:?}"),
         }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // The other half of the budget above: a design is never cut. Several
+    // chunks' worth, with a short last one, must arrive whole and in order.
+    #[tokio::test]
+    async fn streams_a_file_far_past_the_preview_budget_whole() {
+        let dir = scratch("stream");
+        let at = dir.join("big.nyui.json");
+        let body: Vec<u8> = (0..(STREAM_CHUNK_BYTES * 3 + 1234)).map(|i| b'a' + (i % 26) as u8).collect();
+        std::fs::write(&at, &body).unwrap();
+
+        let never = std::sync::atomic::AtomicBool::new(false);
+        let mut announced = 0;
+        let mut got: Vec<u8> = Vec::new();
+        let mut chunks = 0;
+        let outcome = stream_file(
+            at.to_str().unwrap(),
+            |size| announced = size,
+            |chunk| {
+                chunks += 1;
+                got.extend(chunk);
+                true
+            },
+            &never,
+        )
+        .await;
+
+        assert_eq!(announced, body.len() as u64);
+        assert_eq!(chunks, 4);
+        assert_eq!(got, body);
+        match outcome {
+            StreamOutcome::Done { total_bytes, .. } => assert_eq!(total_bytes, body.len() as u64),
+            other => panic!("expected done, got {other:?}"),
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_finished_stream_reaches_the_renderer_in_camel_case() {
+        let done = StreamOutcome::Done { total_bytes: 3, mtime_ms: 4, ino: 5 };
+        assert_eq!(
+            serde_json::to_value(&done).unwrap(),
+            serde_json::json!({ "kind": "done", "totalBytes": 3, "mtimeMs": 4, "ino": 5 })
+        );
+        assert_eq!(
+            serde_json::to_value(StreamOutcome::NotAFile).unwrap(),
+            serde_json::json!({ "kind": "notAFile" })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stream_stops_when_cancelled_or_nobody_listens() {
+        let dir = scratch("stream-stop");
+        let at = dir.join("big.nyui.json");
+        std::fs::write(&at, vec![b'x'; STREAM_CHUNK_BYTES * 2]).unwrap();
+        let path = at.to_str().unwrap();
+
+        let cancelled = std::sync::atomic::AtomicBool::new(true);
+        assert_eq!(stream_file(path, |_| {}, |_| true, &cancelled).await, StreamOutcome::Cancelled);
+
+        let never = std::sync::atomic::AtomicBool::new(false);
+        let mut calls = 0;
+        let outcome = stream_file(
+            path,
+            |_| {},
+            |_| {
+                calls += 1;
+                false
+            },
+            &never,
+        )
+        .await;
+        assert_eq!(outcome, StreamOutcome::Cancelled);
+        assert_eq!(calls, 1);
+
+        assert_eq!(
+            stream_file(dir.join("nope").to_str().unwrap(), |_| {}, |_| true, &never).await,
+            StreamOutcome::Missing
+        );
+        assert_eq!(stream_file(dir.to_str().unwrap(), |_| {}, |_| true, &never).await, StreamOutcome::NotAFile);
         std::fs::remove_dir_all(&dir).ok();
     }
 

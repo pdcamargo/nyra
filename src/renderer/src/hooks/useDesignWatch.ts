@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { compile } from '@nyra/design'
 import type { DesignEntry } from '../lib/api-types'
 import { useDesignActivityStore } from '../store/designActivity'
 import { useFileStamp } from './useFileStamp'
+import { loadDesign } from '../lib/designLoad'
 
 /**
  * Keep the activity store's picture of one design current.
@@ -17,20 +17,16 @@ export function useDesignWatch(path: string | null): void {
   useEffect(() => {
     if (!path) return
     let cancelled = false
-    void window.api.fs.readTextFile(path).then((read) => {
+    void loadDesign(path).then((loaded) => {
       if (cancelled) return
       const store = useDesignActivityStore.getState()
-      if (read.kind === 'missing') {
+      if (loaded.kind === 'missing') {
         store.observeMissing(path)
         return
       }
-      if (read.kind !== 'text') return
-      try {
-        const { doc, theme } = compile(JSON.parse(read.content))
-        store.observe(path, doc, theme)
-      } catch {
-        // Keep the last good version; see above.
-      }
+      // Anything else that is not a drawable design keeps the last good
+      // version; see above.
+      if (loaded.kind === 'ok') store.observe(path, loaded.doc, loaded.theme)
     })
     return () => {
       cancelled = true

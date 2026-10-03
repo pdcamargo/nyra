@@ -9,7 +9,8 @@
  * The same pipeline serves the live panel, which renders React directly and
  * never rasterises at all.
  */
-import { artboardHtml, compile, rasterRequest, type Issue } from '@nyra/design'
+import { rasterRequest, type Issue } from '@nyra/design'
+import { loadDesign } from './designLoad'
 
 export type RenderedArtboard = {
   id: string
@@ -26,9 +27,10 @@ export type RenderResult = {
   /** Lints and errors, verbatim — this text is what the model reads to fix
    *  its own document, so it is never summarised away. */
   issues: Issue[]
+  /** Set when the file is an older format and was rendered from its upgraded
+   *  copy. The file on disk is unchanged until something upgrades it. */
+  format: { from: number; to: number; notes: string[] } | null
 }
-
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 /**
  * Why a render failed, in terms someone can act on.
@@ -56,7 +58,10 @@ export function renderFailure(artboardId: string, error: string | undefined): st
 export function describeIssues(issues: Issue[]): string {
   return issues
     .map((i) => {
-      const at = i.at ? ` @ ${i.at.scope}#${i.at.id}` : i.path ? ` @ ${i.path.join('.')}` : ''
+      // The file first: inside a design system the same scope name can only
+      // be found by knowing which file to open.
+      const where = i.at ? `${i.at.file ? `${i.at.file} · ` : ''}${i.at.scope}#${i.at.id}` : i.path?.join('.')
+      const at = where ? ` @ ${where}` : ''
       return `${i.severity}: ${i.code}: ${i.message}${at}`
     })
     .join('\n')
@@ -67,38 +72,24 @@ export async function renderDesign(
   only?: string,
   scale = 2
 ): Promise<RenderResult> {
-  // `readTextFile` is bounded and reports why it could not read, which is
-  // worth passing through verbatim — "missing" and "too large" are different
-  // problems and the model can act on either.
-  const read = await window.api.fs.readTextFile(path)
-  if (read.kind !== 'text') {
-    throw new Error(
-      read.kind === 'error' ? `could not read ${path}: ${read.message}` : `could not read ${path}: ${read.kind}`
-    )
+  // The whole file, streamed, compiled off the main thread. The reasons it
+  // could not be drawn are passed through verbatim — "missing", "newer" and
+  // "did not compile" are different problems and the model can act on each.
+  const loaded = await loadDesign(path)
+  switch (loaded.kind) {
+    case 'missing':
+      throw new Error(`could not read ${path}: missing`)
+    case 'cancelled':
+      throw new Error(`reading ${path} was cancelled`)
+    case 'error':
+    case 'newer':
+      throw new Error(loaded.message)
+    case 'invalid': {
+      const detail = loaded.issues.length > 0 ? `\n${describeIssues(loaded.issues)}` : ''
+      throw new Error(loaded.issues.length > 0 ? `${path} did not compile${detail}` : loaded.message)
+    }
   }
-  if (read.truncated) {
-    throw new Error(`${path} was truncated at ${read.returnedBytes} of ${read.totalBytes} bytes`)
-  }
-  const text = read.content
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch (e) {
-    throw new Error(`${path} is not valid JSON: ${message(e)}`)
-  }
-
-  // A document that does not compile throws with its issues attached, because
-  // the errors are the useful half of the answer.
-  let compiled
-  try {
-    compiled = compile(parsed)
-  } catch (e) {
-    const issues = (e as { issues?: Issue[] }).issues ?? []
-    const detail = issues.length > 0 ? `\n${describeIssues(issues)}` : ''
-    throw new Error(`${path} did not compile${detail}`)
-  }
-
+  const compiled = loaded
   const { doc, theme, issues } = compiled
   const targets = only ? doc.artboards.filter((a) => a.id === only) : doc.artboards
   if (targets.length === 0) {
@@ -124,5 +115,8 @@ export async function renderDesign(
     })
   }
 
-  return { design: { path, name: doc.name }, artboards, issues }
+  const format = compiled.upgrade
+    ? { from: compiled.upgrade.from, to: compiled.upgrade.to, notes: compiled.upgrade.notes }
+    : null
+  return { design: { path, name: doc.name }, artboards, issues, format }
 }

@@ -9,6 +9,7 @@ import {
   GUTTER,
   layout,
   TITLE_SPACE,
+  visibleArtboards,
   zoomAbout,
   ZOOM_MAX,
   ZOOM_MIN
@@ -184,5 +185,31 @@ describe('framing one artboard', () => {
     const framed = frame(placed[0], { width: 600, height: 500 })
     expect(framed.zoom).toBeLessThan(1)
     expect(2400 * framed.zoom).toBeLessThanOrEqual(600)
+  })
+})
+
+describe('visibleArtboards', () => {
+  const placed = layout([board('a', 400, 300), board('b', 400, 300), board('c', 400, 300, { x: 5000, y: 5000 })], 2400, {})
+
+  it('draws what is on screen and what is about to be, and nothing far away', () => {
+    const near = visibleArtboards(placed, { width: 800, height: 600 }, { x: 0, y: 0 }, 1)
+    expect(near.has('a')).toBe(true)
+    expect(near.has('b')).toBe(true)
+    expect(near.has('c')).toBe(false)
+  })
+
+  it('follows a pan to the far artboard', () => {
+    const near = visibleArtboards(placed, { width: 800, height: 600 }, { x: -4900, y: -4900 }, 1)
+    expect(near.has('c')).toBe(true)
+    expect(near.has('a')).toBe(false)
+  })
+
+  it('zoomed out to fit, everything is in reach', () => {
+    const near = visibleArtboards(placed, { width: 800, height: 600 }, { x: 0, y: 0 }, 0.1)
+    expect([...near].sort()).toEqual(['a', 'b', 'c'])
+  })
+
+  it('an unmeasured viewport draws nothing yet', () => {
+    expect(visibleArtboards(placed, { width: 0, height: 0 }, { x: 0, y: 0 }, 1).size).toBe(0)
   })
 })

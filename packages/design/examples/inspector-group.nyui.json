@@ -1,0 +1,137 @@
+{
+  "schema": 2,
+  "name": "Inspector group",
+  "meta": {
+    "group": "Patterns",
+    "status": "ready",
+    "description": "A titled, collapsible group in the inspector. Each screen decides what goes inside it.",
+    "usage": {
+      "do": ["One concern per group: Animation, Camera, Audio."],
+      "dont": ["Nest a group inside a group."]
+    }
+  },
+  "components": {
+    "Toggle": {
+      "props": { "on": { "type": "boolean", "default": false } },
+      "root": {
+        "id": "track",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "center",
+        "justify": { "match": { "prop": "on" }, "cases": { "true": "end", "false": "start" } },
+        "width": 28,
+        "height": 16,
+        "padding": "$space.xs",
+        "radius": "$radius.full",
+        "background": { "match": { "prop": "on" }, "cases": { "true": "$color.accent", "false": "$color.gray.300" } },
+        "children": [
+          { "id": "knob", "type": "box", "width": 12, "height": 12, "radius": "$radius.full", "background": "$color.surface" }
+        ]
+      }
+    },
+    "SwitchRow": {
+      "description": "A labelled on/off setting.",
+      "props": { "label": { "type": "string" }, "on": { "type": "boolean", "default": false } },
+      "root": {
+        "id": "row",
+        "type": "box",
+        "layout": "stack",
+        "direction": "row",
+        "align": "center",
+        "justify": "between",
+        "padding": ["$space.1", 0],
+        "children": [
+          { "id": "label", "type": "text", "font": "$font.small", "color": "$color.text", "value": { "prop": "label" } },
+          { "id": "toggle", "use": "Toggle", "props": { "on": { "prop": "on" } } }
+        ]
+      }
+    },
+    "Group": {
+      "description": "A titled, collapsible group whose body each screen fills.",
+      "props": {
+        "title": { "type": "string" },
+        "body": { "type": "slot" }
+      },
+      "root": {
+        "id": "root",
+        "type": "box",
+        "layout": "stack",
+        "direction": "column",
+        "radius": "$radius.md",
+        "border": "$border.hairline",
+        "background": "$color.surface",
+        "overflow": "hidden",
+        "children": [
+          {
+            "id": "head",
+            "type": "box",
+            "layout": "stack",
+            "direction": "row",
+            "align": "center",
+            "gap": "$space.2",
+            "padding": ["$space.2", "$space.3"],
+            "children": [
+              { "id": "chevron", "type": "icon", "name": "chevron-down", "size": 12, "color": "$color.textMuted" },
+              { "id": "title", "type": "text", "font": "$font.smallStrong", "color": "$color.text", "grow": 1, "value": { "prop": "title" } }
+            ]
+          },
+          {
+            "id": "body",
+            "type": "box",
+            "layout": "stack",
+            "direction": "column",
+            "gap": "$space.1",
+            "padding": ["$space.2", "$space.3"],
+            "children": [{ "slot": "body" }]
+          }
+        ]
+      }
+    }
+  },
+  "artboards": [
+    {
+      "id": "specimens",
+      "name": "Inspector group — two bodies",
+      "size": { "width": 640, "height": "auto" },
+      "background": "$color.surfaceSunken",
+      "root": {
+        "id": "page",
+        "type": "box",
+        "layout": "grid",
+        "columns": 2,
+        "gap": "$space.4",
+        "padding": "$space.6",
+        "children": [
+          {
+            "id": "animation",
+            "use": "Group",
+            "props": { "title": "Animation" },
+            "slots": {
+              "body": [
+                { "id": "fade", "use": "SwitchRow", "props": { "label": "Fade in", "on": true } },
+                { "id": "loop", "use": "SwitchRow", "props": { "label": "Loop" } }
+              ]
+            }
+          },
+          {
+            "id": "camera",
+            "use": "Group",
+            "props": { "title": "Camera" },
+            "slots": {
+              "body": [
+                { "id": "follow", "use": "SwitchRow", "props": { "label": "Follow subject", "on": true } },
+                { "id": "note", "type": "text", "font": "$font.caption", "color": "$color.textMuted", "value": "Drag on the canvas to reframe." }
+              ]
+            }
+          },
+          {
+            "id": "empty",
+            "use": "Group",
+            "props": { "title": "Audio" }
+          }
+        ]
+      }
+    }
+  ]
+}

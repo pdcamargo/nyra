@@ -345,6 +345,25 @@ export type ReadTextOutcome =
   | { kind: 'notAFile' }
   | { kind: 'error'; message: string }
 
+/**
+ * A design file read whole, however large. Unlike `ReadTextOutcome` there is
+ * no `truncated`: a document cut short is not a shorter document, it is broken
+ * JSON, so this read never cuts.
+ */
+export type DesignReadResult =
+  | { kind: 'text'; content: string; totalBytes: number; mtimeMs: number; ino: number }
+  | { kind: 'missing' }
+  | { kind: 'notAFile' }
+  | { kind: 'cancelled' }
+  | { kind: 'error'; message: string }
+
+export type DesignReadOptions = {
+  cwd?: string
+  /** Bytes so far and the file's size; called once with 0 before the first chunk. */
+  onProgress?: (loaded: number, total: number) => void
+  signal?: AbortSignal
+}
+
 /** Enough to notice a file changed underneath an open preview. */
 export type FileStamp = {
   exists: boolean
@@ -510,3 +529,30 @@ export type DesignEntry = {
   project: string
   updatedAt: string
 }
+
+/** A design system: a folder of design files sharing one theme and one set of
+ *  components. Registered in `~/.nyra/designs/systems.json`. */
+export type SystemEntry = {
+  id: string
+  name: string
+  /** The folder holding `nyra.design.json`. */
+  root: string
+  project: string
+  updatedAt: string
+  previousRoots: string[]
+  /** Keep `.claude/skills/<slug>-design-system/SKILL.md` in the repo current. */
+  projectSkill: boolean
+}
+
+export type SystemFileKind = 'manifest' | 'tokens' | 'component' | 'pattern' | 'screen' | 'guideline'
+
+export type SystemFileInfo = {
+  path: string
+  /** Inside the system, `/`-separated: `components/button.nyui.json`. */
+  rel: string
+  kind: SystemFileKind
+  size: number
+  mtimeMs: number
+}
+
+export type SystemReply = { ok: boolean; system?: SystemEntry; error?: string }

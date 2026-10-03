@@ -1265,6 +1265,12 @@ fn compose_system_prompt(
     if has_desktop {
         parts.push(DESKTOP_CONVENTION);
     }
+    // Only with the app tools: the pointer says how to read the system, and
+    // that is a `nyra_design` call.
+    let systems = if has_app { design_system_pointer(&crate::design_systems::for_cwd(std::path::Path::new(cwd))) } else { None };
+    if let Some(line) = &systems {
+        parts.push(line);
+    }
 
     let nyra = parts.join(" ");
     if user_prompt.is_empty() {
@@ -1272,6 +1278,22 @@ fn compose_system_prompt(
     } else {
         format!("{nyra}\n\n{user_prompt}")
     }
+}
+
+/// One line naming the project's design systems, so Claude designs and builds
+/// with them without having to go looking. Nothing when there are none.
+fn design_system_pointer(systems: &[crate::design_systems::SystemEntry]) -> Option<String> {
+    if systems.is_empty() {
+        return None;
+    }
+    let named = systems
+        .iter()
+        .map(|s| format!("\"{}\" ({})", s.name, s.root.display()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "This project has a Nyra design system: {named}. Use its tokens and components for any UI work, in designs and in code; nyra_design action:\"list\" with design:\"<name>\" returns its digest."
+    ))
 }
 
 fn build_spawn_args(
@@ -3501,6 +3523,27 @@ mod tests {
     /// every turn, so a convention that doubles is a bill the user pays forever
     /// without seeing it. The numbers print on `--nocapture`; the assertion is
     /// there so growth has to be a decision rather than a drift.
+    // Only said when there is a system, and kept to one short line: it rides in
+    // every turn of every chat in the project.
+    #[test]
+    fn a_design_system_is_named_in_one_line_and_only_when_there_is_one() {
+        assert_eq!(design_system_pointer(&[]), None);
+        let s = crate::design_systems::SystemEntry {
+            id: "s_1".into(),
+            name: "Closeup".into(),
+            root: "/repo/design".into(),
+            project: "/repo".into(),
+            updated_at: String::new(),
+            previous_roots: vec![],
+            project_skill: false,
+        };
+        let line = design_system_pointer(std::slice::from_ref(&s)).unwrap();
+        assert!(line.contains("\"Closeup\" (/repo/design)"), "{line}");
+        assert!(line.contains("nyra_design action:\"list\""), "{line}");
+        assert!(!line.contains('\n'));
+        assert!(line.len() < 300, "{} chars", line.len());
+    }
+
     #[test]
     fn the_app_convention_stays_inside_its_budget() {
         let base = compose_system_prompt("/tmp/x", "", false, false, false);

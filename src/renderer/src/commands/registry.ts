@@ -46,6 +46,7 @@ import {
   SquareTerminal,
   Store,
   Sun,
+  SwatchBook,
   Target,
   TextQuote,
   Workflow,
@@ -60,6 +61,7 @@ import { useUiStore, type MainView } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
 import {
+  activeCwd,
   activeProject,
   activeSession,
   createSiblingSession,
@@ -102,6 +104,7 @@ export type CommandId =
   | 'session.abort'
   | 'desktop.stop'
   | 'session.pr.open'
+  | 'design.system.new'
   | 'project.add'
   | 'project.moveToWorkspace'
   | 'workspace.next'
@@ -551,6 +554,24 @@ export const COMMANDS: Command[] = [
     run: () => {
       const pr = newestPr()
       if (pr) void window.api.system.openExternal(pr.url)
+    }
+  },
+  {
+    // A design system is made by talking to Claude, so this does not open
+    // anything: it starts the message, and Enter sends it. If the project has
+    // one already, Claude says so before making another.
+    id: 'design.system.new',
+    agent: false,
+    agentReason: 'It writes into the message the user is composing.',
+    label: 'Create a design system',
+    group: 'Session',
+    defaultChord: null,
+    icon: SwatchBook,
+    palette: true,
+    available: () => activeCwd(useSessionsStore.getState()) !== '',
+    run: () => {
+      ui().setMainView('chat')
+      ui().prefillInput('Create a design system for this project.')
     }
   },
   {

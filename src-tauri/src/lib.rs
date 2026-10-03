@@ -7,6 +7,8 @@ mod app_mcp;
 mod browser;
 mod claude;
 mod commands;
+mod comments;
+mod design_systems;
 mod designs;
 mod desktop;
 mod devtools;
@@ -31,6 +33,7 @@ mod plugins;
 mod plugin_logos;
 mod platform;
 mod processes;
+mod questionnaires;
 mod settings;
 mod skills;
 mod spellcheck;
@@ -53,7 +56,7 @@ use tauri::{Manager, RunEvent, WindowEvent};
 /// build was compiled from. `npm run dev` sets this so a dev instance is
 /// something to inspect rather than a second actor. `npm run dev:active` when
 /// triggers or managed skills are themselves the thing being worked on.
-fn passive_dev() -> bool {
+pub(crate) fn passive_dev() -> bool {
     std::env::var("NYRA_DEV_PASSIVE").as_deref() == Ok("1")
 }
 
@@ -292,7 +295,32 @@ pub fn run() {
             commands::design_raster,
             commands::design_pick_pdf_path,
             commands::design_pdf,
+            commands::design_read,
+            commands::design_read_cancel,
+            commands::design_write_upgraded,
             commands::design_list,
+            commands::system_list,
+            commands::system_create,
+            commands::system_adopt,
+            commands::system_files,
+            commands::system_of,
+            commands::system_relocate,
+            commands::system_rename,
+            commands::system_forget,
+            commands::system_set_project_skill,
+            commands::system_write_project_skill,
+            commands::system_discover,
+            commands::questionnaire_get,
+            commands::questionnaire_list,
+            commands::questionnaire_set_answers,
+            commands::questionnaire_mark_sent,
+            commands::questionnaire_add_files,
+            commands::questionnaire_add_file_bytes,
+            commands::questionnaire_remove_file,
+            commands::comments_list,
+            commands::comments_add,
+            commands::comments_update,
+            commands::comments_delete,
             commands::design_create,
             commands::design_adopt,
             commands::design_relocate,

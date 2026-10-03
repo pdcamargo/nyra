@@ -101,6 +101,63 @@ pub async fn checkout(cwd: &str, branch_name: &str, create: bool) -> Value {
     }
 }
 
+/// Files in the repo at `cwd` matching `patterns` — tracked, plus untracked
+/// ones git is not ignoring — as absolute host paths. Empty outside a repo.
+///
+/// How design files committed to a repo are found without scanning the disk:
+/// git already knows every file in the project, bounded to the project.
+pub async fn project_files(cwd: &str, patterns: &[&str]) -> Vec<String> {
+    let mut args = vec!["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--"];
+    args.extend_from_slice(patterns);
+    let Ok(out) = git(cwd, &args, 10_000).await else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    let root = std::path::Path::new(cwd);
+    let mut seen = std::collections::BTreeSet::new();
+    for rel in out.stdout.split(|b| *b == 0).filter(|r| !r.is_empty()) {
+        // git names files relative to `cwd`, with `/` on every OS.
+        let rel = String::from_utf8_lossy(rel);
+        let joined = rel.split('/').fold(root.to_path_buf(), |p, seg| p.join(seg));
+        seen.insert(host_path(cwd, &joined.to_string_lossy()));
+    }
+    seen.into_iter().collect()
+}
+
+/// The linked worktree `path` is in, and the main checkout it was made from —
+/// `None` in a main checkout, a submodule, or no repo.
+///
+/// Read off the `.git` *file* a linked worktree has in place of a directory
+/// (`gitdir: <main>/.git/worktrees/<name>`), so it costs one small read and
+/// no git process: it is asked on every chip a worktree chat shows. A main
+/// checkout that does not exist from here (a WSL path read from Windows) is
+/// no answer rather than a wrong one.
+pub fn linked_worktree(path: &std::path::Path) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    for dir in path.ancestors() {
+        let dotgit = dir.join(".git");
+        let Ok(meta) = std::fs::metadata(&dotgit) else { continue };
+        if meta.is_dir() {
+            return None;
+        }
+        let text = std::fs::read_to_string(&dotgit).ok()?;
+        let gitdir = text.lines().find_map(|l| l.strip_prefix("gitdir:"))?.trim();
+        let gitdir = if std::path::Path::new(gitdir).is_absolute() {
+            std::path::PathBuf::from(gitdir)
+        } else {
+            dir.join(gitdir)
+        };
+        let worktrees = gitdir.parent()?;
+        let main_git = worktrees.parent()?;
+        if worktrees.file_name()? != "worktrees" || main_git.file_name()? != ".git" || !main_git.is_dir() {
+            return None;
+        }
+        return Some((dir.to_path_buf(), main_git.parent()?.to_path_buf()));
+    }
+    None
+}
+
 pub async fn is_repo(cwd: &str) -> bool {
     matches!(
         git(cwd, &["rev-parse", "--is-inside-work-tree"], 3000).await,
@@ -870,6 +927,29 @@ pub fn snapshot_exists(session_id: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_linked_worktree_names_its_main_checkout_without_running_git() {
+        let base = std::env::temp_dir().join(format!("nyra-wt-{}", crate::util::rand_hex(6)));
+        let main = base.join("repo");
+        let wt = base.join("trees").join("feat-x");
+        std::fs::create_dir_all(main.join(".git").join("worktrees").join("feat-x")).unwrap();
+        std::fs::create_dir_all(wt.join("design").join("screens")).unwrap();
+        std::fs::write(
+            wt.join(".git"),
+            format!("gitdir: {}\n", main.join(".git").join("worktrees").join("feat-x").display()),
+        )
+        .unwrap();
+        let deep = wt.join("design").join("screens").join("a.nyui.json");
+        assert_eq!(linked_worktree(&deep), Some((wt.clone(), main.clone())));
+        assert_eq!(linked_worktree(&main.join("src")), None, "a main checkout is not a linked worktree");
+        // A submodule's .git file points into modules/, not worktrees/.
+        let sub = main.join("vendor").join("lib");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join(".git"), "gitdir: ../../.git/modules/lib\n").unwrap();
+        assert_eq!(linked_worktree(&sub), None);
+        std::fs::remove_dir_all(&base).ok();
+    }
     use super::*;
     use std::path::{Path, PathBuf};
     use std::process::Command;

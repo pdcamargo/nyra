@@ -13,10 +13,14 @@ export function scaleOf(path: string): ScaleName {
   return path.slice(1, path.indexOf('.')) as ScaleName
 }
 
+/**
+ * Own keys only. A plain index walks the prototype chain, so `$color.constructor`
+ * found `Object` and came back as a function instead of "unknown token".
+ */
 function walk(root: unknown, segments: string[]): unknown {
   let cur: unknown = root
   for (const seg of segments) {
-    if (cur === null || typeof cur !== 'object') return undefined
+    if (cur === null || typeof cur !== 'object' || !Object.hasOwn(cur, seg)) return undefined
     cur = (cur as Record<string, unknown>)[seg]
   }
   return cur
@@ -59,22 +63,26 @@ export function resolveDeep(v: unknown, theme: Theme): unknown {
   return v
 }
 
+/**
+ * Which scales hold objects as leaves. Decided by the scale, not by sniffing
+ * keys: a colour ramp with a step named `size` or `width` is still a ramp, and
+ * guessing from keys made it a leaf.
+ */
+const OBJECT_LEAVES: ReadonlySet<ScaleName> = new Set(['font', 'border'])
+
 /** Every token path a theme can answer — the vocabulary the skill documents. */
 export function tokenPaths(theme: Theme): string[] {
   const out: string[] = []
-  const rec = (prefix: string, node: unknown): void => {
-    if (node === null || typeof node !== 'object' || Array.isArray(node)) {
-      out.push(prefix)
-      return
+  for (const scale of SCALES) {
+    const rec = (prefix: string, node: unknown, depth: number): void => {
+      const leafObject = OBJECT_LEAVES.has(scale) && depth === 1
+      if (node === null || typeof node !== 'object' || Array.isArray(node) || leafObject) {
+        out.push(prefix)
+        return
+      }
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) rec(`${prefix}.${k}`, v, depth + 1)
     }
-    const entries = Object.entries(node as Record<string, unknown>)
-    // A font bundle or border token is a leaf, not a nested ramp.
-    if (entries.some(([k]) => ['family', 'size', 'weight', 'width', 'style'].includes(k))) {
-      out.push(prefix)
-      return
-    }
-    for (const [k, v] of entries) rec(`${prefix}.${k}`, v)
+    rec(`$${scale}`, theme[scale], 0)
   }
-  for (const scale of SCALES) rec(`$${scale}`, theme[scale])
   return out.sort()
 }

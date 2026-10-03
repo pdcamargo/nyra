@@ -29,9 +29,15 @@ import { useSettingsStore } from '../store/settings'
 import { useWorkflowStore } from '../store/workflow'
 import { useSessionsStore } from '../store/sessions'
 import { usePanelTabsStore, panelTabsFor } from '../store/panelTabs'
-import { openFileInPanel } from './openFile'
+import { openFileInPanel, openQuestionnaireInPanel } from './openFile'
+import { formatAnswers, progressOf } from './questionnaire'
 import { resolveTheme } from './theme'
-import { renderDesign } from './designRender'
+import { FORMAT_VERSION, serializeDocument } from '@nyra/design'
+import { describeIssues, renderDesign } from './designRender'
+import { loadDesign } from './designLoad'
+import { loadSystem, projectSkill, systemDigest, upgradeSystemFiles } from './designSystem'
+import { dirname } from './paths'
+import type { SystemEntry } from './api-types'
 import { askDesktopAccess } from './desktopControl'
 
 type Op = (args: Record<string, unknown>) => unknown | Promise<unknown>
@@ -71,6 +77,17 @@ function state(): Record<string, unknown> {
             title: tab.kind === 'file' ? tab.path : tab.kind
           }))
   }
+}
+
+/**
+ * A system by id, at the folder Rust resolved it to for the asking chat — a
+ * worktree's copy when the chat is in one. Rust checks that folder is a copy
+ * of this system before reading it.
+ */
+async function systemAt(id: string, root: unknown): Promise<SystemEntry> {
+  const entry = (await window.api.designSystem.list()).find((s) => s.id === id)
+  if (!entry) throw new Error(`no design system ${id}`)
+  return typeof root === 'string' && root ? { ...entry, root } : entry
 }
 
 const OPS: Record<string, Op> = {
@@ -189,6 +206,80 @@ const OPS: Record<string, Op> = {
   // Asked the first time a chat touches an app. Held open until the user
   // answers in that chat's composer; Rust waits up to two minutes.
   'desktop.allow': (args) => askDesktopAccess(args),
+
+  /**
+   * Bring a design to the current format and write it back, original backed
+   * up first. The migrations live in the renderer's copy of the package, so
+   * the upgrading happens here; Rust only makes the swap safe.
+   */
+  async 'design.upgrade'({ path }) {
+    if (typeof path !== 'string' || path.length === 0) {
+      throw new Error("design.upgrade needs a 'path'")
+    }
+    const loaded = await loadDesign(path)
+    if (loaded.kind === 'invalid') {
+      const detail = loaded.issues.length > 0 ? `\n${describeIssues(loaded.issues)}` : ''
+      throw new Error(`${path} could not be upgraded because it does not compile${detail}`)
+    }
+    if (loaded.kind !== 'ok') {
+      throw new Error(loaded.kind === 'missing' ? `${path} does not exist` : 'message' in loaded ? loaded.message : `could not read ${path}`)
+    }
+    if (!loaded.upgrade) return { ok: true, current: true, version: FORMAT_VERSION }
+    const written = await window.api.design.writeUpgraded(path, serializeDocument(loaded.upgrade.doc), loaded.upgrade.from)
+    if (!written.ok) throw new Error(written.error ?? `could not write ${path}`)
+    return {
+      ok: true,
+      from: loaded.upgrade.from,
+      to: loaded.upgrade.to,
+      notes: loaded.upgrade.notes,
+      backup: written.backup
+    }
+  },
+
+  /**
+   * A design system's digest: what Claude reads to design or build with it.
+   * Generated from the files on every ask, so it cannot be stale — and, for a
+   * repo system that opted in, written to the repo as a skill at the same time.
+   */
+  async 'design.system'({ id, root }) {
+    if (typeof id !== 'string') throw new Error("design.system needs an 'id'")
+    const entry = await systemAt(id, root)
+    const sys = await loadSystem(entry)
+    if (entry.projectSkill) void window.api.designSystem.writeProjectSkill(entry.id, projectSkill(sys), entry.root)
+    return { ok: true, digest: systemDigest(sys) }
+  },
+
+  /**
+   * Bring every file of a system to the current format, each original backed
+   * up first. Files that are already current are left alone.
+   */
+  async 'design.upgradeSystem'({ id, root }) {
+    if (typeof id !== 'string') throw new Error("design.upgradeSystem needs an 'id'")
+    const entry = await systemAt(id, root)
+    const { upgraded, backup } = await upgradeSystemFiles(entry)
+    return { ok: true, upgraded, backup: backup ? dirname(backup) : '' }
+  },
+
+  /** Open a questionnaire Claude just asked, in the chat that asked it. */
+  'design.openQuestionnaire'({ id, sessionId, focus }) {
+    if (typeof id !== 'string') throw new Error("design.openQuestionnaire needs an 'id'")
+    openQuestionnaireInPanel(
+      id,
+      typeof sessionId === 'string' ? sessionId : undefined,
+      typeof focus === 'string' ? focus : undefined
+    )
+    return { ok: true }
+  },
+
+  /** A questionnaire's answers so far, written up the way Send writes them. */
+  async 'design.questionnaireAnswers'({ id }) {
+    if (typeof id !== 'string') throw new Error("design.questionnaireAnswers needs an 'id'")
+    const q = await window.api.questionnaire.get(id)
+    if (!q) throw new Error(`no questionnaire ${id}`)
+    const { answered, total } = progressOf(q)
+    const sent = q.sent?.length ? ` Last sent ${q.sent[q.sent.length - 1].at}.` : ' Not sent yet.'
+    return { ok: true, text: `${answered} of ${total} answered.${sent}\n\n${formatAnswers(q)}` }
+  },
 
   async 'design.render'({ path, artboard, scale }) {
     if (typeof path !== 'string' || path.length === 0) {

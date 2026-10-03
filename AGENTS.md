@@ -99,10 +99,10 @@ ramp is tuned to clear AA on both surfaces; if you need a second tier, reach for
 different token, not for a fraction of this one.
 
 `src/__tests__/styles/contrast.test.ts` fails the build on
-`text-{muted-foreground,info,danger,success,warning,merged}/<80` and on
-`text-foreground/<80`. Fills are exempt and stay expressive — `bg-info/10` behind
-a chip is fine, a 6px status dot at `bg-success/40` is not, because that dot is
-the only thing reporting the result.
+`text-{muted-foreground,info,danger,success,warning,merged,design-accent}/<80`
+and on `text-foreground/<80`. Fills are exempt and stay expressive —
+`bg-info/10` behind a chip is fine, a 6px status dot at `bg-success/40` is not,
+because that dot is the only thing reporting the result.
 
 The same mistake in a selected state is worse: the title bar marked its active
 toggle with `bg-accent` over `bg-sidebar`, four thousandths of a lightness step
@@ -131,6 +131,33 @@ If you add one: teach it in `claude.rs`, parse it in `lib/`, strip it in
 must be checked against a real repo — `CHANGES_CONVENTION` originally said
 `git diff --numstat`, which cannot see a file git has never been told about, so a
 turn that added files summarised none of them.
+
+## Nyra Design
+
+`docs/nyra-design-spec.md` explains the design. These are the rules a change
+can break without noticing:
+
+- **A breaking format change ships a migration.** Bump `FORMAT_VERSION` and
+  add a step in `packages/design/src/migrations/` that works on raw JSON. The
+  tests fail without one. After changing the vocabulary, run `npm run skill`
+  in `packages/design` to regenerate the `nyra-design` skill.
+- **Design files are read with `window.api.design.read`**, which streams. The
+  generic `read_text_file` stops at 1 MiB and returns a stub that fails to parse.
+- **Systems are in `systems.json`, never `index.json`.** An older installed
+  build rewrites `index.json` and drops fields it does not know.
+- **A system's root depends on who is asking.** In a worktree chat it is the
+  worktree's copy. Get it from `designSystem.list(cwd)` or `.of(path)`, and pass
+  `entry.root` to `files`. Don't look a system up by id and use its registered
+  root.
+- **Comments and questionnaires live in `~/.nyra/designs/`**, never in the
+  user's repo.
+- **The design-system surfaces are violet.** The system overview, canvas,
+  questionnaire, comments and their transcript chips use `design-accent`
+  (and `DESIGN_PRIMARY` for a filled button), as the mockups draw them. The
+  rest of the app's accent stays `info`; don't mix the two on one surface.
+- **The launch discovery pass is skipped by `npm run dev`** (it files designs
+  into lists the installed app reads). Call `designSystem.discover(path)`
+  directly to try it on a scratch repo.
 
 ## Platforms
 

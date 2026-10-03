@@ -236,6 +236,18 @@ export async function openDesignInPanel(ref: string): Promise<void> {
   const cwd = cwdForSession(sessions, sessionId)
   const absolute = resolvePath(filePath, cwd)
 
+  // A file in a design system opens in its system, on the canvas — never
+  // adopted as a standalone draft, which would compile it without the
+  // system's components and theme.
+  const member = await window.api.designSystem?.of(absolute)
+  if (member) {
+    widenForDesign()
+    usePanelTabsStore
+      .getState()
+      .openSystemTab(sessionId, member.system.id, { view: 'canvas', file: member.rel, artboardId: artboard })
+    return
+  }
+
   const known = await window.api.design.list()
   // By the host's rules, not byte for byte: a chat may spell the path with
   // other separators or case than the index, and it is still this design.
@@ -252,14 +264,31 @@ export async function openDesignInPanel(ref: string): Promise<void> {
     entry = adopted.design
   }
 
+  widenForDesign()
+  usePanelTabsStore.getState().openDesignTab(sessionId, entry.id, artboard)
+}
+
+/** Open the side panel at least wide enough for a canvas. */
+function widenForDesign(min = DESIGN_MIN_WIDTH): void {
   useUiStore.getState().setRightPanelOpen(true)
   // Widen, never narrow — the same rule the changes and plan tabs follow, so
   // opening a design cannot shrink a panel someone deliberately made wide.
   const sizes = usePanelSizesStore.getState()
-  if (sizes.rightPanelWidth < DESIGN_MIN_WIDTH) {
-    sizes.setSize('rightPanelWidth', DESIGN_MIN_WIDTH)
-  }
-  usePanelTabsStore.getState().openDesignTab(sessionId, entry.id, artboard)
+  if (sizes.rightPanelWidth < min) sizes.setSize('rightPanelWidth', min)
+}
+
+/** A system's overview has a nav beside the page, so it wants more room. */
+export const SYSTEM_MIN_WIDTH = 760
+
+/**
+ * A design system's overview, by id — from a `nyra://design-system/<id>` link,
+ * the picker, or Claude.
+ */
+export async function openSystemInPanel(systemId: string, at: { section?: string } = {}): Promise<void> {
+  const sessionId = useSessionsStore.getState().activeSessionId
+  if (!sessionId) return
+  widenForDesign(SYSTEM_MIN_WIDTH)
+  usePanelTabsStore.getState().openSystemTab(sessionId, systemId, { view: 'overview', section: at.section ?? null })
 }
 
 /**
@@ -274,7 +303,9 @@ export async function designArtboardName(
   artboardId: string
 ): Promise<string | null> {
   try {
-    const read = await window.api.fs.readTextFile(absolutePath)
+    // The whole file: the bounded preview read cut big designs mid-JSON, and
+    // the chip then quietly lost its artboard name.
+    const read = await window.api.design.read(absolutePath)
     if (read.kind !== 'text') return null
     const doc = JSON.parse(read.content) as { artboards?: { id?: string; name?: string }[] }
     return doc.artboards?.find((a) => a.id === artboardId)?.name ?? null
@@ -297,4 +328,18 @@ export function designNameFromPath(absolute: string): string {
   const withoutId = stem.replace(/-d_[0-9a-f]+$/i, '')
   const words = withoutId.replace(/[-_]+/g, ' ').trim()
   return words.length === 0 ? 'Design' : words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** The questionnaire panel wants room for its rail beside the questions. */
+export const QUESTIONNAIRE_MIN_WIDTH = 680
+
+/**
+ * Claude's questions, in the side panel of the chat that asked — or the one on
+ * screen, from a chip.
+ */
+export function openQuestionnaireInPanel(questionnaireId: string, sessionId?: string, focus?: string): void {
+  const sid = sessionId ?? useSessionsStore.getState().activeSessionId
+  if (!sid) return
+  widenForDesign(QUESTIONNAIRE_MIN_WIDTH)
+  usePanelTabsStore.getState().openQuestionnaireTab(sid, questionnaireId, focus)
 }

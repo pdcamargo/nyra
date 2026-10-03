@@ -173,7 +173,10 @@ fn resolve_in(index: &Index, needle: &str, project: Option<&Path>) -> Option<Ent
 pub fn list(project: Option<&Path>) -> Vec<Entry> {
     let mut all = load().designs;
     if let Some(p) = project {
-        all.retain(|d| d.project == p);
+        // A worktree chat's project is the worktree; its drafts are filed
+        // under the main checkout it came from.
+        let main = crate::git::linked_worktree(p).map(|(_, main)| main);
+        all.retain(|d| d.project == p || main.as_deref().is_some_and(|m| same_file(&d.project, m)));
     }
     all.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     all
@@ -235,7 +238,7 @@ pub fn adopt(name: &str, path: &Path, project: &Path) -> Result<Entry, String> {
 /// alike on Windows, but not case, 8.3 short names (`ADMINI~1`) or a symlinked
 /// home, and a second spelling of an adopted design would otherwise be adopted
 /// again, as a second design. Canonical when both exist, literal when not.
-fn same_file(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     if a == b {
         return true;
     }
@@ -316,6 +319,45 @@ pub fn touch(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn backups_dir(root: &Path) -> PathBuf {
+    root.join("backups")
+}
+
+/// Write a document brought forward to a newer format, keeping the original.
+///
+/// The renderer does the upgrading — it has the migrations — and hands over the
+/// result; this only makes the swap safe. The original is copied into Nyra's
+/// own folder first, never next to the file: a design can live in a repo, and
+/// a `.bak` dropped there is litter in somebody's `git status`. Then the new
+/// text replaces the file in one rename, so a crash mid-write leaves either
+/// version, never half of one.
+pub fn write_upgraded(path: &Path, content: &str, from: u32) -> Result<PathBuf, String> {
+    write_upgraded_in(&root(), path, content, from)
+}
+
+fn write_upgraded_in(root: &Path, path: &Path, content: &str, from: u32) -> Result<PathBuf, String> {
+    if !path.is_file() {
+        return Err(format!("{} is not a file", path.display()));
+    }
+    let dir = backups_dir(root);
+    fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("design.nyui.json");
+    let stem = file_name.strip_suffix(".nyui.json").unwrap_or(file_name);
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let backup = dir.join(format!("{stem}.v{from}.{stamp}-{}.nyui.json", util::rand_hex(2)));
+    fs::copy(path, &backup).map_err(|e| format!("could not back up {}: {e}", path.display()))?;
+
+    let parent = path.parent().ok_or("the design has no parent directory")?;
+    let tmp = parent.join(format!(".{file_name}.{}", util::rand_hex(6)));
+    fs::write(&tmp, content).map_err(|e| format!("could not write the upgraded design: {e}"))?;
+    fs::rename(&tmp, path).map_err(|e| {
+        fs::remove_file(&tmp).ok();
+        format!("could not replace {}: {e}", path.display())
+    })?;
+    Ok(backup)
+}
+
 /// Forget a design. The file is left alone unless asked for: an index entry is
 /// a pointer, and deleting someone's work because they closed a tab is not a
 /// trade worth making.
@@ -359,6 +401,32 @@ mod tests {
         assert_eq!(hit.as_deref(), Some("d_new"));
         let by_id = resolve_in(&index, "d_old", Some(&project)).map(|d| d.id);
         assert_eq!(by_id.as_deref(), Some("d_old"));
+    }
+
+    // The upgrade must never be the only copy: the original goes to Nyra's
+    // folder (not beside the file, which may be in a repo) before the swap.
+    #[test]
+    fn an_upgrade_keeps_the_original_outside_the_files_folder() {
+        let tmp = std::env::temp_dir().join(format!("nyra-designs-test-{}", util::rand_hex(6)));
+        let repo = tmp.join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        let file = repo.join("checkout.nyui.json");
+        fs::write(&file, "{\"schema\":1}").unwrap();
+        let root = tmp.join("designs");
+
+        let backup = write_upgraded_in(&root, &file, "{\n  \"schema\": 2\n}\n", 1).unwrap();
+
+        assert_eq!(fs::read_to_string(&file).unwrap(), "{\n  \"schema\": 2\n}\n");
+        assert_eq!(fs::read_to_string(&backup).unwrap(), "{\"schema\":1}");
+        assert!(backup.starts_with(root.join("backups")));
+        let name = backup.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.starts_with("checkout.v1."), "{name}");
+        assert!(name.ends_with(".nyui.json"), "{name}");
+        // Nothing left behind in the repo but the file itself.
+        let left: Vec<_> = fs::read_dir(&repo).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left.len(), 1);
+        assert!(write_upgraded_in(&root, &repo.join("nope.nyui.json"), "{}", 1).is_err());
+        fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]

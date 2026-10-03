@@ -27,7 +27,8 @@
     "postinstall": "npm run sidecar:install",
     "release:manifest": "node scripts/release-manifest.mjs",
     "release:windows": "node scripts/release-windows.mjs",
-    "design:dev": "npm run dev -w @nyra/design"
+    "design:dev": "npm run dev -w @nyra/design",
+    "design:upgrade": "vite-node packages/design/scripts/upgrade.mts --"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

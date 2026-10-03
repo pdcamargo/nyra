@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import QuestionnaireChip, { isQuestionnaireAsk } from './questionnaire/QuestionnaireChip'
 import { ChevronRight } from 'lucide-react'
 import type { ToolCallMessage } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
@@ -114,6 +115,9 @@ export default function ToolCallGroup({
     }
     if (only.tool_name === 'Skill') {
       return <SkillChip message={only} />
+    }
+    if (isQuestionnaireAsk(only)) {
+      return <QuestionnaireChip message={only} />
     }
     return (
       <div className="py-1">

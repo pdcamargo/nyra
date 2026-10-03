@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
-import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, newMessageId } from '../store/sessions'
+import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, type MessageContext, newMessageId } from '../store/sessions'
 import { noteDesignCall, noteDesignResult } from '../store/designActivity'
 import { useSettingsStore } from '../store/settings'
 import { wslShare } from '../lib/environment'
@@ -24,6 +24,9 @@ import {
 } from '../store/subagentTranscripts'
 import { outputFileFromReceipt } from '../lib/agentReport'
 import { withAttachments } from '../lib/promptAttachments'
+import { SEND_TO_CHAT, withContext, type SendToChat } from '../lib/messageContext'
+import { isQuestionnaireAsk } from './questionnaire/QuestionnaireChip'
+import MessageContextLines, { QuestionnaireRecord } from './MessageContextLines'
 import { contextFill } from '../lib/contextFill'
 import { historyText } from '../lib/historyText'
 import { extractAskBlocks } from '../lib/askBlocks'
@@ -144,6 +147,8 @@ function announceAgentEnd(sid: string, agent: Agent, status: 'done' | 'failed'):
 
 /** Tool calls that are a card to answer, not a line in a trace. */
 const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet', 'Skill'])
+/** Also standalone: Claude asking questions, which is its own one-line chip. */
+const standsAlone = (m: ToolCallMessage): boolean => STANDALONE_TOOLS.has(m.tool_name) || isQuestionnaireAsk(m)
 
 
 /** What "auto-accept edits" actually waives — file writes, nothing else. */
@@ -213,7 +218,7 @@ export default function Chat(): React.JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
   const dragCounterRef = useRef(0)
-  const sendMessageRef = useRef<((text: string, images?: ImageAttachment[], files?: FileAttachment[], targetSessionId?: string) => Promise<void>) | null>(null)
+  const sendMessageRef = useRef<((text: string, images?: ImageAttachment[], files?: FileAttachment[], targetSessionId?: string, context?: MessageContext[]) => Promise<void>) | null>(null)
   // After 401, holds the prompt to re-send once /login succeeds, keyed by session id
   const pendingAuthRetryRef = useRef<Map<string, { text: string; images?: ImageAttachment[]; files?: FileAttachment[] }>>(new Map())
   // Extended thinking state: tracks when Claude is actively reasoning
@@ -243,6 +248,22 @@ export default function Chat(): React.JSX.Element {
     const handler = (): void => setReleaseNotesOpen(true)
     window.addEventListener('nyra:open-release-notes', handler)
     return () => window.removeEventListener('nyra:open-release-notes', handler)
+  }, [])
+
+  // A message from outside the composer — the questionnaire's Send, a comment
+  // on a design. Sent now if the chat is idle, queued behind the turn if not,
+  // exactly as if it had been typed.
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const { sessionId, text, context } = (e as CustomEvent<SendToChat>).detail
+      if (isSessionRunning(sessionId)) {
+        useSessionsStore.getState().enqueueMessage(sessionId, { text, context })
+        return
+      }
+      void sendMessageRef.current?.(text, undefined, undefined, sessionId, context)
+    }
+    window.addEventListener(SEND_TO_CHAT, handler)
+    return () => window.removeEventListener(SEND_TO_CHAT, handler)
   }, [])
 
   useEffect(() => {
@@ -448,13 +469,13 @@ export default function Chat(): React.JSX.Element {
         // Anything the user has to read or answer stands alone. Folded into a
         // run of tool calls it becomes "1 other tool" inside a collapsed strip,
         // which is exactly where the plan card went missing.
-        if (tc.denied || STANDALONE_TOOLS.has(tc.tool_name)) {
+        if (tc.denied || standsAlone(tc)) {
           items.push({ kind: 'tool_group', messages: [tc], firstId: tc.id })
         } else {
           const last = items[items.length - 1]
           if (
             last?.kind === 'tool_group' &&
-            !last.messages.some((m) => m.denied || STANDALONE_TOOLS.has(m.tool_name))
+            !last.messages.some((m) => m.denied || standsAlone(m))
           ) {
             last.messages.push(tc)
           } else {
@@ -1282,7 +1303,7 @@ export default function Chat(): React.JSX.Element {
         // Send the next queued message, if any. One per turn, in order.
         const queued = useSessionsStore.getState().dequeueMessage(sid)
         if (queued && !event.is_error && sendMessageRef.current) {
-          setTimeout(() => sendMessageRef.current?.(queued.text, queued.images, queued.files, sid), 100)
+          setTimeout(() => sendMessageRef.current?.(queued.text, queued.images, queued.files, sid, queued.context), 100)
         }
 
         // Deferred auto-compaction (was busy when threshold was hit)
@@ -1453,12 +1474,12 @@ export default function Chat(): React.JSX.Element {
     handlePermissionRespond(true)
   }, [permissionQueue, activeSessionId, updateSettings, handlePermissionRespond])
 
-  const sendMessage = useCallback(async (text: string, images?: ImageAttachment[], files?: FileAttachment[], targetSessionId?: string): Promise<void> => {
+  const sendMessage = useCallback(async (text: string, images?: ImageAttachment[], files?: FileAttachment[], targetSessionId?: string, context?: MessageContext[]): Promise<void> => {
     // Background events (queued message after result, deferred auto-compact) pass
     // targetSessionId so they route to the session that produced the event, not
     // whichever session the user is currently viewing.
     const routedSid = targetSessionId ?? useSessionsStore.getState().activeSessionId
-    const hasAttachments = (images?.length ?? 0) > 0 || (files?.length ?? 0) > 0
+    const hasAttachments = (images?.length ?? 0) > 0 || (files?.length ?? 0) > 0 || (context?.length ?? 0) > 0
     if ((!text.trim() && !hasAttachments) || (routedSid && isSessionRunning(routedSid))) return
 
     // Keep slash invocations intact. The running Claude CLI decides whether a
@@ -1485,7 +1506,7 @@ export default function Chat(): React.JSX.Element {
     const recap = before?.needsRecap ? historyText(before.messages) : ''
 
     // Build the full prompt with attachment data for Claude CLI.
-    prompt = withAttachments(recap + prompt, imgs, fls)
+    prompt = withContext(withAttachments(recap + prompt, imgs, fls), context)
 
     const userMessage: TextMessage = {
       id: newMessageId(),
@@ -1493,6 +1514,7 @@ export default function Chat(): React.JSX.Element {
       text: text.trim(),
       ...(imgs.length > 0 ? { images: imgs } : {}),
       ...(fls.length > 0 ? { files: fls } : {}),
+      ...(context && context.length > 0 ? { context } : {}),
       // Taken before the turn starts, so it names the reply this message follows.
       resumeAt: useSessionsStore.getState().sessions.find((s) => s.id === sid)?.anchor ?? null
     }
@@ -1552,7 +1574,7 @@ export default function Chat(): React.JSX.Element {
     if (!sid) return false
 
     const text = msg.text.trim()
-    const prompt = withAttachments(text, msg.images, msg.files)
+    const prompt = withContext(withAttachments(text, msg.images, msg.files), msg.context)
     if (!prompt) return false
 
     let steered = false
@@ -1572,7 +1594,8 @@ export default function Chat(): React.JSX.Element {
       ...(msg.images && msg.images.length > 0 ? { images: msg.images } : {}),
       ...(msg.files && msg.files.length > 0
         ? { files: msg.files }
-        : {})
+        : {}),
+      ...(msg.context && msg.context.length > 0 ? { context: msg.context } : {})
     })
     // Whatever was asked, saying something is an answer to it.
     useSessionsStore.getState().setNeedsAnswer(sid, false)
@@ -1594,6 +1617,9 @@ export default function Chat(): React.JSX.Element {
     const msgIndex = session.messages.findIndex((m) => m.id === messageId)
     const priorMessages = session.messages.slice(0, msgIndex)
     const anchor = (session.messages[msgIndex] as TextMessage | undefined)?.resumeAt ?? null
+    // What the message carried beyond its text goes again with the edit: an
+    // edited comment still points at the same element.
+    const context = (session.messages[msgIndex] as TextMessage | undefined)?.context
 
     // Rewind rather than recap. The live process still holds everything after
     // the edited message, and pasting the history on top of that sent the whole
@@ -1611,7 +1637,7 @@ export default function Chat(): React.JSX.Element {
     // The edit box starts from the original's attachments and can add to them,
     // so these are the whole set — through the same fold `sendMessage` uses. It
     // used to re-append the original's images by hand and drop its files.
-    const prompt = withAttachments(contextPrefix + newText, images, files)
+    const prompt = withContext(withAttachments(contextPrefix + newText, images, files), context)
 
     // Add user message and send
     useRunningStore.getState().startRun(sid)
@@ -1623,6 +1649,7 @@ export default function Chat(): React.JSX.Element {
       text: newText,
       ...(images.length > 0 ? { images } : {}),
       ...(files.length > 0 ? { files } : {}),
+      ...(context && context.length > 0 ? { context } : {}),
       resumeAt: anchor
     }
     useSessionsStore.getState().addMessage(sid, userMessage)
@@ -2417,6 +2444,8 @@ function WaitingIndicator({ tasks }: { tasks: WaitingTask[] }): React.JSX.Elemen
 const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoading, showActions, onEdit, onFork, onPlanAnswer, onQuestionAnswer }: { message: Message; sessionId?: string | null; isLoading?: boolean; showActions?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (at: ForkPoint, mode: ForkMode) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
+  // Which questionnaire record is open under the bubble, if any.
+  const [record, setRecord] = useState<number | null>(null)
 
   if (message.role === 'tool_call') {
     const tc = message as ToolCallMessage
@@ -2497,13 +2526,21 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
               ))}
             </div>
           )}
+          {textMsg.context && textMsg.context.length > 0 && (
+            <MessageContextLines context={textMsg.context} record={record} onRecord={setRecord} />
+          )}
           {/* The same markdown the composer previewed while it was being
               written, chips and all — not the raw characters. */}
-          <div className="wrap-break-word wrap-anywhere">
-            <MarkdownRenderer prompt>{textMsg.text}</MarkdownRenderer>
-          </div>
+          {textMsg.text.trim().length > 0 && (
+            <div className="wrap-break-word wrap-anywhere">
+              <MarkdownRenderer prompt>{textMsg.text}</MarkdownRenderer>
+            </div>
+          )}
           </div>
         </div>
+        {record !== null && textMsg.context?.[record]?.kind === 'questionnaire' && (
+          <QuestionnaireRecord context={textMsg.context[record]} />
+        )}
         {/* Outside the bubble, or the bubble reserves a line for a timestamp
             nobody is looking at and sits taller than its own text. */}
         {message.timestamp && (

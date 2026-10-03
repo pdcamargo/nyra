@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { GitBranch, History, MessageSquare } from 'lucide-react'
+import { Frame, GitBranch, History, MessageSquare, SwatchBook } from 'lucide-react'
 import {
   Command,
   CommandDialog,
@@ -17,6 +17,12 @@ import { collectPromptHistory, searchSessions } from '../lib/search'
 import { COMMANDS, runCommand } from '../commands/registry'
 import { fuzzyFilter } from '../lib/fuzzy'
 import { CommandKbd } from './ui/kbd'
+import { openDesignInPanel, openSystemInPanel } from '../lib/openFile'
+import { basename } from '../lib/paths'
+import type { DesignEntry, SystemEntry } from '../lib/api-types'
+
+/** A design or design system, as the palette lists it. */
+type DesignHit = { key: string; name: string; project: string; system: boolean; open: () => void }
 
 /**
  * One search surface instead of three.
@@ -65,6 +71,40 @@ export default function CommandPalette(): React.JSX.Element {
     return fuzzyFilter(all, query, (c) => `${c.label} ${c.id}`).map((r) => r.item)
   }, [query])
 
+  // Every design Nyra knows, in any project, read when the palette opens:
+  // "billing" should reach the Billing design without knowing where it lives.
+  const [designs, setDesigns] = useState<{ systems: SystemEntry[]; drafts: DesignEntry[] }>({ systems: [], drafts: [] })
+  useEffect(() => {
+    if (!open || mode !== 'all') return
+    let live = true
+    void Promise.all([window.api.designSystem.list(), window.api.design.list()]).then(([systems, drafts]) => {
+      if (live) setDesigns({ systems, drafts })
+    })
+    return () => {
+      live = false
+    }
+  }, [open, mode])
+  const designHits = useMemo(() => {
+    if (!query.trim()) return []
+    const all: DesignHit[] = [
+      ...designs.systems.map((s) => ({
+        key: s.id,
+        name: s.name,
+        project: basename(s.project),
+        system: true,
+        open: () => void openSystemInPanel(s.id)
+      })),
+      ...designs.drafts.map((d) => ({
+        key: d.id,
+        name: d.name,
+        project: basename(d.project),
+        system: false,
+        open: () => void openDesignInPanel(d.path)
+      }))
+    ]
+    return fuzzyFilter(all, query, (d) => `${d.name} ${d.project}`, 6).map((r) => r.item)
+  }, [designs, query])
+
   return (
     <CommandDialog
       open={open}
@@ -81,7 +121,7 @@ export default function CommandPalette(): React.JSX.Element {
       <CommandInput
         value={query}
         onValueChange={setQuery}
-        placeholder={mode === 'history' ? 'Search your past prompts…' : 'Search chats and actions…'}
+        placeholder={mode === 'history' ? 'Search your past prompts…' : 'Search chats, designs and actions…'}
       />
       <CommandList>
         <CommandEmpty>Nothing matches that.</CommandEmpty>
@@ -124,6 +164,23 @@ export default function CommandPalette(): React.JSX.Element {
                     {matchSource === 'message' && (
                       <span className="block truncate text-muted-foreground">{snippet}</span>
                     )}
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
+        )}
+
+        {mode === 'all' && designHits.length > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Designs">
+              {designHits.map((d) => (
+                <CommandItem key={d.key} value={`design-${d.key}`} onSelect={run(d.open)}>
+                  {d.system ? <SwatchBook className="size-4" /> : <Frame className="size-4" />}
+                  <span className="min-w-0 flex-1 truncate">{d.name}</span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {d.system ? 'Design system' : 'Design'} · {d.project}
                   </span>
                 </CommandItem>
               ))}

@@ -1,16 +1,10 @@
 import { resolvedId, type Address } from '../ids'
 import { PROPS } from '../registry/props'
 import type { PropName } from '../registry/types'
-import {
-  childrenOf,
-  isUseNode,
-  type ComponentDef,
-  type DesignDocument,
-  type DocNode,
-  type UseNode
-} from '../schema'
+import { isSlotRef, isUseNode, type Child, type DesignDocument, type DocNode, type UseNode } from '../schema'
 import { isMatch, isPropRef, type Match } from '../value'
 import { isRun } from '../text'
+import { definedIn, localRegistry, type Registry } from './registry'
 import { PipelineError, err, type Issue, type ResolvedNode } from './types'
 
 const MAX_DEPTH = 32
@@ -32,59 +26,63 @@ const OUTER_PROPS = new Set<string>(
 type Scope = {
   /** Authored scope name — the artboard id, or the component name. */
   source: string
+  /** The file `source` is written in, when there is more than one file. */
+  file?: string
   /** Instance path from the artboard root: ['save'] or ['card', 'action']. */
   path: string[]
   /** Resolved prop values for `{ prop }` lookups. Empty inside an artboard. */
   props: Record<string, unknown>
+  /** What the caller passed for each slot, captured with the caller's own
+   *  scope and component stack — slotted nodes resolve *there*, not here. */
+  slots: Record<string, SlotFill>
 }
 
-export function resolveComponents(doc: DesignDocument, artboardId: string): ResolvedNode {
+type SlotFill = { items: Child[]; scope: Scope; stack: string[] }
+
+type Ctx = { registry: Registry; artboardId: string; issues: Issue[] }
+
+const addressIn = (scope: Scope, id: string): Address =>
+  scope.file === undefined ? { scope: scope.source, id } : { scope: scope.source, id, file: scope.file }
+
+export function resolveComponents(
+  doc: DesignDocument,
+  artboardId: string,
+  options: { registry?: Registry; file?: string } = {}
+): ResolvedNode {
   const artboard = doc.artboards.find((a) => a.id === artboardId)
   if (!artboard) throw new PipelineError(`no artboard "${artboardId}"`, [])
 
-  const issues: Issue[] = []
-  const out = resolveNode(
-    artboard.root,
-    { source: artboard.id, path: [], props: {} },
-    doc.components ?? {},
-    artboard.id,
-    [],
-    issues
-  )
-  if (issues.length > 0) throw new PipelineError(issues[0].message, issues)
+  const ctx: Ctx = { registry: options.registry ?? localRegistry(doc), artboardId: artboard.id, issues: [] }
+  const top: Scope = { source: artboard.id, path: [], props: {}, slots: {} }
+  if (options.file !== undefined) top.file = options.file
+  const out = resolveNode(artboard.root, top, [], ctx)
+  if (ctx.issues.length > 0) throw new PipelineError(ctx.issues[0].message, ctx.issues)
   return out
 }
 
-function resolveNode(
-  node: DocNode,
-  scope: Scope,
-  components: Record<string, ComponentDef>,
-  artboardId: string,
-  stack: string[],
-  issues: Issue[]
-): ResolvedNode {
+function resolveNode(node: DocNode, scope: Scope, stack: string[], ctx: Ctx): ResolvedNode {
   if (stack.length > MAX_DEPTH) {
     throw new PipelineError(`component nesting deeper than ${MAX_DEPTH}: ${stack.join(' -> ')}`, [])
   }
 
-  if (isUseNode(node)) return expand(node, scope, components, artboardId, stack, issues)
+  if (isUseNode(node)) return expand(node, scope, stack, ctx)
 
-  const origin: Address = { scope: scope.source, id: node.id }
+  const origin = addressIn(scope, node.id)
   const out: Record<string, unknown> = {
     type: node.type,
-    id: resolvedId(artboardId, scope.path, node.id),
+    id: resolvedId(ctx.artboardId, scope.path, node.id),
     origin
   }
 
   for (const [k, v] of Object.entries(node)) {
     if (k === 'id' || k === 'type' || k === 'children') continue
     if (v === undefined) continue
-    const resolvedValue = substituteProp(v, scope, origin, k, issues)
+    const resolvedValue = substituteProp(v, scope, origin, k, ctx.issues)
     // `null` is "not set": the key is dropped rather than emitted, so the
     // difference between "absent" and "explicitly absent" never reaches CSS.
     if (resolvedValue === null || resolvedValue === undefined) {
       if (k in PROPS && PROPS[k as PropName].required) {
-        issues.push(
+        ctx.issues.push(
           err('required-prop-unset', `"${k}" is required on a ${node.type} but resolved to nothing`, origin)
         )
       }
@@ -93,27 +91,35 @@ function resolveNode(
     out[k] = resolvedValue
   }
 
-  if (node.type === 'box') {
-    out.children = childrenOf(node).map((c) =>
-      resolveNode(c, scope, components, artboardId, stack, issues)
-    )
-  }
+  if (node.type === 'box') out.children = resolveChildren(node.children ?? [], scope, stack, ctx)
   return out as ResolvedNode
 }
 
-function expand(
-  node: UseNode,
-  scope: Scope,
-  components: Record<string, ComponentDef>,
-  artboardId: string,
-  stack: string[],
-  issues: Issue[]
-): ResolvedNode {
-  const origin: Address = { scope: scope.source, id: node.id }
-  const def = components[node.use]
-  if (!def) {
-    issues.push(err('unknown-component', `no component named "${node.use}"`, origin))
-    throw new PipelineError(`no component named "${node.use}"`, issues)
+/** Children in order, with each slot reference replaced by what fills it. */
+function resolveChildren(items: Child[], scope: Scope, stack: string[], ctx: Ctx): ResolvedNode[] {
+  return items.flatMap((c) => {
+    if (!isSlotRef(c)) return [resolveNode(c, scope, stack, ctx)]
+    const fill = scope.slots[c.slot]
+    // An unfilled slot is empty, not an error: a Card with nothing in its
+    // footer simply has no footer.
+    if (!fill) return []
+    // The caller's scope *and* the caller's stack. With this component's stack
+    // instead, a Card placed in a Card's body would read as Card using itself.
+    return resolveChildren(fill.items, fill.scope, fill.stack, ctx)
+  })
+}
+
+function expand(node: UseNode, scope: Scope, stack: string[], ctx: Ctx): ResolvedNode {
+  const origin = addressIn(scope, node.id)
+  const entry = ctx.registry.get(node.use)
+  if (!entry) {
+    ctx.issues.push(err('unknown-component', `no component named "${node.use}"`, origin))
+    throw new PipelineError(`no component named "${node.use}"`, ctx.issues)
+  }
+  if (entry.conflicts?.length) {
+    const message = `"${node.use}" is ambiguous: it is defined in ${definedIn(entry).join(' and ')}`
+    ctx.issues.push(err('ambiguous-component', message, origin))
+    throw new PipelineError(message, ctx.issues)
   }
   if (stack.includes(node.use)) {
     throw new PipelineError(
@@ -121,22 +127,26 @@ function expand(
       [err('component-cycle', `component "${node.use}" uses itself`, origin)]
     )
   }
+  const def = entry.def
 
   // The instance's prop values are authored in the *caller's* scope, so they
   // are substituted there before the callee's scope exists.
   const given = node.props ?? {}
   const props: Record<string, unknown> = {}
+  const slots: Record<string, SlotFill> = {}
   for (const [k, d] of Object.entries(def.props ?? {})) {
-    props[k] = k in given ? substituteProp(given[k], scope, origin, k, issues) : d.default
+    if (d.type === 'slot') {
+      const items = node.slots?.[k]
+      if (items) slots[k] = { items, scope, stack }
+      continue
+    }
+    props[k] = k in given ? substituteProp(given[k], scope, origin, k, ctx.issues) : d.default
   }
 
-  const inner: Scope = {
-    source: node.use,
-    path: [...scope.path, node.id],
-    props
-  }
+  const inner: Scope = { source: node.use, path: [...scope.path, node.id], props, slots }
+  if (entry.file !== undefined) inner.file = entry.file
 
-  const root = resolveNode(def.root, inner, components, artboardId, [...stack, node.use], issues)
+  const root = resolveNode(def.root, inner, [...stack, node.use], ctx)
 
   // The bounded outer-layout subset, merged onto the resolved root. Not an
   // appearance override: a `use` cannot carry background, padding or font, so
@@ -144,7 +154,7 @@ function expand(
   const merged: Record<string, unknown> = { ...root }
   for (const [k, v] of Object.entries(node)) {
     if (!OUTER_PROPS.has(k) || v === undefined) continue
-    const resolvedValue = substituteProp(v, scope, origin, k, issues)
+    const resolvedValue = substituteProp(v, scope, origin, k, ctx.issues)
     if (resolvedValue === null) delete merged[k]
     else merged[k] = resolvedValue
   }

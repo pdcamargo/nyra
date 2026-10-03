@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Eye, FileDiff, GitBranch, Laptop, MemoryStick, MousePointerClick, RotateCw, Square, TerminalSquare } from 'lucide-react'
+import { Eye, FileDiff, Frame, GitBranch, Laptop, MemoryStick, MousePointerClick, RotateCw, Square, SwatchBook, TerminalSquare } from 'lucide-react'
 import { useSessionsStore, findProject, type Agent, type Message, type TextMessage } from '../store/sessions'
 import {
   DESIGN_TOOL,
@@ -12,7 +12,9 @@ import {
 import { useRunningStore } from '../store/running'
 import { useDesignEntries } from '../hooks/useDesignWatch'
 import { updatedAgo } from './design/DesignPip'
-import { designNameFromPath, openDesignInPanel } from '../lib/openFile'
+import { designNameFromPath, openDesignInPanel, openSystemInPanel } from '../lib/openFile'
+import { useProjectSystems } from './design/DesignTab'
+import type { DesignEntry } from '../lib/api-types'
 import { hostDesignPath, sameDesign } from '../lib/designPaths'
 import { useUiStore } from '../store/ui'
 import { useSettingsStore } from '../store/settings'
@@ -644,9 +646,83 @@ function DesignsSection({
     ...touched.map((d) => d.path),
     ...history.filter((p) => !touched.some((d) => sameDesign(d.path, p)))
   ]
-  // Most chats never touch a design; they should not pay for the index or a clock.
-  if (paths.length === 0) return null
-  return <DesignRows sessionId={sessionId} paths={paths} showPreview={showPreview} />
+  return (
+    <>
+      {/* Most chats never touch a design; they should not pay for a clock. */}
+      {paths.length > 0 && <DesignRows sessionId={sessionId} paths={paths} showPreview={showPreview} />}
+      <ProjectDesigns cwd={cwd} listed={paths} />
+    </>
+  )
+}
+
+/** How many of the project's designs show before "All N". */
+const PROJECT_DESIGNS_SHOWN = 4
+
+/**
+ * The project's design systems and drafts — what Nyra found on launch, and
+ * what earlier chats made — so going back to one is a click, not a search.
+ * Those this chat already lists above are not listed twice.
+ */
+function ProjectDesigns({ cwd, listed }: { cwd: string; listed: string[] }): React.JSX.Element | null {
+  const systems = useProjectSystems(cwd || null)
+  const [drafts, setDrafts] = useState<DesignEntry[]>([])
+  const [all, setAll] = useState(false)
+  useEffect(() => {
+    if (!cwd) return
+    let live = true
+    const load = (): void =>
+      void window.api.design.list(cwd).then((l) => {
+        if (live) setDrafts(l)
+      })
+    load()
+    const stop = window.api.design.onChanged(load)
+    return () => {
+      live = false
+      stop()
+    }
+  }, [cwd])
+
+  const rows: { key: string; name: string; path?: string; open: () => void }[] = [
+    ...systems.map((s) => ({ key: s.id, name: s.name, open: () => void openSystemInPanel(s.id) })),
+    ...drafts
+      .filter((d) => !listed.some((p) => sameDesign(p, d.path)))
+      .map((d) => ({ key: d.id, name: d.name, path: d.path, open: () => void openDesignInPanel(d.path) }))
+  ]
+  if (rows.length === 0) return null
+  const shown = all ? rows : rows.slice(0, PROJECT_DESIGNS_SHOWN)
+
+  return (
+    <Section
+      label="In this project"
+      action={
+        rows.length > PROJECT_DESIGNS_SHOWN ? (
+          <button
+            type="button"
+            onClick={() => setAll((v) => !v)}
+            className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {all ? 'Fewer' : `All ${rows.length}`}
+          </button>
+        ) : undefined
+      }
+    >
+      {shown.map((r) => (
+        <button
+          key={r.key}
+          type="button"
+          title={r.path}
+          onClick={r.open}
+          className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+        >
+          <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+            {r.path ? <Frame className="size-3" /> : <SwatchBook className="size-3" />}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/80">{r.name}</span>
+          {!r.path && <span className="shrink-0 text-[10px] text-muted-foreground">Design system</span>}
+        </button>
+      ))}
+    </Section>
+  )
 }
 
 function DesignRows({

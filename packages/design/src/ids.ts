@@ -8,7 +8,16 @@
  * An authored id may not contain `#` or `/` (enforced by `idSchema`), so both
  * forms parse unambiguously and a component used twice never collides.
  */
-export type Address = { scope: string; id: string }
+export type Address = {
+  scope: string
+  id: string
+  /**
+   * The file the scope lives in, system-relative (`components/button.nyui.json`).
+   * Left off entirely for a standalone draft — not set to undefined — so an
+   * address compares equal to the plain `{ scope, id }` it always was.
+   */
+  file?: string
+}
 
 export const SCOPE_SEP = '#'
 export const PATH_SEP = '/'
@@ -22,7 +31,7 @@ export function parseAddress(s: string): Address {
 }
 
 export const sameAddress = (a: Address, b: Address): boolean =>
-  a.scope === b.scope && a.id === b.id
+  a.scope === b.scope && a.id === b.id && (a.file ?? null) === (b.file ?? null)
 
 /** `settings-general#save/label` — the instance path, then the authored id. */
 export const resolvedId = (artboard: string, path: readonly string[], id: string): string =>

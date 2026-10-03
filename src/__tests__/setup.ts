@@ -41,7 +41,7 @@ if (!globalThis.crypto?.randomUUID) {
   })
 }
 
-// `window.api` stub — all 15 namespaces.
+// `window.api` stub — every namespace a component reaches on mount.
 //
 // It used to cover 5, which was enough for the store tests but meant rendering
 // <App/> threw: it calls processes.onUpdate on mount. Component tests need the
@@ -193,7 +193,24 @@ Object.defineProperty(globalThis, 'api', {
       logout: () => Promise.resolve({ ok: true }),
       delete: () => Promise.resolve({ ok: true }),
       syncProjects: () => Promise.resolve({ ok: true })
-    }
+    },
+    // Design work: nothing filed, nothing found. Tests that read a design
+    // override `read` (designLoad.test) or these lists themselves.
+    design: {
+      list: () => Promise.resolve([]),
+      onChanged: unsub
+    },
+    designSystem: {
+      list: () => Promise.resolve([]),
+      of: () => Promise.resolve(null),
+      files: () => Promise.resolve({ ok: false, error: 'no systems in tests' }),
+      discover: () => Promise.resolve({ systems: [], designs: 0 })
+    },
+    comments: {
+      list: () => Promise.resolve({ ok: true, comments: [] }),
+      onChanged: unsub
+    },
+    questionnaire: { onChanged: unsub }
   }
 })
 

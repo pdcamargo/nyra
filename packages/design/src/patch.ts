@@ -1,6 +1,6 @@
 import type { Address } from './ids'
 import type { PropName } from './registry/types'
-import { childrenOf, isUseNode, type DesignDocument, type DocNode } from './schema'
+import { containersOf, isSlotRef, isUseNode, type Child, type DesignDocument, type DocNode } from './schema'
 
 /**
  * Mutations are patches against the authored document, addressed by node id.
@@ -22,9 +22,10 @@ import { childrenOf, isUseNode, type DesignDocument, type DocNode } from './sche
 export type Patch =
   | { op: 'setProp'; at: Address; prop: PropName; value: unknown }
   | { op: 'setInstanceProp'; at: Address; prop: string; value: unknown }
-  | { op: 'insertNode'; parent: Address; index: number; node: DocNode }
+  /** `slot` inserts into an instance's slot content rather than a box's children. */
+  | { op: 'insertNode'; parent: Address; index: number; node: DocNode; slot?: string }
   | { op: 'removeNode'; at: Address }
-  | { op: 'moveNode'; at: Address; parent: Address; index: number }
+  | { op: 'moveNode'; at: Address; parent: Address; index: number; slot?: string }
   | { op: 'setArtboard'; id: string; key: 'name' | 'background'; value: unknown }
   | { op: 'moveArtboard'; id: string; position?: { x: number; y: number } }
   | { op: 'setDocMeta'; key: 'name' | 'theme'; value: string }
@@ -33,7 +34,21 @@ export class PatchError extends Error {}
 
 const clone = <T,>(v: T): T => structuredClone(v)
 
-type Located = { node: DocNode; parent: DocNode | null; index: number; scopeRoot: DocNode }
+/**
+ * Where an authored node sits: the array that holds it (a box's children, or
+ * one slot of an instance) and its index in that array. The *real* array, slot
+ * references included — an index into a filtered copy would splice the wrong
+ * element the moment a slot reference sits before it.
+ */
+type Located = {
+  node: DocNode
+  parent: DocNode | null
+  /** The slot the node is in, when its parent is an instance. */
+  slot: string | null
+  container: Child[] | null
+  index: number
+  scopeRoot: DocNode
+}
 
 /** Finds an authored node by address, and where it sits. */
 function locate(doc: DesignDocument, at: Address): Located {
@@ -46,17 +61,29 @@ function locate(doc: DesignDocument, at: Address): Located {
   const [, scopeRoot] = entry
 
   let found: Located | null = null
-  const walk = (n: DocNode, parent: DocNode | null, index: number): void => {
-    if (n.id === at.id) found ??= { node: n, parent, index, scopeRoot }
-    childrenOf(n).forEach((c, i) => walk(c, n, i))
+  const walk = (n: DocNode, parent: DocNode | null, slot: string | null, container: Child[] | null, index: number): void => {
+    if (n.id === at.id) found ??= { node: n, parent, slot, container, index, scopeRoot }
+    for (const box of containersOf(n)) {
+      box.items.forEach((c, i) => {
+        if (!isSlotRef(c)) walk(c, n, box.slot, box.items, i)
+      })
+    }
   }
-  walk(scopeRoot, null, 0)
+  walk(scopeRoot, null, null, null, 0)
   if (!found) throw new PatchError(`no node "${at.id}" in "${at.scope}"`)
   return found
 }
 
-const childArray = (n: DocNode): DocNode[] => {
-  if (isUseNode(n) || n.type !== 'box') throw new PatchError(`"${n.id}" is not a box; it has no children`)
+/** The array a new child goes into: a box's children, or one slot of an instance. */
+const childArray = (n: DocNode, slot?: string | null): Child[] => {
+  if (isUseNode(n)) {
+    if (!slot) throw new PatchError(`"${n.id}" is a component instance; name the slot to insert into`)
+    n.slots ??= {}
+    n.slots[slot] ??= []
+    return n.slots[slot]
+  }
+  if (n.type !== 'box') throw new PatchError(`"${n.id}" is not a box; it has no children`)
+  if (slot) throw new PatchError(`"${n.id}" is a box, which has children, not slots`)
   n.children ??= []
   return n.children
 }
@@ -82,7 +109,7 @@ export function apply(doc: DesignDocument, patch: Patch): DesignDocument {
     }
     case 'insertNode': {
       const { node: parent } = locate(next, patch.parent)
-      const kids = childArray(parent)
+      const kids = childArray(parent, patch.slot)
       if (patch.index < 0 || patch.index > kids.length) {
         throw new PatchError(`index ${patch.index} out of range for "${patch.parent.id}"`)
       }
@@ -90,17 +117,17 @@ export function apply(doc: DesignDocument, patch: Patch): DesignDocument {
       return next
     }
     case 'removeNode': {
-      const { parent, index } = locate(next, patch.at)
-      if (!parent) throw new PatchError(`"${patch.at.id}" is a root and cannot be removed`)
-      childArray(parent).splice(index, 1)
+      const { container, index } = locate(next, patch.at)
+      if (!container) throw new PatchError(`"${patch.at.id}" is a root and cannot be removed`)
+      container.splice(index, 1)
       return next
     }
     case 'moveNode': {
-      const { node, parent, index } = locate(next, patch.at)
-      if (!parent) throw new PatchError(`"${patch.at.id}" is a root and cannot be moved`)
-      childArray(parent).splice(index, 1)
+      const { node, container, index } = locate(next, patch.at)
+      if (!container) throw new PatchError(`"${patch.at.id}" is a root and cannot be moved`)
+      container.splice(index, 1)
       const { node: target } = locate(next, patch.parent)
-      childArray(target).splice(patch.index, 0, node)
+      childArray(target, patch.slot).splice(patch.index, 0, node)
       return next
     }
     case 'setArtboard': {
@@ -145,23 +172,25 @@ export function invert(doc: DesignDocument, patch: Patch): Patch {
     case 'insertNode':
       return { op: 'removeNode', at: { scope: patch.parent.scope, id: patch.node.id } }
     case 'removeNode': {
-      const { node, parent, index } = locate(doc, patch.at)
+      const { node, parent, slot, index } = locate(doc, patch.at)
       if (!parent) throw new PatchError(`"${patch.at.id}" is a root and cannot be removed`)
       return {
         op: 'insertNode',
         parent: { scope: patch.at.scope, id: parent.id },
         index,
-        node: clone(node)
+        node: clone(node),
+        ...(slot ? { slot } : {})
       }
     }
     case 'moveNode': {
-      const { parent, index } = locate(doc, patch.at)
+      const { parent, slot, index } = locate(doc, patch.at)
       if (!parent) throw new PatchError(`"${patch.at.id}" is a root and cannot be moved`)
       return {
         op: 'moveNode',
         at: patch.at,
         parent: { scope: patch.at.scope, id: parent.id },
-        index
+        index,
+        ...(slot ? { slot } : {})
       }
     }
     case 'setArtboard': {

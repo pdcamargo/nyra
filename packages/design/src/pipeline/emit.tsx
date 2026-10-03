@@ -6,6 +6,7 @@ import { PROPS } from '../registry/props'
 import { propNamesFor } from '../registry/shapes'
 import type { PropName } from '../registry/types'
 import type { Theme } from '../theme/types'
+import { lookupToken } from '../theme/resolve'
 import type { ResolvedArtboard, ResolvedNode } from './types'
 
 /**
@@ -185,7 +186,19 @@ export const ARTBOARD_RESET = [
   'svg{display:block;flex-shrink:0;}'
 ].join('')
 
-export function renderArtboard(artboard: ResolvedArtboard, theme: Theme): ReactElement {
+/** A theme colour that may be absent from a hand-written theme. */
+function themeColor(theme: Theme, path: string, fallback: string): string {
+  try {
+    const v = lookupToken(theme, path)
+    return typeof v === 'string' ? v : fallback
+  } catch {
+    return fallback
+  }
+}
+
+export function renderArtboard(artboard: ResolvedArtboard, documentTheme: Theme): ReactElement {
+  // An artboard pinned to a mode carries the theme it was resolved in.
+  const theme = artboard.theme ?? documentTheme
   const base = theme.font.body
   const auto = artboard.size.height === 'auto'
 
@@ -212,12 +225,15 @@ export function renderArtboard(artboard: ResolvedArtboard, theme: Theme): ReactE
         height: auto ? 'auto' : artboard.size.height,
         overflow: auto ? 'visible' : 'hidden',
         position: 'relative',
-        background: artboard.background ?? '#FFFFFF',
+        // The theme's own surface and ink, not white and near-black: those
+        // were a visual decision living in renderer code, and wrong in any
+        // dark theme.
+        background: artboard.background ?? themeColor(theme, '$color.bg', '#FFFFFF'),
         fontFamily: base.family,
         fontSize: base.size,
         fontWeight: base.weight,
         lineHeight: base.lineHeight,
-        color: '#111216'
+        color: themeColor(theme, '$color.text', '#111216')
       }}
     >
       <style>{ARTBOARD_RESET}</style>

@@ -14,9 +14,33 @@ export function mcpServer(name: string): string | null {
 
 /** One-line label for a single tool call */
 export function inlineLabel(name: string, input: Record<string, unknown>, done: boolean): string {
+  if (name.endsWith('__nyra_design')) return designLabel(input, done)
   const verb = done ? pastTense(name) : presentTense(name)
   const detail = toolDetail(name, input)
   return detail ? `${verb}  ${detail}` : verb
+}
+
+/**
+ * Nyra's design tool, said the way the user would: "Resolved comment c_x —
+ * Changed the label to Allow" rather than `nyra-app:nyra_design resolve`.
+ */
+function designLabel(input: Record<string, unknown>, done: boolean): string {
+  const str = (k: string): string => (typeof input[k] === 'string' ? (input[k] as string) : '')
+  const design = shortenPath(str('design'))
+  const verbs: Record<string, [string, string, string]> = {
+    list: ['Listing designs', 'Listed designs', design],
+    create: ['Creating', 'Created', str('name')],
+    render: ['Rendering', 'Rendered', design],
+    upgrade: ['Upgrading', 'Upgraded', design],
+    ask: ['Asking', 'Asked', str('name')],
+    answers: ['Reading answers', 'Read answers', str('id')],
+    comments: ['Reading comments', 'Read comments on', design],
+    resolve: ['Resolving comment', 'Resolved comment', [str('id'), str('note')].filter(Boolean).join(' — ').slice(0, 80)]
+  }
+  const v = verbs[str('action')]
+  if (!v) return done ? 'Used the design tool' : 'Using the design tool'
+  const [now, then, detail] = v
+  return detail ? `${done ? then : now}  ${detail}` : done ? then : now
 }
 
 function pastTense(name: string): string {

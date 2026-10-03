@@ -9,6 +9,7 @@ import {
   designNameFromPath,
   isDesignPath,
   openDesignInPanel,
+  openSystemInPanel,
   openFileInPanel,
   splitDesignRef
 } from '../lib/openFile'
@@ -239,6 +240,13 @@ function resolveNyraLink(href: string): NyraLink | null {
       run: () => void useUpdatesStore.getState().install()
     }
   }
+  // `[Closeup design system](nyra://design-system/s_…)` — the system's
+  // overview, the way a design chip opens a single design.
+  const system = /^design-system\/([\w.-]+)$/.exec(rest)
+  if (system) {
+    const id = system[1]
+    return { label: 'Open design system', run: () => void openSystemInPanel(id) }
+  }
   const flow = /^flow\/([\w.-]+)$/.exec(rest)
   if (flow) {
     const id = flow[1]
@@ -411,7 +419,9 @@ function DesignChip({ path: ref }: { path: string; children?: React.ReactNode })
     const resolve = async (): Promise<void> => {
       const designs = await window.api.design.list()
       const hit = designs.find((d) => d.path === path)
-      const design = hit?.name ?? designNameFromPath(path)
+      // A file in a design system is named by the system: "Closeup — Settings".
+      const member = hit ? null : await window.api.designSystem?.of(path)
+      const design = hit?.name ?? (member ? `${member.system.name} — ${designNameFromPath(path)}` : designNameFromPath(path))
       // `VPN Settings — Settings — Protocol`: the document, then the panel.
       // Claude points at what it changed rather than at the whole document.
       const board = artboard === null ? null : await designArtboardName(path, artboard)

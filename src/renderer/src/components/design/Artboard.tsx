@@ -28,6 +28,7 @@ export default function Artboard({
 }): React.ReactElement {
   const host = useRef<HTMLDivElement | null>(null)
   const shadow = useRef<ShadowRoot | null>(null)
+  const written = useRef<string | null>(null)
 
   useEffect(() => {
     const node = host.current
@@ -35,7 +36,14 @@ export default function Artboard({
     // One shadow root per host for its whole life: attachShadow throws on a
     // second call, and React may re-run this effect for a new artboard.
     if (!shadow.current) shadow.current = node.attachShadow({ mode: 'open' })
-    shadow.current.innerHTML = artboardMarkup(artboard, theme)
+    // A reload hands every artboard a new object even when only one changed.
+    // Same markup, same DOM: rewriting it would throw away layout for nothing
+    // and flash every artboard on every edit.
+    const markup = artboardMarkup(artboard, theme)
+    if (written.current !== markup) {
+      shadow.current.innerHTML = markup
+      written.current = markup
+    }
 
     if (artboard.size.height !== 'auto' || !onMeasure) return
     // An `auto` artboard's height is whatever its content came to, and the

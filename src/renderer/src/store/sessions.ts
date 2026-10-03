@@ -35,6 +35,33 @@ export type FileAttachment = {
   dataUrl?: string // only for images (preview)
 }
 
+/**
+ * Something a message carries to Claude that the bubble shows as one line:
+ * the answers to a questionnaire, or what a comment on a design is pinned to.
+ * `body` goes to Claude with the text, the way attachments do; the bubble shows
+ * `label`. Stored on the message, so resend, edit and fork send it again.
+ */
+export type MessageContext = {
+  kind: 'questionnaire' | 'design-feedback' | 'design-comment'
+  /** The bubble's one line. */
+  label: string
+  /** What Claude receives. Never rendered in the transcript. */
+  body: string
+  /** What the line reopens when clicked. */
+  ref?: {
+    questionnaireId?: string
+    path?: string
+    artboard?: string
+    commentId?: string
+    pin?: number
+    /** A comment's element and artboard, so the line can set the element apart. */
+    target?: string
+    artboardName?: string
+    /** Set on a reply written back on a comment, rather than a new one. */
+    round?: 'reply'
+  }
+}
+
 export type TextMessage = {
   id: string
   role: 'user' | 'assistant' | 'error'
@@ -42,6 +69,8 @@ export type TextMessage = {
   timestamp?: number
   images?: ImageAttachment[]
   files?: FileAttachment[]
+  /** On a user message: what it carries to Claude beyond its text. */
+  context?: MessageContext[]
   /** A `nyra-changes` block this reply carried. Stored with the message rather
    *  than re-queried, so scrolling back shows what changed *then* — see
    *  `changeBlocks.ts` for why that matters. */
@@ -124,6 +153,7 @@ export type QueuedMessage = {
   text: string
   images?: ImageAttachment[]
   files?: FileAttachment[]
+  context?: MessageContext[]
 }
 
 /** Shared so `queueOf` never hands back a fresh array for an empty queue. */

@@ -1,5 +1,7 @@
 import type { Address } from '../ids'
 import type { LiteralPropsFor } from '../registry/types'
+import type { DesignMeta } from '../schema'
+import type { Theme } from '../theme/types'
 
 export type Severity = 'error' | 'warning'
 
@@ -47,12 +49,22 @@ export type ResolvedArtboard = {
   size: { width: number; height: number | 'auto' }
   position?: { x: number; y: number }
   background?: string
+  /** The mode this artboard pinned itself to, when it did. */
+  mode?: string
+  /**
+   * The theme this artboard was resolved in, when it differs from the
+   * document's — an artboard pinned to `"dark"`. Emitting reads it for the
+   * base font and colours; everything else was resolved already.
+   */
+  theme?: Theme
   root: ResolvedNode
 }
 
 export type ResolvedDocument = {
   name: string
   theme: string
+  /** The file's `meta`, passed through for the system's pages. */
+  meta?: DesignMeta
   artboards: ResolvedArtboard[]
 }
 

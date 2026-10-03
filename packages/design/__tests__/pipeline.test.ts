@@ -11,7 +11,7 @@ const worked = JSON.parse(
 ) as unknown
 
 const doc = (over: Record<string, unknown> = {}): unknown => ({
-  schema: 1,
+  schema: 2,
   name: 'T',
   artboards: [
     {
@@ -327,7 +327,7 @@ describe('compile', () => {
 
 describe('inline text runs', () => {
   const runDoc = (value: unknown): unknown => ({
-    schema: 1,
+    schema: 2,
     name: 'T',
     artboards: [
       {
@@ -363,7 +363,7 @@ describe('inline text runs', () => {
 
   it('substitutes a component prop into a run', () => {
     const { doc } = compile({
-      schema: 1,
+      schema: 2,
       name: 'T',
       components: {
         C: {
@@ -397,7 +397,7 @@ describe('inline text runs', () => {
 
 describe('artboards', () => {
   const ab = (size: unknown, root: unknown): unknown => ({
-    schema: 1,
+    schema: 2,
     name: 'T',
     artboards: [{ id: 'a', name: 'A', size, root }]
   })
@@ -415,7 +415,7 @@ describe('artboards', () => {
 
 describe('percentage spacing', () => {
   const box = (props: Record<string, unknown>): unknown => ({
-    schema: 1,
+    schema: 2,
     name: 'T',
     artboards: [
       {
@@ -460,7 +460,7 @@ describe('percentage spacing', () => {
 describe('min and max height', () => {
   it('hold a box open and cap it', () => {
     const { doc, theme } = compile({
-      schema: 1,
+      schema: 2,
       name: 'T',
       artboards: [
         {
@@ -486,7 +486,7 @@ describe('min and max height', () => {
 
 describe('null means unset', () => {
   const doc2 = (cases: Record<string, unknown>): unknown => ({
-    schema: 1,
+    schema: 2,
     name: 'T',
     components: {
       C: {
@@ -542,7 +542,7 @@ describe('null means unset', () => {
   it('rejects a required property that resolves to nothing', () => {
     expect(() =>
       compile({
-        schema: 1,
+        schema: 2,
         name: 'T',
         components: {
           C: {
@@ -570,7 +570,7 @@ describe('null means unset', () => {
 
 describe('the raw-literal lint does not argue with the schema', () => {
   const box = (props: Record<string, unknown>): unknown => ({
-    schema: 1,
+    schema: 2,
     name: 'T',
     artboards: [
       {
@@ -610,7 +610,7 @@ describe('the raw-literal lint does not argue with the schema', () => {
 
 describe('props reach every kind of value', () => {
   const swatch = (root: Record<string, unknown>, props: Record<string, unknown>) => ({
-    schema: 1,
+    schema: 2,
     name: 'T',
     components: { Swatch: { props, root: { id: 'root', type: 'box', ...root } } },
     artboards: [
