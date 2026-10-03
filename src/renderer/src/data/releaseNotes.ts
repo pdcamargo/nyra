@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.8.0',
+    date: '2026-10-03',
     notes: [
       "Added design systems. Ask Claude for one and it asks a few questions, then builds the tokens, components and screens in a folder in your repo or in Nyra's own folder",
       'A design system opens as an overview, with pages for its colours and type and one page per component, pattern or screen showing its props, usage and where it is used',
