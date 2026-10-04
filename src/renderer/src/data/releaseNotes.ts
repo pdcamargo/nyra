@@ -8,7 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Fixed a design opened at one panel jumping back to it while you pan around',
+      'Fixed Copy as PNG on a design sometimes doing nothing',
+      'Subagents in the summary are now listed newest first, so the running ones are at the top'
+    ]
   },
   {
     version: '0.8.0',
