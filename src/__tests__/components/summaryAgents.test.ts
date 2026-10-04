@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AGENTS_INLINE_LIMIT, inlineAgents } from '../../renderer/src/components/SummaryPanel'
+import { AGENTS_INLINE_LIMIT, inlineAgents, newestFirst } from '../../renderer/src/components/SummaryPanel'
 import type { Agent } from '../../renderer/src/store/sessions'
 
 const agent = (id: string, status: Agent['status']): Agent => ({
@@ -34,5 +34,24 @@ describe('inlineAgents', () => {
 
     const finished = Array.from({ length: 9 }, (_, i) => agent(`done-${i}`, 'done'))
     expect(inlineAgents(finished)).toEqual({ shown: [], hidden: 9 })
+  })
+})
+
+describe('newestFirst', () => {
+  it('lists the latest launch first, and leaves the session order alone', () => {
+    const agents = [agent('first', 'done'), agent('second', 'done'), agent('third', 'running')]
+    expect(newestFirst(agents).map((a) => a.toolId)).toEqual(['third', 'second', 'first'])
+    expect(agents.map((a) => a.toolId)).toEqual(['first', 'second', 'third'])
+  })
+
+  it('keeps the newest running agents when the running ones are capped', () => {
+    const running = Array.from({ length: 8 }, (_, i) => agent(`live-${i}`, 'running'))
+    expect(inlineAgents(newestFirst(running)).shown.map((a) => a.toolId)).toEqual([
+      'live-7',
+      'live-6',
+      'live-5',
+      'live-4',
+      'live-3'
+    ])
   })
 })

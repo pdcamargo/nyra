@@ -104,6 +104,18 @@ function Row({
   )
 }
 
+/**
+ * The summary's order: the newest agent first.
+ *
+ * `session.agents` is in launch order, and listed that way a long session put
+ * the agents still running under every one that had finished, so "Show more"
+ * opened onto the oldest. Reversed rather than sorted by `startedAt`: launch
+ * order is the array's order already, and a restored agent can lack a time.
+ */
+export function newestFirst(agents: readonly Agent[]): Agent[] {
+  return [...agents].reverse()
+}
+
 /** How many subagents the summary lists before it starts folding them away. */
 export const AGENTS_INLINE_LIMIT = 5
 
@@ -276,8 +288,9 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const shown = attachments.slice(0, 4)
   const agents = session.agents ?? []
   const agentsExpanded = agentsExpandedFor === session.id
-  const inline = inlineAgents(agents)
-  const agentRows = agentsExpanded ? agents : inline.shown
+  const ordered = newestFirst(agents)
+  const inline = inlineAgents(ordered)
+  const agentRows = agentsExpanded ? ordered : inline.shown
 
   // Glass: this is the one panel with real content behind it to blur. The
   // side panel is docked with nothing underneath, so the same treatment
