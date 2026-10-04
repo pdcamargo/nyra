@@ -86,7 +86,11 @@ export default function DesignCanvas({
   const dragging = useRef<{ x: number; y: number; pan: { x: number; y: number } } | null>(null)
   /** Refit when the design changes, but never again — refitting on every
    *  resize would yank the view out from under someone mid-inspection. */
-  const fitted = useRef<string | null>(null)
+  const fitted = useRef<{ focus: string; signature: string } | null>(null)
+  /** Set by a pan or zoom, cleared by a new focus. Once someone has moved the
+   *  view it is theirs: an artboard measured on its first draw — which panning
+   *  is what causes — must not frame the focused one again. */
+  const moved = useRef(false)
 
   /**
    * Heights of the `auto` artboards, once rendered.
@@ -150,9 +154,14 @@ export default function DesignCanvas({
 
   useEffect(() => {
     if (size.width === 0 || content.width === 0) return
-    const want = `${signature}::${focus ?? ''}`
-    if (fitted.current === want) return
+    const want = { focus: focus ?? '', signature }
+    const last = fitted.current
+    if (last && last.focus === want.focus && last.signature === want.signature) return
     fitted.current = want
+    // A new focus is a request to look somewhere, and wins over any pan. A
+    // changed signature alone only refines the framing nobody has touched yet.
+    if (last && last.focus === want.focus && moved.current) return
+    moved.current = false
 
     const target = focus === null || focus === undefined
       ? undefined
@@ -170,6 +179,7 @@ export default function DesignCanvas({
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault()
+      moved.current = true
       const box = viewport.current?.getBoundingClientRect()
       const point = { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) }
 
@@ -197,6 +207,7 @@ export default function DesignCanvas({
   const onPointerMove = (e: React.PointerEvent): void => {
     const from = dragging.current
     if (!from) return
+    if (Math.hypot(e.clientX - from.x, e.clientY - from.y) >= CLICK_SLOP) moved.current = true
     setPan({ x: from.pan.x + (e.clientX - from.x), y: from.pan.y + (e.clientY - from.y) })
   }
 
@@ -327,14 +338,14 @@ export default function DesignCanvas({
       {/* Floating over the canvas rather than a bar under it: the canvas
           keeps the whole height, and this is all the chrome it needs. */}
       <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-[8px] border bg-background px-2 py-0.5 text-[12.5px] leading-[1.5]">
-        <ZoomButton label="Zoom out" onClick={() => setZoom((z) => clampZoom(z / 1.25))}>
+        <ZoomButton label="Zoom out" onClick={() => { moved.current = true; setZoom((z) => clampZoom(z / 1.25)) }}>
           <Minus className="size-3" />
         </ZoomButton>
         <span className="text-foreground tabular-nums">{Math.round(zoom * 100)}%</span>
-        <ZoomButton label="Zoom in" onClick={() => setZoom((z) => clampZoom(z * 1.25))}>
+        <ZoomButton label="Zoom in" onClick={() => { moved.current = true; setZoom((z) => clampZoom(z * 1.25)) }}>
           <Plus className="size-3" />
         </ZoomButton>
-        <button type="button" className="pl-2 text-muted-foreground hover:text-foreground" onClick={fit}>
+        <button type="button" className="pl-2 text-muted-foreground hover:text-foreground" onClick={() => { moved.current = true; fit() }}>
           Fit
         </button>
       </div>
