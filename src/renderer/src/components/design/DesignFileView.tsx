@@ -234,19 +234,29 @@ export default function DesignFileView({
    * root under a transform, so anything captured from it would carry the
    * viewport's zoom. The rasteriser already produces the picture at 2x, and
    * the cache makes a second copy of the same artboard free.
+   *
+   * The clipboard write starts synchronously, with the picture as a promise.
+   * WebKit only lets a page write the clipboard during the click that asked
+   * for it, and the rasteriser's round-trip outlasts that: awaiting it first
+   * and writing after was refused, silently, every time.
    */
   const copyPng = useCallback(
-    async (artboardId: string) => {
+    (artboardId: string) => {
       if (loaded === null) return
       const artboard = loaded.doc.artboards.find((a) => a.id === artboardId)
       if (!artboard) return
-      const request = rasterRequest(artboard, loaded.theme, 2)
-      const raster = await window.api.design.raster(request as unknown as Record<string, unknown>)
-      if (!raster?.ok || !raster.path) return
-      const image = await window.api.fs.readImage(raster.path)
-      if (!image?.base64 || !image.mediaType) return
-      const bytes = Uint8Array.from(atob(image.base64), (c) => c.charCodeAt(0))
-      await navigator.clipboard.write([new ClipboardItem({ [image.mediaType]: new Blob([bytes], { type: image.mediaType }) })])
+      const png = (async (): Promise<Blob> => {
+        const request = rasterRequest(artboard, loaded.theme, 2)
+        const raster = await window.api.design.raster(request as unknown as Record<string, unknown>)
+        if (!raster?.ok || !raster.path) throw new Error(raster?.error ?? 'rasterising the artboard failed')
+        const image = await window.api.fs.readImage(raster.path)
+        if (!image?.base64) throw new Error(`could not read ${raster.path}`)
+        const bytes = Uint8Array.from(atob(image.base64), (c) => c.charCodeAt(0))
+        return new Blob([bytes], { type: 'image/png' })
+      })()
+      navigator.clipboard
+        .write([new ClipboardItem({ 'image/png': png })])
+        .catch((err) => console.error('[design] copy as PNG failed:', err))
     },
     [loaded]
   )
@@ -564,7 +574,7 @@ export default function DesignFileView({
                         </span>
                       </ContextMenuItem>
                       <ContextMenuSeparator />
-                      <ContextMenuItem className={MENU_ROW} onSelect={() => void copyPng(target.artboard.id)}>
+                      <ContextMenuItem className={MENU_ROW} onSelect={() => copyPng(target.artboard.id)}>
                         <ClipboardCopy className="text-muted-foreground" />
                         Copy as PNG
                       </ContextMenuItem>
