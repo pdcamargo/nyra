@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.8.1',
+    date: '2026-10-04',
     notes: [
       'Fixed a design opened at one panel jumping back to it while you pan around',
       'Fixed Copy as PNG on a design sometimes doing nothing',
