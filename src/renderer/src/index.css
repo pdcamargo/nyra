@@ -1433,3 +1433,17 @@ mark.nyra-search-highlight-active {
 .nyra-range:focus-visible::-webkit-slider-thumb {
   box-shadow: 0 0 0 2px var(--design-accent), 0 0 0 5px color-mix(in oklab, var(--design-accent) 25%, transparent);
 }
+
+/* Annotated text in the transcript — painted by `lib/annotationHighlights.ts`
+ * without touching the DOM. Saved ranges get a soft tint; the one being
+ * commented on holds the selection's weight while focus is in the popover;
+ * a receipt's jump lights its range up briefly. */
+::highlight(nyra-annotation) {
+  background-color: color-mix(in oklab, var(--info) 20%, transparent);
+}
+::highlight(nyra-annotation-draft) {
+  background-color: color-mix(in oklab, var(--info) 32%, transparent);
+}
+::highlight(nyra-annotation-flash) {
+  background-color: color-mix(in oklab, var(--info) 45%, transparent);
+}

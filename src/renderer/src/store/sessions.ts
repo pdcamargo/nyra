@@ -17,6 +17,7 @@ import type { ChangeBlock } from '../lib/changeBlocks'
 import type { PullRequest } from '../lib/pullRequests'
 import { isDefaultChatSort, type ChatSort } from '../lib/chatSort'
 import { pickCat, type AgentCat } from '../lib/agentCats'
+import type { SentAnnotation } from '../lib/chatAnnotations'
 
 type PersistedState = { sessions: Session[]; projects: Project[]; activeSessionId: string | null }
 
@@ -37,12 +38,13 @@ export type FileAttachment = {
 
 /**
  * Something a message carries to Claude that the bubble shows as one line:
- * the answers to a questionnaire, or what a comment on a design is pinned to.
+ * the answers to a questionnaire, what a comment on a design is pinned to, or
+ * the stretches of the transcript annotated for this message.
  * `body` goes to Claude with the text, the way attachments do; the bubble shows
  * `label`. Stored on the message, so resend, edit and fork send it again.
  */
 export type MessageContext = {
-  kind: 'questionnaire' | 'design-feedback' | 'design-comment'
+  kind: 'questionnaire' | 'design-feedback' | 'design-comment' | 'chat-annotation'
   /** The bubble's one line. */
   label: string
   /** What Claude receives. Never rendered in the transcript. */
@@ -59,6 +61,8 @@ export type MessageContext = {
     artboardName?: string
     /** Set on a reply written back on a comment, rather than a new one. */
     round?: 'reply'
+    /** What a `chat-annotation` carried, in pin order, for the receipt under the bubble. */
+    annotations?: SentAnnotation[]
   }
 }
 

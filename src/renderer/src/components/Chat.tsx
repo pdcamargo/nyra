@@ -72,6 +72,12 @@ import { noteCommandDetails, noteSlashCommands, type CommandDetail } from '../li
 import { noteModelId, noteModelVersion, noteOfferedModels } from '../store/modelVersions'
 import type { OfferedModel } from '../lib/models'
 import { openFileInPanel } from '../lib/openFile'
+import SelectionAnnotator from './annotations/SelectionAnnotator'
+import AnnotationLayer from './annotations/AnnotationLayer'
+import AnnotationReceipt from './annotations/AnnotationReceipt'
+import { useAnnotationsStore } from '../store/annotations'
+import { ANNOTATABLE, rangeAt } from '../lib/chatAnnotations'
+import { flashRange } from '../lib/annotationHighlights'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const EMPTY_MESSAGES: Message[] = []
@@ -1804,6 +1810,38 @@ export default function Chat(): React.JSX.Element {
     },
     [recapIndexOf, virtualizer]
   )
+  // A tray or receipt row asked for an annotated range: bring its message into
+  // view, wait for the row to mount, then centre the range itself — a long
+  // reply's top is not where the sentence is. Then light it, or reopen its
+  // popover when the row asked to edit.
+  const annotationJump = useAnnotationsStore((s) => s.jump)
+  useEffect(() => {
+    if (!annotationJump) return
+    const index = recapIndexOf(annotationJump.messageId)
+    if (index < 0) return
+    stuckToBottomRef.current = false
+    virtualizer.scrollToIndex(index, { align: 'start' })
+    let frames = 0
+    let raf = 0
+    const land = (): void => {
+      const scroller = messagesRef.current
+      const root = scroller?.querySelector<HTMLElement>(`[${ANNOTATABLE}="${CSS.escape(annotationJump.messageId)}"]`)
+      const range = root ? rangeAt(root, annotationJump.start, annotationJump.end) : null
+      if (!scroller || !range) {
+        if (++frames < 30) raf = requestAnimationFrame(land)
+        return
+      }
+      const box = scroller.getBoundingClientRect()
+      const at = range.getBoundingClientRect()
+      scroller.scrollBy({ top: at.top + at.height / 2 - (box.top + box.height / 2), behavior: 'smooth' })
+      if (annotationJump.editId) useAnnotationsStore.getState().edit(annotationJump.editId)
+      else flashRange(range)
+    }
+    raf = requestAnimationFrame(land)
+    return () => cancelAnimationFrame(raf)
+    // Only a new request moves the view; the index lookup follows the transcript.
+  }, [annotationJump])
+
   // Read every render rather than memoised: the visible range moves on scroll,
   // and the virtualizer re-renders this component when it does.
   const recapRange = virtualizer.range
@@ -2292,6 +2330,7 @@ export default function Chat(): React.JSX.Element {
         />
       )}
 
+      <SelectionAnnotator sessionId={activeSessionId} messages={messages} />
       {statsOpen && <StatsModal onClose={() => setStatsOpen(false)} />}
       {copyBlocksOpen && <CopyBlocksModal onClose={() => setCopyBlocksOpen(false)} />}
       {releaseNotesOpen && <ReleaseNotesModal onClose={() => setReleaseNotesOpen(false)} />}
@@ -2444,6 +2483,7 @@ function WaitingIndicator({ tasks }: { tasks: WaitingTask[] }): React.JSX.Elemen
 const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoading, showActions, onEdit, onFork, onPlanAnswer, onQuestionAnswer }: { message: Message; sessionId?: string | null; isLoading?: boolean; showActions?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (at: ForkPoint, mode: ForkMode) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
+  const promptRef = useRef<HTMLDivElement>(null)
   // Which questionnaire record is open under the bubble, if any.
   const [record, setRecord] = useState<number | null>(null)
 
@@ -2460,8 +2500,15 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
 
   if (message.role === 'user') {
     const textMsg = message as TextMessage
+    // Annotations ride under the bubble as a receipt, not inside it as a line.
+    const annotated = textMsg.context?.find((c) => c.kind === 'chat-annotation')
+    const lines = textMsg.context?.filter((c) => c.kind !== 'chat-annotation') ?? []
+    // Sent with annotations alone, there is nothing for a bubble to hold.
+    const hasBubble =
+      textMsg.text.trim().length > 0 || !!textMsg.images?.length || !!textMsg.files?.length || lines.length > 0
     return (
       <div className="flex flex-col items-end group/msg">
+        {hasBubble && (
         <div className="relative max-w-[85%] rounded-lg bg-bubble px-4 py-2.5 text-bubble-foreground">
           {onEdit && (
             <Tooltip>
@@ -2526,21 +2573,25 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
               ))}
             </div>
           )}
-          {textMsg.context && textMsg.context.length > 0 && (
-            <MessageContextLines context={textMsg.context} record={record} onRecord={setRecord} />
-          )}
+          {lines.length > 0 && <MessageContextLines context={lines} record={record} onRecord={setRecord} />}
           {/* The same markdown the composer previewed while it was being
               written, chips and all — not the raw characters. */}
           {textMsg.text.trim().length > 0 && (
-            <div className="wrap-break-word wrap-anywhere">
+            <div
+              ref={promptRef}
+              {...{ [ANNOTATABLE]: textMsg.id }}
+              data-annotatable-source="user"
+              className="wrap-break-word wrap-anywhere"
+            >
               <MarkdownRenderer prompt>{textMsg.text}</MarkdownRenderer>
             </div>
           )}
           </div>
+          <AnnotationLayer sessionId={sessionId} messageId={textMsg.id} rootRef={promptRef} text={textMsg.text} />
         </div>
-        {record !== null && textMsg.context?.[record]?.kind === 'questionnaire' && (
-          <QuestionnaireRecord context={textMsg.context[record]} />
         )}
+        {record !== null && lines[record]?.kind === 'questionnaire' && <QuestionnaireRecord context={lines[record]} />}
+        {annotated && <AnnotationReceipt context={annotated} />}
         {/* Outside the bubble, or the bubble reserves a line for a timestamp
             nobody is looking at and sits taller than its own text. */}
         {message.timestamp && (
@@ -2579,9 +2630,10 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
   // side, where it marks the turn.
   return (
     <div className="group/msg relative text-foreground">
-      <div ref={contentRef}>
+      <div ref={contentRef} {...{ [ANNOTATABLE]: message.id }} data-annotatable-source="assistant">
         <MarkdownRenderer>{message.text}</MarkdownRenderer>
       </div>
+      <AnnotationLayer sessionId={sessionId} messageId={message.id} rootRef={contentRef} text={message.text} />
       {/* Outside `contentRef` on purpose: Copy yields the reply's prose, and a
           table of line counts is not something you want in your clipboard. */}
       {message.changes && <ChangesCard block={message.changes} />}

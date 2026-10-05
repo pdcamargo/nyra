@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useSessionsStore, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, queueOf, createSiblingSession, newMessageId } from '../store/sessions'
+import { useSessionsStore, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, type MessageContext, queueOf, createSiblingSession, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useUiStore } from '../store/ui'
 import { forkChat } from '../lib/fork'
@@ -10,6 +10,9 @@ import AtMentionAutocomplete, { useAtMentionItems, type MentionItem } from './At
 import ComposerBar from './ComposerBar'
 import NewChatEnvironment from './NewChatEnvironment'
 import AttachmentStrip from './AttachmentStrip'
+import AnnotationTray from './annotations/AnnotationTray'
+import { useAnnotationsStore, useSessionAnnotations } from '../store/annotations'
+import { annotationContext } from '../lib/chatAnnotations'
 import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
 import { BUILT_IN_COMMANDS } from '../data/commands'
 import {
@@ -72,7 +75,13 @@ type ChatInputProps = {
   /** The question waiting on an answer, fused into the top of the composer. */
   liveQuestion?: ToolCallMessage | null
   onQuestionAnswer?: (toolId: string, answer: string, images?: ImageAttachment[], files?: FileAttachment[]) => void
-  sendMessage: (text: string, images?: ImageAttachment[], files?: FileAttachment[]) => Promise<void>
+  sendMessage: (
+    text: string,
+    images?: ImageAttachment[],
+    files?: FileAttachment[],
+    targetSessionId?: string,
+    context?: MessageContext[]
+  ) => Promise<void>
   /**
    * Send a queued message into the turn that is already running. Resolves false
    * when there was no live turn to send it into, so the row stays queued.
@@ -209,6 +218,7 @@ export default function ChatInput({
 
   // Focus textarea on session switch
   const activeSessionId = useSessionsStore((s) => s.activeSessionId)
+  const annotationCount = useSessionAnnotations(activeSessionId).length
   const resourceDock = useResourceDockStore((s) =>
     activeSessionId ? s.bySession[activeSessionId] : undefined
   )
@@ -522,8 +532,10 @@ export default function ChatInput({
     const text = input
     const images = [...stagedImages]
     const files = [...stagedFiles]
+    const annotationsSid = useSessionsStore.getState().activeSessionId
+    const pendingAnnotations = annotationsSid ? useAnnotationsStore.getState().bySession[annotationsSid] ?? [] : []
 
-    if (!text.trim() && images.length === 0 && files.length === 0) return
+    if (!text.trim() && images.length === 0 && files.length === 0 && pendingAnnotations.length === 0) return
 
     // Intercept /loop <interval> <prompt>
     const loopMatch = text.trim().match(/^\/loop\s+(\d+(?:\.\d+)?)(s|m|h)\s+(.+)$/i)
@@ -580,6 +592,12 @@ export default function ChatInput({
     setInput('')
     setStagedImages([])
     setStagedFiles([])
+    // Taken only now: a command run from the box above is not the message they
+    // were waiting for, so they stay in the tray through it.
+    const context =
+      annotationsSid && pendingAnnotations.length > 0
+        ? [annotationContext(useAnnotationsStore.getState().take(annotationsSid))]
+        : undefined
 
     if (isLoading) {
       const sid = useSessionsStore.getState().activeSessionId
@@ -587,7 +605,8 @@ export default function ChatInput({
         const queued: QueuedMessage = {
           text: text.trim(),
           ...(images.length > 0 ? { images } : {}),
-          ...(files.length > 0 ? { files } : {})
+          ...(files.length > 0 ? { files } : {}),
+          ...(context ? { context } : {})
         }
         // A queued message taken back to edit goes back where it was, not to
         // the end of the line. Rows that drained meanwhile pull that slot
@@ -606,7 +625,13 @@ export default function ChatInput({
     }
     editingQueueRef.current = null
 
-    await sendMessage(text.trim(), images.length > 0 ? images : undefined, files.length > 0 ? files : undefined)
+    await sendMessage(
+      text.trim(),
+      images.length > 0 ? images : undefined,
+      files.length > 0 ? files : undefined,
+      undefined,
+      context
+    )
   }, [
     input,
     stagedImages,
@@ -1057,6 +1082,7 @@ export default function ChatInput({
             />
           </div>
         )}
+        <AnnotationTray sessionId={activeSessionId} />
         <div className="max-h-[min(24vh,180px)] overflow-y-auto">
           <AttachmentStrip
             images={stagedImages}
@@ -1109,7 +1135,7 @@ export default function ChatInput({
         />
         <ComposerBar
           isLoading={isLoading}
-          canSend={!!input.trim() || stagedImages.length > 0 || stagedFiles.length > 0}
+          canSend={!!input.trim() || stagedImages.length > 0 || stagedFiles.length > 0 || annotationCount > 0}
           onPickFiles={pickFiles}
           onInsert={insertCommand}
           onSend={handleSend}
