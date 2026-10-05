@@ -171,6 +171,20 @@ describe('project actions', () => {
     useSessionsStore.getState().setProjectCollapsed(pid, true)
     expect(useSessionsStore.getState().projects[0].collapsed).toBe(true)
   })
+
+  it('remembers Show more per project, and Show less leaves nothing behind', () => {
+    const a = useSessionsStore.getState().createProject('/a')
+    const b = useSessionsStore.getState().createProject('/b')
+    const project = (id: string) => useSessionsStore.getState().projects.find((p) => p.id === id)!
+    expect(project(a).showAllChats).toBeUndefined()
+
+    useSessionsStore.getState().setProjectShowAllChats(a, true)
+    expect(project(a).showAllChats).toBe(true)
+    expect(project(b).showAllChats).toBeUndefined()
+
+    useSessionsStore.getState().setProjectShowAllChats(a, false)
+    expect('showAllChats' in project(a) && project(a).showAllChats !== undefined).toBe(false)
+  })
 })
 
 describe('selectors', () => {

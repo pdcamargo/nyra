@@ -668,7 +668,7 @@ function DesignsSection({
   )
 }
 
-/** How many of the project's designs show before "All N". */
+/** How many of the project's designs show before "Show N more". */
 const PROJECT_DESIGNS_SHOWN = 4
 
 /**
@@ -705,20 +705,7 @@ function ProjectDesigns({ cwd, listed }: { cwd: string; listed: string[] }): Rea
   const shown = all ? rows : rows.slice(0, PROJECT_DESIGNS_SHOWN)
 
   return (
-    <Section
-      label="In this project"
-      action={
-        rows.length > PROJECT_DESIGNS_SHOWN ? (
-          <button
-            type="button"
-            onClick={() => setAll((v) => !v)}
-            className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {all ? 'Fewer' : `All ${rows.length}`}
-          </button>
-        ) : undefined
-      }
-    >
+    <Section label="Designs in this project">
       {shown.map((r) => (
         <button
           key={r.key}
@@ -734,6 +721,16 @@ function ProjectDesigns({ cwd, listed }: { cwd: string; listed: string[] }): Rea
           {!r.path && <span className="shrink-0 text-[10px] text-muted-foreground">Design system</span>}
         </button>
       ))}
+      {/* At the foot, the way Subagents does it, rather than a header link. */}
+      {rows.length > PROJECT_DESIGNS_SHOWN && (
+        <button
+          type="button"
+          onClick={() => setAll((v) => !v)}
+          className="mt-0.5 rounded-md px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {all ? 'Show less' : `Show ${rows.length - PROJECT_DESIGNS_SHOWN} more`}
+        </button>
+      )}
     </Section>
   )
 }

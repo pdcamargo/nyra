@@ -238,6 +238,9 @@ export type Project = {
   /** How its chats are listed. Unset is the default, Created / newest first —
    *  stored that way so choosing the default leaves nothing behind. */
   chatSort?: ChatSort
+  /** Lists every chat rather than the first few under `Show more`. Unset is
+   *  the default, collapsed, so `Show less` leaves nothing behind. */
+  showAllChats?: boolean
   /** The workspace — the Claude account — this project's chats, terminals and
    *  flows run under. Moving a project moves all of them. */
   workspaceId: string
@@ -403,6 +406,7 @@ type SessionsStore = {
   removeProject: (projectId: string) => void
   setProjectCollapsed: (projectId: string, collapsed: boolean) => void
   setProjectChatSort: (projectId: string, sort: ChatSort) => void
+  setProjectShowAllChats: (projectId: string, showAll: boolean) => void
   /** One-shot copy onto every project in the workspace, not a link: each one
    *  can be changed on its own afterwards. */
   applyChatSortToWorkspace: (workspaceId: string, sort: ChatSort) => void
@@ -636,6 +640,13 @@ export const useSessionsStore = create<SessionsStore>()(
         const chatSort = isDefaultChatSort(sort) ? undefined : sort
         set((state) => ({
           projects: state.projects.map((p) => (p.id === projectId ? { ...p, chatSort } : p))
+        }))
+      },
+
+      setProjectShowAllChats: (projectId: string, showAll: boolean) => {
+        const showAllChats = showAll ? true : undefined
+        set((state) => ({
+          projects: state.projects.map((p) => (p.id === projectId ? { ...p, showAllChats } : p))
         }))
       },
 

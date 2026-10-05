@@ -735,7 +735,6 @@ function SessionsList(): React.JSX.Element {
   const [renameValue, setRenameValue] = useState('')
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
-  const [expandedAll, setExpandedAll] = useState<Set<string>>(new Set())
   // Archiving a chat that is working has to ask first — it stops the work. A
   // chat that is idle goes straight away, and only shows up here if it could
   // not go: a snapshot that failed is not worth a silent menu item.
@@ -797,7 +796,6 @@ function SessionsList(): React.JSX.Element {
 
   const newChatIn = (project: Project): void => {
     useSessionsStore.getState().createSession(project.path, project.id)
-    setExpandedAll((prev) => new Set(prev).add(project.id))
   }
 
   const newRecentChat = (): void => {
@@ -1036,9 +1034,14 @@ function SessionsList(): React.JSX.Element {
       { running, planPending }
     )
     const collapsed = project.collapsed === true
-    const showingAll = expandedAll.has(project.id)
+    const showingAll = project.showAllChats === true
     const nested = nestForks(children)
-    const visible = showingAll ? nested : nested.slice(0, VISIBLE_PER_PROJECT)
+    // The open chat stays listed past the cap. A new chat used to expand its
+    // project to stay in view, but now that the choice is remembered that
+    // would undo every Show less the next time you started a chat.
+    const visible = showingAll
+      ? nested
+      : nested.filter(({ session: s }, i) => i < VISIBLE_PER_PROJECT || s.id === activeSessionId)
     const hiddenCount = children.length - visible.length
 
     const projectSpinner = projectSpinnerVisible({
@@ -1096,18 +1099,14 @@ function SessionsList(): React.JSX.Element {
                 rest of the session, and the only way back was a reload.
                 
                 Keyed off the child count rather than off hiddenCount, which is
-                zero while expanded — and rather than off the expanded set,
-                which can still name a project whose chats have since been
-                deleted down below the cap. */}
+                zero while expanded — and rather than off showAllChats, which
+                can still be set on a project whose chats have since been
+                deleted down below the cap. Persisted per project, like the
+                sort, so the choice survives a reload. */}
             {children.length > VISIBLE_PER_PROJECT && (
               <button
                 onClick={() =>
-                  setExpandedAll((prev) => {
-                    const next = new Set(prev)
-                    if (showingAll) next.delete(project.id)
-                    else next.add(project.id)
-                    return next
-                  })
+                  useSessionsStore.getState().setProjectShowAllChats(project.id, !showingAll)
                 }
                 className="pt-0.5 pb-1 pl-[27px] pr-2 text-left text-[0.77em] text-muted-foreground transition-colors hover:text-foreground/80"
               >
