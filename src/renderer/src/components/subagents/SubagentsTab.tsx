@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef } from 'react'
 import { Bot, ChevronLeft } from 'lucide-react'
+import CatIcon from '../CatIcon'
 import MarkdownRenderer from '../MarkdownRenderer'
 import ToolCallGroup from '../ToolCallGroup'
 import { formatElapsed } from '../ActivityStrip'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+import { catOf } from '../../lib/agentCats'
 import { cleanAgentReport } from '../../lib/agentReport'
 import { shortModelLabel } from '../../lib/models'
 import { openSubagentsInPanel } from '../../lib/openFile'
@@ -23,10 +25,22 @@ import type { SubagentsPanelTab } from '../../store/panelTabs'
 /** A stable empty array — a fresh one per call would re-render forever. */
 const NO_AGENTS: Agent[] = []
 
-function dotClass(status: Agent['status']): string {
-  if (status === 'running') return 'bg-info animate-pulse'
-  if (status === 'failed') return 'bg-danger/60'
-  return 'bg-success'
+/**
+ * The same cat its transcript line and its pinned-summary row show. It breathes
+ * while the agent runs; a failure gets a badge, since the cat alone cannot say so.
+ */
+function AgentCatFace({ agent, index }: { agent: Agent; index: number }): React.JSX.Element {
+  return (
+    <span className="relative flex size-[17px] shrink-0">
+      <CatIcon
+        cat={catOf(agent, index)}
+        className={`size-[17px] ${agent.status === 'running' ? 'nyra-breathe' : ''}`}
+      />
+      {agent.status === 'failed' && (
+        <span className="absolute -bottom-px -right-px size-1.5 rounded-full bg-danger ring-1 ring-background" />
+      )}
+    </span>
+  )
 }
 
 /**
@@ -66,7 +80,15 @@ function blocksOf(entries: SubagentEntry[], toolId: string): Block[] {
   return blocks
 }
 
-function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }): React.JSX.Element {
+function AgentRow({
+  agent,
+  index,
+  onOpen
+}: {
+  agent: Agent
+  index: number
+  onOpen: () => void
+}): React.JSX.Element {
   const model = shortModelLabel(agent.model)
   return (
     <button
@@ -74,7 +96,9 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }): Reac
       onClick={onOpen}
       className="flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50"
     >
-      <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${dotClass(agent.status)}`} />
+      <span className="mt-0.5 flex shrink-0">
+        <AgentCatFace agent={agent} index={index} />
+      </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[12px] text-foreground/80">{agent.name}</span>
         <span className="block truncate text-[10px] text-muted-foreground">
@@ -119,8 +143,13 @@ function AgentList({
             No subagents in this chat yet.
           </p>
         ) : (
-          agents.map((agent) => (
-            <AgentRow key={agent.toolId} agent={agent} onOpen={() => onOpen(agent.toolId)} />
+          agents.map((agent, index) => (
+            <AgentRow
+              key={agent.toolId}
+              agent={agent}
+              index={index}
+              onOpen={() => onOpen(agent.toolId)}
+            />
           ))
         )}
       </div>
@@ -157,10 +186,12 @@ function LiveFooter({ activity }: { activity?: string }): React.JSX.Element {
 function AgentStream({
   sessionId,
   agent,
+  index,
   onBack
 }: {
   sessionId: string
   agent: Agent
+  index: number
   onBack: () => void
 }): React.JSX.Element {
   const transcript = useSubagentTranscriptsStore((s) => transcriptFor(s, sessionId, agent.toolId))
@@ -236,7 +267,7 @@ function AgentStream({
           </TooltipTrigger>
           <TooltipContent>All subagents</TooltipContent>
         </Tooltip>
-        <span className={`size-1.5 shrink-0 rounded-full ${dotClass(agent.status)}`} />
+        <AgentCatFace agent={agent} index={index} />
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/80">
           {agent.name}
         </span>
@@ -336,6 +367,7 @@ export default function SubagentsTab({
       <AgentStream
         sessionId={sessionId}
         agent={focused}
+        index={agents.indexOf(focused)}
         onBack={() => openSubagentsInPanel(null)}
       />
     )
