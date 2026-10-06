@@ -56,14 +56,19 @@ export type ChatSortContext = {
 }
 
 /**
- * The last message sent or received, or the chat's creation for one with
- * nothing timestamped yet. Walked from the end: the newest message is almost
- * always the last one, so this rarely looks at more than one.
+ * When a chat last had something for you: the end of its last turn, or your
+ * last message to it. A chat at work keeps the time you sent it on its way —
+ * everything it streams in the meantime is the middle of a turn, and counting
+ * it would reshuffle two running chats on every tool call. It moves when it
+ * stops, which is when the rail's dot (or its question, or its plan) appears.
+ *
+ * The last timestamped message, or the chat's creation for one with none.
+ * Walked from the end, so a quiet chat rarely looks at more than one.
  */
-export function lastActivityOf(session: Session): number {
+export function lastActivityOf(session: Session, running = false): number {
   for (let i = session.messages.length - 1; i >= 0; i--) {
-    const t = session.messages[i].timestamp
-    if (t !== undefined) return t
+    const m = session.messages[i]
+    if (m.timestamp !== undefined && (!running || m.role === 'user')) return m.timestamp
   }
   return session.createdAt
 }
@@ -105,16 +110,17 @@ const byName = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true
  */
 export function sortChats(sessions: Session[], sort: ChatSort | undefined, ctx: ChatSortContext): Session[] {
   const { key, reverse } = chatSortOf(sort)
+  const activity = (s: Session): number => lastActivityOf(s, ctx.running[s.id] === true)
   const compare = (a: Session, b: Session): number => {
     switch (key) {
       case 'created':
         return b.createdAt - a.createdAt
       case 'activity':
-        return lastActivityOf(b) - lastActivityOf(a) || b.createdAt - a.createdAt
+        return activity(b) - activity(a) || b.createdAt - a.createdAt
       case 'status':
-        return statusRankOf(a, ctx) - statusRankOf(b, ctx) || lastActivityOf(b) - lastActivityOf(a)
+        return statusRankOf(a, ctx) - statusRankOf(b, ctx) || activity(b) - activity(a)
       case 'pr':
-        return prRankOf(a) - prRankOf(b) || lastActivityOf(b) - lastActivityOf(a)
+        return prRankOf(a) - prRankOf(b) || activity(b) - activity(a)
       case 'name':
         return byName.compare(a.title, b.title)
     }

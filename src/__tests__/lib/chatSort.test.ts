@@ -63,6 +63,23 @@ describe('sortChats', () => {
     expect(ids(sortChats(chats, { key: 'activity', reverse: false }, idle))).toEqual(['busy', 'quiet', 'early'])
   })
 
+  it('holds a running chat at your last message until its turn ends', () => {
+    const replied = (timestamp: number): Session['messages'][number] => ({
+      id: String(timestamp),
+      role: 'assistant',
+      text: '',
+      timestamp
+    })
+    const chats = [
+      session({ id: 'working', messages: [said(1), replied(9)] }),
+      session({ id: 'sent', messages: [said(5)] })
+    ]
+    const ctx: ChatSortContext = { running: { working: true }, planPending: new Set() }
+    expect(lastActivityOf(chats[0], true)).toBe(1)
+    expect(ids(sortChats(chats, { key: 'activity', reverse: false }, ctx))).toEqual(['sent', 'working'])
+    expect(ids(sortChats(chats, { key: 'activity', reverse: false }, idle))).toEqual(['working', 'sent'])
+  })
+
   it('puts a chat blocked on you above a running one, then unread, then the rest', () => {
     const chats = [
       session({ id: 'idle', createdAt: 9 }),
