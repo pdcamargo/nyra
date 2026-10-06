@@ -8,7 +8,12 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Added comments on chat messages. Select text in any message, choose Comment, and your comments go out with the next message you send',
+      'The sidebar now remembers Show more for each project after a reload',
+      'Fixed two running chats sorted by last activity swapping places on every tool call',
+      "The Subagents tab now shows each subagent's cat"
+    ]
   },
   {
     version: '0.8.1',
