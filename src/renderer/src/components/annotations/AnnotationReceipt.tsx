@@ -46,7 +46,7 @@ export default function AnnotationReceipt({ context }: { context: MessageContext
                 {a.comment ? (
                   <span className="whitespace-pre-line">{a.comment}</span>
                 ) : (
-                  <span className="text-muted-foreground/70">No comment</span>
+                  <span className="text-muted-foreground">No comment</span>
                 )}
               </span>
             </button>
