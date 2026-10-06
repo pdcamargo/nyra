@@ -1,6 +1,6 @@
 [package]
 name = "nyra"
-version = "0.8.1"
+version = "0.8.2"
 description = "A better Claude Code client"
 authors = ["Victor"]
 license = "MIT"

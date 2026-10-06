@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.8.2',
+    date: '2026-10-06',
     notes: [
       'Added comments on chat messages. Select text in any message, choose Comment, and your comments go out with the next message you send',
       'The sidebar now remembers Show more for each project after a reload',
