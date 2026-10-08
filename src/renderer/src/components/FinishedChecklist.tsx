@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { ChevronDown, ChevronRight, ListTodo } from 'lucide-react'
 import type { Task, ToolCallMessage } from '../store/sessions'
+import { useRememberedState } from '../lib/rememberedState'
 
 /**
  * A checklist that has been worked through, kept as a record.
@@ -24,7 +25,7 @@ export default function FinishedChecklist({
 }: {
   message: ToolCallMessage
 }): React.JSX.Element | null {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useRememberedState(`checklist:${message.tool_id}`, false)
   const tasks = Array.isArray(message.input.tasks) ? (message.input.tasks as Task[]) : []
   if (tasks.length === 0) return null
 

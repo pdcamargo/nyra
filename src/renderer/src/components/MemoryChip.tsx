@@ -8,12 +8,13 @@
  * as its own kind of event, and the memory's name as the way into the memory
  * tab. The description and the type badge live there, one click away.
  */
-import React, { useState } from 'react'
+import React from 'react'
 import { Brain, ChevronRight } from 'lucide-react'
 import type { ToolCallMessage } from '../store/sessions'
 import type { MemoryWrite } from '../lib/memoryWrites'
 import { summarizeMemoryWrites } from '../lib/memoryWrites'
 import { useUiStore } from '../store/ui'
+import { useRememberedState } from '../lib/rememberedState'
 import { TraceLine } from './ToolCallGroup'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
@@ -26,7 +27,7 @@ export default function MemoryChip({
   calls?: ToolCallMessage[]
 }): React.JSX.Element | null {
   const openMemoryFile = useUiStore((s) => s.openMemoryFile)
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useRememberedState(`memory:${writes[0]?.toolId}`, false)
   if (writes.length === 0) return null
 
   // The index is bookkeeping under whatever it accompanies — saving a memory is

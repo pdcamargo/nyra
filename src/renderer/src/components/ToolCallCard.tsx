@@ -1,5 +1,5 @@
 import { formatToolName } from '../utils/toolSummary'
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import type { ToolCallMessage } from '../store/sessions'
 import { useSessionsStore } from '../store/sessions'
 import DiffViewer from './LazyDiffViewer'
@@ -7,6 +7,7 @@ import { buildDiffFromToolInput } from '../utils/diff'
 import { openFileInPanel } from '../lib/openFile'
 import { useSettingsStore } from '../store/settings'
 import { detectError, type DetectedError } from '../utils/errorDetection'
+import { useRememberedState } from '../lib/rememberedState'
 
 const TOOL_ICONS: Record<string, string> = {
   Bash: '$',
@@ -83,7 +84,6 @@ function ToolCallCardInner({
   nested?: boolean
 }): React.JSX.Element {
   const isFileOp = message.tool_name === 'Edit' || message.tool_name === 'Write'
-  const [expanded, setExpanded] = useState(isFileOp)
   const done = message.result !== undefined
   const denied = message.denied === true
   const summary = inputSummary(message.tool_name, message.input)
@@ -99,10 +99,17 @@ function ToolCallCardInner({
     [done, denied, message.result, message.tool_name]
   )
 
-  // Auto-expand on error
+  // Remembered across remounts: the transcript is virtualised, and a card that
+  // came back collapsed — or expanded itself a frame after mounting — changed
+  // height under the scroll. A card that already failed starts open.
+  const [expanded, setExpanded] = useRememberedState(`tool:${message.tool_id}`, isFileOp || error !== null)
+
+  // Auto-expand when an error arrives while the card is on screen.
+  const hadError = useRef(error !== null)
   useEffect(() => {
-    if (error) setExpanded(true)
-  }, [error])
+    if (error && !hadError.current) setExpanded(true)
+    hadError.current = error !== null
+  }, [error, setExpanded])
 
   const dotClass = denied
     ? 'bg-danger/60'

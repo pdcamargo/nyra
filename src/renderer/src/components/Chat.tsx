@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
 import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, type MessageContext, newMessageId } from '../store/sessions'
@@ -190,6 +190,9 @@ function spawnSettingsForSession(sessionId: string): SpawnSettings {
 
 // Panel state comes from the ui store rather than props: the title bar owns the
 // toggles now, so threading them back down through App would be a detour.
+/** How long after the last wheel event a swipe counts as over. */
+const GESTURE_SETTLE_MS = 200
+
 export default function Chat(): React.JSX.Element {
   const running = useRunningStore((s) => s.running)
   const summaryOpen = useUiStore((s) => s.summaryOpen)
@@ -202,6 +205,25 @@ export default function Chat(): React.JSX.Element {
   const thinkingSince = useRunningStore((s) => s.thinkingSince)
   const [permissionQueue, setPermissionQueue] = useState<(PermissionRequest & { nyraSessionId?: string })[]>([])
   const messagesRef = useRef<HTMLDivElement>(null)
+  /** The virtualised list inside the scroller, whose top is offset 0 for the virtualizer. */
+  const listRef = useRef<HTMLDivElement>(null)
+  /**
+   * How far the top of the viewport is into the list.
+   *
+   * Read from layout rather than `scrollTop`: the scroller is bottom-anchored
+   * (see the scroller's own comment), where `scrollTop` counts up from the
+   * bottom and goes negative.
+   */
+  const listOffset = useCallback((): number => {
+    const el = messagesRef.current
+    const list = listRef.current
+    if (!el || !list) return 0
+    return Math.max(0, el.getBoundingClientRect().top - list.getBoundingClientRect().top)
+  }, [])
+  /** Height changes owed back to the scroll once the list has re-rendered. */
+  const pendingShiftRef = useRef(0)
+  /** Tells the virtualizer where the viewport is, outside a scroll event. */
+  const reportOffsetRef = useRef<(() => void) | null>(null)
   const [showJumpBottom, setShowJumpBottom] = useState(false)
   const cleanupRef = useRef<(() => void) | null>(null)
   const permCleanupRef = useRef<(() => void) | null>(null)
@@ -385,7 +407,7 @@ export default function Chat(): React.JSX.Element {
 
   // Build virtual items: interleave date separators with messages, plus loading indicator
   type VirtualItem =
-    | { kind: 'separator'; label: string }
+    | { kind: 'separator'; label: string; before: string }
     | { kind: 'message'; msg: Message; idx: number }
     | { kind: 'tool_group'; messages: ToolCallMessage[]; firstId: string }
     | { kind: 'memory'; writes: MemoryWrite[]; calls: ToolCallMessage[]; firstId: string }
@@ -410,7 +432,7 @@ export default function Chat(): React.JSX.Element {
           if (msgDate.toDateString() === today.toDateString()) label = 'Today'
           else if (msgDate.toDateString() === yesterday.toDateString()) label = 'Yesterday'
           else label = msgDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
-          items.push({ kind: 'separator', label })
+          items.push({ kind: 'separator', label, before: msg.id })
         }
       }
 
@@ -533,15 +555,57 @@ export default function Chat(): React.JSX.Element {
   const virtualizer = useVirtualizer({
     count: virtualItems.length,
     getScrollElement: () => messagesRef.current,
-    estimateSize: () => 80,
+    // Close to what each kind of row really measures. Every row starts at its
+    // estimate and corrects to its real height once it renders, and a row above
+    // the viewport that corrects mid-swipe moves what you are reading by the
+    // difference — so the nearer the guess, the smaller that move.
+    estimateSize: (index) => {
+      const item = virtualItems[index]
+      if (!item) return 80
+      if (item.kind === 'message') {
+        const length = 'text' in item.msg && typeof item.msg.text === 'string' ? item.msg.text.length : 0
+        return item.msg.role === 'user' ? Math.max(80, 60 + length * 0.3) : Math.max(40, length * 0.42)
+      }
+      if (item.kind === 'loading' || item.kind === 'waiting') return 60
+      return 34
+    },
     overscan: 5,
+    observeElementOffset: (instance, cb) => {
+      const el = instance.scrollElement
+      if (!el) return
+      let idle = 0
+      const onScroll = (): void => {
+        cb(listOffset(), true)
+        window.clearTimeout(idle)
+        idle = window.setTimeout(() => cb(listOffset(), false), 150)
+      }
+      el.addEventListener('scroll', onScroll, { passive: true })
+      // A bottom-anchored list opens at the bottom without scrolling, and grows
+      // above the viewport without scrolling either, so no event reports either.
+      reportOffsetRef.current = () => cb(listOffset(), false)
+      reportOffsetRef.current()
+      return () => {
+        el.removeEventListener('scroll', onScroll)
+        window.clearTimeout(idle)
+        reportOffsetRef.current = null
+      }
+    },
+    // Relative to where the viewport is now, so it holds whichever way the
+    // scroller counts.
+    scrollToFn: (offset, { adjustments = 0, behavior }) => {
+      const el = messagesRef.current
+      if (!el) return
+      el.scrollTo?.({ top: el.scrollTop + offset + adjustments - listOffset(), behavior })
+    },
     getItemKey: (index) => {
       const item = virtualItems[index]
       // The virtualizer can ask about an index that no longer exists — during a
       // session switch it still holds the previous conversation's count for a
       // render. Reading `.kind` off nothing throws and takes the chat with it.
       if (!item) return `gone-${index}`
-      if (item.kind === 'separator') return `sep-${index}`
+      // Keyed by the message it precedes, not its position, so its measured
+      // height can be kept for the chat across a switch away and back.
+      if (item.kind === 'separator') return `sep-${item.before}`
       if (item.kind === 'loading') return 'loading'
       if (item.kind === 'waiting') return 'waiting'
       if (item.kind === 'tool_group') return `tg-${item.firstId}`
@@ -550,6 +614,49 @@ export default function Chat(): React.JSX.Element {
       if (item.kind === 'background') return `bg-${item.message.id}`
       return item.msg.id
     },
+  })
+
+  /**
+   * What a row changing height does to the view.
+   *
+   * The scroller is bottom-anchored, so a row above the viewport that grows
+   * extends the page upward and nothing you are looking at moves: no scroll is
+   * written. That is the case that used to jump, constantly, on the way up —
+   * every row arrives at an estimate and corrects to its real height just above
+   * the fold, and the old top-anchored list could only hide that by writing
+   * `scrollTop` mid-swipe. WebKit mishandles that write while a trackpad's
+   * momentum is running; it was caught sending the view to the top of the
+   * conversation.
+   *
+   * The opposite case now needs the help: a row in or below the viewport that
+   * grows would push what is above it up. That is owed back to the scroll once
+   * the list has re-rendered at its new height (the layout effect below), unless
+   * you are following the bottom, where pushing up is the point, or mid-swipe.
+   */
+  /** When the wheel or a touch last moved the transcript. Momentum keeps firing wheel events. */
+  const lastGestureAtRef = useRef(0)
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, delta, instance) => {
+    const top = listOffset()
+    const following = stuckToBottomRef.current
+    const swiping = performance.now() - lastGestureAtRef.current < GESTURE_SETTLE_MS
+    if (item.start >= top && !following && !swiping) {
+      pendingShiftRef.current += delta
+    } else if (instance.scrollOffset !== null) {
+      // No scroll event will report it, so keep the virtualizer's idea of
+      // where the viewport is in step with the list growing above it.
+      instance.scrollOffset += delta
+    }
+    return false
+  }
+  useLayoutEffect(() => {
+    const shift = pendingShiftRef.current
+    pendingShiftRef.current = 0
+    const el = messagesRef.current
+    if (el && shift !== 0) el.scrollTop -= shift
+    // Re-sync when the viewport moved through the list without a scroll event:
+    // opening a chat, switching to one, rows growing above. Converges, because
+    // it only reports when the two disagree.
+    if (Math.abs((virtualizer.scrollOffset ?? 0) - listOffset()) > 1) reportOffsetRef.current?.()
   })
 
   /**
@@ -619,6 +726,9 @@ export default function Chat(): React.JSX.Element {
 
   /** False once the user scrolls up — their position is theirs until they come back. */
   const stuckToBottomRef = useRef(true)
+  /** Measured row heights per chat, kept across a switch away and back. */
+  const rowSizesRef = useRef(new Map<string, Map<string | number | bigint, number>>())
+  const rowSizesOwnerRef = useRef<string | null>(null)
   /**
    * The user asked to go up, by wheel, touch or key, and has not come back to
    * the very bottom since.
@@ -637,7 +747,8 @@ export default function Chat(): React.JSX.Element {
    *  re-run on every height change, so the re-assertion is not needed. */
   const pinToBottom = useCallback((): void => {
     const el = messagesRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    // Bottom-anchored: the bottom is zero.
+    if (el && el.scrollTop !== 0) el.scrollTop = 0
   }, [])
 
   /**
@@ -658,10 +769,21 @@ export default function Chat(): React.JSX.Element {
   useEffect(() => {
     stuckToBottomRef.current = true
     heldAwayRef.current = false
+    // Keep what was measured for the chat being left, and start this one from
+    // what was measured for it last time. Without that, coming back to a chat
+    // measured every row again on the way up, and each correction was another
+    // chance to jump.
+    const leaving = rowSizesOwnerRef.current
+    if (leaving) rowSizesRef.current.set(leaving, new Map(virtualizer.itemSizeCache))
     virtualizer.measure()
-    if (virtualItems.length > 0) {
-      virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end' })
+    const kept = activeSessionId ? rowSizesRef.current.get(activeSessionId) : undefined
+    if (kept) {
+      for (const [key, size] of kept) {
+        if (key !== 'loading' && key !== 'waiting') virtualizer.itemSizeCache.set(key, size)
+      }
     }
+    rowSizesOwnerRef.current = activeSessionId
+    pinToBottom()
   }, [activeSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
@@ -707,7 +829,8 @@ export default function Chat(): React.JSX.Element {
     const el = messagesRef.current
     if (!el) return
     const onScroll = (): void => {
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      // Bottom-anchored, so the distance from the bottom is how far `scrollTop` has gone negative.
+      const distanceFromBottom = Math.abs(el.scrollTop)
       setShowJumpBottom(distanceFromBottom > 300)
       // Back at the very bottom, so following is theirs to resume.
       if (heldAwayRef.current && distanceFromBottom <= 2) heldAwayRef.current = false
@@ -724,19 +847,24 @@ export default function Chat(): React.JSX.Element {
       ;(virtualizer as unknown as { scrollState: unknown }).scrollState = null
     }
     const onWheel = (event: WheelEvent): void => {
+      lastGestureAtRef.current = performance.now()
       if (event.deltaY < 0) holdAway()
+    }
+    const onTouchMove = (): void => {
+      lastGestureAtRef.current = performance.now()
+      holdAway()
     }
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'PageUp' || event.key === 'Home' || event.key === 'ArrowUp') holdAway()
     }
     el.addEventListener('scroll', onScroll, { passive: true })
     el.addEventListener('wheel', onWheel, { passive: true })
-    el.addEventListener('touchmove', holdAway, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
     el.addEventListener('keydown', onKey)
     return () => {
       el.removeEventListener('scroll', onScroll)
       el.removeEventListener('wheel', onWheel)
-      el.removeEventListener('touchmove', holdAway)
+      el.removeEventListener('touchmove', onTouchMove)
       el.removeEventListener('keydown', onKey)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1988,7 +2116,11 @@ export default function Chat(): React.JSX.Element {
           gutter for the summary to float in. */}
       <div
         ref={messagesRef}
-        className="scroll-auto-hide relative flex-1 overflow-y-scroll pb-8 pt-4"
+        // Bottom-anchored: `column-reverse` makes the bottom the scroll origin, so
+        // content that grows above the viewport extends the page upward instead
+        // of pushing what you are reading down. It needs exactly one child, and
+        // `mb-auto` on it keeps a short conversation at the top.
+        className="scroll-auto-hide relative flex flex-1 flex-col-reverse overflow-y-scroll"
         // The conversation's own type, set once here rather than as a class of
         // hardcoded px. The composer reads the same three variables, so the two
         // cannot drift apart.
@@ -2003,7 +2135,7 @@ export default function Chat(): React.JSX.Element {
            the right only where the floating summary would otherwise leave the
            window. chatColumn.ts has the arithmetic and the reasoning. */}
        <div
-         className="relative"
+         className="relative mb-auto shrink-0 pb-8 pt-4"
          style={{
            ...columnGeometry,
            width: 'var(--col-w)',
@@ -2067,7 +2199,7 @@ export default function Chat(): React.JSX.Element {
         )}
 
         {virtualItems.length > 0 && (
-          <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+          <div ref={listRef} style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
             {virtualizer.getVirtualItems().map((vItem) => {
               const item = virtualItems[vItem.index]
 
@@ -2265,7 +2397,7 @@ export default function Chat(): React.JSX.Element {
           onClick={() => {
             stuckToBottomRef.current = true
             heldAwayRef.current = false
-            virtualizer.scrollToIndex(virtualItems.length - 1, { align: 'end', behavior: 'smooth' })
+            messagesRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
           }}
           style={
             {

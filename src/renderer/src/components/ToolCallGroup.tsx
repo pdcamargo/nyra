@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import QuestionnaireChip, { isQuestionnaireAsk } from './questionnaire/QuestionnaireChip'
 import { ChevronRight } from 'lucide-react'
 import type { ToolCallMessage } from '../store/sessions'
@@ -11,6 +11,7 @@ import FinishedChecklist from './FinishedChecklist'
 import GoalChip from './GoalChip'
 import SkillChip from './SkillChip'
 import { tail } from '../lib/paths'
+import { useRememberedState } from '../lib/rememberedState'
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write'])
 
@@ -93,7 +94,7 @@ export default function ToolCallGroup({
   onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void
   onQuestionAnswer?: (toolId: string, answer: string) => void
 }): React.JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useRememberedState(`group:${messages[0]?.tool_id}`, false)
   const allDone = messages.every((m) => m.result !== undefined)
   const anyDenied = messages.some((m) => m.denied)
   const isSingle = messages.length === 1

@@ -69,29 +69,45 @@ async function ensureLang(highlighter: HighlighterGeneric<string, string>, lang:
   }
 }
 
+// Highlighted HTML by theme, language and source. The transcript is virtualised,
+// so a code block remounts every time it scrolls back into view; without this it
+// painted as plain text and swapped to the highlighted markup a moment later, a
+// height change under the scroll on every pass.
+const highlighted = new Map<string, string>()
+const HIGHLIGHT_CACHE_LIMIT = 500
+
 const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: string; code: string }): React.JSX.Element {
-  const [html, setHtml] = useState('')
+  const resolvedTheme = useResolvedTheme()
+  const shikiTheme = resolvedTheme === 'light' ? THEME_LIGHT : THEME_DARK
+  const lang = ALL_LANGS.includes(language) ? language : 'text'
+  const cacheKey = `${shikiTheme}\0${lang}\0${code}`
+  const [html, setHtml] = useState(() => highlighted.get(cacheKey) ?? '')
   const [copied, setCopied] = useState(false)
   // Per block, not per app: whether a snippet is better wrapped or scrolled
   // depends on the snippet — a long shell command wants wrapping, a table of
   // output wants its columns kept.
   const [wrapped, setWrapped] = useState(false)
-  const resolvedTheme = useResolvedTheme()
-  const shikiTheme = resolvedTheme === 'light' ? THEME_LIGHT : THEME_DARK
 
   useEffect(() => {
-    const lang = ALL_LANGS.includes(language) ? language : 'text'
+    const hit = highlighted.get(cacheKey)
+    if (hit) {
+      setHtml(hit)
+      return
+    }
     getHighlighter().then(async (h) => {
       await ensureLang(h, lang)
-      setHtml(
-        h.codeToHtml(code, {
-          lang,
-          theme: shikiTheme,
-          colorReplacements: { [THEME_BG[shikiTheme]]: 'transparent' }
-        })
-      )
+      const next = h.codeToHtml(code, {
+        lang,
+        theme: shikiTheme,
+        colorReplacements: { [THEME_BG[shikiTheme]]: 'transparent' }
+      })
+      if (highlighted.size >= HIGHLIGHT_CACHE_LIMIT) {
+        highlighted.delete(highlighted.keys().next().value as string)
+      }
+      highlighted.set(cacheKey, next)
+      setHtml(next)
     })
-  }, [code, language, shikiTheme])
+  }, [cacheKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = (): void => {
     navigator.clipboard.writeText(code)
