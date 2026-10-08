@@ -8,7 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      "Settings in a project's menu replaces Rename and Change folder, and can also give the project one of 16 icons and a colour",
+      'Fixed the chat jumping while you scroll up, sometimes all the way to the top of the conversation',
+      'Expanded tool calls and checklists stay expanded when you scroll away and back'
+    ]
   },
   {
     version: '0.8.2',
