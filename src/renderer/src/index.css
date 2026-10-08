@@ -315,6 +315,42 @@ html:not(.dark) .nyra-on-bubble {
 }
 
 /*
+ * A project's colour in the sidebar.
+ *
+ * The presets sit at the same lightness as --info and --success in each theme,
+ * so a coloured folder reads as part of the rail rather than on top of it. The
+ * row reads its colour from --project-tint, set inline, which is either one of
+ * these or a hex the user picked; the wash is a fraction of it either way.
+ */
+:root {
+  --tint-blue: oklch(0.5500 0.1600 255);
+  --tint-green: oklch(0.5600 0.1400 150);
+  --tint-amber: oklch(0.6600 0.1500 70);
+  --tint-red: oklch(0.5600 0.1900 25);
+  --tint-violet: oklch(0.5500 0.1900 290);
+  --project-wash: 12%;
+  --project-wash-hover: 18%;
+}
+
+.dark {
+  --tint-blue: oklch(0.7200 0.1400 255);
+  --tint-green: oklch(0.7400 0.1500 150);
+  --tint-amber: oklch(0.7900 0.1400 75);
+  --tint-red: oklch(0.7000 0.1700 25);
+  --tint-violet: oklch(0.7200 0.1600 290);
+  --project-wash: 16%;
+  --project-wash-hover: 22%;
+}
+
+.project-wash {
+  background: color-mix(in oklab, var(--project-tint) var(--project-wash), transparent);
+}
+
+.project-wash:hover {
+  background: color-mix(in oklab, var(--project-tint) var(--project-wash-hover), transparent);
+}
+
+/*
  * The selected row in a rail — the open chat, the open workflow, the open tab.
  *
  * --accent alone does not work here: on the light rail it is 0.9702 against a

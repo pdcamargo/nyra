@@ -245,10 +245,22 @@ export type Project = {
   /** Lists every chat rather than the first few under `Show more`. Unset is
    *  the default, collapsed, so `Show less` leaves nothing behind. */
   showAllChats?: boolean
+  /** A lucide icon from `PROJECT_ICONS` in place of the folder. Unset is the
+   *  folder, which also shows whether the project is open. */
+  icon?: string
+  /** A preset name from `PROJECT_TINTS` or a `#rrggbb` the user picked. Unset is
+   *  no colour. The icon always takes it; `wash` and `rail` are on top. */
+  color?: string
+  /** A faint fill of `color` behind the project's row. */
+  wash?: boolean
+  /** A line of `color` down the project's chats. */
+  rail?: boolean
   /** The workspace — the Claude account — this project's chats, terminals and
    *  flows run under. Moving a project moves all of them. */
   workspaceId: string
 }
+
+export type ProjectAppearance = Partial<Pick<Project, 'icon' | 'color' | 'wash' | 'rail'>>
 
 /**
  * A message id that cannot collide with the one minted a moment ago.
@@ -407,6 +419,8 @@ type SessionsStore = {
   createProject: (path: string, name?: string, workspaceId?: string) => string
   renameProject: (projectId: string, name: string) => void
   setProjectPath: (projectId: string, path: string) => void
+  /** An `undefined` field is removed, so going back to a default leaves nothing behind. */
+  setProjectAppearance: (projectId: string, patch: ProjectAppearance) => void
   removeProject: (projectId: string) => void
   setProjectCollapsed: (projectId: string, collapsed: boolean) => void
   setProjectChatSort: (projectId: string, sort: ChatSort) => void
@@ -611,6 +625,19 @@ export const useSessionsStore = create<SessionsStore>()(
             if (s.projectId !== projectId || s.worktree) return s
             const project = state.projects.find((p) => p.id === projectId)
             return project && s.cwd === project.path ? { ...s, cwd: path } : s
+          })
+        }))
+      },
+
+      setProjectAppearance: (projectId: string, patch: ProjectAppearance) => {
+        set((state) => ({
+          projects: state.projects.map((p) => {
+            if (p.id !== projectId) return p
+            const next: Project = { ...p, ...patch }
+            for (const key of Object.keys(patch) as (keyof ProjectAppearance)[]) {
+              if (next[key] === undefined || next[key] === false) delete next[key]
+            }
+            return next
           })
         }))
       },

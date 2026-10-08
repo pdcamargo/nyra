@@ -20,7 +20,7 @@ import { useRunningStore, projectSpinnerVisible } from '../store/running'
 import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { ALargeSmall, Archive, ArrowDown, ArrowDownWideNarrow, ArrowUp, Brain, CalendarPlus, Check, CircleDot, CopyCheck, GitPullRequest, MessageSquare, RotateCcw, type LucideIcon, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, FolderGit2, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
+import { ALargeSmall, Archive, ArrowDown, ArrowDownWideNarrow, ArrowUp, Brain, CalendarPlus, Check, CircleDot, CopyCheck, GitPullRequest, MessageSquare, RotateCcw, type LucideIcon, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, FolderGit2, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, Settings2, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -40,6 +40,9 @@ import {
   AlertDialogTitle
 } from './ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
+import { Popover, PopoverAnchor, PopoverContent } from './ui/popover'
+import ProjectSettings from './ProjectSettings'
+import { projectIcon, tintColor } from '../lib/project-appearance'
 import { ChatRowPrChip, PrCardLines } from './PullRequestChips'
 import UsageMenu from './UsageMenu'
 import { CommandKbd, useChordLabel } from './ui/kbd'
@@ -564,28 +567,23 @@ function ChatSortMenu({ project }: { project: Project }): React.JSX.Element {
   )
 }
 
-function ProjectMenu({ project }: { project: Project }): React.JSX.Element {
+function ProjectMenu({
+  project,
+  onSettings
+}: {
+  project: Project
+  onSettings: () => void
+}): React.JSX.Element {
   const workspaces = useWorkspacesStore((s) => s.workspaces)
   const others = workspaces.filter((w) => w.id !== project.workspaceId)
-  const [open, setOpen] = useState(false)
-  const [renaming, setRenaming] = useState(false)
-  const [name, setName] = useState(project.name)
   const environment = environmentLabel(project.path)
-
-  const commit = (): void => {
-    if (name.trim()) useSessionsStore.getState().renameProject(project.id, name.trim())
-    setRenaming(false)
-    setOpen(false)
-  }
+  // Set by Settings…, so the menu does not hand focus back to its trigger as it
+  // closes: the settings popover is taking it, and a focus landing outside the
+  // popover is what closes one.
+  const openingSettings = useRef(false)
 
   return (
-    <DropdownMenu
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) setRenaming(false)
-      }}
-    >
+    <DropdownMenu>
       <DropdownMenuTrigger
         onClick={(e) => e.stopPropagation()}
         title="Project options"
@@ -594,52 +592,32 @@ function ProjectMenu({ project }: { project: Project }): React.JSX.Element {
       >
         <MoreHorizontal className="size-3.5" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-60">
-        {renaming ? (
-          <div className="p-1">
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                e.stopPropagation()
-                if (e.key === 'Enter') commit()
-                if (e.key === 'Escape') setRenaming(false)
-              }}
-              onBlur={commit}
-              className="w-full rounded-md border border-input bg-transparent px-2 py-1 text-[0.92em] text-foreground outline-none focus:border-ring"
-            />
-          </div>
-        ) : (
-          <>
-            <DropdownMenuLabel className="pb-0">{project.name}</DropdownMenuLabel>
-            {environment && (
-              <p className="px-2 text-[0.77em] text-muted-foreground">Runs in {environment}</p>
-            )}
-            <p className="px-2 pb-1.5 font-mono text-[0.77em] break-all text-muted-foreground">
-              {project.path}
-            </p>
-          </>
+      <DropdownMenuContent
+        align="end"
+        className="w-60"
+        onCloseAutoFocus={(e) => {
+          if (!openingSettings.current) return
+          openingSettings.current = false
+          e.preventDefault()
+        }}
+      >
+        <DropdownMenuLabel className="pb-0">{project.name}</DropdownMenuLabel>
+        {environment && (
+          <p className="px-2 text-[0.77em] text-muted-foreground">Runs in {environment}</p>
         )}
+        <p className="px-2 pb-1.5 font-mono text-[0.77em] break-all text-muted-foreground">
+          {project.path}
+        </p>
         <DropdownMenuSeparator />
+        {/* Its name, folder, icon and colour, in a popover beside the row. */}
         <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault()
-            setRenaming(true)
+          onSelect={() => {
+            openingSettings.current = true
+            onSettings()
           }}
         >
-          <Pencil />
-          Rename…
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() =>
-            void window.api.dialog.pickFolder().then((folder) => {
-              if (folder) useSessionsStore.getState().setProjectPath(project.id, folder)
-            })
-          }
-        >
-          <FolderOpen />
-          Change folder…
+          <Settings2 />
+          Settings…
         </DropdownMenuItem>
         {/* The project's own way in to the archive. It opens already on this
             project rather than on whatever the page last showed. */}
@@ -731,6 +709,9 @@ function SessionsList(): React.JSX.Element {
   const { setActiveSession, deleteSession, renameSession, toggleFavorite, reorderFavorites } =
     useSessionsStore()
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  // The project whose settings popover is open. One at a time, so it lives here
+  // rather than on each row.
+  const [settingsFor, setSettingsFor] = useState<string | null>(null)
   const renameFromMenu = useRef(false)
   const [renameValue, setRenameValue] = useState('')
   const [dragId, setDragId] = useState<string | null>(null)
@@ -1044,6 +1025,10 @@ function SessionsList(): React.JSX.Element {
       : nested.filter(({ session: s }, i) => i < VISIBLE_PER_PROJECT || s.id === activeSessionId)
     const hiddenCount = children.length - visible.length
 
+    const tint = tintColor(project.color)
+    const settingsOpen = settingsFor === project.id
+    const ProjectIcon = projectIcon(project.icon) ?? (collapsed ? Folder : FolderOpen)
+
     const projectSpinner = projectSpinnerVisible({
       collapsed,
       childIds: nested.map(({ session: s }) => s.id),
@@ -1053,25 +1038,35 @@ function SessionsList(): React.JSX.Element {
 
     return (
       <div key={project.id} className="relative space-y-[5px]">
-        <div className="group flex items-center rounded-md hover:bg-accent/50 transition-colors">
+        <Popover open={settingsOpen} onOpenChange={(open) => setSettingsFor(open ? project.id : null)}>
+        <PopoverAnchor asChild>
+        <div
+          className={`group flex items-center rounded-md transition-colors ${
+            project.wash && tint ? 'project-wash' : settingsOpen ? 'bg-accent/50' : 'hover:bg-accent/50'
+          }`}
+          style={tint ? ({ '--project-tint': tint } as React.CSSProperties) : undefined}
+        >
           <button
             onClick={() => useSessionsStore.getState().setProjectCollapsed(project.id, !collapsed)}
             className="min-w-0 flex-1 flex items-center gap-1.5 px-2 py-1 text-left text-foreground/80"
             title={project.path}
           >
-            {collapsed ? (
-              <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-            ) : (
-              <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
-            )}
+            <ProjectIcon
+              className={`size-3.5 shrink-0 ${tint ? '' : 'text-muted-foreground'}`}
+              style={tint ? { color: tint } : undefined}
+            />
             <span className={`truncate text-[0.92em] ${projectSpinner ? 'nyra-shimmer' : ''}`}>
               {project.name}
             </span>
             <EnvironmentBadge cwd={project.path} />
           </button>
           <div className="flex items-center shrink-0 pr-1.5">
-            <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-              <ProjectMenu project={project} />
+            <div
+              className={`flex items-center transition-opacity ${
+                settingsOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+              }`}
+            >
+              <ProjectMenu project={project} onSettings={() => setSettingsFor(project.id)} />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -1091,9 +1086,31 @@ function SessionsList(): React.JSX.Element {
             <ChatSortMenu project={project} />
           </div>
         </div>
+        </PopoverAnchor>
+        <PopoverContent
+          side="right"
+          align="start"
+          sideOffset={10}
+          className="w-[316px] gap-0 p-3"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ProjectSettings project={project} />
+        </PopoverContent>
+        </Popover>
         {!collapsed && (
           <>
-            {visible.map(({ session: s, depth }) => renderRow(s, { indented: true, showFolder: false, depth }))}
+            {/* The rail is drawn beside the rows rather than as a border on each
+                one, so it runs unbroken through the gaps between them. */}
+            <div className="relative space-y-[5px]">
+              {project.rail && tint && visible.length > 0 && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute top-0.5 bottom-0.5 left-[14px] w-0.5 rounded-full"
+                  style={{ background: tint }}
+                />
+              )}
+              {visible.map(({ session: s, depth }) => renderRow(s, { indented: true, showFolder: false, depth }))}
+            </div>
             {/* One control, both directions. `Show more` was a one-way door: a
                 project opened to forty chats stayed forty rows tall for the
                 rest of the session, and the only way back was a reload.

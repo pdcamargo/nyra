@@ -150,6 +150,22 @@ describe('project actions', () => {
     expect(state.sessions.find((s) => s.id === wtChat)?.cwd).toBe('/wt/feat')
   })
 
+  it('sets a project\'s look, and clearing a field leaves nothing behind', () => {
+    const pid = useSessionsStore.getState().createProject('/repo/one')
+    useSessionsStore.getState().setProjectAppearance(pid, { icon: 'rocket', color: 'blue', wash: true, rail: true })
+    expect(useSessionsStore.getState().projects[0]).toMatchObject({ icon: 'rocket', color: 'blue', wash: true, rail: true })
+
+    useSessionsStore.getState().setProjectAppearance(pid, { color: '#b45309', wash: false })
+    const project = useSessionsStore.getState().projects[0]
+    expect(project.color).toBe('#b45309')
+    expect('wash' in project).toBe(false)
+    expect(project.rail).toBe(true)
+
+    useSessionsStore.getState().setProjectAppearance(pid, { icon: undefined, color: undefined, rail: false })
+    const cleared = useSessionsStore.getState().projects[0]
+    expect(['icon', 'color', 'wash', 'rail'].filter((k) => k in cleared)).toEqual([])
+  })
+
   it('a fork stays in its source project', () => {
     const store = useSessionsStore.getState()
     const pid = store.createProject('/repo/one')
