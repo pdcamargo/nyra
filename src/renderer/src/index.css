@@ -358,15 +358,22 @@ html:not(.dark) .nyra-on-bubble {
  * having nothing selected. Both halves move in the direction their own page
  * already goes — light steps down from the rail, dark steps up from it — and
  * both get a ring, because a fill alone at this size is a smudge.
+ *
+ * Selected takes the hover fill, ring included, so the open row looks like a
+ * row held under the pointer. A stronger fill read as a slab: full --accent in dark, 0.922 in light. Light
+ * cannot borrow --accent for hover the way dark does — at half it lands at
+ * 0.972 on a 0.974 rail and hovering shows nothing — so it gets its own step.
  */
 :root {
-  --rail-selected: oklch(0.9219 0 0);
-  --rail-selected-ring: oklch(0.8600 0 0);
+  --rail-hover: oklch(0.9500 0 0);
+  --rail-selected: var(--rail-hover);
+  --rail-selected-ring: var(--rail-selected);
 }
 
 .dark {
-  --rail-selected: var(--accent);
-  --rail-selected-ring: oklch(0.4700 0 0);
+  --rail-hover: color-mix(in oklab, var(--accent) 50%, transparent);
+  --rail-selected: var(--rail-hover);
+  --rail-selected-ring: var(--rail-selected);
 }
 
 /*
@@ -387,7 +394,7 @@ html:not(.dark) .nyra-on-bubble {
 .dark {
   --workspace-rail: var(--background);
   --workspace-tile: var(--muted);
-  --workspace-tile-active: var(--rail-selected);
+  --workspace-tile-active: var(--accent);
 }
 
 /*
@@ -499,6 +506,7 @@ html:not(.dark) .nyra-on-bubble {
   --color-bubble: var(--bubble);
   --color-bubble-foreground: var(--bubble-foreground);
 
+  --color-rail-hover: var(--rail-hover);
   --color-rail-selected: var(--rail-selected);
   --color-rail-selected-ring: var(--rail-selected-ring);
 

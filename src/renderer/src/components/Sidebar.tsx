@@ -182,7 +182,7 @@ export default function Sidebar(): React.JSX.Element {
                 className={`group flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.92em] transition-colors ${
                   on
                     ? 'bg-rail-selected text-foreground ring-1 ring-rail-selected-ring'
-                    : 'text-foreground/80 hover:bg-accent/50 hover:text-foreground'
+                    : 'text-foreground/80 hover:bg-rail-hover hover:text-foreground'
                 }`}
               >
                 <Icon className="size-3.5 shrink-0" />
@@ -592,8 +592,12 @@ function ProjectMenu({
       >
         <MoreHorizontal className="size-3.5" />
       </DropdownMenuTrigger>
+      {/* Out to the right, like the sort menu, so it does not cover the
+          project's own chats. */}
       <DropdownMenuContent
-        align="end"
+        side="right"
+        align="start"
+        sideOffset={10}
         className="w-60"
         onCloseAutoFocus={(e) => {
           if (!openingSettings.current) return
@@ -811,7 +815,7 @@ function SessionsList(): React.JSX.Element {
            0.9702 against a 0.9740 sidebar and the list read as having nothing
            selected at all. */
         className={`group relative flex items-center rounded-md transition-colors ${
-          isActive ? 'bg-rail-selected ring-1 ring-rail-selected-ring' : 'hover:bg-accent/50'
+          isActive ? 'bg-rail-selected ring-1 ring-rail-selected-ring' : 'hover:bg-rail-hover'
         } ${
           dragId === session.id ? 'opacity-40' : ''
         }`}
@@ -1042,7 +1046,7 @@ function SessionsList(): React.JSX.Element {
         <PopoverAnchor asChild>
         <div
           className={`group flex items-center rounded-md transition-colors ${
-            project.wash && tint ? 'project-wash' : settingsOpen ? 'bg-accent/50' : 'hover:bg-accent/50'
+            project.wash && tint ? 'project-wash' : settingsOpen ? 'bg-rail-hover' : 'hover:bg-rail-hover'
           }`}
           style={tint ? ({ '--project-tint': tint } as React.CSSProperties) : undefined}
         >
@@ -1412,7 +1416,7 @@ function FlowsList(): React.JSX.Element {
         } ${
           currentWorkflow?.id === wf.id
             ? 'bg-rail-selected ring-1 ring-rail-selected-ring'
-            : 'hover:bg-accent/50'
+            : 'hover:bg-rail-hover'
         }`}
       >
         <span className="flex items-center gap-1.5">
