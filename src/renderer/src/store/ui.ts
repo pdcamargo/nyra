@@ -23,6 +23,7 @@ export type SettingsTab =
   | 'appearance'
   | 'model'
   | 'permissions'
+  | 'system'
   | 'shortcuts'
   | 'mcp'
   | 'advanced'

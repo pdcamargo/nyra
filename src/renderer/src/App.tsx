@@ -31,6 +31,7 @@ import { attachWorktreeSessions } from './store/attachWorktrees'
 import { primeHomedir } from './lib/homedir'
 import { migrateSessionsDb } from './lib/legacy-storage'
 import { useWorkflowStore } from './store/workflow'
+import { useKeepAwakeStore } from './store/keepAwake'
 import { useProcessesStore, type BgProcess } from './store/processes'
 import { announceBackgroundEnd, endedBetween } from './lib/backgroundCalls'
 import { applySessionPanels, useUiStore } from './store/ui'
@@ -208,6 +209,24 @@ export default function App(): React.JSX.Element {
       current = state.activeSessionId
       applySessionPanels(current)
     })
+  }, [])
+
+  // Every setting to Rust, on launch and on each change. Here rather than in
+  // Chat, which is unmounted whenever the main view is something else — a
+  // switch flipped in Settings from the Flows canvas never reached Rust.
+  useEffect(() => {
+    const sync = (): void => {
+      const { updateSettings: _, resetSettings: __, ...data } = useSettingsStore.getState()
+      window.api.settings.sync(data)
+    }
+    sync()
+    return useSettingsStore.subscribe(sync)
+  }, [])
+
+  // Whether Rust is holding the computer awake, for the title bar and Settings.
+  useEffect(() => {
+    void window.api.keepAwake.status().then(useKeepAwakeStore.getState().set)
+    return window.api.keepAwake.onUpdate(useKeepAwakeStore.getState().set)
   }, [])
 
   // Subscribe to background-process updates from main

@@ -35,6 +35,14 @@ export type NyraSettings = {
   /** The floating miniature. Codex had to add this switch after the fact; it
    *  costs nothing to have from the start. */
   browserPip: boolean
+  /** Hold the computer awake while Claude works: a chat mid-turn, a monitor or
+   *  background task it started, a flow. Off by default — it changes how the
+   *  machine behaves outside Nyra. Rust holds the power assertion. */
+  keepAwake: boolean
+  /** Keep the screen on too, rather than only the system. */
+  keepAwakeDisplay: boolean
+  /** Let the machine sleep normally on battery. */
+  keepAwakeOnlyOnAc: boolean
   /**
    * Show what the active chat is holding in memory, in the summary card.
    *
@@ -183,6 +191,9 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   desktopAllowedApps: [],
   desktopAppNames: {},
   browserPip: true,
+  keepAwake: false,
+  keepAwakeDisplay: false,
+  keepAwakeOnlyOnAc: true,
   showChatMemory: false,
   awayRecap: true,
   awayRecapMinutes: 30,

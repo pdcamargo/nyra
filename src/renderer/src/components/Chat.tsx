@@ -371,17 +371,6 @@ export default function Chat(): React.JSX.Element {
     })
   }, [])
 
-  // Sync all settings to main process on mount and whenever any setting changes
-  useEffect(() => {
-    const sync = (): void => {
-      const { updateSettings: _, resetSettings: __, ...data } = useSettingsStore.getState()
-      window.api.settings.sync(data)
-    }
-    sync()
-    const unsub = useSettingsStore.subscribe(sync)
-    return unsub
-  }, [])
-
   const activeSessionId = useSessionsStore((state) => state.activeSessionId)
   const activeSession = useSessionsStore((state) =>
     state.sessions.find((s) => s.id === state.activeSessionId) ?? null

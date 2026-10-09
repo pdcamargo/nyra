@@ -67,6 +67,13 @@ pub struct NyraSettings {
     pub desktop_allowed_apps: Vec<String>,
     /// The floating miniature over the conversation.
     pub browser_pip: bool,
+    /// Hold the computer awake while Claude works (see `keep_awake.rs`). Off by
+    /// default: it changes how the machine behaves outside Nyra.
+    pub keep_awake: bool,
+    /// Keep the screen on too, rather than only the system.
+    pub keep_awake_display: bool,
+    /// Let the machine sleep normally on battery.
+    pub keep_awake_only_on_ac: bool,
     // Appearance — fonts, type size, zoom, chat width — is deliberately absent.
     // Nothing on this side reads it, and the struct has no `deny_unknown_fields`,
     // so the renderer's copies of those keys are ignored on the way in rather
@@ -96,6 +103,9 @@ impl Default for NyraSettings {
             desktop_tools: false,
             desktop_allowed_apps: Vec::new(),
             browser_pip: default_true(),
+            keep_awake: false,
+            keep_awake_display: false,
+            keep_awake_only_on_ac: default_true(),
         }
     }
 }

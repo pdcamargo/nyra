@@ -449,6 +449,7 @@ fn get_session(id: &str) -> Option<Arc<Session>> {
 }
 
 pub(crate) fn emit_event(nyra_session_id: &str, mut extra: Value) {
+    crate::keep_awake::note_event(nyra_session_id, &extra);
     if let Value::Object(map) = &mut extra {
         map.insert(
             "nyraSessionId".into(),
@@ -528,6 +529,7 @@ pub fn dispose_session(nyra_session_id: &str) {
     ai_title::forget(nyra_session_id);
     subagents::forget_session(nyra_session_id);
     crate::desktop::forget(nyra_session_id);
+    crate::keep_awake::forget(nyra_session_id);
     fail_result_callback(nyra_session_id, "Session disposed");
 }
 
@@ -1542,6 +1544,7 @@ pub async fn steer_session(nyra_session_id: &str, prompt: &str) -> bool {
     };
     // The user wrote something, so an Esc earlier in the turn is answered.
     crate::desktop::turn_started(nyra_session_id);
+    crate::keep_awake::turn_started(nyra_session_id);
 
     let payload = format_user_message(&prompt_in_env(&env, prompt));
     let mut guard = sess.stdin.lock().await;
@@ -1625,14 +1628,20 @@ pub async fn run_claude(
     let prompt = prompt_in_env(&Environment::of(&cwd), &prompt);
     // A new message from the user lifts whatever Esc refused last turn.
     crate::desktop::turn_started(&nyra_session_id);
+    crate::keep_awake::turn_started(&nyra_session_id);
     let rx = match send_prompt_to_session(&sess, &prompt).await {
         Ok(rx) => rx,
         Err(e) => {
+            crate::keep_awake::turn_ended(&nyra_session_id);
             fail_result_callback(&nyra_session_id, &e);
             return Err(e);
         }
     };
-    match rx.await {
+    let outcome = rx.await;
+    // `result` has normally ended it already; this covers a turn that ended
+    // without one, so it cannot hold the machine awake afterwards.
+    crate::keep_awake::turn_ended(&nyra_session_id);
+    match outcome {
         Ok(result) => result,
         Err(_) => Err("Claude session closed".into()),
     }

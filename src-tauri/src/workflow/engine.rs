@@ -85,6 +85,21 @@ type Collectors = Arc<Mutex<HashMap<String, JoinCollector>>>;
 static ACTIVE: Lazy<Mutex<HashMap<String, ExecRef>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Flows running now, and the chat sessions they drive — for keep-awake. A
+/// sub-flow shares its parent's session set, so it is counted with it rather
+/// than as a second flow.
+pub fn running() -> (usize, HashSet<String>) {
+    let active = ACTIVE.lock();
+    let mut seen = HashSet::new();
+    let mut sessions = HashSet::new();
+    for exec in active.values() {
+        if seen.insert(Arc::as_ptr(&exec.active_sessions) as usize) {
+            sessions.extend(exec.active_sessions.lock().iter().cloned());
+        }
+    }
+    (seen.len(), sessions)
+}
+
 fn send_event(event: Value) {
     util::emit("workflow:event", event);
 }
@@ -1011,6 +1026,7 @@ pub async fn execute_workflow(
         active_sessions: Arc::new(Mutex::new(HashSet::new())),
     });
     ACTIVE.lock().insert(execution_id.clone(), exec.clone());
+    crate::keep_awake::poke();
 
     record_recent_cwd(workflow_id, cwd).await;
 
@@ -1090,6 +1106,7 @@ pub async fn execute_workflow(
     }
 
     ACTIVE.lock().remove(&execution_id);
+    crate::keep_awake::poke();
     if let Err(e) = store::save_execution_record(&record).await {
         crate::log!("workflow", "saveExecutionRecord failed: {e}");
     }

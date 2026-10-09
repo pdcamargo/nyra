@@ -413,6 +413,25 @@ pub async fn memory_delete(file_path: String, cwd: String, config_dir: Option<St
 #[tauri::command]
 pub async fn settings_sync(settings: NyraSettings) {
     util::set_settings(settings);
+    crate::keep_awake::poke();
+}
+
+/// Whether Nyra is holding the computer awake, and for what.
+#[tauri::command]
+pub fn keep_awake_status() -> crate::keep_awake::Status {
+    crate::keep_awake::status()
+}
+
+/// The OS grants Nyra's features need, for Settings → System.
+#[tauri::command]
+pub async fn system_access() -> Vec<crate::system_access::Access> {
+    crate::system_access::list().await
+}
+
+/// A row's button: ask, or open where it is switched on.
+#[tauri::command]
+pub async fn system_access_fix(kind: String) -> Result<(), String> {
+    crate::system_access::fix(&kind).await
 }
 
 /// A path the renderer handed over, as one Nyra can open.

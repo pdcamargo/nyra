@@ -21,6 +21,7 @@ mod fs_ops;
 mod gh;
 mod git;
 mod hooks;
+mod keep_awake;
 mod library_watch;
 pub mod logger;
 mod login;
@@ -39,6 +40,7 @@ mod settings;
 mod skills;
 mod spellcheck;
 mod subagents;
+mod system_access;
 mod terminal;
 mod transcripts;
 mod util;
@@ -123,6 +125,9 @@ pub fn run() {
             // so every stdio MCP server would ENOENT without this.
             util::prime_path();
 
+            // Idle until the setting is on and something is running.
+            keep_awake::start();
+
             if let Some(window) = app.get_webview_window("main") {
                 // The other half of the spell-checking switch, now that there is
                 // a WKWebView to ask.
@@ -206,6 +211,9 @@ pub fn run() {
             commands::memory_write,
             commands::memory_delete,
             commands::settings_sync,
+            commands::keep_awake_status,
+            commands::system_access,
+            commands::system_access_fix,
             fonts::fonts_list,
             commands::fs_read_file,
             commands::fs_read_image,

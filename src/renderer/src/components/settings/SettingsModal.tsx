@@ -3,6 +3,7 @@ import {
   Cpu,
   Info,
   Keyboard,
+  MonitorCog,
   Palette,
   Plug,
   ShieldCheck,
@@ -16,6 +17,7 @@ import GeneralTab from './GeneralTab'
 import AppearanceTab from './AppearanceTab'
 import ModelTab from './ModelTab'
 import PermissionsTab from './PermissionsTab'
+import SystemTab from './SystemTab'
 import McpTab from './McpTab'
 import ShortcutsTab from './ShortcutsTab'
 import AdvancedTab from './AdvancedTab'
@@ -37,6 +39,7 @@ const TABS: { id: SettingsTab; label: string; icon: React.ComponentType<{ classN
     { id: 'appearance', label: 'Appearance', icon: Palette },
     { id: 'model', label: 'Model', icon: Cpu },
     { id: 'permissions', label: 'Permissions', icon: ShieldCheck },
+    { id: 'system', label: 'System', icon: MonitorCog },
     { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
     { id: 'mcp', label: 'MCP', icon: Plug },
     { id: 'advanced', label: 'Advanced', icon: Wrench },
@@ -48,6 +51,7 @@ const PANES: Record<SettingsTab, React.ComponentType> = {
   appearance: AppearanceTab,
   model: ModelTab,
   permissions: PermissionsTab,
+  system: SystemTab,
   shortcuts: ShortcutsTab,
   mcp: McpTab,
   advanced: AdvancedTab,

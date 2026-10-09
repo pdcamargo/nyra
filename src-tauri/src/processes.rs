@@ -117,6 +117,7 @@ pub fn clear_session(nyra_session_id: &str) {
 
 pub fn drop_session(nyra_session_id: &str) {
     SESSIONS.lock().remove(nyra_session_id);
+    crate::keep_awake::poke();
     util::emit(
         "processes:update",
         serde_json::json!({ "nyraSessionId": nyra_session_id, "processes": [] }),
@@ -401,6 +402,31 @@ pub fn note_task_updated(nyra_session_id: &str, tool_use_id: &str, task_id: &str
     }
 }
 
+/// Background shells and monitors still going, for keep-awake. A shell that
+/// has bound a port is a server: it is meant to run indefinitely and will not
+/// report back, so it is left out — the same rule as the renderer's
+/// `waitingOn`.
+pub fn live_background() -> Vec<ProcKind> {
+    SESSIONS
+        .lock()
+        .values()
+        .flat_map(|s| s.by_shell_id.values())
+        .filter(|p| is_live(p.status) && p.ports.is_empty())
+        .map(|p| p.kind)
+        .collect()
+}
+
+/// Every task id the registry holds, live or not. A roster entry with none of
+/// these is a subagent.
+pub fn known_task_ids() -> std::collections::HashSet<String> {
+    SESSIONS
+        .lock()
+        .values()
+        .flat_map(|s| s.by_shell_id.values())
+        .filter_map(|p| p.task_id.clone())
+        .collect()
+}
+
 /// Still going, as far as we know: untracked means its pid was never found, and
 /// orphaned that its Claude went away while it did not.
 fn is_live(status: ProcStatus) -> bool {
@@ -542,6 +568,7 @@ pub fn kill_shell(nyra_session_id: &str, shell_id: &str) -> Result<(), String> {
 // ---- internals ----
 
 fn broadcast(nyra_session_id: &str) {
+    crate::keep_awake::poke();
     util::emit(
         "processes:update",
         serde_json::json!({

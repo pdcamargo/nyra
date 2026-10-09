@@ -99,7 +99,7 @@ fn post(app: &AppHandle, title: &str, body: &str, chat: String) {
 /// build borrows PowerShell's, the same test the plugin makes. The click still
 /// comes back here: the callback is ours whoever the toast is filed under.
 #[cfg(windows)]
-fn toast_app_id(app: &AppHandle) -> String {
+pub(crate) fn toast_app_id(app: &AppHandle) -> String {
     use std::path::{Path, MAIN_SEPARATOR as SEP};
 
     let exe = tauri::utils::platform::current_exe().ok();
@@ -137,9 +137,25 @@ pub fn init() {
 #[cfg(not(target_os = "macos"))]
 pub fn init() {}
 
+/// Where Nyra stands in System Settings → Notifications, as
+/// `UNAuthorizationStatus`: 0 not asked, 1 denied, 2 and up allowed. None
+/// outside an `.app`, which has nothing to ask with.
+#[cfg(target_os = "macos")]
+pub fn authorization() -> Option<isize> {
+    mac::authorization()
+}
+
+/// Raise the macOS prompt now, rather than at the first notification.
+#[cfg(target_os = "macos")]
+pub fn request_authorization() {
+    mac::request_authorization();
+}
+
 #[cfg(target_os = "macos")]
 mod mac {
+    use std::ptr::NonNull;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Duration;
 
     use block2::{DynBlock, RcBlock};
     use objc2::rc::Retained;
@@ -149,7 +165,8 @@ mod mac {
     use objc2_user_notifications::{
         UNAuthorizationOptions, UNMutableNotificationContent, UNNotification,
         UNNotificationDefaultActionIdentifier, UNNotificationPresentationOptions,
-        UNNotificationRequest, UNNotificationResponse, UNUserNotificationCenter,
+        UNNotificationRequest, UNNotificationResponse, UNNotificationSettings,
+        UNUserNotificationCenter,
         UNUserNotificationCenterDelegate,
     };
 
@@ -203,6 +220,29 @@ mod mac {
     fn center() -> Option<Retained<UNUserNotificationCenter>> {
         let bundled = NSBundle::mainBundle().bundlePath().to_string().ends_with(".app");
         bundled.then(UNUserNotificationCenter::currentNotificationCenter)
+    }
+
+    pub fn authorization() -> Option<isize> {
+        let center = center()?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let answered = RcBlock::new(move |settings: NonNull<UNNotificationSettings>| {
+            // SAFETY: the center hands over a live settings object for the
+            // duration of the call.
+            let _ = tx.send(unsafe { settings.as_ref() }.authorizationStatus().0);
+        });
+        center.getNotificationSettingsWithCompletionHandler(&answered);
+        rx.recv_timeout(Duration::from_secs(2)).ok()
+    }
+
+    pub fn request_authorization() {
+        let Some(center) = center() else { return };
+        let answered = RcBlock::new(|granted: Bool, _error: *mut NSError| {
+            crate::logf!("notifications: asked, granted={}", granted.as_bool());
+        });
+        center.requestAuthorizationWithOptions_completionHandler(
+            UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound,
+            &answered,
+        );
     }
 
     pub fn init() {

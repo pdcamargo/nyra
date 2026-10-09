@@ -1,5 +1,6 @@
 import React from 'react'
 import {
+  Coffee,
   FolderOpen,
   PanelLeft,
   PanelRight,
@@ -13,6 +14,8 @@ import { useUiStore } from '../store/ui'
 import { useChordLabel } from './ui/kbd'
 import { useSessionsStore, activeSession as activeSessionSelector } from '../store/sessions'
 import { platform, type PlatformTraits } from '../lib/platform'
+import { useKeepAwakeStore } from '../store/keepAwake'
+import { awakeReasons } from '../lib/keepAwake'
 import WindowControls from './WindowControls'
 
 /**
@@ -78,6 +81,37 @@ function TitleBarButton({
   )
 }
 
+/**
+ * "Awake", while Nyra is holding the computer awake — and only then, so it
+ * never becomes wallpaper. Opens Settings → System, where the switch is.
+ */
+function AwakeChip(): React.JSX.Element | null {
+  const status = useKeepAwakeStore((s) => s.status)
+  const openSettings = useUiStore((s) => s.openSettings)
+  if (!status.holding) return null
+  const machine = platform().machineNoun
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => openSettings('system')}
+          className="mr-1 flex h-6 items-center gap-1 rounded-md bg-success/10 px-2 text-[11px] font-medium text-success transition-colors hover:bg-success/15"
+          data-testid="awake-chip"
+        >
+          <Coffee className="size-3.5" />
+          Awake
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p className="font-medium">Keeping your {machine} awake</p>
+        <p>{awakeReasons(status)}</p>
+        <p>Your {machine} can sleep again when they finish.</p>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 export default function TitleBar(): React.JSX.Element {
   const projectsPanelOpen = useUiStore((s) => s.projectsPanelOpen)
   const toggleProjectsPanel = useUiStore((s) => s.toggleProjectsPanel)
@@ -133,6 +167,7 @@ export default function TitleBar(): React.JSX.Element {
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
+        <AwakeChip />
         <TitleBarButton label={withKeys('Search', paletteKeys)} onClick={() => openPalette('all')}>
           <Search className="size-4" />
         </TitleBarButton>

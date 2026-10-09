@@ -27,6 +27,10 @@ export type PlatformTraits = {
   windowControls: 'traffic-lights' | 'drawn' | 'system'
   /** The menu item that shows a file in the OS file manager. */
   revealLabel: string
+  /** What to call the machine in a sentence: "keep this Mac awake". */
+  machineNoun: string
+  /** The OS by name, for copy that says what it does or does not ask for. */
+  osName: string
 }
 
 const TRAITS: Record<Os, PlatformTraits> = {
@@ -34,19 +38,25 @@ const TRAITS: Record<Os, PlatformTraits> = {
     os: 'mac',
     pathStyle: 'posix',
     windowControls: 'traffic-lights',
-    revealLabel: 'Reveal in Finder'
+    revealLabel: 'Reveal in Finder',
+    machineNoun: 'Mac',
+    osName: 'macOS'
   },
   windows: {
     os: 'windows',
     pathStyle: 'win32',
     windowControls: 'drawn',
-    revealLabel: 'Reveal in File Explorer'
+    revealLabel: 'Reveal in File Explorer',
+    machineNoun: 'PC',
+    osName: 'Windows'
   },
   linux: {
     os: 'linux',
     pathStyle: 'posix',
     windowControls: 'system',
-    revealLabel: 'Open containing folder'
+    revealLabel: 'Open containing folder',
+    machineNoun: 'computer',
+    osName: 'Linux'
   }
 }
 

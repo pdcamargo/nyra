@@ -136,6 +136,12 @@ Object.defineProperty(globalThis, 'api', {
       restoreBundled: noop
     },
     settings: { sync: noop },
+    keepAwake: {
+      status: () =>
+        Promise.resolve({ holding: false, busy: false, onBattery: false, chats: 0, monitors: 0, tasks: 0, flows: 0, since: null }),
+      onUpdate: unsub
+    },
+    systemAccess: { list: () => Promise.resolve([]), fix: noop },
     fonts: { list: () => Promise.resolve([]) },
     fs: {
       readFile: () => Promise.resolve(''),

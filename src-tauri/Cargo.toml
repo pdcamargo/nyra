@@ -131,6 +131,8 @@ windows = { version = "0.61", features = [
   "Win32_System_Com",
   "Win32_System_Com_StructuredStorage",
   "Win32_System_Ole",
+  # Keep-awake (src/keep_awake.rs): a power request, and whether we are on battery.
+  "Win32_System_Power",
   "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
@@ -203,6 +205,7 @@ objc2-user-notifications = { version = "0.3", default-features = false, features
   "UNNotificationContent",
   "UNNotificationRequest",
   "UNNotificationResponse",
+  "UNNotificationSettings",
   "UNNotificationSound",
   "UNNotificationTrigger",
   "UNUserNotificationCenter",

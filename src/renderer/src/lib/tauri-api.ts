@@ -113,6 +113,32 @@ export type DictationEvent =
   | { type: 'model_cancelled'; model: string }
   | { type: 'model_failed'; model: string; error: string }
 
+/** Whether Rust is holding the computer awake, and for what. */
+export type KeepAwakeStatus = {
+  holding: boolean
+  /** Something is running, held for or not. */
+  busy: boolean
+  onBattery: boolean
+  chats: number
+  monitors: number
+  tasks: number
+  flows: number
+  /** When the current hold began, ms since the epoch. */
+  since: number | null
+}
+
+/** One OS grant, for Settings → System. Which kinds exist is the OS's answer. */
+export type SystemAccessKind = 'controlInput' | 'captureScreen' | 'desktop' | 'microphone' | 'notifications'
+export type SystemAccess = {
+  kind: SystemAccessKind
+  state: 'allowed' | 'denied' | 'unasked' | 'notRequired' | 'unavailable'
+  osName: string
+  /** The button's label, when there is something to do. */
+  action: string | null
+  /** The button asks the OS rather than opening its settings. */
+  asks: boolean
+}
+
 export type DesktopPermissionKind = 'controlInput' | 'captureScreen'
 export type DesktopFix = { label: string; target: string }
 export type DesktopPermission = {
@@ -145,6 +171,7 @@ const EVENT_NAMES = [
   'claude:permission',
   'workflow:event',
   'processes:update',
+  'keep-awake:update',
   'login:data',
   'login:exit',
   'terminal:data',
@@ -476,6 +503,15 @@ export const api = {
 
   settings: {
     sync: (settings: Record<string, unknown>) => call<void>('settings_sync', { settings })
+  },
+  keepAwake: {
+    status: () => call<KeepAwakeStatus>('keep_awake_status'),
+    onUpdate: (cb: (status: KeepAwakeStatus) => void) => on('keep-awake:update', cb)
+  },
+  /** The OS grants Nyra's features need. Rust decides what each button does. */
+  systemAccess: {
+    list: () => call<SystemAccess[]>('system_access'),
+    fix: (kind: SystemAccessKind) => call<void>('system_access_fix', { kind })
   },
   /**
    * Claude operating other apps. Rust owns every rule; this side shows the
