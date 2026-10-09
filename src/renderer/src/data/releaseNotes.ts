@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '0.8.4',
+    date: '2026-10-09',
     notes: [
       'Added a setting to keep your computer awake while Claude works, in the new Settings → System. It is off by default, only holds while a chat is replying or a monitor, background task or flow is still running, and shows Awake in the title bar while it does',
       'Settings → System also lists what macOS or Windows lets Nyra do (Accessibility, Screen Recording, the microphone and notifications), what each is for, and a button to allow it',
