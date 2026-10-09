@@ -272,6 +272,17 @@ pub fn off_claude_usage(nyra_session_id: &str) {
 /// The workflow engine blocks on this sink, so it has to fire exactly once for
 /// every session — including the ones that die without ever emitting a `result`
 /// event (abort, spawn failure, non-zero exit, permission denial).
+/// A turn that failed before Claude could start it: the spawn or the first
+/// write. The CLI never ran, so no `result` or exit is coming to end the turn
+/// the renderer has already started — and `claude_query`'s `{ error }` is not
+/// read by the send path. Say it the way a process exit does, or the chat spins
+/// with no error.
+fn fail_before_turn(nyra_session_id: &str, reason: &str) {
+    emit_event(nyra_session_id, json!({ "type": "error", "result": reason }));
+    emit_event(nyra_session_id, json!({ "type": "stream_end" }));
+    fail_result_callback(nyra_session_id, reason);
+}
+
 fn fail_result_callback(nyra_session_id: &str, reason: &str) {
     if let Some(cb) = RESULT_CALLBACKS.lock().remove(nyra_session_id) {
         let _ = cb.send((reason.to_string(), true));
@@ -1617,7 +1628,7 @@ pub async fn run_claude(
         {
             Ok(sess) => sess,
             Err(e) => {
-                fail_result_callback(&nyra_session_id, &e);
+                fail_before_turn(&nyra_session_id, &e);
                 return Err(e);
             }
         }
@@ -1633,7 +1644,7 @@ pub async fn run_claude(
         Ok(rx) => rx,
         Err(e) => {
             crate::keep_awake::turn_ended(&nyra_session_id);
-            fail_result_callback(&nyra_session_id, &e);
+            fail_before_turn(&nyra_session_id, &e);
             return Err(e);
         }
     };
@@ -1647,6 +1658,10 @@ pub async fn run_claude(
     }
 }
 
+fn missing_folder(cwd: &str) -> String {
+    format!("This chat's folder no longer exists: {cwd}. Restore it, or start a new chat in a project that does.")
+}
+
 async fn spawn_session(
     cwd: &str,
     resume_session_id: Option<String>,
@@ -1657,6 +1672,12 @@ async fn spawn_session(
     fingerprint: String,
 ) -> Result<Arc<Session>, String> {
     let env = Environment::of(cwd);
+    // A folder that has gone fails the spawn with a bare "No such file or
+    // directory", which reads as Claude not being installed. Host paths only: a
+    // WSL path is not something to stat from here.
+    if env.is_host() && !cwd.is_empty() && !Path::new(cwd).is_dir() {
+        return Err(missing_folder(cwd));
+    }
     let claude_bin = match env.own_claude()? {
         Some(own) => own,
         None => resolve_claude_binary(&settings.claude_binary_path),
@@ -2623,6 +2644,30 @@ async fn on_child_exit(sess: &Arc<Session>, nyra_session_id: &str, exit_code: Op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Used to fail as "Failed to spawn claude: No such file or directory",
+    // which named the wrong thing and, unread by the send path, left the chat
+    // spinning with no error at all.
+    #[tokio::test]
+    async fn a_chat_whose_folder_is_gone_says_so_instead_of_spawning() {
+        let cwd = std::env::temp_dir().join("nyra-test-folder-that-was-deleted");
+        let _ = std::fs::remove_dir_all(&cwd);
+        let cwd = cwd.to_string_lossy().to_string();
+        let result = spawn_session(
+            &cwd,
+            None,
+            None,
+            "missing-folder-test",
+            &crate::settings::SpawnSettings::default(),
+            None,
+            String::new(),
+        )
+        .await;
+        match result {
+            Err(e) => assert_eq!(e, missing_folder(&cwd)),
+            Ok(_) => panic!("spawned in a folder that does not exist"),
+        }
+    }
 
     #[test]
     fn the_newest_install_wins_over_the_first() {
