@@ -21,6 +21,7 @@ mod fs_ops;
 mod gh;
 mod git;
 mod hooks;
+mod library_watch;
 pub mod logger;
 mod login;
 mod managed_skills;
@@ -291,6 +292,8 @@ pub fn run() {
             commands::terminal_write,
             commands::terminal_resize,
             commands::terminal_kill,
+            commands::library_install_start,
+            commands::library_watch,
             commands::browser_status,
             commands::design_raster,
             commands::design_pick_pdf_path,

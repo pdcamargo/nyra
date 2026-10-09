@@ -138,6 +138,8 @@ export type DesktopBlocked = {
   fix: DesktopFix | null
 }
 
+export type LibraryKind = 'skills' | 'commands' | 'agents' | 'plugins'
+
 const EVENT_NAMES = [
   'claude:event',
   'claude:permission',
@@ -152,6 +154,7 @@ const EVENT_NAMES = [
   'nyra:update-available',
   'nyra:update-progress',
   'nyra:designs-changed',
+  'nyra:library-changed',
   'nyra:questionnaires-changed',
   'nyra:comments-changed',
   'nyra:desktop-activity',
@@ -948,6 +951,21 @@ export const api = {
     onData: (callback: (event: { id: string; data: string }) => void) => on('terminal:data', callback),
     onExit: (callback: (event: { id: string; exitCode: number }) => void) =>
       on('terminal:exit', callback)
+  },
+
+  /**
+   * Skills, commands, agents and plugins that change on disk, and installing
+   * them from a pasted command. An install is a terminal like any other — drive
+   * it with `terminal.write`, `resize`, `kill`, `onData` and `onExit` by its id.
+   */
+  library: {
+    /** Watch the active workspace's config dir and these project folders. */
+    watch: (configDir: ConfigDir, projects: string[]) =>
+      call<{ ok?: true; error?: string }>('library_watch', { configDir, projects }),
+    /** `npx skills add …` or `claude plugin …`, from `lib/installCommand`. */
+    installStart: (id: string, cwd: string, program: 'npx' | 'claude', args: string[], configDir: ConfigDir) =>
+      call<{ pid?: number; error?: string }>('library_install_start', { id, cwd, program, args, configDir }),
+    onChanged: (callback: (event: { kinds: LibraryKind[] }) => void) => on('nyra:library-changed', callback)
   },
 
   /**

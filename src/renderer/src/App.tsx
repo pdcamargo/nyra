@@ -24,6 +24,7 @@ import { configDirForSession, useSessionsStore } from './store/sessions'
 import { activeConfigDir } from './store/workspaces'
 import { installWorkspaceFollowers } from './lib/workspaces'
 import { installDesignDiscovery } from './lib/designDiscovery'
+import { installLibraryWatch } from './lib/libraryWatch'
 import { loadModelCatalog } from './store/modelVersions'
 import { useMcpHealthStore } from './store/mcpHealth'
 import { attachWorktreeSessions } from './store/attachWorktrees'
@@ -150,6 +151,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     let stopFollowing: (() => void) | undefined
     let stopDiscovery: (() => void) | undefined
+    let stopLibrary: (() => void) | undefined
     // Rehydrate first: the synchronous half of the projects backfill runs inside
     // the store's merge, and the git-dependent half has to follow it. The key
     // migration goes in front of it — rehydrating before the history has been
@@ -167,11 +169,14 @@ export default function App(): React.JSX.Element {
         stopFollowing = installWorkspaceFollowers()
         // …and which projects there are, so their design work can be found.
         stopDiscovery = installDesignDiscovery()
+        // …and which folders a skill or plugin installed elsewhere would land in.
+        stopLibrary = installLibraryWatch()
       })
     void primeHomedir()
     return () => {
       stopFollowing?.()
       stopDiscovery?.()
+      stopLibrary?.()
     }
   }, [])
 

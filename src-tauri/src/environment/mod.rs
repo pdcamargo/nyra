@@ -78,6 +78,33 @@ impl Environment {
         }
     }
 
+    /// [`Environment::std_command`], for a PTY: one program inside this
+    /// environment rather than its shell. The host caller resolves the binary
+    /// first; WSL hands the bare name to the distro's PATH.
+    pub fn pty_program(&self, program: &str, cwd: &str) -> portable_pty::CommandBuilder {
+        match self {
+            Environment::Host => {
+                let mut cmd = crate::platform::pty_command(program);
+                cmd.cwd(if cwd.is_empty() { crate::util::home_dir() } else { PathBuf::from(cwd) });
+                cmd
+            }
+            Environment::Wsl { distro, .. } => {
+                let mut cmd = crate::platform::pty_command("wsl.exe");
+                cmd.args(["-d", distro.as_str()]);
+                if !cwd.is_empty() {
+                    cmd.arg("--cd");
+                    cmd.arg(self.to_env(Path::new(cwd)));
+                }
+                cmd.args(["--exec", "env"]);
+                if let Some(path) = wsl::probe(distro).map(|p| p.path).filter(|p| !p.is_empty()) {
+                    cmd.arg(format!("PATH={path}"));
+                }
+                cmd.arg(program);
+                cmd
+            }
+        }
+    }
+
     /// [`Environment::std_command`], as a tokio command.
     pub fn command(&self, program: &str, cwd: &str) -> tokio::process::Command {
         tokio::process::Command::from(self.std_command(program, cwd))

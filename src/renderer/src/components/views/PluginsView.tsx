@@ -17,6 +17,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { Checkbox } from '../ui/checkbox'
 import { SegmentedControl, Select, TextField } from '../settings/primitives'
 import { DialogAction, EmptyNote, SectionHeading } from './Library'
+import InstallFromCommand, { type Installed } from './InstallFromCommand'
+import { homedir } from '../../lib/homedir'
 import { activeProjectCwd, useSessionsStore } from '../../store/sessions'
 import { useActiveConfigDir } from '../../store/workspaces'
 import { isSessionRunning, useRunningStore } from '../../store/running'
@@ -123,6 +125,31 @@ export default function PluginsView(): React.JSX.Element {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  // Installed or enabled from a terminal, here or anywhere: see lib/libraryWatch.
+  useEffect(() => {
+    const onChanged = (): void => void reload()
+    window.addEventListener('nyra:plugins-changed', onChanged)
+    return () => window.removeEventListener('nyra:plugins-changed', onChanged)
+  }, [reload])
+
+  /** What is installed and which marketplaces are added, to diff an install against. */
+  const inventory = useCallback(async (): Promise<Installed[]> => {
+    const result = await window.api.plugins.catalog(cwd || undefined, configDir)
+    if (!result.ok) return []
+    return [
+      ...result.installed.map((p) => ({
+        key: `plugin:${p.id}:${p.scope ?? ''}`,
+        label: p.name,
+        where: p.scope === 'project' || p.scope === 'local' ? 'This project' : 'Every project'
+      })),
+      ...result.marketplaces.map((m) => ({
+        key: `marketplace:${m.name}`,
+        label: m.name,
+        where: 'Marketplace added'
+      }))
+    ]
+  }, [cwd, configDir])
 
   useEffect(() => {
     let live = true
@@ -301,6 +328,18 @@ export default function PluginsView(): React.JSX.Element {
             Refresh
           </button>
         </header>
+
+        <InstallFromCommand
+          context="plugin"
+          cwd={cwd || homedir()}
+          configDir={configDir}
+          snapshot={inventory}
+          onFinished={(added) => {
+            // What Claude loads changed; a running chat needs a restart to see it.
+            if (added.length > 0) setRestartNeeded(true)
+            void reload()
+          }}
+        />
 
         <div className="mb-5 w-fit">
           <SegmentedControl

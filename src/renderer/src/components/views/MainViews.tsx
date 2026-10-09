@@ -23,6 +23,7 @@ import {
   useScopedLibrary
 } from './Library'
 import { segments } from '../../lib/paths'
+import InstallFromCommand, { type Installed } from './InstallFromCommand'
 
 const MemoryTab = React.lazy(() => import('../MemoryTab'))
 const PluginsView = React.lazy(() => import('./PluginsView'))
@@ -111,7 +112,7 @@ function SkillActions(): React.JSX.Element {
       <button
         type="button"
         onClick={() => useSkillEditorStore.getState().openNew()}
-        className="rounded-md bg-info/90 px-3 py-1.5 text-c-md font-medium text-info-foreground transition-colors hover:bg-info"
+        className="rounded-md border border-border bg-muted/40 px-3 py-1.5 text-c-md font-medium text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
       >
         New skill
       </button>
@@ -158,6 +159,7 @@ function SkillsView(): React.JSX.Element {
   const setPendingAction = useSessionsStore((s) => s.setPendingAction)
   const setMainView = useUiStore((s) => s.setMainView)
   const configDir = useActiveConfigDir()
+  const activeChatCwd = useSessionsStore(activeProjectCwd)
 
   useEffect(() => {
     void window.api.skills.bundledNames(configDir).then(setBundled)
@@ -195,6 +197,9 @@ function SkillsView(): React.JSX.Element {
   const globalSkills = matches(global, search)
   const projectSkills = matches(activeId ? (byProject[activeId] ?? []) : [], search)
   const activeProject = projects.find((p) => p.id === activeId)
+  // The project picked under "By project", so a project-scoped install lands in
+  // the list on screen; the chat's project, or home, when there is none.
+  const installCwd = activeProject?.path || activeChatCwd || homedir()
 
   return (
     <Page
@@ -203,6 +208,28 @@ function SkillsView(): React.JSX.Element {
       blurb="Extend Claude with task-specific skills, for this project or for every one."
       actions={<SkillActions />}
     >
+      <InstallFromCommand
+        context="skill"
+        cwd={installCwd}
+        configDir={configDir}
+        snapshot={async () => {
+          const { global, project } = await window.api.skills.list(installCwd, configDir)
+          return [
+            ...global.map((s) => ({ key: `global:${s.name}`, label: `/${s.name}`, where: 'Global' })),
+            ...project.map((s) => ({
+              key: `project:${s.name}`,
+              label: `/${s.name}`,
+              where: activeProject?.name ?? 'This project'
+            }))
+          ]
+        }}
+        onUse={(item: Installed) => {
+          setPendingAction({ type: 'send', text: item.label })
+          setMainView('chat')
+        }}
+        onFinished={() => reload()}
+      />
+
       <LibrarySearch value={search} onChange={setSearch} placeholder="Search skills" />
 
       <section className="mb-8">

@@ -282,13 +282,19 @@ export default function ChatInput({
   // Load agent definitions from .claude/agents/ directories
   const [agentDefs, setAgentDefs] = useState<{ name: string; description: string }[]>([])
   useEffect(() => {
-    window.api.agents.list(cwd, configDir).then((result: { global: { name: string; description: string }[]; project: { name: string; description: string }[] }) => {
-      const all = [...result.project, ...result.global]
-      // Deduplicate by name (project overrides global)
-      const seen = new Set<string>()
-      const deduped = all.filter((a) => { if (seen.has(a.name)) return false; seen.add(a.name); return true })
-      setAgentDefs(deduped)
-    })
+    const load = (): void => {
+      window.api.agents.list(cwd, configDir).then((result: { global: { name: string; description: string }[]; project: { name: string; description: string }[] }) => {
+        const all = [...result.project, ...result.global]
+        // Deduplicate by name (project overrides global)
+        const seen = new Set<string>()
+        const deduped = all.filter((a) => { if (seen.has(a.name)) return false; seen.add(a.name); return true })
+        setAgentDefs(deduped)
+      })
+    }
+    load()
+    // An agent file added from outside Nyra; see lib/libraryWatch.
+    window.addEventListener('nyra:agents-changed', load)
+    return () => window.removeEventListener('nyra:agents-changed', load)
   }, [cwd, configDir])
 
   const mentionItems = useMemo((): MentionItem[] => {

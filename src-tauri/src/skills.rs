@@ -50,12 +50,45 @@ fn parse_skill_frontmatter(content: &str) -> (String, String) {
     };
     let yaml = &rest[..end];
     let body = &rest[end + 5..];
-    let description = yaml
-        .lines()
-        .find_map(|l| l.strip_prefix("description:"))
-        .map(|v| v.trim().to_string())
-        .unwrap_or_default();
-    (description, body.to_string())
+    (yaml_description(yaml), body.to_string())
+}
+
+/// `description:` out of a frontmatter block, in the three ways skills write it:
+/// inline, quoted, or as a `>`/`|` block on the lines below. The block form is
+/// common in skills from `npx skills`, and reading only the inline value showed
+/// their description as a bare `>-`.
+fn yaml_description(yaml: &str) -> String {
+    let mut lines = yaml.lines();
+    let Some(value) = lines.by_ref().find_map(|l| l.strip_prefix("description:")) else {
+        return String::new();
+    };
+    let value = value.trim();
+    let folded = value.starts_with('>');
+    if folded || value.starts_with('|') {
+        let block: Vec<&str> = lines
+            .take_while(|l| l.trim().is_empty() || l.starts_with(' ') || l.starts_with('\t'))
+            .map(str::trim)
+            .collect();
+        let joined = block.join(if folded { " " } else { "\n" });
+        return joined.split_whitespace().collect::<Vec<_>>().join(" ").trim().to_string();
+    }
+    let unquoted = value
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')));
+    unquoted.unwrap_or(value).to_string()
+}
+
+/// Whether `path` is a directory (or a file), *through* a symlink.
+///
+/// `DirEntry::file_type` reports the link itself, and `npx skills add` for more
+/// than one agent keeps the real copy in `.agents/skills` and links it into
+/// `.claude/skills` — so asking the entry dropped every skill installed that way.
+async fn follows_to(path: &Path, dir: bool) -> bool {
+    tokio::fs::metadata(path)
+        .await
+        .map(|m| if dir { m.is_dir() } else { m.is_file() })
+        .unwrap_or(false)
 }
 
 async fn scan_agents_dir(dir: &Path, scope: &str) -> Vec<AgentInfo> {
@@ -68,7 +101,7 @@ async fn scan_agents_dir(dir: &Path, scope: &str) -> Vec<AgentInfo> {
         if !file_name.ends_with(".md") {
             continue;
         }
-        if !entry.file_type().await.map(|t| t.is_file()).unwrap_or(false) {
+        if !follows_to(&entry.path(), false).await {
             continue;
         }
         let name = file_name.trim_end_matches(".md").to_string();
@@ -91,7 +124,7 @@ async fn scan_skills_dir(dir: &Path, scope: &str) -> Vec<SkillInfo> {
         return skills;
     };
     while let Ok(Some(entry)) = entries.next_entry().await {
-        if !entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+        if !follows_to(&entry.path(), true).await {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_string();
@@ -285,10 +318,39 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_block_or_quoted_description() {
+        let folded = "---\nname: x\ndescription: >-\n  Design engineering principles\n  for polish.\nlicense: MIT\n---\nBody\n";
+        assert_eq!(parse_skill_frontmatter(folded).0, "Design engineering principles for polish.");
+        let literal = "---\ndescription: |\n  One line.\n---\n";
+        assert_eq!(parse_skill_frontmatter(literal).0, "One line.");
+        let quoted = "---\ndescription: \"Quoted: with a colon\"\n---\n";
+        assert_eq!(parse_skill_frontmatter(quoted).0, "Quoted: with a colon");
+    }
+
+    #[test]
     fn returns_whole_content_when_frontmatter_is_absent() {
         let (d, body) = parse_skill_frontmatter("# Title\n");
         assert_eq!(d, "");
         assert_eq!(body, "# Title\n");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn lists_a_skill_that_is_a_symlink() {
+        let dir = std::env::temp_dir().join(format!("nyra-skill-link-{}", std::process::id()));
+        let real = dir.join(".agents/skills/linked");
+        let skills = dir.join(".claude/skills");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::create_dir_all(&skills).unwrap();
+        std::fs::write(real.join("SKILL.md"), "---\ndescription: Through a link\n---\n").unwrap();
+        std::os::unix::fs::symlink("../../.agents/skills/linked", skills.join("linked")).unwrap();
+
+        let found = scan_skills_dir(&skills, "project").await;
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "linked");
+        assert_eq!(found[0].description, "Through a link");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]

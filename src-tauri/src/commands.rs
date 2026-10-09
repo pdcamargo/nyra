@@ -1090,6 +1090,41 @@ pub fn terminal_kill(id: String) {
     terminal::kill_terminal(&id);
 }
 
+// ---- library: installs from a pasted command, and noticing them ----
+
+/// `npx skills add …` or `claude plugin …`, parsed by the renderer into an
+/// argv, in a PTY under `id`. Driven afterwards with the `terminal_*` commands.
+#[tauri::command(rename_all = "camelCase")]
+pub fn library_install_start(
+    id: String,
+    cwd: String,
+    program: String,
+    args: Vec<String>,
+    config_dir: Option<String>,
+) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match terminal::spawn_program(
+        &id,
+        &cwd,
+        &program,
+        &args,
+        &util::settings().claude_binary_path,
+        config_dir.as_deref(),
+    ) {
+        Ok(pid) => json!({ "pid": pid }),
+        Err(e) => json!({ "error": e }),
+    }
+}
+
+/// Watch the active workspace's config dir and these projects for skills,
+/// commands, agents and plugins appearing or going away.
+#[tauri::command(rename_all = "camelCase")]
+pub fn library_watch(config_dir: Option<String>, projects: Vec<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    crate::library_watch::set_roots(config_dir.as_deref(), &projects);
+    json!({ "ok": true })
+}
+
 // ---- browser ----
 
 #[tauri::command]
