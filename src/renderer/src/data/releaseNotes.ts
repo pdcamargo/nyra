@@ -11,6 +11,17 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     notes: []
   },
   {
+    version: '0.9.0',
+    date: '2026-10-09',
+    notes: [
+      'Added themes. Settings → Appearance now has one theme for light mode and one for dark mode, with Cyberpunk, Nord, Solarized, Rosé Pine and Tokyo Night built in. Arrowing through the list shows each theme on the whole window before you pick it',
+      'Added a theme editor. Customize or New theme opens it beside the window, and the window changes as you edit. Click any part of Nyra to edit its colour, or hold ⌥ to see the theme as it was. Nothing is kept until you press Save',
+      'Themes are files in ~/.nyra/themes, so you can share one by sending it, and add one with Import',
+      'Added Corners to Settings → Appearance, to make everything in Nyra squarer or rounder',
+      'Fixed a message you typed but did not send showing up in the next chat you opened. Each chat now keeps its own unsent message'
+    ]
+  },
+  {
     version: '0.8.4',
     date: '2026-10-09',
     notes: [
