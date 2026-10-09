@@ -68,7 +68,7 @@ type Target = { hit: Hit; at: { x: number; y: number }; artboard: ResolvedArtboa
  * chat; this is for yours.
  */
 /** The design menu's rows: the app's menu, at the sizes the canvas's own text uses. */
-const MENU_ROW = 'rounded-[4px] text-[12.5px] leading-[1.5]'
+const MENU_ROW = 'rounded-at-4 text-[12.5px] leading-[1.5]'
 const MENU_ROW_TWO = `${MENU_ROW} items-start`
 /** A hint stays muted when its row is highlighted: it is the row's second line, not its label. */
 const MENU_HINT = 'text-[11.5px] leading-[1.4] font-medium text-muted-foreground!'
@@ -524,7 +524,7 @@ export default function DesignFileView({
           </Button>
         </div>
       ) : error !== null ? (
-        <pre className="m-2 overflow-auto rounded border border-destructive/40 bg-destructive/5 p-2 text-[11px] whitespace-pre-wrap text-destructive">
+        <pre className="m-2 overflow-auto rounded-at-4 border border-destructive/40 bg-destructive/5 p-2 text-[11px] whitespace-pre-wrap text-destructive">
           {error}
         </pre>
       ) : unwritten || loaded === null || loadedPath !== path ? (

@@ -189,7 +189,7 @@ function WorkNode({
   const line = nodeMeta(data as Record<string, unknown>, status, meta)
   return (
     <div
-      className={`w-[200px] rounded-[10px] border bg-card px-3 py-2.5 transition-colors ${statusChrome(status, selected)}`}
+      className={`w-[200px] rounded-at-10 border bg-card px-3 py-2.5 transition-colors ${statusChrome(status, selected)}`}
     >
       <Handle type="target" position={Position.Top} className={HANDLE} />
       <div className="flex items-center gap-1.5">
@@ -263,7 +263,7 @@ function ReviewGate({ data, selected }: NodeProps): React.JSX.Element {
   const live = status === 'awaiting_review'
   return (
     <div
-      className={`w-[200px] overflow-hidden rounded-[10px] border bg-card transition-colors ${statusChrome(status, selected)}`}
+      className={`w-[200px] overflow-hidden rounded-at-10 border bg-card transition-colors ${statusChrome(status, selected)}`}
     >
       <Handle type="target" position={Position.Top} className={HANDLE} />
       <div className="px-3 py-2.5">
@@ -280,14 +280,14 @@ function ReviewGate({ data, selected }: NodeProps): React.JSX.Element {
       </div>
       <div className="flex gap-1.5 border-t border-border bg-muted px-3 py-2">
         <div
-          className={`flex-1 rounded-[5px] py-1 text-center text-[10.5px] font-semibold ${
+          className={`flex-1 rounded-at-5 py-1 text-center text-[10.5px] font-semibold ${
             live ? 'bg-foreground text-background' : 'bg-secondary text-muted-foreground'
           }`}
         >
           Approve
         </div>
         <div
-          className={`flex-1 rounded-[5px] border border-border py-1 text-center text-[10.5px] font-semibold ${
+          className={`flex-1 rounded-at-5 border border-border py-1 text-center text-[10.5px] font-semibold ${
             live ? 'text-foreground' : 'text-muted-foreground'
           }`}
         >
@@ -345,7 +345,7 @@ function LoopContainer({ data, selected }: NodeProps): React.JSX.Element {
         )}
       </div>
 
-      <div className="flex h-[30px] items-center gap-1.5 rounded-b-[11px] border-t border-border bg-muted px-3">
+      <div className="flex h-[30px] items-center gap-1.5 rounded-b-at-11 border-t border-border bg-muted px-3">
         {inert.length > 0 ? (
           <>
             <TriangleAlert className="size-3 shrink-0 text-warning" />
@@ -761,7 +761,7 @@ function RunPanel(): React.JSX.Element | null {
             {fix ? (
               <button
                 onClick={() => setSelectedNodeId(failed.nodeId)}
-                className="w-full rounded-[5px] bg-foreground px-2 py-1 text-[0.81em] font-semibold text-background"
+                className="w-full rounded-at-5 bg-foreground px-2 py-1 text-[0.81em] font-semibold text-background"
               >
                 {fix.label}
               </button>
@@ -810,7 +810,7 @@ function RunPanel(): React.JSX.Element | null {
               const expanded = open.has(n.id)
               return (
                 <div key={n.id}>
-                  <div className="flex w-full items-center gap-2 rounded-[5px] px-1.5 py-1 hover:bg-accent/50">
+                  <div className="flex w-full items-center gap-2 rounded-at-5 px-1.5 py-1 hover:bg-accent/50">
                     <button
                       type="button"
                       onClick={() => (text ? toggle(n.id) : setSelectedNodeId(n.id))}
@@ -1071,7 +1071,7 @@ function NodeConfigPanel({ onDelete }: { onDelete?: () => void }): React.JSX.Ele
                 type="button"
                 onClick={() => setSelectedNodeId(null)}
                 aria-label="Back to the run"
-                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
+                className="flex size-6 shrink-0 items-center justify-center rounded-at-4 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
               >
                 <ArrowLeft className="size-3.5" />
               </button>
@@ -1098,7 +1098,7 @@ function NodeConfigPanel({ onDelete }: { onDelete?: () => void }): React.JSX.Ele
               onClick={() => onDelete?.()}
               disabled={isRunning}
               aria-label="Delete this node"
-              className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-40"
+              className="flex size-6 shrink-0 items-center justify-center rounded-at-4 text-muted-foreground transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-40"
             >
               <Trash2 className="size-3.5" />
             </button>
@@ -1111,7 +1111,7 @@ function NodeConfigPanel({ onDelete }: { onDelete?: () => void }): React.JSX.Ele
               type="button"
               onClick={() => setSelectedNodeId(null)}
               aria-label="Close the inspector"
-              className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
+              className="flex size-6 shrink-0 items-center justify-center rounded-at-4 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
             >
               <X className="size-3.5" />
             </button>
@@ -1524,7 +1524,7 @@ function PromptNodeConfig({
                 onClick={() => removeSetVar(i)}
                 disabled={disabled}
                 aria-label="Remove this variable"
-                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-danger disabled:opacity-40"
+                className="flex size-6 shrink-0 items-center justify-center rounded-at-4 text-muted-foreground hover:text-danger disabled:opacity-40"
               >
                 <X className="size-3" />
               </button>
@@ -2711,7 +2711,7 @@ function ZoomPill(): React.JSX.Element {
   const setOptions = useStoreApi().setState
 
   const btn =
-    'flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
+    'flex size-6 items-center justify-center rounded-at-4 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
 
   return (
     <div className="flex items-center gap-0.5 rounded-lg border border-border/55 bg-card p-1">
@@ -3020,7 +3020,7 @@ function SidePanel({
                 type="button"
                 onClick={onClose}
                 aria-label={`Close ${title}`}
-                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
+                className="flex size-6 shrink-0 items-center justify-center rounded-at-4 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
               >
                 <X className="size-3.5" />
               </button>
@@ -3667,7 +3667,7 @@ function TriggerCard({
         </button>
         <button
           onClick={onRemove}
-          className="text-[0.77em] text-danger transition-colors hover:bg-danger/10 rounded px-2 py-0.5"
+          className="text-[0.77em] text-danger transition-colors hover:bg-danger/10 rounded-at-4 px-2 py-0.5"
         >
           Remove
         </button>
@@ -3754,7 +3754,7 @@ function HistoryPanel({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <span
-                  className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                  className={`text-[9px] font-mono px-1.5 py-0.5 rounded-at-4 ${
                     rec.status === 'done'
                       ? 'bg-success/15 text-success'
                       : rec.status === 'failed'
@@ -3770,7 +3770,7 @@ function HistoryPanel({
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); del(rec.id) }}
-                className="rounded px-1 text-[10px] text-danger transition-colors hover:bg-danger/10"
+                className="rounded-at-4 px-1 text-[10px] text-danger transition-colors hover:bg-danger/10"
               >
                 ×
               </button>
@@ -4027,7 +4027,7 @@ function InputsEditor({
               type="button"
               onClick={addInput}
               aria-label="Add an input"
-              className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
+              className="flex size-6 shrink-0 items-center justify-center rounded-at-4 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
             >
               <Plus className="size-3.5" />
             </button>
@@ -4069,7 +4069,7 @@ function InputsEditor({
                     type="button"
                     onClick={() => removeInput(i)}
                     aria-label={`Remove ${inp.label || inp.key || 'this input'}`}
-                    className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-danger"
+                    className="flex size-5 shrink-0 items-center justify-center rounded-at-4 text-muted-foreground transition-colors hover:bg-accent hover:text-danger"
                   >
                     <X className="size-3" />
                   </button>
@@ -4543,7 +4543,7 @@ function MarketplaceTab({
                 <button
                   onClick={() => install(entry)}
                   disabled={installing === entry.id || upToDate}
-                  className={`mt-1.5 rounded-[5px] py-1 text-[0.81em] font-semibold ${
+                  className={`mt-1.5 rounded-at-5 py-1 text-[0.81em] font-semibold ${
                     upToDate
                       ? 'cursor-default border border-border text-muted-foreground'
                       : updateAvailable

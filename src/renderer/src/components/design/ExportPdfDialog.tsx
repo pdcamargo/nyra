@@ -198,7 +198,7 @@ export default function ExportPdfDialog({
                         theme={theme}
                         maxWidth={40}
                         maxHeight={40}
-                        className="rounded-[2px] ring-1 ring-border"
+                        className="rounded-at-2 ring-1 ring-border"
                       />
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col">
@@ -212,7 +212,7 @@ export default function ExportPdfDialog({
                         e.stopPropagation()
                         remove(id)
                       }}
-                      className="rounded p-0.5 text-muted-foreground opacity-60 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                      className="rounded-at-4 p-0.5 text-muted-foreground opacity-60 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
                     >
                       <X className="size-3.5" />
                     </button>
@@ -265,7 +265,7 @@ export default function ExportPdfDialog({
                     aria-label="Previous page"
                     disabled={at === 0}
                     onClick={() => setCurrent(at - 1)}
-                    className="rounded p-0.5 hover:bg-accent disabled:opacity-30"
+                    className="rounded-at-4 p-0.5 hover:bg-accent disabled:opacity-30"
                   >
                     <ChevronLeft className="size-4" />
                   </button>
@@ -278,7 +278,7 @@ export default function ExportPdfDialog({
                     aria-label="Next page"
                     disabled={at >= pages.length - 1}
                     onClick={() => setCurrent(at + 1)}
-                    className="rounded p-0.5 hover:bg-accent disabled:opacity-30"
+                    className="rounded-at-4 p-0.5 hover:bg-accent disabled:opacity-30"
                   >
                     <ChevronRight className="size-4" />
                   </button>

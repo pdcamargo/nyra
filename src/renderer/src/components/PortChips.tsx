@@ -170,7 +170,7 @@ export function PortBadges({
               e.stopPropagation()
               openPort(sessionId, port)
             }}
-            className="rounded px-1 font-mono text-[10px] text-success transition-colors hover:bg-accent/50"
+            className="rounded-at-4 px-1 font-mono text-[10px] text-success transition-colors hover:bg-accent/50"
           >
             :{port}
           </TooltipTrigger>

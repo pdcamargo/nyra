@@ -116,7 +116,7 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
   }
 
   return (
-    <div className={`my-3 rounded-lg overflow-hidden border border-border bg-muted`}>
+    <div data-theme-token="code" className="my-3 rounded-lg overflow-hidden border border-border bg-code">
       <div className="flex items-center justify-between border-b border-border/55 bg-muted/40 py-1 pl-3 pr-2 select-none">
         <span className="text-c-xs text-muted-foreground font-mono">{language || 'code'}</span>
         {/* Icon-only, and the separation comes from each button's own padding

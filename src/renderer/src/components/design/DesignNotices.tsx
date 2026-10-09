@@ -83,7 +83,7 @@ export function OpeningCard({
     <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center p-4">
       <div
         role="status"
-        className="pointer-events-auto flex w-[360px] max-w-full flex-col gap-3 rounded-[12px] border bg-popover p-4 text-[12.5px] leading-[1.5] shadow-panel"
+        className="pointer-events-auto flex w-[360px] max-w-full flex-col gap-3 rounded-at-12 border bg-popover p-4 text-[12.5px] leading-[1.5] shadow-panel"
       >
         <div className="flex items-center gap-2">
           <FileJson className="size-[15px] shrink-0 text-muted-foreground" />
@@ -117,7 +117,7 @@ export function OpeningCard({
 }
 
 /** The banner's two buttons: the mockup's small button, 12px a side. */
-const BANNER_BUTTON = 'h-auto rounded-[8px] px-3 py-1 text-[12.5px] leading-[1.5] font-[550]'
+const BANNER_BUTTON = 'h-auto rounded-at-8 px-3 py-1 text-[12.5px] leading-[1.5] font-[550]'
 
 /**
  * The file is an older format: drawn from its upgraded copy, untouched on disk

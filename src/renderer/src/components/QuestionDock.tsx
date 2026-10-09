@@ -113,7 +113,7 @@ export default function QuestionDock({
               <span
                 aria-hidden
                 className={`mt-0.5 flex size-4 shrink-0 items-center justify-center border ${
-                  multi ? 'rounded-[4px]' : 'rounded-full'
+                  multi ? 'rounded-at-4' : 'rounded-full'
                 } ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}
               >
                 {on &&

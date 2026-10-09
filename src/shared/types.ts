@@ -92,6 +92,14 @@ export type NyraSettings = {
    *  Separate from the conversation, because making the message text bigger is
    *  about reading and making the rail bigger is about seeing. */
   uiFontSize: number
+  /** The theme used in light mode, and the one in dark mode, by id. Built-in ids
+   *  are fixed; a user theme's is its file name in `~/.nyra/themes/`. An id that
+   *  no longer resolves falls back to Nyra Light or Nyra Dark. */
+  lightTheme: string
+  darkTheme: string
+  /** The corner radius everything rounded scales from, in px. Global rather than
+   *  per theme: themes are per mode, and shapes changing at sunset would be odd. */
+  cornerRadius: number
   /** The conversation's measure. */
   chatWidth: ChatWidth
   /** How the Changes tab draws a patch. Preferences rather than per-chat state:
@@ -208,6 +216,10 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   codeFontWeight: 400,
   contentFontSize: 15,
   uiFontSize: 13,
+  lightTheme: 'nyra-light',
+  darkTheme: 'nyra-dark',
+  // 0.84rem, what the stylesheet has always said.
+  cornerRadius: 13.44,
   chatWidth: 'wide',
   diffView: 'auto',
   diffWrap: false,

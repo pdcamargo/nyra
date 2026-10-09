@@ -43,6 +43,7 @@ export default function WorkspaceRail(): React.JSX.Element {
     <nav
       aria-label="Workspaces"
       style={{ width: WORKSPACE_RAIL_WIDTH, fontSize: 'var(--ui-font-size, 13px)' }}
+      data-theme-token="rail"
       className="scroll-auto-hide flex h-full shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-border/55 bg-workspace-rail py-2"
     >
       {workspaces.map((workspace, index) => (
@@ -61,7 +62,7 @@ export default function WorkspaceRail(): React.JSX.Element {
         onClick={() => openDialog({ mode: 'create' })}
         className="flex size-10 shrink-0 items-center justify-center"
       >
-        <span className="flex size-8 items-center justify-center rounded-[8px] border border-dashed border-border-strong">
+        <span className="flex size-8 items-center justify-center rounded-at-8 border border-dashed border-border-strong">
           <Plus className="size-4" />
         </span>
       </IconButton>
@@ -116,14 +117,14 @@ function RailItem({
               aria-current={active ? 'true' : undefined}
               onClick={() => switchWorkspace(workspace.id)}
               className={cn(
-                'group relative flex size-10 shrink-0 items-center justify-center rounded-[12px] border-2 p-[2px] outline-none transition-colors focus-visible:border-ring',
+                'group relative flex size-10 shrink-0 items-center justify-center rounded-at-12 border-2 p-[2px] outline-none transition-colors focus-visible:border-ring',
                 active ? 'border-foreground' : 'border-transparent'
               )}
             >
               <WorkspaceAvatar
                 workspace={workspace}
                 className={cn(
-                  'size-8 rounded-[8px] text-[0.92em] transition-[background-color,color,opacity]',
+                  'size-8 rounded-at-8 text-[0.92em] transition-[background-color,color,opacity]',
                   workspace.image
                     ? active
                       ? 'opacity-100'
@@ -136,7 +137,7 @@ function RailItem({
               {running && (
                 <span
                   aria-hidden
-                  className="nyra-shimmer-bg pointer-events-none absolute inset-[2px] rounded-[8px]"
+                  className="nyra-shimmer-bg pointer-events-none absolute inset-[2px] rounded-at-8"
                 />
               )}
               {unread && (

@@ -132,7 +132,7 @@ function ManagedBadge({ status }: { status: BundledSkill['status'] }): React.JSX
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="shrink-0 rounded-[3px] border border-border/70 px-1 py-px text-[0.62em] font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="shrink-0 rounded-at-3 border border-border/70 px-1 py-px text-[0.62em] font-medium uppercase tracking-wide text-muted-foreground">
           {status === 'adopted' ? 'Nyra · yours' : 'Nyra'}
         </span>
       </TooltipTrigger>

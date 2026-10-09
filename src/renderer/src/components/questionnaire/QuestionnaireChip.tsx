@@ -99,7 +99,7 @@ export default function QuestionnaireChip({ message }: { message: ToolCallMessag
       <button
         type="button"
         onClick={() => void openQuestionnaireInPanel(id, undefined, focus)}
-        className="-mx-1 flex max-w-full items-center gap-2 rounded-[4px] px-1 py-1 text-left text-c-lg transition-colors hover:bg-muted/40"
+        className="-mx-1 flex max-w-full items-center gap-2 rounded-at-4 px-1 py-1 text-left text-c-lg transition-colors hover:bg-muted/40"
       >
         {sent ? <CircleCheck className="size-3.5 shrink-0 text-success" /> : <ListChecks className="size-3.5 shrink-0 text-design-accent" />}
         <span className={`min-w-0 truncate ${sent ? 'text-muted-foreground' : 'text-foreground'}`}>{text}</span>

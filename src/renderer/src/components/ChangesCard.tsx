@@ -93,7 +93,7 @@ export default function ChangesCard({ block }: { block: ChangeBlock }): React.JS
                     type="button"
                     aria-label={`Show the diff for ${name}`}
                     onClick={() => openChangesInPanel({ scope, focusPath: f.path })}
-                    className="mr-1.5 shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    className="mr-1.5 shrink-0 rounded-at-4 p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     <FileDiff className="size-3" />
                   </button>

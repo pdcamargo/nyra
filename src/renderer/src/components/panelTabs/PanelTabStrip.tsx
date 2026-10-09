@@ -213,7 +213,7 @@ export default function PanelTabStrip({
               }}
               // Always present for the active tab, on hover for the rest —
               // otherwise the strip twitches as the pointer crosses it.
-              className={`-mr-1 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground ${
+              className={`-mr-1 shrink-0 rounded-at-4 p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground ${
                 key === activeKey ? '' : 'opacity-0 group-hover:opacity-100'
               }`}
             >

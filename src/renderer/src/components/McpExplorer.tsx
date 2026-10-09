@@ -241,7 +241,7 @@ export default function McpExplorer({
                 type="button"
                 onClick={onClose}
                 aria-label="Close MCP servers"
-                className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                className="rounded-at-4 p-0.5 text-muted-foreground transition-colors hover:text-foreground"
               >
                 <X className="size-3.5" />
               </button>
@@ -346,7 +346,7 @@ function ReconnectButton({
           type="button"
           onClick={() => void reconnect()}
           disabled={recheck ? checking : running}
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-c-sm text-info transition-colors hover:bg-info/10 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent"
+          className="flex items-center gap-1 rounded-at-4 px-1.5 py-0.5 text-c-sm text-info transition-colors hover:bg-info/10 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent"
         >
           <RotateCw className={`size-3 ${recheck && checking ? 'animate-spin' : ''}`} />
           {recheck ? 'Check again' : label}
@@ -504,7 +504,7 @@ function ServerDetail({
               type="button"
               onClick={onBack}
               aria-label="Back to servers"
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded-at-4 p-0.5 text-muted-foreground transition-colors hover:text-foreground"
             >
               <ArrowLeft className="size-3.5" />
             </button>
@@ -743,7 +743,7 @@ function ToolRow({
               {(tool.parameters ?? []).map((parameter) => (
                 <span
                   key={parameter.name}
-                  className="rounded-[3px] border border-border/60 px-1 py-px font-mono text-c-xs text-muted-foreground"
+                  className="rounded-at-3 border border-border/60 px-1 py-px font-mono text-c-xs text-muted-foreground"
                   title={`${parameter.name}: ${parameter.type}${parameter.required ? ' (required)' : ''}`}
                 >
                   {parameter.name}

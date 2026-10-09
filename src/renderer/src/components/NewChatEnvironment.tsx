@@ -136,7 +136,7 @@ export default function NewChatEnvironment({
 
   return (
     // Docked to the top of the composer, so it reads as part of it.
-    <div className="-mb-3 ml-4 flex w-fit items-center gap-0.5 rounded-t-lg border border-b-0 border-border bg-background px-2 pb-4 pt-1 dark:border-muted dark:bg-muted">
+    <div className="-mb-3 ml-4 flex w-fit items-center gap-0.5 rounded-t-lg border border-b-0 border-border bg-composer px-2 pb-4 pt-1 dark:border-composer">
       <Chip icon={<Folder className="size-3.5 text-muted-foreground" />} label={project.name} />
 
       <DropdownMenu>

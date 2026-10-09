@@ -2630,7 +2630,7 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
     return (
       <div className="flex flex-col items-end group/msg">
         {hasBubble && (
-        <div className="relative max-w-[85%] rounded-lg bg-bubble px-4 py-2.5 text-bubble-foreground">
+        <div data-theme-token="bubble" className="relative max-w-[85%] rounded-lg bg-bubble px-4 py-2.5 text-bubble-foreground">
           {onEdit && (
             <Tooltip>
               <TooltipTrigger asChild>

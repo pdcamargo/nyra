@@ -28,7 +28,7 @@ export default function CommentsBar({
   const open = comments.filter((c) => c.status !== 'resolved')
   const resolved = comments.length - open.length
   return (
-    <div className="absolute top-3 right-3 z-30 flex items-center gap-2 rounded-[8px] border bg-background px-2 py-1 text-[12.5px]">
+    <div className="absolute top-3 right-3 z-30 flex items-center gap-2 rounded-at-8 border bg-background px-2 py-1 text-[12.5px]">
       <button type="button" onClick={onList} className="flex items-center gap-1.5 hover:text-foreground">
         <MessageCircle className="size-[13px] text-muted-foreground" />
         <span className="tabular-nums">{open.length} open</span>
@@ -42,7 +42,7 @@ export default function CommentsBar({
             aria-label={shown ? 'Hide comments' : 'Show comments'}
             aria-pressed={!shown}
             onClick={() => onShown(!shown)}
-            className="rounded-[4px] p-0.5 text-muted-foreground hover:text-foreground"
+            className="rounded-at-4 p-0.5 text-muted-foreground hover:text-foreground"
           >
             {shown ? <Eye className="size-[13px]" /> : <EyeOff className="size-[13px]" />}
           </button>
@@ -55,7 +55,7 @@ export default function CommentsBar({
             type="button"
             aria-label="List comments"
             onClick={onList}
-            className="rounded-[4px] p-0.5 text-muted-foreground hover:text-foreground"
+            className="rounded-at-4 p-0.5 text-muted-foreground hover:text-foreground"
           >
             <PanelRight className="size-[13px]" />
           </button>
@@ -97,7 +97,7 @@ export function CommentsPanel({
               type="button"
               aria-label="Close comments"
               onClick={onClose}
-              className="rounded-[4px] p-0.5 text-muted-foreground hover:text-foreground"
+              className="rounded-at-4 p-0.5 text-muted-foreground hover:text-foreground"
             >
               <X className="size-[13px]" />
             </button>
@@ -105,7 +105,7 @@ export function CommentsPanel({
           <TooltipContent>Close</TooltipContent>
         </Tooltip>
       </div>
-      <div className="flex rounded-[8px] bg-muted p-0.5" role="tablist">
+      <div className="flex rounded-at-8 bg-muted p-0.5" role="tablist">
         {(
           [
             ['open', `Open ${open.length}`],
@@ -120,7 +120,7 @@ export function CommentsPanel({
             aria-selected={filter === key}
             onClick={() => setFilter(key)}
             className={cn(
-              'rounded-[4px] px-3 py-0.5',
+              'rounded-at-4 px-3 py-0.5',
               filter === key ? 'bg-background font-[550] ring-1 ring-border' : 'text-muted-foreground hover:text-foreground'
             )}
           >
@@ -140,7 +140,7 @@ export function CommentsPanel({
                 type="button"
                 onClick={() => onPick(c)}
                 className={cn(
-                  'flex w-full items-start gap-2 rounded-[8px] px-3 py-2 text-left',
+                  'flex w-full items-start gap-2 rounded-at-8 px-3 py-2 text-left',
                   activeId === c.id ? 'bg-design-accent/10' : 'hover:bg-muted/60'
                 )}
               >
@@ -167,7 +167,7 @@ export function CommentsPanel({
           })
         )}
       </div>
-      <p className="flex items-start gap-2 rounded-[8px] bg-muted p-2 text-[11.5px] font-medium text-muted-foreground">
+      <p className="flex items-start gap-2 rounded-at-8 bg-muted p-2 text-[11.5px] font-medium text-muted-foreground">
         <Info className="mt-px size-[13px] shrink-0" />
         Every comment went to Claude when you sent it. This list is for finding them again.
       </p>

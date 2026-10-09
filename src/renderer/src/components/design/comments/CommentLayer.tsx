@@ -184,7 +184,7 @@ export default function CommentLayer({
               // Re-placed every frame: the pin lives under the canvas
               // transform, and a pan moves it without anything resizing.
               updatePositionStrategy="always"
-              className="w-[280px] gap-2 rounded-[12px] p-3 shadow-panel"
+              className="w-[280px] gap-2 rounded-at-12 p-3 shadow-panel"
               onOpenAutoFocus={(e) => e.preventDefault()}
             >
               <CommentCard
@@ -284,7 +284,7 @@ export function CommentCard({
               box.current?.focus()
             } else onResolve()
           }}
-          className="flex items-center gap-1 rounded-[4px] border px-2 py-px text-[11.5px] font-medium hover:bg-muted/60"
+          className="flex items-center gap-1 rounded-at-4 border px-2 py-px text-[11.5px] font-medium hover:bg-muted/60"
         >
           {resolved ? <RotateCcw className="size-3 text-muted-foreground" /> : <Check className="size-3 text-muted-foreground" />}
           {resolved ? 'Reopen' : 'Resolve'}
@@ -295,7 +295,7 @@ export function CommentCard({
               type="button"
               onClick={onDelete}
               aria-label="Delete comment"
-              className="rounded-[4px] p-0.5 text-muted-foreground hover:text-foreground"
+              className="rounded-at-4 p-0.5 text-muted-foreground hover:text-foreground"
             >
               <Trash2 className="size-[13px]" />
             </button>
@@ -342,7 +342,7 @@ export function CommentCard({
         }}
         placeholder={resolved ? 'Not quite? Say what to change…' : 'Reply…'}
         aria-label="Reply"
-        className="field-sizing-content max-h-32 min-h-8 resize-none rounded-[8px] border bg-background p-2 leading-[1.5] outline-none focus-visible:border-design-accent focus-visible:ring-1 focus-visible:ring-design-accent"
+        className="field-sizing-content max-h-32 min-h-8 resize-none rounded-at-8 border bg-background p-2 leading-[1.5] outline-none focus-visible:border-design-accent focus-visible:ring-1 focus-visible:ring-design-accent"
       />
       {reply.trim() && (
         <span className="text-[11.5px] font-medium text-muted-foreground">

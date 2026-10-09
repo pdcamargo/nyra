@@ -88,7 +88,7 @@ export default function DesignPip(): React.JSX.Element | null {
             <button
               aria-label="Hide design preview"
               onClick={() => dismissPip(sessionId, true)}
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="rounded-at-4 p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <X className="size-3" />
             </button>

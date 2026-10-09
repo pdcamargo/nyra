@@ -337,7 +337,7 @@ export default function DesignCanvas({
 
       {/* Floating over the canvas rather than a bar under it: the canvas
           keeps the whole height, and this is all the chrome it needs. */}
-      <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-[8px] border bg-background px-2 py-0.5 text-[12.5px] leading-[1.5]">
+      <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-at-8 border bg-background px-2 py-0.5 text-[12.5px] leading-[1.5]">
         <ZoomButton label="Zoom out" onClick={() => { moved.current = true; setZoom((z) => clampZoom(z / 1.25)) }}>
           <Minus className="size-3" />
         </ZoomButton>
@@ -371,7 +371,7 @@ function ZoomButton({
           type="button"
           aria-label={label}
           onClick={onClick}
-          className="-m-0.5 flex items-center justify-center rounded-[4px] p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="-m-0.5 flex items-center justify-center rounded-at-4 p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           {children}
         </button>

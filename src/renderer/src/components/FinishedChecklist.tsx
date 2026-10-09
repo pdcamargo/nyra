@@ -41,7 +41,7 @@ export default function FinishedChecklist({
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 rounded px-1 py-[3px] text-left transition-colors hover:bg-accent/40"
+        className="flex w-full items-center gap-2 rounded-at-4 px-1 py-[3px] text-left transition-colors hover:bg-accent/40"
       >
         {/* The dot carries the outcome, so it keeps a full-strength fill: at 40%
             on a 6px target it is the only thing reporting the result. */}

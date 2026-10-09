@@ -179,10 +179,10 @@ function Lazy({
 
 function Placeholder(): React.ReactElement {
   return (
-    <div aria-hidden className="flex flex-col gap-3 rounded-[8px] bg-muted p-4">
-      <div className="h-3.5 w-[55%] rounded-[4px] bg-border" />
-      <div className="h-2.5 w-[80%] rounded-[4px] bg-border" />
-      <div className="h-2.5 w-[70%] rounded-[4px] bg-border" />
+    <div aria-hidden className="flex flex-col gap-3 rounded-at-8 bg-muted p-4">
+      <div className="h-3.5 w-[55%] rounded-at-4 bg-border" />
+      <div className="h-2.5 w-[80%] rounded-at-4 bg-border" />
+      <div className="h-2.5 w-[70%] rounded-at-4 bg-border" />
     </div>
   )
 }
@@ -363,7 +363,7 @@ export default function SystemOverview({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex min-w-0 items-center gap-2 rounded-[4px] border bg-background px-2 py-1 text-[12.5px] leading-[1.5]"
+                className="flex min-w-0 items-center gap-2 rounded-at-4 border bg-background px-2 py-1 text-[12.5px] leading-[1.5]"
               >
                 <PanelLeft className="size-[13px] shrink-0 text-muted-foreground" />
                 {activeGroup && activeLabel !== undefined && (
@@ -387,7 +387,7 @@ export default function SystemOverview({
           <IconButton
             label="Filter the system"
             onClick={() => setPickerOpen(true)}
-            className="flex size-[26px] items-center justify-center rounded-[4px]"
+            className="flex size-[26px] items-center justify-center rounded-at-4"
           >
             <Search className="size-3.5" />
           </IconButton>
@@ -401,7 +401,7 @@ export default function SystemOverview({
             ) : (
               <>
                 {sys.tokens.issues.length > 0 && (
-                  <div className="mb-4 rounded-[8px] border border-danger/40 bg-danger/5 p-3 text-[12.5px] leading-[1.5]">
+                  <div className="mb-4 rounded-at-8 border border-danger/40 bg-danger/5 p-3 text-[12.5px] leading-[1.5]">
                     <p className="font-[550] text-danger">tokens.json does not load</p>
                     <ul className="mt-1 list-disc pl-4 text-muted-foreground">
                       {sys.tokens.issues.slice(0, 6).map((i) => (
@@ -457,7 +457,7 @@ function NavPanel({
   const q = filter.trim().toLowerCase()
   return (
     <nav aria-label="Design system" className={cn('flex flex-col px-2 py-3 text-[12.5px] leading-[1.5]', className)}>
-      <label className="flex items-center gap-2 rounded-[4px] border bg-background px-2 py-1">
+      <label className="flex items-center gap-2 rounded-at-4 border bg-background px-2 py-1">
         <Search className="size-[13px] shrink-0 text-muted-foreground" />
         <input
           value={filter}
@@ -556,7 +556,7 @@ function GroupRow({
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className="flex w-full items-center gap-1 rounded-[4px] px-3 py-1 text-left hover:bg-foreground/5"
+      className="flex w-full items-center gap-1 rounded-at-4 px-3 py-1 text-left hover:bg-foreground/5"
     >
       {open ? (
         <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
@@ -586,7 +586,7 @@ function NavRow({
       onClick={() => onPick(item.id)}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'flex w-full items-center gap-2 rounded-[4px] py-1 pr-3 text-left',
+        'flex w-full items-center gap-2 rounded-at-4 py-1 pr-3 text-left',
         indent ? 'pl-7' : 'pl-3',
         active ? 'bg-design-accent/10 font-[550] text-design-accent' : 'hover:bg-foreground/5'
       )}
@@ -811,10 +811,10 @@ function ColorSection({ theme, rows, narrow }: { theme: Theme; rows: ContrastRow
         }
       />
       <SubHead title="Semantic" hint="What designs reach for. Contrast is measured against the surface." />
-      <div className="overflow-hidden rounded-[8px] border">
+      <div className="overflow-hidden rounded-at-8 border">
         {rows.map((r, i) => (
           <div key={r.token} className={cn('flex items-center gap-3 px-3 py-2', i > 0 && 'border-t')}>
-            <span className="size-7 shrink-0 rounded-[4px] border" style={{ background: r.hex ?? 'transparent' }} />
+            <span className="size-7 shrink-0 rounded-at-4 border" style={{ background: r.hex ?? 'transparent' }} />
             <div className="flex w-[168px] min-w-0 shrink-0 flex-col">
               <code className="truncate font-mono text-[12.5px] leading-[1.5] text-foreground">{r.token}</code>
               {r.ref && <code className="truncate font-mono text-[11.5px] leading-[1.45] text-muted-foreground">→ {r.ref}</code>}
@@ -842,7 +842,7 @@ function ColorSection({ theme, rows, narrow }: { theme: Theme; rows: ContrastRow
                 <div className="grid flex-1 gap-1" style={{ gridTemplateColumns: 'repeat(11, minmax(0, 1fr))' }}>
                   {Object.keys(steps).map((step) => (
                     <div key={step} className="flex min-w-0 flex-col gap-1">
-                      <span className="h-9 rounded-[4px] border" style={{ background: resolveIn(theme, `$color.${name}.${step}`) }} />
+                      <span className="h-9 rounded-at-4 border" style={{ background: resolveIn(theme, `$color.${name}.${step}`) }} />
                       <code className="truncate font-mono text-[11.5px] leading-[1.45] text-muted-foreground">{step}</code>
                     </div>
                   ))}
@@ -908,7 +908,7 @@ function TypographySection({
             : "Drawn in the system's own tokens. The panel around it stays in Nyra's theme."
         }
       />
-      <div className="overflow-hidden rounded-[8px]" style={canvas}>
+      <div className="overflow-hidden rounded-at-8" style={canvas}>
         {fonts.map(([name, b], i) => (
           <TypeRow key={name} name={name} bundle={b} meta={meta} rule={i > 0 ? (rule ?? 'transparent') : undefined} />
         ))}
@@ -972,7 +972,7 @@ function SpacingSection({ theme, narrow, resolve }: FoundationProps): React.Reac
             <div key={name} className="flex items-center gap-3">
               <code className="w-24 shrink-0 font-mono text-[12.5px] leading-[1.5]">space.{name}</code>
               <span className="w-12 shrink-0 text-right font-mono text-[11.5px] text-muted-foreground tabular-nums">{v}px</span>
-              <span className="h-3 rounded-[2px]" style={{ width: Math.min(400, v * 2), background: resolve('$color.accent') ?? 'currentColor' }} />
+              <span className="h-3 rounded-at-2" style={{ width: Math.min(400, v * 2), background: resolve('$color.accent') ?? 'currentColor' }} />
             </div>
           ))}
       </div>
@@ -1013,10 +1013,10 @@ function ElevationSection({ theme, narrow, resolve }: FoundationProps): React.Re
         narrow={narrow}
         lead="The shadows a surface can lift with, drawn on the system's own background."
       />
-      <div className="mt-6 flex flex-wrap gap-5 rounded-[8px] p-5" style={{ background }}>
+      <div className="mt-6 flex flex-wrap gap-5 rounded-at-8 p-5" style={{ background }}>
         {Object.entries(theme.shadow).map(([name, v]) => (
           <div key={name} className="flex flex-col items-center gap-2" style={{ color: ink }}>
-            <div className="h-14 w-24 rounded-[8px]" style={{ boxShadow: v, background: resolve('$color.surface') ?? '#fff' }} />
+            <div className="h-14 w-24 rounded-at-8" style={{ boxShadow: v, background: resolve('$color.surface') ?? '#fff' }} />
             <code className="font-mono text-[12.5px] leading-[1.5]">{name}</code>
           </div>
         ))}
@@ -1037,7 +1037,7 @@ function BordersSection({ theme, narrow, resolve }: FoundationProps): React.Reac
       <div className="flex flex-wrap gap-4 pt-6">
         {Object.entries(theme.border).map(([name, b]) => (
           <div key={name} className="flex flex-col items-center gap-1.5">
-            <div className="h-12 w-20 rounded-[4px]" style={{ border: `${b.width}px ${b.style} ${resolve(b.color) ?? b.color}` }} />
+            <div className="h-12 w-20 rounded-at-4" style={{ border: `${b.width}px ${b.style} ${resolve(b.color) ?? b.color}` }} />
             <code className="font-mono text-[12.5px] leading-[1.5]">{name}</code>
           </div>
         ))}
@@ -1065,7 +1065,7 @@ function IconsSection({ icons, narrow }: { icons: SystemIcon[]; narrow: boolean 
         }
       />
       {icons.length === 0 ? (
-        <div className="mt-6 rounded-[8px] bg-muted px-4 py-6 text-center text-[12.5px] leading-[1.5] text-muted-foreground">
+        <div className="mt-6 rounded-at-8 bg-muted px-4 py-6 text-center text-[12.5px] leading-[1.5] text-muted-foreground">
           No file in the system draws an icon yet.
         </div>
       ) : (
@@ -1082,11 +1082,11 @@ function IconsSection({ icons, narrow }: { icons: SystemIcon[]; narrow: boolean 
 function IconCell({ name }: { name: string }): React.ReactElement {
   const glyph = hasIcon(name)
   return (
-    <div className="flex min-w-0 flex-col items-center gap-2 rounded-[8px] border px-2 py-3">
+    <div className="flex min-w-0 flex-col items-center gap-2 rounded-at-8 border px-2 py-3">
       {glyph ? (
         <NamedIcon name={name} className="size-5" />
       ) : (
-        <span aria-hidden className="size-5 rounded-[4px] border border-dashed border-danger" />
+        <span aria-hidden className="size-5 rounded-at-4 border border-dashed border-danger" />
       )}
       <code
         className={cn('max-w-full truncate font-mono text-[11.5px] leading-[1.45]', glyph ? 'text-muted-foreground' : 'text-danger')}
@@ -1158,7 +1158,7 @@ function FilePage({
           <Button
             variant="outline"
             onClick={() => onOpenFile(file.rel)}
-            className="h-auto gap-2 rounded-[8px] border-border-strong px-3 py-1 text-[12.5px] leading-[1.5] font-[550]"
+            className="h-auto gap-2 rounded-at-8 border-border-strong px-3 py-1 text-[12.5px] leading-[1.5] font-[550]"
           >
             <Frame className="size-[13px] text-muted-foreground" />
             Open on canvas
@@ -1212,7 +1212,7 @@ function FilePage({
       {component && component.props.length > 0 && (
         <>
           <SubHead title="Props" hint="Read from the component's definition, so this can't go stale." />
-          <div className="overflow-hidden rounded-[8px] border">
+          <div className="overflow-hidden rounded-at-8 border">
             <div className="flex gap-3 bg-muted px-3 py-2 text-[11.5px] leading-[1.4] font-medium text-muted-foreground">
               <span className="w-[84px] shrink-0">prop</span>
               <span className="w-[176px] shrink-0">type</span>
@@ -1240,7 +1240,7 @@ function FilePage({
           <div className={cn('flex gap-3', narrow && 'flex-col')}>
             {(['do', 'dont'] as const).map((k) =>
               usage?.[k]?.length ? (
-                <div key={k} className="flex min-w-0 flex-auto flex-col gap-2 rounded-[8px] border p-3 text-[12.5px] leading-[1.5]">
+                <div key={k} className="flex min-w-0 flex-auto flex-col gap-2 rounded-at-8 border p-3 text-[12.5px] leading-[1.5]">
                   <p className="flex items-center gap-2 font-[550]">
                     {k === 'do' ? <CircleCheck className="size-3.5 text-success" /> : <CircleX className="size-3.5 text-danger" />}
                     {k === 'do' ? 'Do' : "Don't"}
@@ -1281,7 +1281,7 @@ function UsedIn({ sys, name, onJump }: { sys: LoadedSystem; name: string; onJump
               key={file.rel}
               type="button"
               onClick={() => onJump(fileSection(file.rel))}
-              className="flex items-center gap-2 rounded-[4px] border px-2 py-1 hover:bg-accent"
+              className="flex items-center gap-2 rounded-at-4 border px-2 py-1 hover:bg-accent"
             >
               <Icon className="size-[13px] shrink-0 text-muted-foreground" />
               <span className="text-[12.5px] leading-[1.5]">{file.name}</span>
@@ -1337,11 +1337,11 @@ function Specimens({
   // A name says which is which; with one artboard there is nothing to tell apart.
   const named = boards.length > 1
   return (
-    <div ref={box} className={cn('flex flex-col gap-4', sunken && 'rounded-[8px] bg-muted p-4')}>
+    <div ref={box} className={cn('flex flex-col gap-4', sunken && 'rounded-at-8 bg-muted p-4')}>
       {out === null ? (
-        <div className={cn('h-24 animate-pulse rounded-[8px]', sunken ? 'bg-background' : 'bg-muted')} />
+        <div className={cn('h-24 animate-pulse rounded-at-8', sunken ? 'bg-background' : 'bg-muted')} />
       ) : !out.ok ? (
-        <pre className="overflow-auto rounded border border-destructive/40 bg-destructive/5 p-2 text-[11px] whitespace-pre-wrap text-destructive">
+        <pre className="overflow-auto rounded-at-4 border border-destructive/40 bg-destructive/5 p-2 text-[11px] whitespace-pre-wrap text-destructive">
           {out.issues.length ? out.issues.slice(0, 6).map((i) => `${i.code}: ${i.message}`).join('\n') : out.message}
         </pre>
       ) : (
@@ -1354,7 +1354,7 @@ function Specimens({
             {sunken ? (
               <ScaledArtboard artboard={a} theme={out.theme} maxWidth={Math.max(200, width)} maxHeight={Infinity} />
             ) : (
-              <div className="overflow-hidden rounded-[8px] border">
+              <div className="overflow-hidden rounded-at-8 border">
                 <ScaledArtboard artboard={a} theme={out.theme} maxWidth={Math.max(200, width - 2)} maxHeight={Infinity} />
               </div>
             )}

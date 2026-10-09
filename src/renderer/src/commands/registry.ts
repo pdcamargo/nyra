@@ -23,6 +23,7 @@ import {
   Minimize2,
   Monitor,
   Moon,
+  Palette,
   FolderInput,
   FolderGit2,
   GitFork,
@@ -71,6 +72,7 @@ import {
   useSessionsStore
 } from '../store/sessions'
 import { useWorkspacesStore } from '../store/workspaces'
+import { editActiveTheme } from '../lib/themeActions'
 import { cycleWorkspace, openLogin, switchWorkspace } from '../lib/workspaces'
 import { usePanelTabsStore, panelTabsFor } from '../store/panelTabs'
 import { startBrowserTab, toggleDeviceMode } from '../components/browser/useBrowserSession'
@@ -146,6 +148,7 @@ export type CommandId =
   | 'app.theme.light'
   | 'app.theme.dark'
   | 'app.theme.system'
+  | 'app.theme.edit'
   | 'view.zoomIn'
   | 'view.zoomOut'
   | 'view.zoomReset'
@@ -987,6 +990,17 @@ export const COMMANDS: Command[] = [
     icon: Monitor,
     palette: true,
     run: () => useSettingsStore.getState().updateSettings({ theme: 'system' })
+  },
+  // Opens on what is on screen. A built-in theme opens as a copy — they are
+  // never edited in place — so this is also the quickest way to start one.
+  {
+    id: 'app.theme.edit',
+    label: 'Edit theme',
+    group: 'View',
+    defaultChord: null,
+    icon: Palette,
+    palette: true,
+    run: () => editActiveTheme()
   },
   {
     id: 'view.zoomIn',

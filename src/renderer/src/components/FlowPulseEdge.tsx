@@ -44,7 +44,7 @@ export function FlowPulseEdge({
         <EdgeLabelRenderer>
           <div
             // `nodrag nopan` or the label swallows a drag on the canvas beneath it.
-            className="nodrag nopan pointer-events-none absolute rounded bg-background px-1 py-px font-mono text-[9.5px] text-muted-foreground"
+            className="nodrag nopan pointer-events-none absolute rounded-at-4 bg-background px-1 py-px font-mono text-[9.5px] text-muted-foreground"
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
             {label}

@@ -32,7 +32,7 @@ export default function AnnotationTray({ sessionId }: { sessionId: string | null
   }
 
   return (
-    <div className="mb-2 rounded-[10px] border bg-background p-1.5 text-[12.5px]">
+    <div className="mb-2 rounded-at-10 border bg-background p-1.5 text-[12.5px]">
       <div className="flex items-center gap-1.5 px-1.5 pb-1">
         <button
           type="button"
@@ -71,7 +71,7 @@ function Row({ sessionId, annotation: a, n }: { sessionId: string; annotation: C
       ...(edit ? { editId: a.id } : {})
     })
   return (
-    <div className="group/row flex items-start gap-2.5 rounded-[8px] px-1.5 py-1.5 hover:bg-accent/60">
+    <div className="group/row flex items-start gap-2.5 rounded-at-8 px-1.5 py-1.5 hover:bg-accent/60">
       <span className="mt-px flex size-[18px] shrink-0 items-center justify-center rounded-full bg-info text-[11px] font-semibold text-info-foreground tabular-nums">
         {n}
       </span>

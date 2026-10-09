@@ -31,7 +31,7 @@ export function Kbd({ chord, className }: { chord: Chord; className?: string }):
           // rotated arrow. Nothing in the app set the attribute, so those rules
           // had never once matched.
           data-slot="kbd"
-          className="inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] border border-current/25 bg-current/10 px-1 font-sans text-[10px] leading-none text-current/75"
+          className="inline-flex h-4 min-w-4 items-center justify-center rounded-at-3 border border-current/25 bg-current/10 px-1 font-sans text-[10px] leading-none text-current/75"
         >
           {part}
         </kbd>

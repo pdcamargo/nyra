@@ -84,7 +84,7 @@ export default function CopyBlocksModal({ onClose }: { onClose: () => void }): R
                 </pre>
                 <button
                   onClick={() => handleCopy(block)}
-                  className={`shrink-0 rounded px-2.5 py-1 text-[11px] font-medium border transition-colors mt-0.5 ${
+                  className={`shrink-0 rounded-at-4 px-2.5 py-1 text-[11px] font-medium border transition-colors mt-0.5 ${
                     copiedIndex === block.index
                       ? 'border-success/30 text-success/80 bg-success/10'
                       : 'border-border text-muted-foreground hover:text-foreground hover:border-border-strong'

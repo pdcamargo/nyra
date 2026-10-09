@@ -85,7 +85,7 @@ function CrumbMenu({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        className={`shrink-0 truncate rounded px-1 py-0.5 transition-colors hover:bg-accent/50 aria-expanded:bg-accent/50 ${
+        className={`shrink-0 truncate rounded-at-4 px-1 py-0.5 transition-colors hover:bg-accent/50 aria-expanded:bg-accent/50 ${
           isLast ? 'text-foreground' : 'text-muted-foreground'
         }`}
       >

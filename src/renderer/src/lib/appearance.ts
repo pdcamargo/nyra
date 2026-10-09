@@ -27,6 +27,21 @@ export const FONT_WEIGHTS: { value: number; label: string }[] = [
   { value: 600, label: 'Semibold' }
 ]
 
+/**
+ * Appearance → Corners, in px. The default is the stylesheet's 0.84rem; the
+ * ceiling is where small chips start turning into pills, which is a change of
+ * meaning rather than of style.
+ */
+export const DEFAULT_CORNER_RADIUS = 13.44
+export const MIN_CORNER_RADIUS = 0
+export const MAX_CORNER_RADIUS = 20
+
+/** The radius as the scale the stylesheet multiplies by. */
+export function cornerScale(px: number): number {
+  const clamped = Math.min(MAX_CORNER_RADIUS, Math.max(MIN_CORNER_RADIUS, Number.isFinite(px) ? px : DEFAULT_CORNER_RADIUS))
+  return Math.round((clamped / DEFAULT_CORNER_RADIUS) * 10000) / 10000
+}
+
 /** Type sizes offered for the conversation, in px. */
 export const CONTENT_FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 20] as const
 
@@ -63,6 +78,7 @@ export type AppearanceSettings = Pick<
   | 'codeFontWeight'
   | 'contentFontSize'
   | 'uiFontSize'
+  | 'cornerRadius'
 >
 
 export function appearanceOf(settings: NyraSettings): AppearanceSettings {
@@ -74,7 +90,8 @@ export function appearanceOf(settings: NyraSettings): AppearanceSettings {
     codeFont: settings.codeFont,
     codeFontWeight: settings.codeFontWeight,
     contentFontSize: settings.contentFontSize,
-    uiFontSize: settings.uiFontSize
+    uiFontSize: settings.uiFontSize,
+    cornerRadius: settings.cornerRadius
   }
 }
 
@@ -95,6 +112,7 @@ export function applyAppearance(s: AppearanceSettings): void {
   root.setProperty('--code-font-weight', String(s.codeFontWeight))
   root.setProperty('--content-font-size', `${s.contentFontSize}px`)
   root.setProperty('--ui-font-size', `${s.uiFontSize}px`)
+  root.setProperty('--corner-scale', String(cornerScale(s.cornerRadius)))
 }
 
 /** The zustand persist key for the settings store. Renaming it drops user data. */
@@ -121,7 +139,8 @@ export function bootAppearance(): void {
       codeFont: typeof stored.codeFont === 'string' ? stored.codeFont : '',
       codeFontWeight: Number(stored.codeFontWeight) || 400,
       contentFontSize: Number(stored.contentFontSize) || 15,
-      uiFontSize: Number(stored.uiFontSize) || 13
+      uiFontSize: Number(stored.uiFontSize) || 13,
+      cornerRadius: typeof stored.cornerRadius === 'number' ? stored.cornerRadius : DEFAULT_CORNER_RADIUS
     })
   } catch {
     // Unparseable or unavailable storage is not worth failing a boot over.

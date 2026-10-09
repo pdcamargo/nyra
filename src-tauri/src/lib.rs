@@ -42,6 +42,7 @@ mod spellcheck;
 mod subagents;
 mod system_access;
 mod terminal;
+mod themes;
 mod transcripts;
 mod util;
 mod webhook_server;
@@ -215,6 +216,10 @@ pub fn run() {
             commands::system_access,
             commands::system_access_fix,
             fonts::fonts_list,
+            themes::themes_list,
+            themes::themes_save,
+            themes::themes_delete,
+            themes::themes_dir_path,
             commands::fs_read_file,
             commands::fs_read_image,
             commands::fs_revert_file,

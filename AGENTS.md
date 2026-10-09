@@ -109,6 +109,23 @@ toggle with `bg-accent` over `bg-sidebar`, four thousandths of a lightness step
 apart, so nothing said which panel was open. A selected control needs a fill *and*
 a foreground step.
 
+### Themes
+
+Themes live in `lib/themes.ts`; user themes are files in `~/.nyra/themes/`.
+A theme is one mode and sets at most fifteen colours; everything else is
+derived there, and Nyra Light/Dark apply *no* overrides, so `index.css` stays
+the source of truth for the shipped look.
+
+- **A surface a theme should reach reads a theme token**: `bg-sidebar`,
+  `bg-side-panel`, `bg-composer`, `bg-code`, `bg-bubble`. A new surface that
+  borrows someone else's (the side panel was `bg-sidebar`) cannot be themed
+  apart from it. Tag it `data-theme-token="<key>"` too, or the editor's pick
+  tool cannot find it.
+- **Radii follow Appearance → Corners.** Use the `rounded-*` tiers, or
+  `rounded-at-N` for a hand-picked size (N px at the default, scaled with the
+  setting). A raw `rounded-[Npx]` or bare `rounded` stays put while everything
+  around it moves. The checkbox is the deliberate exception.
+
 ### Elevation
 
 The vendored `--shadow-*` ladder is entirely `hsl(0 0% 0% / 0.00)` — `shadow-md`

@@ -111,8 +111,13 @@
   --sidebar-border: oklch(0.9219 0 0);
   --sidebar-ring: oklch(0.7090 0 0);
   /* 20% down from the generator's 1.05rem: that value read too round at the
-   * sizes Nyra actually uses. Everything else derives from this one knob. */
-  --radius: 0.84rem;
+   * sizes Nyra actually uses. Everything else derives from this one knob.
+   *
+   * --corner-scale is Appearance → Corners, set on <html> by applyAppearance:
+   * the chosen radius over this default. A scale rather than a length so the
+   * fixed sizes elsewhere (`rounded-at-8`, the few raw border-radius rules
+   * below) can follow it too — CSS cannot divide one length by another. */
+  --radius: calc(0.84rem * var(--corner-scale, 1));
   --shadow-2xs: 0px 1px 0px 0px hsl(0 0% 0% / 0.00);
   --shadow-xs: 0px 1px 0px 0px hsl(0 0% 0% / 0.00);
   --shadow-sm: 0px 1px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
@@ -435,6 +440,77 @@ html:not(.dark) .nyra-on-bubble {
 }
 
 /*
+ * Three surfaces a theme can set that used to borrow someone else's token.
+ *
+ * The side panel was --sidebar, the composer was --background in light and
+ * --muted in dark, and a code block was --muted. Each is its own token now so a
+ * theme can move one without dragging the others along; the defaults are
+ * exactly what they borrowed, so Nyra's own look does not move.
+ */
+:root {
+  --side-panel: var(--sidebar);
+  --composer: var(--background);
+  --code: var(--muted);
+}
+
+.dark {
+  --composer: var(--muted);
+}
+
+/*
+ * The theme editor's island: Nyra's own colours inside a window painted in the
+ * draft (see `islandStyle`). The base tokens arrive as inline properties on the
+ * element; these are the ones the stylesheet derives from them on :root, which
+ * would otherwise arrive here already computed from the draft's colours.
+ */
+.nyra-theme-island {
+  --border-strong: color-mix(in oklab, var(--border) 65%, var(--foreground) 35%);
+  --separator: color-mix(in oklab, var(--foreground) 7%, transparent);
+  --separator-subtle: color-mix(in oklab, var(--foreground) 4%, transparent);
+  --scrollbar-thumb: color-mix(in oklab, var(--foreground) 30%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklab, var(--foreground) 55%, transparent);
+  color: var(--foreground);
+}
+
+.dark .nyra-theme-island {
+  --separator: color-mix(in oklab, var(--foreground) 10%, transparent);
+  --separator-subtle: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --scrollbar-thumb: color-mix(in oklab, var(--foreground) 22%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklab, var(--foreground) 45%, transparent);
+}
+
+/* Picking a colour off the window: every surface is a target, nothing clicks. */
+html.nyra-picking,
+html.nyra-picking * {
+  cursor: crosshair !important;
+}
+
+html.nyra-picking [data-theme-editor],
+html.nyra-picking [data-theme-editor] * {
+  cursor: auto !important;
+}
+
+/*
+ * A fixed radius that still follows Appearance → Corners: `rounded-at-8` is
+ * 8px at the default corners and scales with them. For the sizes that were
+ * hand-picked in px and do not sit on a tier — a 4px kbd, an 8px card — so that
+ * moving the slider does not leave them behind.
+ */
+@utility rounded-at-* {
+  border-radius: calc(--value(integer) * 1px * var(--corner-scale, 1));
+}
+
+@utility rounded-t-at-* {
+  border-top-left-radius: calc(--value(integer) * 1px * var(--corner-scale, 1));
+  border-top-right-radius: calc(--value(integer) * 1px * var(--corner-scale, 1));
+}
+
+@utility rounded-b-at-* {
+  border-bottom-left-radius: calc(--value(integer) * 1px * var(--corner-scale, 1));
+  border-bottom-right-radius: calc(--value(integer) * 1px * var(--corner-scale, 1));
+}
+
+/*
  * Fonts live in a plain `@theme`, not `@theme inline`.
  *
  * With `inline`, Tailwind resolves the variable at build time and bakes the
@@ -505,6 +581,10 @@ html:not(.dark) .nyra-on-bubble {
 
   --color-bubble: var(--bubble);
   --color-bubble-foreground: var(--bubble-foreground);
+
+  --color-side-panel: var(--side-panel);
+  --color-composer: var(--composer);
+  --color-code: var(--code);
 
   --color-rail-hover: var(--rail-hover);
   --color-rail-selected: var(--rail-selected);
@@ -1272,7 +1352,7 @@ mark.nyra-search-highlight-active {
   align-items: center;
   gap: 0.25em;
   padding: 0.05em 0.45em;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale, 1));
   background-color: color-mix(in oklab, var(--info) 18%, transparent);
   color: var(--info);
   font-family: var(--font-mono);
@@ -1306,7 +1386,7 @@ mark.nyra-search-highlight-active {
    * is what a full path did before the chip showed a name at all. */
   white-space: nowrap;
   padding: 0.05em 0.45em;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale, 1));
   background-color: color-mix(in oklab, var(--design) 18%, transparent);
   color: var(--design);
   font-family: var(--font-mono);
@@ -1337,7 +1417,7 @@ mark.nyra-search-highlight-active {
   align-items: center;
   gap: 0.3em;
   padding: 0.05em 0.45em;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale, 1));
   background-color: color-mix(in oklab, var(--warning) 18%, transparent);
   color: var(--warning);
   font-size: 0.88em;
@@ -1394,14 +1474,14 @@ mark.nyra-search-highlight-active {
 .cm-content .nyra-var-known * {
   color: var(--info);
   background-color: color-mix(in oklab, var(--info) 12%, transparent);
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale, 1));
   padding: 0.05em 0.15em;
 }
 .cm-content .nyra-var-unknown,
 .cm-content .nyra-var-unknown * {
   color: var(--warning);
   background-color: color-mix(in oklab, var(--warning) 12%, transparent);
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale, 1));
   padding: 0.05em 0.15em;
   text-decoration: underline wavy color-mix(in oklab, var(--warning) 60%, transparent);
   text-underline-offset: 2px;
@@ -1437,7 +1517,7 @@ mark.nyra-search-highlight-active {
 .nyra-variable-field .cm-tooltip.cm-tooltip-lint {
   background-color: var(--popover);
   border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: max(0px, calc(var(--radius) - 2px));
   color: var(--foreground);
 }
 .nyra-variable-field .cm-diagnostic {

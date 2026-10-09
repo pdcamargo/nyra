@@ -75,7 +75,7 @@ export default function CommentComposer({
       ref={box}
       role="dialog"
       aria-label={kind === 'feedback' ? 'Feedback on this design' : 'Comment'}
-      className="fixed z-50 flex flex-col gap-2 rounded-[12px] border bg-popover p-3 text-[12.5px] text-popover-foreground shadow-panel"
+      className="fixed z-50 flex flex-col gap-2 rounded-at-12 border bg-popover p-3 text-[12.5px] text-popover-foreground shadow-panel"
       style={{ left, top, width: WIDTH }}
     >
       <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
@@ -102,14 +102,14 @@ export default function CommentComposer({
           }
         }}
         placeholder={kind === 'feedback' ? 'What should change?' : 'What about this?'}
-        className="min-h-17 resize-none rounded-[8px] border bg-background p-2 text-[12.5px] leading-[1.5] outline-none focus-visible:border-design-accent focus-visible:ring-1 focus-visible:ring-design-accent"
+        className="min-h-17 resize-none rounded-at-8 border bg-background p-2 text-[12.5px] leading-[1.5] outline-none focus-visible:border-design-accent focus-visible:ring-1 focus-visible:ring-design-accent"
       />
       {error && <p className="text-danger">{error}</p>}
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-muted-foreground">{composerKeys()}</span>
         <Button
           size="sm"
-          className={`h-7 rounded-[8px] px-3 text-[12.5px] font-[550] ${DESIGN_PRIMARY}`}
+          className={`h-7 rounded-at-8 px-3 text-[12.5px] font-[550] ${DESIGN_PRIMARY}`}
           disabled={!text.trim() || busy}
           onClick={() => void send()}
         >

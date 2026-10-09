@@ -144,6 +144,7 @@ export default function TitleBar(): React.JSX.Element {
         if (!isBareTitleBar(e.target)) return
         void window.api.appWindow.toggleMaximize()
       }}
+      data-theme-token="sidebar"
       className={`flex h-[38px] shrink-0 select-none items-center gap-1 border-b border-border/55 bg-sidebar ${
         LEADING_INSET[controls]
       } ${controls === 'drawn' ? 'pr-0' : 'pr-2'}`}

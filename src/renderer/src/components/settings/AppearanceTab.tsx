@@ -10,8 +10,10 @@ import {
   UI_FONT_SIZES
 } from '../../lib/appearance'
 import { MAX_ZOOM, MIN_ZOOM, nextZoom } from '../../lib/zoom'
-import { type ChatWidth, type ThemePreference } from '../../../../shared/types'
+import { type ChatWidth } from '../../../../shared/types'
 import FontPicker from './FontPicker'
+import ThemeSection from './ThemeSection'
+import CornersSection from './CornersSection'
 import { SectionLabel, SectionNote, SegmentedControl, Select, SettingRow } from './primitives'
 
 export default function AppearanceTab(): React.JSX.Element {
@@ -25,18 +27,7 @@ export default function AppearanceTab(): React.JSX.Element {
 
   return (
     <>
-      <SectionLabel>Theme</SectionLabel>
-      <SettingRow label="Appearance">
-        <SegmentedControl
-          value={settings.theme}
-          onChange={(v) => update({ theme: v as ThemePreference })}
-          options={[
-            { value: 'light', label: 'Light' },
-            { value: 'dark', label: 'Dark' },
-            { value: 'system', label: 'System' }
-          ]}
-        />
-      </SettingRow>
+      <ThemeSection />
 
       <SectionLabel>Fonts</SectionLabel>
       <SectionNote>
@@ -137,6 +128,8 @@ export default function AppearanceTab(): React.JSX.Element {
           </button>
         </div>
       </SettingRow>
+
+      <CornersSection />
 
       <SectionLabel>Layout</SectionLabel>
       <SettingRow label="Chat width" hint="how wide the conversation is allowed to get">

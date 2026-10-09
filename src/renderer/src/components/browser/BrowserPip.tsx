@@ -128,7 +128,7 @@ export default function BrowserPip(): React.JSX.Element | null {
               // the single loudest complaint about their browser. This one closes.
               aria-label="Hide browser preview"
               onClick={() => dismissPip(sessionId, true)}
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="rounded-at-4 p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <X className="size-3" />
             </button>

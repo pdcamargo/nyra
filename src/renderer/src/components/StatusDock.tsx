@@ -53,7 +53,7 @@ export default function StatusDock({ sessionId }: { sessionId: string }): React.
               type="button"
               aria-label="Close session status"
               onClick={() => close(sessionId)}
-              className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              className="ml-auto rounded-at-4 p-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             >
               <X className="size-3.5" />
             </button>

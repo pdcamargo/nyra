@@ -62,7 +62,7 @@ export default function DesktopPip(): React.JSX.Element | null {
   if (!sessionId || !seen) return null
   const title = seen.title || 'Untitled window'
   const icon = seen.icon ? (
-    <img src={seen.icon} alt="" className="size-3 shrink-0 rounded-[3px]" />
+    <img src={seen.icon} alt="" className="size-3 shrink-0 rounded-at-3" />
   ) : (
     <AppWindow className="size-3 shrink-0 text-muted-foreground" />
   )
@@ -81,7 +81,7 @@ export default function DesktopPip(): React.JSX.Element | null {
               type="button"
               aria-label="Hide preview"
               onClick={() => dismissPip(sessionId, true)}
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="rounded-at-4 p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <X className="size-3" />
             </button>

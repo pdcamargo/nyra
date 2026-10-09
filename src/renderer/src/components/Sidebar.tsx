@@ -110,6 +110,7 @@ export default function Sidebar(): React.JSX.Element {
     // exactly as small as it was.
     <aside
       style={{ width, fontSize: 'var(--ui-font-size, 13px)' }}
+      data-theme-token="sidebar"
       className="flex h-full shrink-0 flex-col bg-sidebar border-r border-border/55"
     >
       {/* The wordmark sits here rather than only in the title bar: the rail is
@@ -662,7 +663,7 @@ function ProjectMenu({
             <DropdownMenuSubContent className="min-w-44">
               {others.map((w) => (
                 <DropdownMenuItem key={w.id} onSelect={() => moveProjectToWorkspace(project.id, w.id)}>
-                  <WorkspaceAvatar workspace={w} className="size-4 rounded-[4px] text-[0.6em]" />
+                  <WorkspaceAvatar workspace={w} className="size-4 rounded-at-4 text-[0.6em]" />
                   <span className="min-w-0 truncate">{w.name}</span>
                 </DropdownMenuItem>
               ))}
@@ -1370,7 +1371,7 @@ function FlowsList(): React.JSX.Element {
           type="button"
           onClick={() => create(projectId)}
           aria-label={`New flow in ${where}`}
-          className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:bg-accent hover:text-foreground/80 group-hover:opacity-100 focus-visible:opacity-100"
+          className="flex size-5 shrink-0 items-center justify-center rounded-at-4 text-muted-foreground opacity-0 transition-all hover:bg-accent hover:text-foreground/80 group-hover:opacity-100 focus-visible:opacity-100"
         >
           <Plus className="size-3" />
         </button>

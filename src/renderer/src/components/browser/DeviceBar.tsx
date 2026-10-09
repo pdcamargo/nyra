@@ -214,7 +214,7 @@ function SizeField({
           ref.current?.blur()
         }
       }}
-      className="h-6 w-12 shrink-0 rounded border border-border/70 bg-secondary/50 px-1 text-right font-mono text-[11px] text-foreground outline-none transition-colors hover:border-border focus:border-ring focus:bg-secondary"
+      className="h-6 w-12 shrink-0 rounded-at-4 border border-border/70 bg-secondary/50 px-1 text-right font-mono text-[11px] text-foreground outline-none transition-colors hover:border-border focus:border-ring focus:bg-secondary"
     />
   )
 }

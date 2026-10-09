@@ -181,6 +181,7 @@ const EVENT_NAMES = [
   'nyra:update-available',
   'nyra:update-progress',
   'nyra:designs-changed',
+  'nyra:themes-changed',
   'nyra:library-changed',
   'nyra:questionnaires-changed',
   'nyra:comments-changed',
@@ -533,6 +534,17 @@ export const api = {
   fonts: {
     /** Every family installed on this machine. Cached on the Rust side. */
     list: () => call<FontFamily[]>('fonts_list')
+  },
+
+  /** User themes, one file each in `~/.nyra/themes/`. Raw JSON both ways: the
+   *  renderer owns the schema and validates with `parseTheme`. */
+  themes: {
+    list: () => call<unknown[]>('themes_list'),
+    save: (id: string, body: string) =>
+      call<{ success?: boolean; error?: string }>('themes_save', { id, body }),
+    remove: (id: string) => call<{ success?: boolean; error?: string }>('themes_delete', { id }),
+    dirPath: () => call<string>('themes_dir_path'),
+    onChanged: (callback: () => void) => on<unknown>('nyra:themes-changed', () => callback())
   },
 
   /**

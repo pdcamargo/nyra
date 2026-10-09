@@ -206,7 +206,7 @@ export default function QuestionnaireTab({ tab }: { tab: QuestionnairePanelTab }
   const sentBefore = sent ?? (q.sent?.length ? 'earlier' : null)
   const sendLabel = answered === 0 ? 'Let Claude decide' : `Send ${answered} answer${answered === 1 ? '' : 's'}`
   const sendButton = (
-    <Button size="sm" className={`h-7 rounded-[8px] px-3 text-[12.5px] font-[550] ${DESIGN_PRIMARY}`} onClick={() => void send()}>
+    <Button size="sm" className={`h-7 rounded-at-8 px-3 text-[12.5px] font-[550] ${DESIGN_PRIMARY}`} onClick={() => void send()}>
       {sendLabel}
     </Button>
   )
@@ -249,7 +249,7 @@ export default function QuestionnaireTab({ tab }: { tab: QuestionnairePanelTab }
                   type="button"
                   onClick={() => setSection(i)}
                   className={cn(
-                    'flex items-center gap-2 rounded-[4px] px-2 py-1 text-left text-[12.5px]',
+                    'flex items-center gap-2 rounded-at-4 px-2 py-1 text-left text-[12.5px]',
                     state === 'now'
                       ? 'bg-design-accent/10 font-[550] text-design-accent'
                       : cn('hover:bg-foreground/5', state === 'done' ? 'text-muted-foreground' : 'text-foreground')
@@ -318,7 +318,7 @@ export default function QuestionnaireTab({ tab }: { tab: QuestionnairePanelTab }
                   variant="ghost"
                   size="sm"
                   disabled={section === 0}
-                  className="h-7 rounded-[8px] px-2 text-[12.5px] font-[550] text-muted-foreground"
+                  className="h-7 rounded-at-8 px-2 text-[12.5px] font-[550] text-muted-foreground"
                   onClick={() => setSection((n) => n - 1)}
                 >
                   ← {sections[section - 1]?.name ?? ''}
@@ -327,7 +327,7 @@ export default function QuestionnaireTab({ tab }: { tab: QuestionnairePanelTab }
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-7 rounded-[8px] border-border-strong px-3 text-[12.5px] font-[550]"
+                    className="h-7 rounded-at-8 border-border-strong px-3 text-[12.5px] font-[550]"
                     onClick={() => setSection((n) => n + 1)}
                   >
                     {sections[section + 1]?.name} →
@@ -378,7 +378,7 @@ function QuestionCard({
     <section
       data-question={question.id}
       className={cn(
-        'flex flex-col gap-3 rounded-[12px] border bg-background p-4 transition-[border-color,box-shadow] focus-within:border-design-accent',
+        'flex flex-col gap-3 rounded-at-12 border bg-background p-4 transition-[border-color,box-shadow] focus-within:border-design-accent',
         flash && 'border-design-accent ring-4 ring-design-accent/15'
       )}
     >
@@ -386,7 +386,7 @@ function QuestionCard({
         {(question.chip || question.kind === 'multi') && (
           <div className="flex items-center gap-2">
             {question.chip && (
-              <span className="rounded-[4px] bg-muted px-2 py-px text-[11.5px] font-medium tracking-[0.5px] text-muted-foreground uppercase">
+              <span className="rounded-at-4 bg-muted px-2 py-px text-[11.5px] font-medium tracking-[0.5px] text-muted-foreground uppercase">
                 {question.chip}
               </span>
             )}
@@ -397,7 +397,7 @@ function QuestionCard({
       </div>
 
       {exploring ? (
-        <div className="flex items-center gap-3 rounded-[8px] border border-dashed border-design-accent/40 bg-design-accent/10 p-3 text-[12.5px]">
+        <div className="flex items-center gap-3 rounded-at-8 border border-dashed border-design-accent/40 bg-design-accent/10 p-3 text-[12.5px]">
           <LayoutGrid className="size-4 shrink-0 text-design-accent" />
           <span>Claude will draw a few directions, then ask you to pick between them.</span>
         </div>
@@ -411,7 +411,7 @@ function QuestionCard({
               onChange={(e) => onAnswer(e.target.value ? { kind: 'typed', text: e.target.value } : null)}
               placeholder={question.kind === 'text' ? (question.placeholder ?? 'Your answer') : 'In your own words'}
               rows={question.kind === 'text' ? 4 : 3}
-              className="w-full resize-y rounded-[8px] border bg-background px-2 py-2 text-[12.5px] leading-[1.5] outline-none focus:border-design-accent focus:ring-1 focus:ring-design-accent"
+              className="w-full resize-y rounded-at-8 border bg-background px-2 py-2 text-[12.5px] leading-[1.5] outline-none focus:border-design-accent focus:ring-1 focus:ring-design-accent"
             />
           ) : question.kind === 'scale' ? (
             <ScaleInput question={question} answer={answer} onAnswer={onAnswer} />
@@ -614,7 +614,7 @@ function PreviewOption({
         aria-checked={on}
         onClick={onClick}
         className={cn(
-          'flex w-full flex-col gap-2 rounded-[8px] border p-3 text-left',
+          'flex w-full flex-col gap-2 rounded-at-8 border p-3 text-left',
           on ? 'border-design-accent bg-design-accent/10' : 'bg-background hover:bg-muted/40'
         )}
       >
@@ -633,7 +633,7 @@ function PreviewOption({
               type="button"
               aria-label="Open on the canvas"
               onClick={() => void openDesignInPanel(drawing)}
-              className="absolute top-4 right-4 rounded-[4px] border bg-background p-1 text-muted-foreground shadow-panel hover:text-foreground"
+              className="absolute top-4 right-4 rounded-at-4 border bg-background p-1 text-muted-foreground shadow-panel hover:text-foreground"
             >
               <PanelRightOpen className="size-3.5" />
             </button>
@@ -668,7 +668,7 @@ function ListOption({
       aria-checked={on}
       onClick={onClick}
       className={cn(
-        'flex items-start rounded-[8px] border text-left',
+        'flex items-start rounded-at-8 border text-left',
         roomy ? 'gap-3 p-4' : 'gap-2 p-3',
         grow && 'min-w-0 flex-1 basis-0',
         on ? 'border-design-accent bg-design-accent/10' : 'bg-background hover:bg-muted/40'
@@ -699,11 +699,11 @@ function CustomColor({ value, onPick }: { value: string | null; onPick: (hex: st
   return (
     <div
       className={cn(
-        'flex min-w-[120px] flex-1 basis-0 flex-col gap-2 rounded-[8px] border border-dashed p-3',
+        'flex min-w-[120px] flex-1 basis-0 flex-col gap-2 rounded-at-8 border border-dashed p-3',
         on ? 'border-design-accent bg-design-accent/10' : 'border-border-strong bg-background'
       )}
     >
-      <span className="flex h-7 items-center gap-2 rounded-[4px] border bg-background px-2">
+      <span className="flex h-7 items-center gap-2 rounded-at-4 border bg-background px-2">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -751,7 +751,7 @@ function Preview({ preview }: { preview: OptionPreview }): React.ReactElement | 
   if ('artboard' in preview && typeof preview.artboard === 'string') return <ArtboardThumb at={preview.artboard} />
   if ('palette' in preview && Array.isArray(preview.palette)) {
     return (
-      <span className="flex h-7 overflow-hidden rounded-[4px]">
+      <span className="flex h-7 overflow-hidden rounded-at-4">
         {preview.palette.filter(isHex).map((c, i) => (
           <span key={i} className="flex-1" style={{ background: c }} />
         ))}
@@ -759,11 +759,11 @@ function Preview({ preview }: { preview: OptionPreview }): React.ReactElement | 
     )
   }
   if ('swatch' in preview && typeof preview.swatch === 'string' && isHex(preview.swatch)) {
-    return <span className="h-7 rounded-[4px] ring-1 ring-border ring-inset" style={{ background: preview.swatch }} />
+    return <span className="h-7 rounded-at-4 ring-1 ring-border ring-inset" style={{ background: preview.swatch }} />
   }
   if ('radius' in preview && typeof preview.radius === 'number') {
     return (
-      <span className="flex h-16 items-center justify-center rounded-[4px] bg-muted">
+      <span className="flex h-16 items-center justify-center rounded-at-4 bg-muted">
         <span className="h-10 w-[72px] bg-gradient-to-br from-design-accent/40 to-design-accent" style={{ borderRadius: preview.radius }} />
       </span>
     )
@@ -771,10 +771,10 @@ function Preview({ preview }: { preview: OptionPreview }): React.ReactElement | 
   if ('density' in preview) {
     const gap = preview.density === 'compact' ? 4 : preview.density === 'spacious' ? 20 : 12
     return (
-      <span className="flex h-16 flex-col justify-center overflow-hidden rounded-[4px] border bg-background px-2" style={{ gap }}>
+      <span className="flex h-16 flex-col justify-center overflow-hidden rounded-at-4 border bg-background px-2" style={{ gap }}>
         {/* Three rows: four at the spacious gap would not fit the box. */}
         {[70, 55, 62].map((w) => (
-          <span key={w} className="h-1.5 shrink-0 rounded-[4px] bg-muted-foreground/30" style={{ width: `${w}%` }} />
+          <span key={w} className="h-1.5 shrink-0 rounded-at-4 bg-muted-foreground/30" style={{ width: `${w}%` }} />
         ))}
       </span>
     )
@@ -785,7 +785,7 @@ function Preview({ preview }: { preview: OptionPreview }): React.ReactElement | 
     const size = Math.min(preview.type.size, 34)
     const oneLine = size > 20
     return (
-      <span className="block h-16 overflow-hidden rounded-[4px] border bg-background p-2">
+      <span className="block h-16 overflow-hidden rounded-at-4 border bg-background p-2">
         <span
           className={cn('block', oneLine ? 'truncate' : 'line-clamp-2')}
           style={{ fontSize: size, lineHeight: 1.35, fontWeight: preview.type.weight, fontFamily: preview.type.family }}
@@ -832,7 +832,7 @@ function ArtboardThumb({ at }: { at: string }): React.ReactElement {
   const board =
     loaded?.kind === 'ok' ? (artboard ? loaded.doc.artboards.find((a) => a.id === artboard) : loaded.doc.artboards[0]) : undefined
   return (
-    <span ref={frame} className="flex min-h-24 items-center justify-center overflow-hidden rounded-[4px] border bg-muted">
+    <span ref={frame} className="flex min-h-24 items-center justify-center overflow-hidden rounded-at-4 border bg-muted">
       {loaded === null ? (
         <span className="text-[11.5px] font-medium text-muted-foreground">Drawing…</span>
       ) : board && loaded.kind === 'ok' && width > 0 ? (
@@ -851,7 +851,7 @@ function ArtboardThumb({ at }: { at: string }): React.ReactElement {
 function RadiusPreview({ radius }: { radius: number }): React.ReactElement {
   const r = Math.max(0, radius)
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-[8px] bg-muted p-3">
+    <div className="flex flex-wrap items-center gap-3 rounded-at-8 bg-muted p-3">
       <span className="bg-design-accent px-3 py-1 text-[12.5px] font-[550] text-design-accent-foreground" style={{ borderRadius: r }}>
         Export
       </span>
@@ -893,7 +893,7 @@ function ScaleInput({
   return (
     <div className="flex flex-col gap-2">
       {s.gradient && isHex(s.gradient[0]) && isHex(s.gradient[1]) && (
-        <span className="h-5 rounded-[4px]" style={{ background: `linear-gradient(to right, ${s.gradient[0]}, ${s.gradient[1]})` }} />
+        <span className="h-5 rounded-at-4" style={{ background: `linear-gradient(to right, ${s.gradient[0]}, ${s.gradient[1]})` }} />
       )}
       <input
         type="range"
@@ -950,7 +950,7 @@ function ColorInput({
           type="color"
           value={isHex(swatch) && swatch.length === 7 ? swatch : '#888888'}
           onChange={(e) => onAnswer({ kind: 'value', value: e.target.value.toUpperCase() })}
-          className="size-7 cursor-pointer rounded-[4px] border bg-transparent"
+          className="size-7 cursor-pointer rounded-at-4 border bg-transparent"
           aria-label="Pick a colour"
         />
         <input
@@ -961,7 +961,7 @@ function ColorInput({
             if (isHex(e.target.value)) onAnswer({ kind: 'value', value: e.target.value.toUpperCase() })
             else if (!e.target.value) onAnswer(null)
           }}
-          className="h-7 w-28 rounded-[4px] border bg-background px-2 font-mono text-[12.5px] outline-none focus:border-design-accent"
+          className="h-7 w-28 rounded-at-4 border bg-background px-2 font-mono text-[12.5px] outline-none focus:border-design-accent"
           aria-label="Hex colour"
         />
       </div>
@@ -971,7 +971,7 @@ function ColorInput({
           className="flex min-w-0 items-center gap-1.5 self-start"
           onClick={() => onAnswer({ kind: 'value', value: question.suggested! })}
         >
-          <span className="size-3 shrink-0 rounded-[3px] border" style={{ background: question.suggested }} />
+          <span className="size-3 shrink-0 rounded-at-3 border" style={{ background: question.suggested }} />
           <Suggested why={question.why ? `${question.suggested} · ${question.why}` : question.suggested} />
         </button>
       )}
@@ -1078,7 +1078,7 @@ function FilesInput({
           addBlobs(pasted)
         }}
         className={cn(
-          'flex flex-col items-center gap-1 rounded-[8px] border border-dashed px-3 py-4 text-center text-[12.5px] outline-none focus-visible:border-design-accent',
+          'flex flex-col items-center gap-1 rounded-at-8 border border-dashed px-3 py-4 text-center text-[12.5px] outline-none focus-visible:border-design-accent',
           over ? 'border-design-accent bg-design-accent/10' : 'border-border-strong bg-background'
         )}
       >
@@ -1114,7 +1114,7 @@ function FilesInput({
             </li>
           ))}
           {busy > 0 && (
-            <li className="flex aspect-[4/3] items-center justify-center rounded-[8px] border text-[11.5px] font-medium text-muted-foreground">
+            <li className="flex aspect-[4/3] items-center justify-center rounded-at-8 border text-[11.5px] font-medium text-muted-foreground">
               Adding…
             </li>
           )}
@@ -1150,7 +1150,7 @@ function FileThumb({ file }: { file: AnswerFile }): React.ReactElement {
   }, [file.path])
   const ext = basename(file.path).split('.').pop()?.toUpperCase() ?? ''
   return (
-    <span className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-[8px] border bg-muted">
+    <span className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-at-8 border bg-muted">
       {src ? (
         <img src={src} alt="" className="max-h-full max-w-full object-contain p-1.5" />
       ) : (

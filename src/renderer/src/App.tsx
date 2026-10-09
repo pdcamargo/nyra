@@ -15,8 +15,8 @@ import UpdateToast from './components/UpdateToast'
 import DesignExportToast from './components/design/DesignExportToast'
 import WhatsNewDialog from './components/WhatsNewDialog'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
-import { useResolvedTheme } from './hooks/useResolvedTheme'
-import { applyThemeClass } from './lib/theme'
+import { useApplyTheme } from './hooks/useApplyTheme'
+import ThemeEditor from './components/theme/ThemeEditor'
 import { appearanceOf, applyAppearance } from './lib/appearance'
 import { applyZoom } from './lib/zoom'
 import { useSettingsStore } from './store/settings'
@@ -63,7 +63,6 @@ export default function App(): React.JSX.Element {
   const projectsPanelOpen = useUiStore((s) => s.projectsPanelOpen)
   const isCanvasOpen = useWorkflowStore((s) => s.isCanvasOpen)
   const mainView = useUiStore((s) => s.mainView)
-  const resolvedTheme = useResolvedTheme()
   const zoom = useSettingsStore((s) => s.zoom)
   const shellRef = useRef<HTMLDivElement>(null)
   useKeyboardShortcuts()
@@ -181,9 +180,7 @@ export default function App(): React.JSX.Element {
     }
   }, [])
 
-  useEffect(() => {
-    applyThemeClass(resolvedTheme)
-  }, [resolvedTheme])
+  useApplyTheme()
 
   // Fonts and type size, written to <html> whenever they change. Subscribed
   // rather than rendered: nothing in the tree needs to re-render for a font
@@ -337,7 +334,7 @@ export default function App(): React.JSX.Element {
       )}
 
       {/* Center: Chat/Workflow + Bottom Panel + Status bar */}
-      <main className="flex flex-1 flex-col overflow-hidden min-w-0">
+      <main data-theme-token="background" className="flex flex-1 flex-col overflow-hidden min-w-0">
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           {/* Flows still wins: it is a mode rather than a page, and the rail
               hides the nav while it is open. Otherwise the rail's nav picks
@@ -389,6 +386,9 @@ export default function App(): React.JSX.Element {
           <RightPanel />
         </>
       )}
+
+      {/* The theme editor docks outside everything it is previewing. */}
+      <ThemeEditor />
       </div>
 
 

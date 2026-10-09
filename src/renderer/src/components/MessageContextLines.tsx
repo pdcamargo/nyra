@@ -110,7 +110,7 @@ function QuestionnaireLine({
 export function QuestionnaireRecord({ context }: { context: MessageContext }): React.JSX.Element {
   const rows = recordOf(context.body)
   return (
-    <div className="mt-2 flex w-full max-w-[560px] flex-col rounded-[12px] border bg-background px-4 py-2 text-c-lg">
+    <div className="mt-2 flex w-full max-w-[560px] flex-col rounded-at-12 border bg-background px-4 py-2 text-c-lg">
       {rows.map((r, i) => (
         <div key={i} className="flex items-start gap-2 py-1">
           {r.kind === 'decide' ? (

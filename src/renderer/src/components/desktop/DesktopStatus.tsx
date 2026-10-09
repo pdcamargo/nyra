@@ -54,7 +54,7 @@ export default function DesktopStatus({ sessionId }: { sessionId: string }): Rea
                 type="button"
                 aria-label="Dismiss"
                 onClick={() => setBlocked(sessionId, null)}
-                className="shrink-0 rounded p-0.5 text-warning transition-colors hover:bg-warning/10"
+                className="shrink-0 rounded-at-4 p-0.5 text-warning transition-colors hover:bg-warning/10"
               >
                 <X className="size-3" />
               </button>

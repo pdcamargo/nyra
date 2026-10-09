@@ -121,7 +121,7 @@ export default function SlashAutocomplete({ items, selectedIndex, onSelect, onHo
               </span>
             )}
             <span
-              className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+              className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-at-4 shrink-0 ${
                 item.type === 'skill'
                   ? 'bg-info/20 text-info'
                   : 'bg-accent/50 text-muted-foreground'

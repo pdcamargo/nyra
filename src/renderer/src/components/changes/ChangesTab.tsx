@@ -171,7 +171,7 @@ function ViewOptions(): React.JSX.Element {
         <TooltipTrigger asChild>
           <DropdownMenuTrigger
             aria-label="Diff view options"
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground/80 aria-expanded:text-foreground/80"
+            className="rounded-at-4 p-0.5 text-muted-foreground transition-colors hover:text-foreground/80 aria-expanded:text-foreground/80"
           >
             <Settings2 className="size-3" />
           </DropdownMenuTrigger>
@@ -264,7 +264,7 @@ function FileRow({
           <TooltipTrigger
             onClick={onOpenFile}
             aria-label={`Open ${name}`}
-            className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground/80"
+            className="shrink-0 rounded-at-4 p-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground/80"
           >
             <File className="size-3" />
           </TooltipTrigger>

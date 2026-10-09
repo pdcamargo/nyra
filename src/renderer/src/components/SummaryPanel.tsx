@@ -466,7 +466,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
               <TooltipTrigger
                 onClick={() => openSubagentsInPanel(null)}
                 aria-label="See all subagents"
-                className="rounded text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground/80 group-hover:opacity-100 focus-visible:opacity-100"
+                className="rounded-at-4 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground/80 group-hover:opacity-100 focus-visible:opacity-100"
               >
                 See all
               </TooltipTrigger>
@@ -513,7 +513,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
           <Row
             icon={
               seen.icon ? (
-                <img src={seen.icon} alt="" className="size-3.5 rounded-[3px]" />
+                <img src={seen.icon} alt="" className="size-3.5 rounded-at-3" />
               ) : (
                 <MousePointerClick className="size-3.5" />
               )

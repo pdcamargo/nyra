@@ -27,13 +27,13 @@ export default function AnnotationReceipt({ context }: { context: MessageContext
         <Chevron className="size-3.5" />
       </button>
       {open && (
-        <div className="flex w-full flex-col gap-1 rounded-[12px] border bg-background p-1.5">
+        <div className="flex w-full flex-col gap-1 rounded-at-12 border bg-background p-1.5">
           {annotations.map((a, i) => (
             <button
               key={i}
               type="button"
               onClick={() => useAnnotationsStore.getState().requestJump({ messageId: a.messageId, start: a.start, end: a.end })}
-              className="flex items-start gap-2.5 rounded-[8px] px-2 py-1.5 text-left transition-colors hover:bg-accent/60"
+              className="flex items-start gap-2.5 rounded-at-8 px-2 py-1.5 text-left transition-colors hover:bg-accent/60"
             >
               <span className="mt-px flex size-[18px] shrink-0 items-center justify-center rounded-full bg-info text-[11px] font-semibold text-info-foreground tabular-nums">
                 {i + 1}

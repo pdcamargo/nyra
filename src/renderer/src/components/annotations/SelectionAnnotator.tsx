@@ -178,7 +178,7 @@ export default function SelectionAnnotator({
         aria-label="Selection"
         // Keep the selection: a press here would otherwise collapse it first.
         onMouseDown={(e) => e.preventDefault()}
-        className="fixed z-50 flex items-center gap-0.5 rounded-[10px] border bg-popover p-1 text-[12.5px] text-popover-foreground shadow-panel"
+        className="fixed z-50 flex items-center gap-0.5 rounded-at-10 border bg-popover p-1 text-[12.5px] text-popover-foreground shadow-panel"
         style={{ top, left }}
       >
         <button
@@ -188,7 +188,7 @@ export default function SelectionAnnotator({
             setHighlight('nyra-annotation-draft', 'draft', target.range)
             setMode({ kind: 'compose', target, initial: '' })
           }}
-          className="flex h-6.5 items-center gap-1.5 rounded-[7px] px-2.5 font-[550] transition-colors hover:bg-accent"
+          className="flex h-6.5 items-center gap-1.5 rounded-at-7 px-2.5 font-[550] transition-colors hover:bg-accent"
         >
           <MessageSquarePlus className="size-3.5" />
           Comment
@@ -199,7 +199,7 @@ export default function SelectionAnnotator({
             void navigator.clipboard.writeText(window.getSelection()?.toString() ?? target.quote)
             setMode({ kind: 'idle' })
           }}
-          className="flex h-6.5 items-center gap-1.5 rounded-[7px] px-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="flex h-6.5 items-center gap-1.5 rounded-at-7 px-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <Copy className="size-3.5" />
           Copy
@@ -286,7 +286,7 @@ function CommentPopover({
       ref={box}
       role="dialog"
       aria-label={editing ? 'Edit annotation' : 'Add annotation'}
-      className="fixed z-50 flex flex-col gap-2 rounded-[12px] border bg-popover p-3 text-[12.5px] text-popover-foreground shadow-panel"
+      className="fixed z-50 flex flex-col gap-2 rounded-at-12 border bg-popover p-3 text-[12.5px] text-popover-foreground shadow-panel"
       style={style}
     >
       <div className="flex gap-2">
@@ -309,7 +309,7 @@ function CommentPopover({
           }
         }}
         placeholder="Add a comment (optional)…"
-        className="min-h-17 resize-none rounded-[8px] border bg-background p-2 text-[12.5px] leading-[1.5] outline-none focus-visible:border-border-strong"
+        className="min-h-17 resize-none rounded-at-8 border bg-background p-2 text-[12.5px] leading-[1.5] outline-none focus-visible:border-border-strong"
       />
       <div className="flex items-center gap-2">
         {editing ? (
@@ -327,12 +327,12 @@ function CommentPopover({
           </span>
         )}
         <span className="flex-1" />
-        <Button size="sm" variant="outline" className="h-7 rounded-[8px] px-3 text-[12.5px]" onClick={onCancel}>
+        <Button size="sm" variant="outline" className="h-7 rounded-at-8 px-3 text-[12.5px]" onClick={onCancel}>
           Cancel
         </Button>
         <Button
           size="sm"
-          className="h-7 rounded-[8px] bg-foreground px-3 text-[12.5px] font-[550] text-background hover:bg-foreground/85"
+          className="h-7 rounded-at-8 bg-foreground px-3 text-[12.5px] font-[550] text-background hover:bg-foreground/85"
           onClick={() => onSave(text.trim())}
         >
           {editing ? 'Save' : 'Add'}

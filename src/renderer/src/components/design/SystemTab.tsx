@@ -187,7 +187,7 @@ const SEGMENT_ON = 'bg-background text-foreground ring-1 ring-border'
 const SEGMENT_OFF = 'text-muted-foreground hover:text-foreground'
 
 /** One row of a design menu: icon on the first line, a hint under the label. */
-const MENU_ROW = 'items-start gap-2 rounded-[4px] text-[12.5px] leading-[1.5]'
+const MENU_ROW = 'items-start gap-2 rounded-at-4 text-[12.5px] leading-[1.5]'
 /** The `!` holds the muted colour through the item's focus style, which
  *  otherwise repaints every descendant. */
 const MENU_ICON = 'mt-0.5 size-3.5 text-muted-foreground!'
@@ -377,7 +377,7 @@ export default function SystemTab({ sessionId, tab }: { sessionId: string; tab: 
         >
           {entry ? tildePath(entry.root) : null}
         </span>
-        <div role="tablist" aria-label="View" className="flex shrink-0 rounded-[8px] bg-muted p-0.5">
+        <div role="tablist" aria-label="View" className="flex shrink-0 rounded-at-8 bg-muted p-0.5">
           {(['overview', 'canvas'] as const).map((v) => (
             <button
               key={v}
@@ -386,7 +386,7 @@ export default function SystemTab({ sessionId, tab }: { sessionId: string; tab: 
               aria-selected={view === v}
               onClick={() => go({ view: v, file: v === 'canvas' ? (file?.rel ?? null) : tab.file })}
               className={cn(
-                'rounded-[4px] px-3 py-0.5 text-[12.5px] leading-[1.5]',
+                'rounded-at-4 px-3 py-0.5 text-[12.5px] leading-[1.5]',
                 view === v ? cn(SEGMENT_ON, 'font-[550]') : SEGMENT_OFF
               )}
             >
@@ -407,7 +407,7 @@ export default function SystemTab({ sessionId, tab }: { sessionId: string; tab: 
                 type="button"
                 aria-label={`Comments: ${openComments.length} open`}
                 onClick={showComments}
-                className="flex h-[26px] shrink-0 items-center gap-1 rounded-[4px] px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="flex h-[26px] shrink-0 items-center gap-1 rounded-at-4 px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <MessageCircle className="size-3.5" />
                 <span className="text-[12.5px] leading-[1.5] font-[550] tabular-nums">{openComments.length}</span>
@@ -422,14 +422,14 @@ export default function SystemTab({ sessionId, tab }: { sessionId: string; tab: 
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger
                   aria-label="Design system options"
-                  className="flex size-[26px] shrink-0 items-center justify-center rounded-[4px] text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent"
+                  className="flex size-[26px] shrink-0 items-center justify-center rounded-at-4 text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent"
                 >
                   <Ellipsis className="size-3.5" />
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>Design system options</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="end" className="flex w-[310px] flex-col gap-px rounded-[12px] shadow-panel">
+            <DropdownMenuContent align="end" className="flex w-[310px] flex-col gap-px rounded-at-12 shadow-panel">
               {!inRepo && (
                 <DropdownMenuItem
                   className={cn(MENU_ROW, 'px-2 py-1')}
@@ -512,7 +512,7 @@ export default function SystemTab({ sessionId, tab }: { sessionId: string; tab: 
       </div>
 
       {error && !sys ? (
-        <pre className="m-2 rounded border border-destructive/40 bg-destructive/5 p-2 text-[11px] whitespace-pre-wrap text-destructive">{error}</pre>
+        <pre className="m-2 rounded-at-4 border border-destructive/40 bg-destructive/5 p-2 text-[11px] whitespace-pre-wrap text-destructive">{error}</pre>
       ) : !sys || !entry ? (
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">Loading…</div>
       ) : view === 'overview' ? (
@@ -550,7 +550,7 @@ export default function SystemTab({ sessionId, tab }: { sessionId: string; tab: 
         <div
           role="status"
           className={cn(
-            'absolute left-6 z-40 flex max-w-[calc(100%-48px)] items-center gap-3 rounded-[12px] border bg-background px-3 py-2 text-[12.5px] leading-[1.5] shadow-panel',
+            'absolute left-6 z-40 flex max-w-[calc(100%-48px)] items-center gap-3 rounded-at-12 border bg-background px-3 py-2 text-[12.5px] leading-[1.5] shadow-panel',
             // Clear of the canvas's zoom control, which sits in the same corner.
             view === 'canvas' ? 'bottom-12' : 'bottom-4'
           )}
@@ -612,7 +612,7 @@ function ModeSwitch({
             { mode: 'dark', available: false }
           ]
   return (
-    <div role="tablist" aria-label="Mode" className="flex shrink-0 rounded-[8px] bg-muted p-0.5">
+    <div role="tablist" aria-label="Mode" className="flex shrink-0 rounded-at-8 bg-muted p-0.5">
       {buttons.map(({ mode, available }) => {
         const Icon = MODE_ICON[mode]
         const on = available && shown === mode
@@ -632,7 +632,7 @@ function ModeSwitch({
                   if (available) onPick(mode, mode === base)
                 }}
                 className={cn(
-                  'flex h-[22px] min-w-[26px] items-center justify-center rounded-[4px] text-[11.5px]',
+                  'flex h-[22px] min-w-[26px] items-center justify-center rounded-at-4 text-[11.5px]',
                   on ? SEGMENT_ON : available ? SEGMENT_OFF : 'cursor-default text-muted-foreground'
                 )}
               >
@@ -655,14 +655,14 @@ function FilePicker({ files, current, onPick }: { files: OutlineFile[]; current:
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="-mx-1 flex min-w-0 items-center gap-1 rounded-[4px] px-1 py-0.5 text-[12.5px] leading-[1.5] hover:bg-accent"
+          className="-mx-1 flex min-w-0 items-center gap-1 rounded-at-4 px-1 py-0.5 text-[12.5px] leading-[1.5] hover:bg-accent"
         >
           <span className="shrink-0 text-muted-foreground">{KIND_TITLE[current.kind]} /</span>
           <span className="truncate font-[550]">{current.name}</span>
           <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-96 w-64 overflow-y-auto rounded-[12px] shadow-panel">
+      <DropdownMenuContent align="start" className="max-h-96 w-64 overflow-y-auto rounded-at-12 shadow-panel">
         {(['component', 'pattern', 'screen'] as const).map((kind) => {
           const group = files.filter((f) => f.kind === kind)
           if (!group.length) return null
@@ -672,7 +672,7 @@ function FilePicker({ files, current, onPick }: { files: OutlineFile[]; current:
               {group.map((f) => (
                 <DropdownMenuItem
                   key={f.rel}
-                  className="rounded-[4px] px-2 py-1 text-[12.5px] leading-[1.5]"
+                  className="rounded-at-4 px-2 py-1 text-[12.5px] leading-[1.5]"
                   onSelect={() => onPick(f.rel)}
                 >
                   <span className="min-w-0 flex-1 truncate" title={f.rel}>

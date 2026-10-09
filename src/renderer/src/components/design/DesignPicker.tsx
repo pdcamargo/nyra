@@ -93,7 +93,7 @@ export function DesignPicker({
           type="button"
           className={cn(
             'flex min-w-0 items-center text-left hover:bg-accent',
-            size === 'title' ? '-mx-1 gap-2 rounded-[4px] px-1 py-0.5' : 'gap-1 rounded-sm px-1 py-0.5'
+            size === 'title' ? '-mx-1 gap-2 rounded-at-4 px-1 py-0.5' : 'gap-1 rounded-sm px-1 py-0.5'
           )}
           aria-label="Pick a design or design system"
         >
@@ -108,7 +108,7 @@ export function DesignPicker({
           <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="flex w-[380px] flex-col gap-px rounded-[12px] shadow-panel">
+      <DropdownMenuContent align="start" className="flex w-[380px] flex-col gap-px rounded-at-12 shadow-panel">
         <div className="flex items-center gap-2 p-2">
           <Search className="size-[13px] shrink-0 text-muted-foreground" />
           <input
@@ -173,7 +173,7 @@ export function DesignPicker({
                     tabIndex={-1}
                     className={cn(
                       CAPTION,
-                      'hidden shrink-0 items-center gap-1 rounded-[4px] border bg-background px-2 py-px text-foreground group-focus:flex group-data-[highlighted]:flex'
+                      'hidden shrink-0 items-center gap-1 rounded-at-4 border bg-background px-2 py-px text-foreground group-focus:flex group-data-[highlighted]:flex'
                     )}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
@@ -212,4 +212,4 @@ export function DesignPicker({
  * otherwise repaints every descendant in the accent foreground — the muted
  * second line and the system's accent icon included.
  */
-const ROW = 'items-center gap-2 rounded-[4px] p-2 text-[12.5px] leading-[1.5]'
+const ROW = 'items-center gap-2 rounded-at-4 p-2 text-[12.5px] leading-[1.5]'

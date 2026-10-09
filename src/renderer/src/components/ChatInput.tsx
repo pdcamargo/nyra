@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
 import { useSessionsStore, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, type MessageContext, queueOf, createSiblingSession, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useUiStore } from '../store/ui'
@@ -40,6 +40,7 @@ import { mentionLabel } from '../lib/composerDecorations'
 import { cachedImage, loadImage } from '../lib/imageCache'
 import { showResource } from '../lib/resourceCommands'
 import { useResourceDockStore } from '../store/resourceDock'
+import { setDraft, switchDraft } from '../store/composerDrafts'
 import StatusDock from './StatusDock'
 import McpExplorer from './McpExplorer'
 import {
@@ -225,6 +226,44 @@ export default function ChatInput({
   const dictationPhase = useDictationStore((s) => s.phase)
   const dictationInterim = useDictationStore((s) => s.interim)
   const dictationError = useDictationStore((s) => s.error)
+  // Each chat keeps its own unsent text and attachments: see composerDrafts.
+  // A layout effect, so the box never paints one chat's draft under another's
+  // header. The ref carries the latest values in, since the switch is keyed on
+  // the chat alone.
+  const draftNow = useRef({ text: input, images: stagedImages, files: stagedFiles })
+  draftNow.current = { text: input, images: stagedImages, files: stagedFiles }
+  const draftSessionRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    const from = draftSessionRef.current
+    draftSessionRef.current = activeSessionId
+    if (from === activeSessionId) return
+    if (!activeSessionId) {
+      if (from) setDraft(from, draftNow.current)
+      return
+    }
+    const { sessions } = useSessionsStore.getState()
+    const isEmpty = (id: string | null): boolean => !sessions.find((s) => s.id === id)?.messages.length
+    const next = switchDraft(
+      { id: from, empty: isEmpty(from) },
+      { id: activeSessionId, empty: isEmpty(activeSessionId) },
+      draftNow.current
+    )
+    setInput(next.text)
+    setStagedImages(next.images)
+    setStagedFiles(next.files)
+    stashRef.current = ''
+    setHasStash(false)
+  }, [activeSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The composer unmounts when a view replaces the chat. File the draft on the
+  // way out; the switch above takes it back on the way in, as a move from no
+  // chat to this one.
+  useLayoutEffect(() => {
+    return () => {
+      const id = draftSessionRef.current
+      if (id) setDraft(id, draftNow.current)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     editorRef.current?.focus()
     // The walk belongs to the chat you are in, so it starts over on the way in.
@@ -961,7 +1000,7 @@ export default function ChatInput({
           <button
             onClick={() => useDictationStore.getState().setError(null)}
             aria-label="Dismiss"
-            className="ml-2 rounded px-1 text-danger transition-colors hover:bg-danger/10"
+            className="ml-2 rounded-at-4 px-1 text-danger transition-colors hover:bg-danger/10"
           >
             ×
           </button>
@@ -970,7 +1009,7 @@ export default function ChatInput({
       {queuedMessages.length > 0 && (
         // Docked to the top of the composer rather than floating above it as a
         // warning banner: these are the next things you will send, not problems.
-        <div className="-mb-2 max-h-[min(25vh,160px)] overflow-y-auto rounded-t-lg border border-b-0 border-border bg-background pb-4 pt-1 text-xs dark:border-muted dark:bg-muted">
+        <div className="-mb-2 max-h-[min(25vh,160px)] overflow-y-auto rounded-t-lg border border-b-0 border-border bg-composer pb-4 pt-1 text-xs dark:border-composer">
           {queuedMessages.map((queued, i) => (
             <div key={i} className="group/q flex items-center gap-2 px-3 py-1.5">
               <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />
@@ -1034,7 +1073,7 @@ export default function ChatInput({
       {fileError && (
         <div className="mb-2 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-[12px] text-danger flex items-center justify-between">
           <span>{fileError}</span>
-          <button onClick={() => setFileError(null)} className="ml-2 rounded px-1 text-danger transition-colors hover:bg-danger/10">×</button>
+          <button onClick={() => setFileError(null)} className="ml-2 rounded-at-4 px-1 text-danger transition-colors hover:bg-danger/10">×</button>
         </div>
       )}
       {/* Inside the composer's own padded box rather than a sibling of it, so the
@@ -1051,7 +1090,8 @@ export default function ChatInput({
           misaligned boxes rather than one. `rounded-b-lg` rather than adding
           `rounded-t-none`, so the corners are stated once either way. */}
       <div
-        className={`composer-box max-h-[calc(100dvh-64px)] overflow-y-auto ${queuedMessages.length > 0 ? 'rounded-b-lg' : 'rounded-lg'} border border-border bg-background shadow-panel transition-colors focus-within:border-border-strong dark:border-muted dark:bg-muted`}
+        className={`composer-box max-h-[calc(100dvh-64px)] overflow-y-auto ${queuedMessages.length > 0 ? 'rounded-b-lg' : 'rounded-lg'} border border-border bg-composer shadow-panel transition-colors focus-within:border-border-strong dark:border-composer`}
+        data-theme-token="composer"
       >
         {/* Inside the box, not docked above it: one border, and `focus-within`
             lights the question and the field together as the single control they

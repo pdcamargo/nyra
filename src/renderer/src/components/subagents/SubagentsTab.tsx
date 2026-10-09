@@ -260,7 +260,7 @@ function AgentStream({
               type="button"
               onClick={onBack}
               aria-label="Back to all subagents"
-              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
+              className="flex size-5 shrink-0 items-center justify-center rounded-at-4 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
             >
               <ChevronLeft className="size-3.5" />
             </button>

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  DEFAULT_CORNER_RADIUS,
+  MAX_CORNER_RADIUS,
+  cornerScale,
   BUNDLED_CODE_FONT,
   BUNDLED_UI_FONT,
   applyAppearance,
@@ -46,7 +49,8 @@ describe('applyAppearance', () => {
       codeFont: 'Menlo',
       codeFontWeight: 600,
       contentFontSize: 17,
-      uiFontSize: 14
+      uiFontSize: 14,
+      cornerRadius: 6.72
     })
 
     expect(read('--font-sans')).toBe(uiFontStack('Georgia'))
@@ -58,6 +62,7 @@ describe('applyAppearance', () => {
     // Independent of the conversation's size: bumping the message text used to
     // leave the project rail exactly as small as it was.
     expect(read('--ui-font-size')).toBe('14px')
+    expect(read('--corner-scale')).toBe('0.5')
   })
 
   it('falls the content face back to the UI face, not to the bundled default', () => {
@@ -69,8 +74,19 @@ describe('applyAppearance', () => {
       codeFont: '',
       codeFontWeight: 400,
       contentFontSize: 15,
-      uiFontSize: 13
+      uiFontSize: 13,
+      cornerRadius: 13.44
     })
     expect(read('--font-content')).toBe(uiFontStack('Georgia'))
+  })
+})
+
+describe('cornerScale', () => {
+  it('is 1 at the stylesheet default and clamps the ends', () => {
+    expect(cornerScale(DEFAULT_CORNER_RADIUS)).toBe(1)
+    expect(cornerScale(0)).toBe(0)
+    expect(cornerScale(-5)).toBe(0)
+    expect(cornerScale(999)).toBe(cornerScale(MAX_CORNER_RADIUS))
+    expect(cornerScale(Number.NaN)).toBe(1)
   })
 })

@@ -102,7 +102,7 @@ export default function FileTab({
               aria-label="Wrap long lines"
               aria-pressed={wrap}
               onClick={() => useSettingsStore.getState().updateSettings({ fileWrap: !wrap })}
-              className={`shrink-0 rounded p-1 transition-colors ${
+              className={`shrink-0 rounded-at-4 p-1 transition-colors ${
                 wrap
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -121,7 +121,7 @@ export default function FileTab({
             aria-pressed={showTree}
             disabled={!fits}
             onClick={() => usePanelTabsStore.getState().setTreeOpen(sessionId, !ws.treeOpen)}
-            className={`mr-1.5 shrink-0 rounded p-1 transition-colors disabled:opacity-30 ${
+            className={`mr-1.5 shrink-0 rounded-at-4 p-1 transition-colors disabled:opacity-30 ${
               showTree
                 ? 'bg-accent text-foreground'
                 : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'

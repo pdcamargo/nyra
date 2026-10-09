@@ -79,7 +79,7 @@ function ArchivedCard({
           {/* Says the click is not free: this one has a branch behind it, and
               bringing it back means a checkout before the chat can open. */}
           {session.worktreeSnapshotted && (
-            <span className="flex shrink-0 items-center gap-1 rounded-[3px] border border-border/70 px-1 py-px text-[0.62em] uppercase tracking-wide text-muted-foreground">
+            <span className="flex shrink-0 items-center gap-1 rounded-at-3 border border-border/70 px-1 py-px text-[0.62em] uppercase tracking-wide text-muted-foreground">
               <GitBranch className="size-2.5" />
               Worktree
             </span>

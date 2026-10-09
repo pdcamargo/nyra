@@ -137,7 +137,7 @@ export default function FileTree({
               type="button"
               aria-label="Refresh tree"
               onClick={refresh}
-              className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+              className="shrink-0 rounded-at-4 p-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
             >
               <RefreshCw className="size-3" />
             </button>
