@@ -11,6 +11,14 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     notes: []
   },
   {
+    version: '0.9.2',
+    date: '2026-10-10',
+    notes: [
+      'Fixed zooming in and out of a design with many panels stuttering. While you zoom, each panel shows a slightly softer picture of itself, and the sharp panel comes back when you stop',
+      'Panels too small to read are now drawn as pictures, so a design zoomed out to show two dozen panels no longer slows the canvas down'
+    ]
+  },
+  {
     version: '0.9.1',
     date: '2026-10-09',
     notes: [
