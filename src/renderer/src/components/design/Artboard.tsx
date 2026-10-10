@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { artboardMarkup, type ResolvedArtboard, type Theme } from '@nyra/design'
+import type { ResolvedArtboard, Theme } from '@nyra/design'
+import { drawnOf } from '../../lib/designMarkup'
 
 /**
  * One artboard, drawn live.
@@ -38,11 +39,12 @@ export default function Artboard({
     if (!shadow.current) shadow.current = node.attachShadow({ mode: 'open' })
     // A reload hands every artboard a new object even when only one changed.
     // Same markup, same DOM: rewriting it would throw away layout for nothing
-    // and flash every artboard on every edit.
-    const markup = artboardMarkup(artboard, theme)
-    if (written.current !== markup) {
+    // and flash every artboard on every edit. The compile worker already drew
+    // it, so this compares two hashes rather than rendering to find out.
+    const { markup, hash } = drawnOf(artboard, theme)
+    if (written.current !== hash) {
       shadow.current.innerHTML = markup
-      written.current = markup
+      written.current = hash
     }
 
     if (artboard.size.height !== 'auto' || !onMeasure) return
@@ -61,7 +63,12 @@ export default function Artboard({
         width: artboard.size.width,
         // An `auto` artboard is measured by its content, so the host must not
         // pin it. The shadow content carries its own height.
-        height: artboard.size.height === 'auto' ? undefined : artboard.size.height
+        height: artboard.size.height === 'auto' ? undefined : artboard.size.height,
+        // The canvas changes `--z` on every zoom step, and an inherited custom
+        // property that changes restyles everything under it — here, the
+        // whole artboard. Pinned at the host, the value inside never changes,
+        // so the style engine stops at the host.
+        ['--z' as string]: 1
       }}
     />
   )

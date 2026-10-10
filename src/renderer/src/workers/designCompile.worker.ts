@@ -1,9 +1,9 @@
 /**
  * Compiles design documents off the main thread. All the logic is in
- * `compileText`; this file only carries messages, so the worker and the
+ * `compileAndDraw`; this file only carries messages, so the worker and the
  * main-thread fallback can never disagree.
  */
-import { compileText, type SystemCompileContext } from '../lib/designCompile'
+import { compileAndDraw, type SystemCompileContext } from '../lib/designCompile'
 
 // Typed narrowly rather than through the `webworker` lib, which collides with
 // the DOM lib the rest of the renderer is compiled against.
@@ -14,5 +14,5 @@ const scope = self as unknown as {
 
 scope.onmessage = (e) => {
   const { id, text, sys } = e.data
-  scope.postMessage({ id, outcome: compileText(text, sys) })
+  scope.postMessage({ id, ...compileAndDraw(text, sys) })
 }

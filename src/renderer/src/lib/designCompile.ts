@@ -20,6 +20,7 @@ import {
   type Issue,
   type Theme
 } from '@nyra/design'
+import { drawAll, remember, type Drawn } from './designMarkup'
 
 /**
  * What a file needs from the system it belongs to, as plain data — it crosses
@@ -96,6 +97,26 @@ export function compileText(text: string, sys?: SystemCompileContext): CompileOu
   }
 }
 
+/**
+ * `compileText`, plus every artboard's markup. What the worker runs: drawing
+ * there is what keeps `renderToStaticMarkup` off the main thread, and the
+ * compile is already holding everything it needs.
+ */
+export function compileAndDraw(
+  text: string,
+  sys?: SystemCompileContext
+): { outcome: CompileOutcome; drawn: Record<string, Drawn> | null } {
+  const outcome = compileText(text, sys)
+  return { outcome, drawn: outcome.ok ? drawAll(outcome.doc, outcome.theme) : null }
+}
+
+/** Files the drawn markup against the artboards that just arrived, and hands
+ *  the outcome on without it. */
+function received({ outcome, drawn }: ReturnType<typeof compileAndDraw>): CompileOutcome {
+  if (outcome.ok && drawn) remember(outcome.doc, outcome.theme, drawn)
+  return outcome
+}
+
 type Pending = (outcome: CompileOutcome) => void
 
 let worker: Worker | null = null
@@ -111,10 +132,10 @@ function getWorker(): Worker | null {
   }
   try {
     worker = new Worker(new URL('../workers/designCompile.worker.ts', import.meta.url), { type: 'module' })
-    worker.onmessage = (e: MessageEvent<{ id: number; outcome: CompileOutcome }>) => {
+    worker.onmessage = (e: MessageEvent<{ id: number } & ReturnType<typeof compileAndDraw>>) => {
       const done = pending.get(e.data.id)
       pending.delete(e.data.id)
-      done?.(e.data.outcome)
+      done?.(received(e.data))
     }
     // A worker that dies takes its queue with it. Fall back to the main thread
     // for those and for everything after: slower, but never a design that
@@ -136,7 +157,7 @@ function getWorker(): Worker | null {
 /** `compileText`, off the main thread when there is one to be off. */
 export function compileOffThread(text: string, sys?: SystemCompileContext): Promise<CompileOutcome> {
   const w = getWorker()
-  if (!w) return Promise.resolve(compileText(text, sys))
+  if (!w) return Promise.resolve(received(compileAndDraw(text, sys)))
   const id = ++nextId
   return new Promise((resolve) => {
     pending.set(id, resolve)

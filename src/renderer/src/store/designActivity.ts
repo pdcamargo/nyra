@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import { artboardMarkup, hash, type ResolvedDocument, type Theme } from '@nyra/design'
+import type { ResolvedDocument, Theme } from '@nyra/design'
 import { DESIGN_EXTENSION } from '../lib/openFile'
+import { drawnOf } from '../lib/designMarkup'
 import { designPathInCommand, designPathInText, hostDesignPath, sameDesign } from '../lib/designPaths'
 import { useRunningStore } from './running'
 
@@ -99,8 +100,10 @@ type DesignActivityState = {
 
 const EMPTY: DesignTouch[] = []
 
+/** Per-artboard hashes. Read from what the compile worker drew, so this is a
+ *  lookup for a design that came through `loadDesign`, not a render. */
 export function designHashes(doc: ResolvedDocument, theme: Theme): Record<string, string> {
-  return Object.fromEntries(doc.artboards.map((a) => [a.id, hash(artboardMarkup(a, theme))]))
+  return Object.fromEntries(doc.artboards.map((a) => [a.id, drawnOf(a, theme).hash]))
 }
 
 /** Which artboards differ from `baseline`, merged into what was already flagged. */

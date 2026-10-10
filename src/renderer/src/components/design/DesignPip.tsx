@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { PenTool, X } from 'lucide-react'
 import { cn } from 'cn'
 import ScaledArtboard from './ScaledArtboard'
+import ArtboardThumb from './ArtboardThumb'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { designsFor, isLive, useDesignActivityStore } from '../../store/designActivity'
 import { sameDesign } from '../../lib/designPaths'
@@ -134,7 +135,7 @@ export default function DesignPip(): React.JSX.Element | null {
               onClick={() => open(a.id)}
               className="flex size-10 shrink-0 cursor-default items-center justify-center rounded-sm bg-muted/50 transition-opacity hover:opacity-80"
             >
-              <ScaledArtboard artboard={a} theme={theme} maxWidth={36} maxHeight={36} className="ring-1 ring-border" />
+              <ArtboardThumb artboard={a} theme={theme} maxWidth={36} maxHeight={36} className="ring-1 ring-border" />
             </button>
           ))}
           <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">Newest first</span>

@@ -179,3 +179,15 @@ export function visibleArtboards(
   }
   return seen
 }
+
+/**
+ * A length that stays the same on screen at any zoom: `n` screen pixels,
+ * plus `offset` in the artboard's own pixels.
+ *
+ * Divided by `--z`, which the canvas writes onto its transformed layer as the
+ * zoom changes — so labels, outlines and pins are counter-scaled by the style
+ * engine on the frame the zoom lands, with no React render behind each step.
+ * `1` outside a canvas, where nothing is scaled.
+ */
+export const screenPx = (n: number, offset = 0): string =>
+  offset === 0 ? `calc(${n}px / var(--z, 1))` : `calc(${offset}px + ${n}px / var(--z, 1))`

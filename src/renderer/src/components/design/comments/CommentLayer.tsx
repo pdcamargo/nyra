@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/tooltip'
 import { relocate, since, threadOf, type Box, type DesignComment } from '../../../lib/designComments'
 import { formatChord } from '../../../lib/keys'
 import { accountLabel, useAccountsStore } from '../../../store/accounts'
+import { screenPx } from '../layout'
 
 /** What is outlined while the menu or the composer is open. A null box is
  *  the whole artboard. */
@@ -25,8 +26,8 @@ const PIN = 24
  * The comments on one artboard, and the outline of what a right-click landed on.
  *
  * Laid over the artboard in its own pixels, inside the canvas transform, so
- * pins pan with it; sizes are divided by the zoom so a pin is the same size on
- * screen at 10% as at 200%.
+ * pins pan with it; sizes are divided by the canvas's `--z` so a pin is the
+ * same size on screen at 10% as at 200%, without this re-rendering as you zoom.
  *
  * Each pin is placed from its element's live box, read out of the shadow root
  * after the artboard draws — so when Claude moves the button, the pin moves
@@ -34,7 +35,6 @@ const PIN = 24
  */
 export default function CommentLayer({
   artboard,
-  zoom,
   comments,
   activeId,
   onActive,
@@ -45,7 +45,6 @@ export default function CommentLayer({
   onDelete
 }: {
   artboard: ResolvedArtboard
-  zoom: number
   comments: DesignComment[]
   activeId: string | null
   onActive: (id: string | null) => void
@@ -95,7 +94,6 @@ export default function CommentLayer({
     return () => observer.disconnect()
   }, [artboard, comments])
 
-  const pin = PIN / zoom
   return (
     <div ref={layer} className="pointer-events-none absolute inset-0 z-10">
       {highlight && (
@@ -111,9 +109,9 @@ export default function CommentLayer({
                     height: highlight.bounds.height
                   }
                 : { inset: 0 }),
-              outline: `${2 / zoom}px solid var(--design-accent)`,
-              outlineOffset: 1 / zoom,
-              borderRadius: 4 / zoom
+              outline: `${screenPx(2)} solid var(--design-accent)`,
+              outlineOffset: screenPx(1),
+              borderRadius: screenPx(4)
             }}
           />
           {highlight.tag && highlight.bounds && (
@@ -121,10 +119,10 @@ export default function CommentLayer({
               className="absolute bg-design-accent px-1 font-mono whitespace-nowrap text-design-accent-foreground"
               style={{
                 left: highlight.bounds.x,
-                top: highlight.bounds.y - 20 / zoom,
-                fontSize: `${11.5 / zoom}px`,
-                lineHeight: `${16 / zoom}px`,
-                borderRadius: 4 / zoom
+                top: screenPx(-20, highlight.bounds.y),
+                fontSize: screenPx(11.5),
+                lineHeight: screenPx(16),
+                borderRadius: screenPx(4)
               }}
             >
               {highlight.tag}
@@ -134,12 +132,12 @@ export default function CommentLayer({
             <span
               className="absolute flex items-center justify-center rounded-full border-background bg-design-accent font-medium text-design-accent-foreground tabular-nums shadow-panel"
               style={{
-                left: highlight.pin.x - pin / 2,
-                top: highlight.pin.y - pin / 2,
-                width: pin,
-                height: pin,
-                borderWidth: 2 / zoom,
-                fontSize: `${11.5 / zoom}px`
+                left: screenPx(-PIN / 2, highlight.pin.x),
+                top: screenPx(-PIN / 2, highlight.pin.y),
+                width: screenPx(PIN),
+                height: screenPx(PIN),
+                borderWidth: screenPx(2),
+                fontSize: screenPx(11.5)
               }}
             >
               {highlight.n}
@@ -166,15 +164,15 @@ export default function CommentLayer({
                   active && 'border-background! shadow-panel'
                 )}
                 style={{
-                  left: at.x - pin / 2,
-                  top: at.y - pin / 2,
-                  width: pin,
-                  height: pin,
-                  borderWidth: (active ? 2 : 1) / zoom,
-                  fontSize: `${11.5 / zoom}px`
+                  left: screenPx(-PIN / 2, at.x),
+                  top: screenPx(-PIN / 2, at.y),
+                  width: screenPx(PIN),
+                  height: screenPx(PIN),
+                  borderWidth: screenPx(active ? 2 : 1),
+                  fontSize: screenPx(11.5)
                 }}
               >
-                {resolved ? <Check style={{ width: 12 / zoom, height: 12 / zoom }} /> : c.n}
+                {resolved ? <Check style={{ width: screenPx(12), height: screenPx(12) }} /> : c.n}
               </button>
             </PopoverTrigger>
             <PopoverContent

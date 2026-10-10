@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { defaultTheme, type ResolvedArtboard } from '@nyra/design'
 import { TooltipProvider } from '@renderer/components/ui/tooltip'
-import DesignCanvas from '@renderer/components/design/DesignCanvas'
+import DesignCanvas, { keepDrawn, nearestFirst } from '@renderer/components/design/DesignCanvas'
 
 /** The real artboard measures itself through a shadow root jsdom cannot lay
  *  out. This one reports a height when asked, which is what a first draw does. */
@@ -74,5 +74,37 @@ describe('a focused canvas', () => {
     const panned = transform(container)
     rerender(canvas('c'))
     expect(transform(container)).not.toBe(panned)
+  })
+})
+
+describe('artboards kept live', () => {
+  const near = (...ids: string[]): Set<string> => new Set(ids)
+
+  it('keeps what scrolled away until newer ones push it out', () => {
+    let drawn = keepDrawn([], near('a', 'b'), 3)
+    drawn = keepDrawn(drawn, near('c'), 3)
+    expect(drawn).toEqual(['a', 'b', 'c'])
+    drawn = keepDrawn(drawn, near('d'), 3)
+    expect(drawn).toEqual(['b', 'c', 'd'])
+  })
+
+  it('never drops something near, however many there are', () => {
+    expect(keepDrawn(['x'], near('a', 'b', 'c', 'd'), 2)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('hands back the same list when nothing changed, so nothing re-renders', () => {
+    const drawn = keepDrawn([], near('a', 'b'), 3)
+    expect(keepDrawn(drawn, near('a', 'b'), 3)).toBe(drawn)
+  })
+})
+
+describe('artboards waiting to be drawn', () => {
+  it('start from the middle of the view', () => {
+    const placed = new Map([
+      ['far', { x: 2000, y: 0, width: 100, height: 100 }],
+      ['mid', { x: 0, y: 0, width: 100, height: 100 }],
+      ['next', { x: 300, y: 0, width: 100, height: 100 }]
+    ])
+    expect(nearestFirst(['far', 'next', 'mid'], placed, { x: 50, y: 50 })).toEqual(['mid', 'next', 'far'])
   })
 })

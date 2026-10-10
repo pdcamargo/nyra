@@ -454,10 +454,9 @@ export default function DesignFileView({
   }, [comments, composer, menuOpen, target])
 
   const overlay = useCallback(
-    (artboard: ResolvedArtboard, zoom: number) => (
+    (artboard: ResolvedArtboard) => (
       <CommentLayer
         artboard={artboard}
-        zoom={zoom}
         comments={showComments ? (byArtboard.get(artboard.id) ?? NO_COMMENTS) : NO_COMMENTS}
         activeId={activeComment}
         onActive={setActiveComment}
