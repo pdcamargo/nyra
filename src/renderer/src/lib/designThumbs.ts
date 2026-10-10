@@ -93,13 +93,78 @@ function keep(key: string, thumb: Thumbnail): void {
 }
 
 /**
- * Pictures waiting to be made, one per frame.
+ * Artboards as bitmaps, for the canvas.
+ *
+ * Every step of a zoom repaints every live artboard at the new scale — on a
+ * screen of two dozen boards that was a 216 ms frame, with the transform
+ * itself costing nothing. A bitmap scales as a texture instead. The canvas
+ * swaps these in while a zoom is moving and whenever boards are too small to
+ * read, and the live board comes back when it is still and big enough.
+ *
+ * Made from the same picture as a thumbnail, at `BITMAP_SCALE` of the
+ * artboard's size, and kept by markup hash under a pixel budget. The SVG is
+ * dropped as soon as the bitmap exists: only the bitmap is kept.
+ */
+export type Bitmap = { bitmap: ImageBitmap; width: number; height: number }
+
+/** Half size: sharp up to 50% zoom on a 1x screen, 25% on a retina one. */
+export const BITMAP_SCALE = 0.5
+const bitmaps = new Map<string, Bitmap>()
+let bitmapPixels = 0
+/** About 128 MB of RGBA. */
+const BITMAP_BUDGET = 32 * 1024 * 1024
+
+const bitmapKey = (artboard: ResolvedArtboard, theme: Theme): string => `${keyOf(artboard, theme, BITMAP_BOX)}:bmp`
+const BITMAP_BOX: ThumbBox = { maxWidth: Number.POSITIVE_INFINITY, maxHeight: Number.POSITIVE_INFINITY }
+
+/** The bitmap, if it has been made. Never does any work. */
+export function bitmapNow(artboard: ResolvedArtboard, theme: Theme): Bitmap | null {
+  const key = bitmapKey(artboard, theme)
+  const hit = bitmaps.get(key)
+  if (!hit) return null
+  bitmaps.delete(key)
+  bitmaps.set(key, hit)
+  return hit
+}
+
+function keepBitmap(key: string, made: Bitmap): void {
+  bitmaps.set(key, made)
+  bitmapPixels += made.bitmap.width * made.bitmap.height
+  for (const [k, b] of bitmaps) {
+    if (bitmapPixels <= BITMAP_BUDGET || k === key) break
+    bitmaps.delete(k)
+    bitmapPixels -= b.bitmap.width * b.bitmap.height
+    b.bitmap.close()
+  }
+}
+
+async function buildBitmap(artboard: ResolvedArtboard, theme: Theme): Promise<Bitmap | null> {
+  const width = artboard.size.width
+  const picture = build(artboard, theme, { maxWidth: Math.round(width * BITMAP_SCALE), maxHeight: Number.POSITIVE_INFINITY })
+  if (!picture) return null
+  try {
+    const img = new Image()
+    img.src = picture.url
+    await img.decode()
+    const bitmap = await createImageBitmap(img)
+    return { bitmap, width, height: Math.round((picture.height * width) / picture.width) }
+  } catch {
+    return null
+  } finally {
+    URL.revokeObjectURL(picture.url)
+  }
+}
+
+/**
+ * Pictures and bitmaps waiting to be made, one per frame.
  *
  * Making one is a parse, a serialise and — for an `auto` board — a layout. A
  * strip of two dozen asking at once would be the stall this exists to avoid,
  * so they queue, and whoever stops wanting one before its turn is skipped.
  */
-type Job = { key: string; artboard: ResolvedArtboard; theme: Theme; box: ThumbBox; waiting: Set<(t: Thumbnail | null) => void> }
+type Job =
+  | { kind: 'thumb'; key: string; artboard: ResolvedArtboard; theme: Theme; box: ThumbBox; waiting: Set<(t: Thumbnail | null) => void> }
+  | { kind: 'bitmap'; key: string; artboard: ResolvedArtboard; theme: Theme; waiting: Set<(b: Bitmap | null) => void> }
 const queue = new Map<string, Job>()
 let scheduled = false
 
@@ -110,9 +175,18 @@ function pump(): void {
   const job = next.value
   queue.delete(job.key)
   if (job.waiting.size > 0) {
-    const made = thumbs.get(job.key) ?? build(job.artboard, job.theme, job.box)
-    if (made) keep(job.key, made)
-    for (const done of job.waiting) done(made)
+    if (job.kind === 'thumb') {
+      const made = thumbs.get(job.key) ?? build(job.artboard, job.theme, job.box)
+      if (made) keep(job.key, made)
+      for (const done of job.waiting) done(made)
+    } else {
+      const ready = bitmaps.get(job.key)
+      const making = ready ? Promise.resolve(ready) : buildBitmap(job.artboard, job.theme)
+      void making.then((made) => {
+        if (made && !ready) keepBitmap(job.key, made)
+        for (const done of job.waiting) done(made)
+      })
+    }
   }
   if (queue.size > 0) schedule()
 }
@@ -132,7 +206,19 @@ export function requestThumbnail(
   done: (t: Thumbnail | null) => void
 ): () => void {
   const key = keyOf(artboard, theme, box)
-  const job = queue.get(key) ?? { key, artboard, theme, box, waiting: new Set() }
+  const queued = queue.get(key)
+  const job = queued?.kind === 'thumb' ? queued : { kind: 'thumb' as const, key, artboard, theme, box, waiting: new Set<(t: Thumbnail | null) => void>() }
+  job.waiting.add(done)
+  queue.set(key, job)
+  schedule()
+  return () => job.waiting.delete(done)
+}
+
+/** Asks for the bitmap; the same contract as `requestThumbnail`. */
+export function requestBitmap(artboard: ResolvedArtboard, theme: Theme, done: (b: Bitmap | null) => void): () => void {
+  const key = bitmapKey(artboard, theme)
+  const queued = queue.get(key)
+  const job = queued?.kind === 'bitmap' ? queued : { kind: 'bitmap' as const, key, artboard, theme, waiting: new Set<(b: Bitmap | null) => void>() }
   job.waiting.add(done)
   queue.set(key, job)
   schedule()

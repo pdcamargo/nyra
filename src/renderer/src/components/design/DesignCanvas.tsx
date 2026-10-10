@@ -3,6 +3,8 @@ import { Minus, Plus } from 'lucide-react'
 import type { ResolvedArtboard, Theme } from '@nyra/design'
 import { cn } from 'cn'
 import Artboard from './Artboard'
+import BoardBitmap from './BoardBitmap'
+import { BITMAP_SCALE } from '../../lib/designThumbs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { hitTest, type Hit } from '../../lib/designComments'
 import {
@@ -55,10 +57,10 @@ const SELECTED = 'var(--design-accent)'
 const MAX_LIVE = 12
 
 /**
- * How often a gesture tells React where the view is. The transform itself is
+ * How often a pan tells React where the view is. The transform itself is
  * written straight to the layer on every event; React only needs the view to
- * decide what is near enough to draw and to update the zoom readout, and
- * neither needs it sixty times a second.
+ * decide what is near enough to draw, which does not need it sixty times a
+ * second. A zoom waits for the end; see `show`.
  */
 const COMMIT_EVERY = 100
 /** And once more when the gesture stops, so what is drawn matches where it ended. */
@@ -153,22 +155,41 @@ export default function DesignCanvas({
   const lastCommit = useRef(0)
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const show = useCallback((next: View, commit: 'now' | 'throttled' = 'now') => {
+  const readout = useRef<HTMLSpanElement | null>(null)
+
+  /**
+   * Puts the view on screen, and tells React when it needs to know.
+   *
+   * `now` commits at once. `pan` commits every `COMMIT_EVERY` so boards
+   * scrolling in are drawn on the way. `zoom` commits only when the gesture
+   * stops: scaling the layer is nearly free, but each commit re-culls, and
+   * mid-zoom that evicted boards past `MAX_LIVE` and drew them again a moment
+   * later — a 60 ms median frame on a 24-board screen, against 17 ms for the
+   * bare transform. Boards that come into view mid-zoom draw when it ends.
+   */
+  const show = useCallback((next: View, commit: 'now' | 'pan' | 'zoom' = 'now') => {
     live.current = next
     const node = layer.current
     if (node) {
       node.style.transform = `translate(${next.pan.x}px, ${next.pan.y}px) scale(${next.zoom})`
       node.style.setProperty('--z', String(next.zoom))
     }
+    if (readout.current) readout.current.textContent = `${Math.round(next.zoom * 100)}%`
+    // While it moves, boards with a bitmap show it instead; see index.css.
+    if (node) {
+      if (commit === 'zoom') node.dataset.zooming = ''
+      else delete node.dataset.zooming
+    }
     if (settle.current) clearTimeout(settle.current)
     const now = performance.now()
-    if (commit === 'now' || now - lastCommit.current >= COMMIT_EVERY) {
+    if (commit === 'now' || (commit === 'pan' && now - lastCommit.current >= COMMIT_EVERY)) {
       lastCommit.current = now
       setView(next)
       return
     }
     settle.current = setTimeout(() => {
       settle.current = null
+      if (layer.current) delete layer.current.dataset.zooming
       lastCommit.current = performance.now()
       setView(live.current)
     }, SETTLE)
@@ -218,10 +239,17 @@ export default function DesignCanvas({
    * keeps it.
    */
   const near = useMemo(() => visibleArtboards(placed, size, view.pan, view.zoom), [placed, size, view])
+  /**
+   * Too small to read, nothing is live: every board is its bitmap. Below
+   * `BITMAP_SCALE` device pixels per artboard pixel the bitmap is as sharp as
+   * the live board would be, and a screen zoomed out to fit two dozen boards
+   * holds two dozen textures instead of two dozen DOM trees.
+   */
+  const lod = view.zoom < BITMAP_SCALE / (window.devicePixelRatio || 1)
   const [drawn, setDrawn] = useState<string[]>([])
   useEffect(() => {
-    setDrawn((prev) => keepDrawn(prev, near))
-  }, [near])
+    setDrawn((prev) => (lod ? (prev.length === 0 ? prev : []) : keepDrawn(prev, near)))
+  }, [near, lod])
 
   /**
    * What is actually drawn: `drawn`, reached a few boards per frame.
@@ -292,22 +320,44 @@ export default function DesignCanvas({
     fit()
   }, [fit, signature, size, content.width, focus, placed, onSelect, show])
 
+  /**
+   * Where the viewport sits on screen, read once per gesture.
+   *
+   * `getBoundingClientRect` makes WebKit bring style and layout up to date on
+   * the spot, and the previous wheel event has just changed `--z` — so reading
+   * it on every event laid the canvas out twice a frame mid-zoom. The viewport
+   * does not move during a gesture; a pause long enough to end one reads it
+   * again.
+   */
+  const viewportBox = useRef<{ left: number; top: number; at: number } | null>(null)
+  const boxNow = (): { left: number; top: number } => {
+    const now = performance.now()
+    const cached = viewportBox.current
+    if (cached && now - cached.at < 200) {
+      cached.at = now
+      return cached
+    }
+    const box = viewport.current?.getBoundingClientRect()
+    viewportBox.current = { left: box?.left ?? 0, top: box?.top ?? 0, at: now }
+    return viewportBox.current
+  }
+
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault()
       moved.current = true
       const { pan, zoom } = live.current
-      const box = viewport.current?.getBoundingClientRect()
-      const point = { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) }
+      const box = boxNow()
+      const point = { x: e.clientX - box.left, y: e.clientY - box.top }
 
       // The platform convention: a pinch arrives as ctrl-wheel, and cmd-wheel
       // is what people reach for deliberately.
       if (e.ctrlKey || e.metaKey) {
         const next = clampZoom(zoom * Math.exp(-e.deltaY / 240))
-        show({ pan: zoomAbout(pan, zoom, next, point), zoom: next }, 'throttled')
+        show({ pan: zoomAbout(pan, zoom, next, point), zoom: next }, 'zoom')
         return
       }
-      show({ pan: { x: pan.x - e.deltaX, y: pan.y - e.deltaY }, zoom }, 'throttled')
+      show({ pan: { x: pan.x - e.deltaX, y: pan.y - e.deltaY }, zoom }, 'pan')
     },
     [show]
   )
@@ -331,7 +381,7 @@ export default function DesignCanvas({
     if (Math.hypot(e.clientX - from.x, e.clientY - from.y) >= CLICK_SLOP) moved.current = true
     show(
       { pan: { x: from.pan.x + (e.clientX - from.x), y: from.pan.y + (e.clientY - from.y) }, zoom: live.current.zoom },
-      'throttled'
+      'pan'
     )
   }
 
@@ -392,7 +442,8 @@ export default function DesignCanvas({
               height={height}
               order={selected.indexOf(artboard.id)}
               picked={selected.length}
-              isDrawn={shown.has(artboard.id)}
+              isDrawn={!lod && shown.has(artboard.id)}
+              wantsBitmap={near.has(artboard.id) || shown.has(artboard.id)}
               onSelect={onSelect}
               onContextMenu={onContextMenu}
               measure={measure}
@@ -408,7 +459,7 @@ export default function DesignCanvas({
         <ZoomButton label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>
           <Minus className="size-3" />
         </ZoomButton>
-        <span className="text-foreground tabular-nums">{Math.round(view.zoom * 100)}%</span>
+        <span ref={readout} className="text-foreground tabular-nums">{Math.round(live.current.zoom * 100)}%</span>
         <ZoomButton label="Zoom in" onClick={() => zoomBy(1.25)}>
           <Plus className="size-3" />
         </ZoomButton>
@@ -437,6 +488,7 @@ const ArtboardFrame = memo(function ArtboardFrame({
   order,
   picked,
   isDrawn,
+  wantsBitmap,
   onSelect,
   onContextMenu,
   measure,
@@ -452,6 +504,8 @@ const ArtboardFrame = memo(function ArtboardFrame({
   /** How many are selected: the pick number only shows past one. */
   picked: number
   isDrawn: boolean
+  /** Near the view: worth a bitmap, for zooming and for when it is not live. */
+  wantsBitmap: boolean
   onSelect: (id: string | null, mode?: SelectMode) => void
   onContextMenu?: (hit: Hit, at: { x: number; y: number }) => void
   measure: (id: string, height: number) => void
@@ -506,13 +560,13 @@ const ArtboardFrame = memo(function ArtboardFrame({
           // Right-clicking inside a selection acts on the selection;
           // outside it, on that one artboard — as in every file manager.
           if (!isSelected) onSelect(artboard.id)
-          const host = e.currentTarget.querySelector<HTMLElement>('[data-artboard-host], [data-artboard-outline]')
+          const host = e.currentTarget.querySelector<HTMLElement>('[data-artboard-host], [data-artboard-bitmap], [data-artboard-outline]')
           if (!host) return
           onContextMenu(hitTest(e.nativeEvent, host, artboard.id), { x: e.clientX, y: e.clientY })
         }}
         // A board not drawn yet is only its dashed outline: no fill,
         // and no second, solid edge around the dashes.
-        className={isDrawn ? 'bg-background' : undefined}
+        className={isDrawn ? 'relative bg-background' : 'relative'}
         style={{
           // Sized in screen pixels, so a selection reads the same at
           // 10% as at 200%; the offset keeps it off the artboard's own
@@ -526,7 +580,17 @@ const ArtboardFrame = memo(function ArtboardFrame({
         }}
       >
         {isDrawn ? (
-          <Artboard artboard={artboard} theme={theme} onMeasure={measure} />
+          <>
+            <Artboard artboard={artboard} theme={theme} onMeasure={measure} />
+            {/* Under the live board, for while a zoom is moving. */}
+            {wantsBitmap && <BoardBitmap artboard={artboard} theme={theme} className="pointer-events-none absolute top-0 left-0" />}
+          </>
+        ) : wantsBitmap ? (
+          <BoardBitmap
+            artboard={artboard}
+            theme={theme}
+            fallback={<ArtboardOutline artboard={artboard} height={height} />}
+          />
         ) : (
           <ArtboardOutline artboard={artboard} height={height} />
         )}

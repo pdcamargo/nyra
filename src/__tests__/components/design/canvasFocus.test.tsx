@@ -14,6 +14,11 @@ vi.mock('@renderer/components/design/Artboard', () => ({
   )
 }))
 
+/** Bitmaps need an SVG decoder jsdom does not have; this one marks where one would be. */
+vi.mock('@renderer/components/design/BoardBitmap', () => ({
+  default: ({ artboard }: { artboard: ResolvedArtboard }) => <span data-testid={`bitmap ${artboard.id}`} />
+}))
+
 const board = (id: string): ResolvedArtboard =>
   ({
     id,
@@ -106,5 +111,19 @@ describe('artboards waiting to be drawn', () => {
       ['next', { x: 300, y: 0, width: 100, height: 100 }]
     ])
     expect(nearestFirst(['far', 'next', 'mid'], placed, { x: 50, y: 50 })).toEqual(['mid', 'next', 'far'])
+  })
+})
+
+describe('a canvas zoomed too far out to read', () => {
+  it('draws every board as its bitmap and none live', () => {
+    const wide = ['x', 'y'].map((id) => ({ ...board(id), size: { width: 40000, height: 20000 } }) as ResolvedArtboard)
+    render(
+      <TooltipProvider>
+        <DesignCanvas artboards={wide} theme={defaultTheme} selected={[]} onSelect={vi.fn()} />
+      </TooltipProvider>
+    )
+    expect(screen.queryByRole('button', { name: /^measure/ })).toBeNull()
+    expect(screen.getByTestId('bitmap x')).toBeTruthy()
+    expect(screen.getByTestId('bitmap y')).toBeTruthy()
   })
 })

@@ -1571,3 +1571,17 @@ mark.nyra-search-highlight-active {
 ::highlight(nyra-annotation-flash) {
   background-color: color-mix(in oklab, var(--info) 45%, transparent);
 }
+
+/* The design canvas while a zoom is moving (see `DesignCanvas`'s `show`): a
+ * live artboard that has a bitmap hides behind it, because a bitmap scales as
+ * a texture and the live board repaints at every step. Still, the live board
+ * covers its bitmap and the bitmap is not painted at all. */
+[data-artboard-frame] > [data-artboard-host] ~ [data-artboard-bitmap] {
+  visibility: hidden;
+}
+[data-zooming] [data-artboard-frame] > [data-artboard-host] ~ [data-artboard-bitmap] {
+  visibility: visible;
+}
+[data-zooming] [data-artboard-frame]:has(> [data-artboard-bitmap]) > [data-artboard-host] {
+  visibility: hidden;
+}
