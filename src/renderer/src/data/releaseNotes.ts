@@ -11,6 +11,15 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     notes: []
   },
   {
+    version: '0.9.1',
+    date: '2026-10-09',
+    notes: [
+      'When Claude saves a design, Nyra now redraws only the panels that changed, and panning and zooming no longer slow down as the design grows',
+      'Zooming out on a design with many panels now fills them in a few at a time instead of freezing the window',
+      "Fixed the design preview over the chat slowing all of Nyra down when many of a design's panels had changed"
+    ]
+  },
+  {
     version: '0.9.0',
     date: '2026-10-09',
     notes: [
