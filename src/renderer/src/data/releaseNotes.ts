@@ -11,6 +11,15 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     notes: []
   },
   {
+    version: '0.9.3',
+    date: '2026-10-11',
+    notes: [
+      'Claude can now draw a screen in another state as a variant of an existing panel, writing down only what changed. An extra state takes a few lines instead of a full copy, and changing the original changes every state with it',
+      'Upgrading a design to the new format turns panels that were near-copies of another into variants. The design looks exactly the same and the file gets smaller. On one large project the design files shrank by half',
+      "Older versions of Nyra can't open an upgraded design, so update Nyra on every computer before upgrading a project you share"
+    ]
+  },
+  {
     version: '0.9.2',
     date: '2026-10-10',
     notes: [
