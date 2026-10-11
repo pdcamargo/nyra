@@ -6,22 +6,35 @@ import type { NodeKind } from '../registry/define'
 import type { PropName } from '../registry/types'
 import {
   childrenOf,
+  artboardSchema,
+  authoredDocumentSchema,
   containersOf,
-  documentSchema,
   isSlotRef,
   isUseNode,
   SCHEMA_VERSION,
+  variantArtboardSchema,
+  type Artboard,
+  type AuthoredDocument,
   type ComponentDef,
   type DesignDocument,
-  type DocNode
+  type DocNode,
+  type VariantArtboard
 } from '../schema'
+import { expandVariants } from '../variants'
 import { definedIn, localRegistry, type Registry } from './registry'
 import { isMatch, isPropRef, type Match, type PropRef } from '../value'
 import { isTokenPath } from '../theme/resolve'
 import { err, warn, type Issue } from './types'
 
 export type ValidateResult =
-  | { ok: true; doc: DesignDocument; issues: Issue[] }
+  | {
+      ok: true
+      /** Every artboard full: variants are expanded here and nowhere else. */
+      doc: DesignDocument
+      issues: Issue[]
+      /** Per variant, which artboard authors each node it inherited. */
+      inherited: Map<string, Map<string, string>>
+    }
   | { ok: false; issues: Issue[] }
 
 const kindOf = (n: DocNode): NodeKind => (isUseNode(n) ? 'use' : n.type)
@@ -66,7 +79,7 @@ function* refs(v: unknown, path: (string | number)[] = []): Generator<[PropRef, 
  * that parse but mean nothing.
  */
 export function validate(input: unknown, options: { registry?: Registry } = {}): ValidateResult {
-  const parsed = documentSchema.safeParse(input)
+  const parsed = authoredDocumentSchema.safeParse(input)
   if (!parsed.success) {
     return {
       ok: false,
@@ -75,20 +88,34 @@ export function validate(input: unknown, options: { registry?: Registry } = {}):
       )
     }
   }
-  const doc = parsed.data
+  // Each artboard as the shape it says it is: one with `extends` is a variant.
+  const shapeIssues: Issue[] = []
+  const authoredArtboards: (Artboard | VariantArtboard)[] = []
+  parsed.data.artboards.forEach((raw, i) => {
+    const asVariant = typeof raw === 'object' && raw !== null && 'extends' in raw
+    const r = (asVariant ? variantArtboardSchema : artboardSchema).safeParse(raw)
+    if (r.success) authoredArtboards.push(r.data)
+    else for (const x of r.error.issues) shapeIssues.push(err('schema', x.message, undefined, ['artboards', i, ...(x.path as (string | number)[])]))
+  })
+  if (shapeIssues.length > 0) return { ok: false, issues: shapeIssues }
+  const authored: AuthoredDocument = { ...parsed.data, artboards: authoredArtboards }
 
   const issues: Issue[] = []
-  if (doc.schema !== SCHEMA_VERSION) {
+  if (authored.schema !== SCHEMA_VERSION) {
     return {
       ok: false,
       issues: [
         err(
           'schema-version',
-          `document is schema ${doc.schema}; this build understands ${SCHEMA_VERSION}. The loader migrates or refuses — it never renders a file it does not understand.`
+          `document is schema ${authored.schema}; this build understands ${SCHEMA_VERSION}. The loader migrates or refuses — it never renders a file it does not understand.`
         )
       ]
     }
   }
+
+  const expanded = expandVariants(authored)
+  if (expanded.issues.length > 0) return { ok: false, issues: expanded.issues }
+  const { doc, inherited } = expanded
 
   // Inside a system, every component of every file; otherwise this file's own.
   const components = options.registry ?? localRegistry(doc)
@@ -119,7 +146,7 @@ export function validate(input: unknown, options: { registry?: Registry } = {}):
   }
 
   const errors = issues.filter((i) => i.severity === 'error')
-  return errors.length > 0 ? { ok: false, issues } : { ok: true, doc, issues }
+  return errors.length > 0 ? { ok: false, issues } : { ok: true, doc, issues, inherited }
 }
 
 function checkTree(

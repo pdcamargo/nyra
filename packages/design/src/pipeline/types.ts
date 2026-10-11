@@ -34,7 +34,16 @@ export const warn = (code: string, message: string, at?: Address, path?: (string
  * A node once components and tokens are resolved. `origin` is the authored node
  * a patch can actually mutate — the resolved tree is derived and read-only.
  */
-type Common = { id: string; origin: Address }
+type Common = {
+  id: string
+  origin: Address
+  /**
+   * Set when the node is drawn in a variant but written in another artboard:
+   * that artboard's id. `origin` still names the artboard it is drawn in, so
+   * scopes keep marking component boundaries; this says which line to edit.
+   */
+  from?: string
+}
 
 export type ResolvedBox = Common & { type: 'box'; children: ResolvedNode[] } & LiteralPropsFor<'box'>
 export type ResolvedText = Common & { type: 'text' } & LiteralPropsFor<'text'>

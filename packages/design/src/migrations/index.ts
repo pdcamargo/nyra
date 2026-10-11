@@ -17,6 +17,7 @@
  */
 import { SCHEMA_VERSION } from '../schema'
 import { slotsMetaModes } from './001-slots-meta-modes'
+import { variants } from './002-variants'
 
 /** One number for every file a design system holds: documents, tokens, manifest. */
 export const FORMAT_VERSION = SCHEMA_VERSION
@@ -40,7 +41,7 @@ export type Migration = {
 }
 
 /** Every step, oldest first. A version bump without one fails the tests. */
-export const MIGRATIONS: readonly Migration[] = [slotsMetaModes]
+export const MIGRATIONS: readonly Migration[] = [slotsMetaModes, variants]
 
 export type Upgrade = {
   from: number

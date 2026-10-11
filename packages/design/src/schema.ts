@@ -3,7 +3,7 @@ import { colorLit } from './registry/scalars'
 import { boxProps, iconProps, imageProps, textProps, useProps } from './registry/shapes'
 import type { PropsFor } from './registry/types'
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 /**
  * `/` is reserved: a resolved node id is `artboard#instancePath/innerId`, and
@@ -213,6 +213,51 @@ export const artboardSchema = z.strictObject({
 export type Artboard = z.infer<typeof artboardSchema>
 
 /**
+ * An artboard drawn as another artboard in this file plus its differences:
+ * the same screen with a dialog open, a different plan, the light mode. It has
+ * no `root` of its own; validation expands it into a full artboard before
+ * anything downstream sees it, so nothing past `validate` knows variants exist.
+ *
+ * The changes are keyed by node id, the same addressing patches use, and are
+ * applied in a fixed order — replace, remove, insert, set — so `set` can reach
+ * a node that `insert` or `replace` just put there.
+ *
+ * `size`, `background` and `mode` follow the base unless given. `position`
+ * never does: two artboards at one spot on the canvas would hide each other.
+ */
+const insertSchema = z.union(
+  [
+    z.strictObject({ after: idSchema, node: nodeSchema }),
+    z.strictObject({ before: idSchema, node: nodeSchema }),
+    z.strictObject({ into: idSchema, slot: slotNameSchema.optional(), node: nodeSchema })
+  ],
+  { error: () => 'an insert is { "after" | "before": "<id>", "node": … } or { "into": "<id>", "node": … }' }
+)
+export type VariantInsert = z.infer<typeof insertSchema>
+
+export const variantArtboardSchema = z.strictObject({
+  id: idSchema,
+  name: z.string().min(1),
+  extends: idSchema,
+  size: artboardSchema.shape.size.optional(),
+  background: colorLit.optional(),
+  position: artboardSchema.shape.position,
+  mode: artboardSchema.shape.mode,
+  /** Swap a node, and everything under it, for another. */
+  replace: z.record(idSchema, nodeSchema).optional(),
+  remove: z.array(idSchema).optional(),
+  insert: z.array(insertSchema).optional(),
+  /**
+   * Properties merged onto a node. `null` removes one. An instance's `props`
+   * merge by key, so `{ "props": { "label": "Free" } }` keeps its other props.
+   */
+  set: z.record(idSchema, z.record(z.string(), z.unknown())).optional()
+})
+export type VariantArtboard = z.infer<typeof variantArtboardSchema>
+
+export const isVariant = (a: Artboard | VariantArtboard): a is VariantArtboard => 'extends' in a
+
+/**
  * What a file says about itself, for the system's pages and nav. All of it is
  * optional and none of it draws anything.
  */
@@ -247,3 +292,17 @@ export const documentSchema = z.strictObject({
 })
 
 export type DesignDocument = z.infer<typeof documentSchema>
+
+/**
+ * A document as written in the file, where an artboard may be a variant.
+ * Artboards are left unparsed here and checked one by one in `validate`, as
+ * either shape: a union of the two would report a typo deep in a full
+ * artboard as "matches neither", which is no help to anyone fixing it.
+ */
+export const authoredDocumentSchema = documentSchema.extend({
+  artboards: z.array(z.unknown()).min(1)
+})
+
+export type AuthoredDocument = Omit<DesignDocument, 'artboards'> & {
+  artboards: (Artboard | VariantArtboard)[]
+}

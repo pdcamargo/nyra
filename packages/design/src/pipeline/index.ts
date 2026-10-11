@@ -71,7 +71,7 @@ export function compile(input: unknown, ctx: CompileContext = {}): Compiled {
       checked.issues
     )
   }
-  const { doc } = checked
+  const { doc, inherited } = checked
   const issues = [...checked.issues]
 
   const named = (source as { theme?: unknown }).theme
@@ -104,7 +104,7 @@ export function compile(input: unknown, ctx: CompileContext = {}): Compiled {
       size: a.size,
       position: a.position,
       background: resolveBackground(a.background, t),
-      root: resolveTokens(resolveComponents(doc as DesignDocument, a.id, { registry: ctx.registry, file: ctx.file }), t)
+      root: resolveTokens(resolveComponents(doc as DesignDocument, a.id, { registry: ctx.registry, file: ctx.file, inherited: inherited.get(a.id) }), t)
     }
     if (a.mode !== undefined) out.mode = a.mode
     if (own) out.theme = own

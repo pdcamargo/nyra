@@ -202,6 +202,41 @@ An artboard may pin itself to one of the theme's modes with
 \`"mode": "dark"\` — for a screen that is always dark. Leave it off otherwise,
 and it follows the viewer's light/dark toggle.
 
+## Variants: the same screen in another state
+
+When an artboard is another artboard with a few things changed — a dialog
+open, a different plan, an error, the light mode — write it as a **variant**:
+\`extends\` names the base, and it lists only what differs, by node id. A
+variant has no \`root\`. Writing the whole tree out again costs you the full
+artboard every time you write or read it, and the copies drift apart.
+
+\`\`\`json
+{ "id": "billing-free", "name": "Billing — Free plan", "extends": "billing",
+  "set":     { "plan": { "value": "Free" }, "upgrade": { "hidden": false },
+               "save": { "props": { "label": "Upgrade" } } },
+  "remove":  ["invoices"],
+  "insert":  [{ "after": "plan", "node": { "id": "limit", "type": "text", "value": "3 of 3 projects", "font": "$font.small" } }],
+  "replace": { "footer": { "id": "footer", "type": "text", "value": "Billed yearly", "font": "$font.small" } } }
+\`\`\`
+
+- \`set\` merges properties onto a node; \`null\` removes one. An instance's
+  \`props\` merge by key. It cannot change \`id\`, \`type\`, \`use\`,
+  \`children\` or \`slots\` — \`replace\` the node for that.
+- \`insert\` takes \`after\` or \`before\` a sibling's id, or \`into\` a box
+  (appended; add \`"slot"\` to fill an instance's slot).
+- They apply in the order replace, remove, insert, set, so \`set\` can reach a
+  node \`insert\` just added.
+- \`size\`, \`background\` and \`mode\` follow the base unless given, so a
+  light-mode copy is just \`{ "id": "billing-light", "name": "Billing — Light",
+  "extends": "billing", "mode": "light" }\`. \`position\` is never inherited.
+- A variant may extend a variant. Ids stay unique across the expanded artboard,
+  so a node you insert needs an id the base does not use.
+- Editing the base changes every variant that does not override that node —
+  usually what you want; check the variants' renders when you change one.
+
+Use a variant for a state of one screen. Use a component for a thing that
+repeats across screens.
+
 ## Values
 
 Every property takes one of exactly three forms, and there is no fourth:
@@ -297,7 +332,8 @@ Designs are **named, not filed**. You never choose or remember a location — th
    can see rather than a long silence followed by a finished design.
 5. **Build repeated things as components** as they appear. Two buttons
    differing only in colour are one component with a \`variant\` prop and a
-   \`match\`, never two trees.
+   \`match\`, never two trees. A screen in another state is a variant
+   artboard (\`extends\`), never a second copy of the screen.
 6. **Stop when a pass finds nothing worth changing.**
    Never describe a design you have not seen — the validator catches broken
    documents, not ugly ones.
@@ -363,7 +399,9 @@ directions and ask that way.
 and send you feedback on a whole artboard (\`<design_feedback …>\`), or a
 comment pinned to one element (\`<design_comment …>\`). A comment names the
 element, the file and node to edit (\`edit at\`), and where its component is
-defined. Act on it, render, then close it:
+defined. On a variant, \`edit at\` may name the base artboard: the node is
+inherited. Change it there if every variant should change, or add it to the
+variant's \`set\` if only this one should. Act on it, render, then close it:
 \`nyra_design action:"resolve", id:"<c_id>", note:"<what you changed, one line>"\`.
 The note is a reply on the comment's pin. A comment is a thread: when the
 user writes back, their message carries every round so far (\`thread:\`),
@@ -375,7 +413,9 @@ comments".
 **An older file.** If \`render\` says a design is an older format, run
 \`nyra_design action:"upgrade", design:"<name>"\` before you edit it — it is
 drawn from an upgraded copy, but anything you write into the file is still in
-the old format until it is upgraded. The original is kept.
+the old format until it is upgraded. The original is kept. Upgrading to v3
+also rewrites near-copy artboards as variants of an earlier one; the design
+draws the same, but re-read the file before you edit it.
 
 ## Things that will bite you
 

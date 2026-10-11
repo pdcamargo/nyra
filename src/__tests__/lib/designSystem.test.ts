@@ -96,6 +96,22 @@ describe('a design system, read', () => {
     expect(out.theme.name).toBe('Closeup')
   })
 
+  it("outlines a variant with its base's size and mode, and counts what it inherits", () => {
+    const states = {
+      schema: FORMAT_VERSION,
+      name: 'States',
+      artboards: [
+        { ...settings.artboards[0], mode: 'dark' },
+        { id: 'saving', name: 'Saving', extends: 'settings', set: { save: { props: { label: 'Saving…' } } } }
+      ]
+    }
+    const sys = assemble(entry, [file('components/button.nyui.json', 'component', button), file('screens/states.nyui.json', 'screen', states)])
+    const f = sys.files.find((x) => x.rel === 'screens/states.nyui.json')!
+    expect(f.artboards[1]).toMatchObject({ id: 'saving', width: 640, height: 480, mode: 'dark' })
+    // One Button written, two drawn.
+    expect(f.useCounts).toEqual({ Button: 2 })
+  })
+
   it('a screen alone, without the system, cannot find Button', () => {
     expect(compileText(JSON.stringify(settings)).ok).toBe(false)
   })

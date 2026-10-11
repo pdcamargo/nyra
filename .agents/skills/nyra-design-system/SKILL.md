@@ -73,7 +73,7 @@ the digest is the reference.
 
 ```json
 {
-  "schema": 2,
+  "schema": 3,
   "baseMode": "light",
   "color": { "transparent": "transparent", "gray": { "50": "#FAFAFB", "900": "#1A1B21" },
              "bg": "$color.gray.50", "text": "$color.gray.900", "accent": "#6E56CF" },
@@ -204,7 +204,8 @@ Read them with `nyra_design action:"list"` and their files.
    ask the user which one is the system's, showing both and how often each is
    used. Rewrite the screens to match their answer.
 3. The drafts' artboards become `screens/<name>.nyui.json`, using the system's
-   components and carrying no component definitions of their own.
+   components and carrying no component definitions of their own. A screen's
+   other states are variant artboards (`extends`) in the same file, not copies.
 4. Say what moved and what merged in one short summary.
 
 ## Comments

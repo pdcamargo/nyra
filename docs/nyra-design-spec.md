@@ -281,6 +281,30 @@ runs the chain.
 - The tests make a breaking change without a migration impossible to ship:
   every older version needs a step, and the examples must be current.
 
+### Variants (format v3)
+
+An artboard may be another artboard plus its differences:
+`{ "id", "name", "extends": "<artboard>", "replace", "remove", "insert", "set" }`,
+all keyed by node id and applied in that order. `size`, `background` and `mode`
+follow the base unless given; `position` never does. Variants may extend
+variants, and only within one file.
+
+- **Expanded in `validate`, nowhere else.** `validate` returns full artboards,
+  so components, tokens, emit, the canvas, comments and render never see a
+  variant. `DesignDocument` still means "every artboard has a root"; the file's
+  shape is `AuthoredDocument`.
+- **`origin` is still the artboard a node is drawn in**, because a change of
+  scope is how comments find component boundaries. A node a variant inherits
+  untouched also carries `from`, the artboard that writes it, and a comment's
+  `edit at` names that one and the override.
+- **The v2 → v3 step converts existing files.** A near-copy of an earlier
+  artboard becomes a variant of it when that is at most half its size, and only
+  if the variant expands to exactly the same tree. Nodes match by id, or by
+  shape when a generator renumbered each artboard's ids; a node matched by
+  shape takes the base's id, so an open comment pinned to it falls back to its
+  spot on the artboard. On the tessera system it turned 230 of 520 artboards
+  into variants and halved the files (16.6 → 8.6 MB minified).
+
 ### No size limit
 
 The old ceiling was the generic text read (1 MiB, 20,000 lines), which ships a

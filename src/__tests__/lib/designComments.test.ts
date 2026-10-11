@@ -196,6 +196,60 @@ describe('what Claude receives', () => {
     expect(body).toContain('action:"resolve", id:"c_4"')
   })
 
+  it('on a variant, sends an inherited node to the artboard that writes it', () => {
+    const variants = {
+      ...screen,
+      artboards: [
+        ...screen.artboards,
+        {
+          id: 'denied',
+          name: 'Permissions — denied',
+          extends: 'ready',
+          set: { heading: { value: 'Permissions denied' } },
+          insert: [{ after: 'heading', node: { id: 'why', type: 'text', value: 'Open Settings to allow.' } }]
+        }
+      ]
+    }
+    const sys = assemble(entry, [
+      file('tokens.json', 'tokens', tokensOf()),
+      file('components/parts.nyui.json', 'component', components),
+      file('screens/permissions.nyui.json', 'screen', variants)
+    ])
+    const out = compileText(JSON.stringify(variants), compileContextFor(sys, 'screens/permissions.nyui.json'))
+    if (!out.ok) throw new Error(out.message)
+    const a = out.doc.artboards[1]
+    const body = (resolvedId: string) =>
+      commentBody({
+        id: 'c_1',
+        n: 1,
+        text: 'x',
+        file: '/repo/design/screens/permissions.nyui.json',
+        rel: 'screens/permissions.nyui.json',
+        artboardId: 'denied',
+        artboardName: 'Permissions — denied',
+        anchor: { resolvedId, ...describeTarget(a, resolvedId), offset: { x: 0, y: 0 }, point: { x: 0, y: 0 }, bounds: null }
+      })
+
+    // Inside an instance the variant inherited: the instance is what to edit.
+    const title = describeTarget(a, idOf(a, 'PermissionRow', 'title'))
+    expect(title.from).toBe('ready')
+    expect(title.inside.map((s) => s.component)).toEqual(['PermissionRow'])
+    expect(body(idOf(a, 'PermissionRow', 'title'))).toContain(
+      'edit at:  screens/permissions.nyui.json · ready#mic (inherited by "denied"; or override it in that artboard\'s "set")'
+    )
+    // One instance deeper, the site is inside a component, which no variant
+    // inherits: edit at is the component file, as on any artboard.
+    expect(describeTarget(a, idOf(a, 'Button', 'label')).from).toBeUndefined()
+    // Slotted content is written in the artboard, so it is inherited too.
+    expect(describeTarget(a, idOf(a, 'denied', 'note')).from).toBe('ready')
+    // The variant's own nodes — set or inserted — are edited where they are.
+    expect(describeTarget(a, idOf(a, 'denied', 'heading')).from).toBeUndefined()
+    const why = describeTarget(a, idOf(a, 'denied', 'why'))
+    expect(why.from).toBeUndefined()
+    expect(why.inside).toEqual([])
+    expect(body(idOf(a, 'denied', 'why'))).toContain('edit at:  screens/permissions.nyui.json · denied#why')
+  })
+
   it('a reply carries every round so far, newest last', () => {
     const body = commentBody({
       id: 'c_2',

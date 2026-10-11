@@ -35,6 +35,9 @@ type Scope = {
   /** What the caller passed for each slot, captured with the caller's own
    *  scope and component stack — slotted nodes resolve *there*, not here. */
   slots: Record<string, SlotFill>
+  /** The artboard's own scope only: which artboard authors each node a
+   *  variant inherited. Slotted content shares this scope, so it is covered. */
+  inherited?: Map<string, string>
 }
 
 type SlotFill = { items: Child[]; scope: Scope; stack: string[] }
@@ -47,7 +50,7 @@ const addressIn = (scope: Scope, id: string): Address =>
 export function resolveComponents(
   doc: DesignDocument,
   artboardId: string,
-  options: { registry?: Registry; file?: string } = {}
+  options: { registry?: Registry; file?: string; inherited?: Map<string, string> } = {}
 ): ResolvedNode {
   const artboard = doc.artboards.find((a) => a.id === artboardId)
   if (!artboard) throw new PipelineError(`no artboard "${artboardId}"`, [])
@@ -55,6 +58,7 @@ export function resolveComponents(
   const ctx: Ctx = { registry: options.registry ?? localRegistry(doc), artboardId: artboard.id, issues: [] }
   const top: Scope = { source: artboard.id, path: [], props: {}, slots: {} }
   if (options.file !== undefined) top.file = options.file
+  if (options.inherited?.size) top.inherited = options.inherited
   const out = resolveNode(artboard.root, top, [], ctx)
   if (ctx.issues.length > 0) throw new PipelineError(ctx.issues[0].message, ctx.issues)
   return out
@@ -73,6 +77,8 @@ function resolveNode(node: DocNode, scope: Scope, stack: string[], ctx: Ctx): Re
     id: resolvedId(ctx.artboardId, scope.path, node.id),
     origin
   }
+  const from = scope.inherited?.get(node.id)
+  if (from !== undefined) out.from = from
 
   for (const [k, v] of Object.entries(node)) {
     if (k === 'id' || k === 'type' || k === 'children') continue
@@ -161,6 +167,9 @@ function expand(node: UseNode, scope: Scope, stack: string[], ctx: Ctx): Resolve
   // The instance keeps the caller's identity, so a patch and a hit test agree
   // on which authored node this is.
   merged.origin = origin
+  const from = scope.inherited?.get(node.id)
+  if (from !== undefined) merged.from = from
+  else delete merged.from
   return merged as ResolvedNode
 }
 

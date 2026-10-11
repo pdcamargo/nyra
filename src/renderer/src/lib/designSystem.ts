@@ -21,6 +21,8 @@ import {
   lookupToken,
   modesOf,
   themeFor,
+  expandVariants,
+  type AuthoredDocument,
   type DesignDocument,
   type DesignMeta,
   type Issue,
@@ -250,23 +252,49 @@ function outline(f: Cached): OutlineFile {
       }
     })
   }
-  const counts = usesIn(doc)
+  const counts = usesIn(drawnOf(doc))
   base.uses = [...counts.keys()].sort()
   base.useCounts = Object.fromEntries(counts)
   if (Array.isArray(doc.artboards)) {
-    base.artboards = doc.artboards.filter(isObject).map((a) => {
-      const size = isObject(a.size) ? a.size : {}
+    const raw = doc.artboards.filter(isObject)
+    // A variant usually leaves `size` and `mode` to its base; follow `extends`.
+    const follow = (a: Record<string, unknown>, key: 'size' | 'mode', seen = new Set<unknown>()): unknown => {
+      if (a[key] !== undefined) return a[key]
+      if (typeof a.extends !== 'string' || seen.has(a.extends)) return undefined
+      seen.add(a.extends)
+      const base = raw.find((b) => b.id === a.extends)
+      return base ? follow(base, key, seen) : undefined
+    }
+    base.artboards = raw.map((a) => {
+      const followed = follow(a, 'size')
+      const size = isObject(followed) ? followed : {}
+      const mode = follow(a, 'mode')
       const out: OutlineArtboard = {
         id: String(a.id ?? ''),
         name: String(a.name ?? a.id ?? ''),
         width: typeof size.width === 'number' ? size.width : 0,
         height: size.height === 'auto' ? 'auto' : typeof size.height === 'number' ? size.height : 0
       }
-      if (typeof a.mode === 'string') out.mode = a.mode
+      if (typeof mode === 'string') out.mode = mode
       return out
     })
   }
   return base
+}
+
+/**
+ * The document with its variants written out, so an instance a variant
+ * inherits counts once per artboard that draws it. A file that does not
+ * expand is counted as written; compiling it is where its errors surface.
+ */
+function drawnOf(doc: Record<string, unknown>): unknown {
+  if (!Array.isArray(doc.artboards) || !doc.artboards.some((a) => isObject(a) && 'extends' in a)) return doc
+  try {
+    const out = expandVariants(doc as unknown as AuthoredDocument)
+    return out.issues.length ? doc : out.doc
+  } catch {
+    return doc
+  }
 }
 
 /** Every `"use"` in a document, counted, walked as raw JSON: "used in" without compiling. */
@@ -646,7 +674,11 @@ export async function upgradeSystemFiles(entry: SystemEntry): Promise<{ upgraded
     const written = await window.api.design.writeUpgraded(f.path, serializeDocument(out.doc), out.from)
     if (!written.ok) throw new Error(written.error ?? `could not write ${f.rel}`)
     backup = written.backup ?? backup
-    upgraded.push(`${f.rel}  v${out.from} → v${out.to}`)
+    // What a step did to this file beyond the number — "20 of 23 artboards are
+    // now variants" — so whoever asked can say what changed. The per-step
+    // summaries are the same for every file and are left out.
+    const said = out.notes.filter((n) => !/^v\d+ → v\d+: /.test(n))
+    upgraded.push(`${f.rel}  v${out.from} → v${out.to}${said.length ? ` — ${said.join(' ')}` : ''}`)
   }
   return { upgraded, backup }
 }

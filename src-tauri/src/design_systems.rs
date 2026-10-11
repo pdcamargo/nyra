@@ -30,7 +30,7 @@ use crate::util;
 pub const SCHEMA: u32 = 1;
 /// The design format new files are written in. Kept equal to the package's
 /// `FORMAT_VERSION`; a test on the TypeScript side reads this line.
-pub const FORMAT: u32 = 2;
+pub const FORMAT: u32 = 3;
 
 pub const MANIFEST: &str = "nyra.design.json";
 pub const TOKENS: &str = "tokens.json";

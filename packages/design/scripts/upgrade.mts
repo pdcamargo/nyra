@@ -13,7 +13,8 @@ import { copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, statSyn
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { FORMAT_VERSION, NewerFormatError, serializeDocument, upgrade } from '../src/migrations'
-import { validate } from '../src/pipeline'
+import { buildRegistry, validate, type Registry } from '../src/pipeline'
+import type { DesignDocument } from '../src/schema'
 
 const args = process.argv.slice(2)
 const dryRun = args.includes('--dry-run')
@@ -40,8 +41,28 @@ const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').sl
 let upgraded = 0
 let failed = 0
 
-for (const target of targets) {
-  for (const file of designFiles(resolve(target))) {
+// A design system's screens use components defined in its other files, so a
+// file that does not validate alone is checked again against every component
+// in the folders given. Alone first: a folder of unrelated drafts can define
+// the same component twice, which would make every one of them ambiguous.
+const files = targets.flatMap((t) => [...designFiles(resolve(t))])
+let shared: Registry | null = null
+const sharedRegistry = (): Registry => {
+  if (shared) return shared
+  const docs = files.flatMap((file) => {
+    try {
+      const json = JSON.parse(readFileSync(file, 'utf8')) as { components?: unknown }
+      return json && typeof json === 'object' && json.components ? [{ file, doc: { components: json.components } as unknown as DesignDocument }] : []
+    } catch {
+      return []
+    }
+  })
+  shared = buildRegistry(docs).registry
+  return shared
+}
+
+for (const file of files) {
+  {
     let json: unknown
     try {
       json = JSON.parse(readFileSync(file, 'utf8'))
@@ -59,9 +80,11 @@ for (const target of targets) {
       continue
     }
     if (!out) continue
-    const checked = validate(out.doc)
+    let checked = validate(out.doc)
+    if (!checked.ok) checked = validate(out.doc, { registry: sharedRegistry() })
     if (!checked.ok) {
-      console.error(`skip  ${file}: upgraded, but the result does not validate — ${checked.issues[0]?.message}`)
+      const first = checked.issues.find((i) => i.severity === 'error') ?? checked.issues[0]
+      console.error(`skip  ${file}: upgraded, but the result does not validate — ${first?.message}`)
       failed++
       continue
     }

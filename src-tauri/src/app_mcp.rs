@@ -801,7 +801,17 @@ fn comments_summary(label: &str, all: &[Value]) -> String {
         let o = &a["origin"];
         let edit = if o.is_object() {
             let file = s(&o["file"]);
-            let at = format!("{}#{}", s(&o["scope"]), s(&o["id"]));
+            // On a variant, an inherited node is written in the artboard it
+            // comes from: name that one, and the override, as the renderer does.
+            // `from` is about the outermost instance when there is one, and
+            // this line names `origin`, so it only applies outside instances.
+            let outside = a["inside"].as_array().is_none_or(|v| v.is_empty());
+            let from = if outside { s(&a["from"]) } else { String::new() };
+            let at = if from.is_empty() {
+                format!("{}#{}", s(&o["scope"]), s(&o["id"]))
+            } else {
+                format!("{from}#{} (inherited by \"{}\"; or override it in that artboard's \"set\")", s(&o["id"]), s(&o["scope"]))
+            };
             if file.is_empty() { at } else { format!("{file} · {at}") }
         } else {
             "the artboard (the element it was on is gone)".to_string()
@@ -1355,6 +1365,12 @@ mod tests {
         ];
         let out = comments_summary("Closeup", &all);
         assert!(out.starts_with("Open comments on \"Closeup\" (2):"));
+        // On a variant, an inherited node is edited in the artboard it comes from.
+        let variant = vec![json!({ "id": "c_4", "n": 4, "status": "open", "text": "Shorter", "file": "/d.nyui.json",
+            "artboardId": "denied", "anchor": { "label": "Permissions", "inside": [], "from": "ready",
+            "origin": { "scope": "denied", "id": "heading", "file": "screens/p.nyui.json" } } })];
+        assert!(comments_summary("P", &variant)
+            .contains("edit at: screens/p.nyui.json · ready#heading (inherited by \"denied\"; or override it in that artboard's \"set\")"));
         assert!(out.contains("c_1 · pin 1 · screens/settings.nyui.json · artboard \"settings\""));
         assert!(out.contains("edit at: components/button.nyui.json · Button#label"));
         assert!(out.contains("edit at: the artboard (the element it was on is gone)"));

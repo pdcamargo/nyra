@@ -39,6 +39,11 @@ export type CommentAnchor = {
   type: string | null
   /** A text node's words. */
   text?: string
+  /**
+   * The artboard that writes the node to edit, when the comment is on a
+   * variant and that node is inherited from it rather than the variant's own.
+   */
+  from?: string
 }
 
 /** A round on a comment: Claude's note when it acts, or the user writing back. */
@@ -193,33 +198,40 @@ const clip = (s: string, n = 40): string => (s.length > n ? `${s.slice(0, n - 1)
 export function describeTarget(
   artboard: ResolvedArtboard,
   resolvedId: string | null
-): Pick<CommentAnchor, 'label' | 'type' | 'text' | 'origin' | 'inside'> {
+): Pick<CommentAnchor, 'label' | 'type' | 'text' | 'origin' | 'inside' | 'from'> {
   const chain = resolvedId ? findNode(artboard.root, resolvedId) : null
   if (!chain) return { label: artboard.name, type: null, origin: null, inside: [] }
   const node = chain[chain.length - 1]
   const inside: InstanceStep[] = []
+  // The resolved instance root each step opened at, so the node to edit —
+  // the outermost instance, or the node itself — can say who writes it.
+  const sites: ResolvedNode[] = []
   for (let i = 1; i < chain.length; i++) {
     const parent = chain[i - 1]
     const scope = chain[i].origin.scope
     if (scope === parent.origin.scope) continue
     if (scope === artboard.id) {
       inside.length = 0
+      sites.length = 0
       continue
     }
     const back = inside.findIndex((s) => s.component === scope)
     if (back >= 0) {
       inside.length = back + 1
+      sites.length = back + 1
       continue
     }
     inside.push({ component: scope, id: parent.origin.id, site: parent.origin })
+    sites.push(parent)
   }
+  const from = (sites.at(-1) ?? node).from
   // The first words inside a container name it better than its type does:
   // "Grant access" says which button, "box root" says nothing.
   const firstText = (n: ResolvedNode): string | undefined =>
     words(n) ?? (n.type === 'box' ? n.children.map(firstText).find((t) => t?.trim()) : undefined)
   const text = words(node)
   const label = clip((text ?? firstText(node) ?? '').trim()) || `${node.type} ${node.origin.id}`
-  return { label, type: node.type, ...(text ? { text } : {}), origin: node.origin, inside }
+  return { label, type: node.type, ...(text ? { text } : {}), origin: node.origin, inside, ...(from ? { from } : {}) }
 }
 
 /** The short tag over a highlighted element: `Button · grant`, `text · title`. */
@@ -230,6 +242,14 @@ export function targetTag(anchor: Pick<CommentAnchor, 'inside' | 'origin' | 'typ
 }
 
 const where = (a: Address): string => `${a.file ? `${a.file} · ` : ''}${a.scope}#${a.id}`
+
+/**
+ * Where to change a node. On a variant, an inherited node is written in the
+ * artboard it comes from, and changing it there changes every artboard that
+ * extends it — so both places are named and the choice is Claude's.
+ */
+const editAt = (a: Address, from?: string): string =>
+  from ? `${where({ ...a, scope: from })} (inherited by "${a.scope}"; or override it in that artboard's "set")` : where(a)
 
 /** What Claude receives with a comment: the element, where to edit it, the words. */
 export function commentBody(
@@ -248,7 +268,7 @@ export function commentBody(
     a.resolvedId
       ? `node:     ${a.resolvedId}${a.type ? ` — a ${a.type}` : ''}${chain ? ` inside ${chain}` : ''}`
       : 'node:     none — a point on the artboard',
-    ...(site ? [`edit at:  ${where(site)}`, `defined:  ${where(a.origin!)}`] : a.origin ? [`edit at:  ${where(a.origin)}`] : []),
+    ...(site ? [`edit at:  ${editAt(site, a.from)}`, `defined:  ${where(a.origin!)}`] : a.origin ? [`edit at:  ${editAt(a.origin, a.from)}`] : []),
     ...(a.text ? [`text:     "${clip(a.text, 80)}"`] : []),
     `where:    ${box}pinned at ${Math.round(a.offset.x * 100)}% × ${Math.round(a.offset.y * 100)}%`,
     `comment:  ${c.text}`,
