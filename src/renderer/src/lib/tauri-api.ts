@@ -375,6 +375,22 @@ export const api = {
         resumeAt: resumeAt ?? null
       }),
 
+    /** Start the chat's process ahead of its first message. A no-op when it has one. */
+    prewarm: (
+      cwd: string,
+      sessionId: string | null,
+      nyraSessionId: string,
+      worktreeName?: string,
+      settings?: SpawnSettings
+    ) =>
+      call<void>('claude_prewarm', {
+        cwd,
+        sessionId,
+        nyraSessionId,
+        worktreeName: worktreeName ?? null,
+        settings: settings ?? null
+      }),
+
     onEvent: (callback: (event: unknown) => void) => on('claude:event', callback),
     onPermission: (callback: (permission: unknown) => void) => on('claude:permission', callback),
     /** One of this chat's OS notifications was clicked; Rust has already raised the window. */

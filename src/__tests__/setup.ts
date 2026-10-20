@@ -61,6 +61,7 @@ Object.defineProperty(globalThis, 'api', {
     claude: {
       dispose: noop,
       query: noop,
+      prewarm: noop,
       abort: noop,
       respondPermission: noop,
       checkBinary: noop,

@@ -1,5 +1,10 @@
 /**
  * A subagent's cat. See `lib/agentCats.ts` for how one is chosen.
+ *
+ * The SVGs are inlined, so their class names live in the page's namespace and
+ * Tailwind scans them like any source file. None may share a name with a
+ * utility: the head's stroke was once `class="outline"`, which picked up
+ * Tailwind's `.outline` and drew a 1px box round every cat.
  */
 import React, { useId, useMemo } from 'react'
 import { catTintStyle, type AgentCat, type CatBreed } from '../lib/agentCats'

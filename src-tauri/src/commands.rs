@@ -53,6 +53,19 @@ pub async fn claude_query(
     }
 }
 
+/// Start this chat's process ahead of its first message. Fire and forget.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn claude_prewarm(
+    cwd: String,
+    session_id: Option<String>,
+    nyra_session_id: String,
+    worktree_name: Option<String>,
+    settings: Option<SpawnSettings>,
+) {
+    let settings = settings.unwrap_or_else(|| util::settings().spawn());
+    claude::prewarm(cwd, session_id, nyra_session_id, settings, worktree_name).await;
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn claude_permission_response(approved: bool, nyra_session_id: Option<String>) {
     claude::respond_permission(approved, nyra_session_id).await;

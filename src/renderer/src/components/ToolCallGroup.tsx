@@ -9,6 +9,7 @@ import AskUserQuestionCard from './AskUserQuestionCard'
 import PlanCard, { type PlanAnswer } from './PlanCard'
 import FinishedChecklist from './FinishedChecklist'
 import GoalChip from './GoalChip'
+import CompactionDivider from './CompactionDivider'
 import SkillChip from './SkillChip'
 import { tail } from '../lib/paths'
 import { useRememberedState } from '../lib/rememberedState'
@@ -113,6 +114,9 @@ export default function ToolCallGroup({
     }
     if (only.tool_name === 'GoalSet') {
       return <GoalChip message={only} />
+    }
+    if (only.tool_name === 'Compaction') {
+      return <CompactionDivider message={only} />
     }
     if (only.tool_name === 'Skill') {
       return <SkillChip message={only} />

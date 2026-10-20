@@ -344,6 +344,13 @@ struct SessionInner {
     /// a persisted request just hands that title back. Its title is asked for
     /// unpersisted, from its own first message, and reported as fresh.
     title_fresh: bool,
+    /// The title request for this turn, held until the reply starts. Written
+    /// straight behind the prompt it was a second model call racing the first
+    /// one to the API, on exactly the turn that is already paying a cold start.
+    pending_title: Option<String>,
+    /// Spawned ahead of a send by [`prewarm`] and not yet given a prompt. The
+    /// only process that may be torn down to make room for another chat's.
+    prewarmed: bool,
     /// API message ids whose usage has already been reported this turn. The CLI
     /// splits one response into an `assistant` line per content block and each
     /// line repeats the whole response's usage, so counting lines counts a
@@ -385,6 +392,8 @@ impl SessionInner {
             plan_writes: HashMap::new(),
             title_requested: false,
             title_fresh: false,
+            pending_title: None,
+            prewarmed: false,
             counted_messages: HashSet::new(),
         }
     }
@@ -957,6 +966,23 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                     "model": raw.get("model").cloned().unwrap_or(Value::Null),
                 }),
             ),
+            // The end of a compaction — `/compact`, or the CLI's own when the
+            // window fills mid-turn. The only report it makes: nothing is said
+            // while it works.
+            Some("compact_boundary") => {
+                let meta = raw.get("compact_metadata").or_else(|| raw.get("compactMetadata"));
+                let field = |snake: &str, camel: &str| {
+                    meta.and_then(|m| m.get(snake).or_else(|| m.get(camel))).cloned().unwrap_or(Value::Null)
+                };
+                emit_event(
+                    nyra_session_id,
+                    json!({
+                        "type": "compact_boundary",
+                        "trigger": field("trigger", "trigger"),
+                        "pre_tokens": field("pre_tokens", "preTokens"),
+                    }),
+                );
+            }
             Some("task_started") => processes::note_task_started(
                 nyra_session_id,
                 raw.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
@@ -1324,6 +1350,10 @@ fn build_spawn_args(
         "--output-format".into(),
         "stream-json".into(),
         "--verbose".into(),
+        // Token deltas as `stream_event` lines, ahead of the finished `assistant`
+        // line for each block. Without it nothing is on screen until a whole
+        // paragraph is done; see `forward_stream_event`.
+        "--include-partial-messages".into(),
     ];
     if !settings.model.is_empty() {
         args.push("--model".into());
@@ -1502,16 +1532,14 @@ async fn send_prompt_to_session(
         inner.counted_messages.clear();
         inner.current_turn = Some(tx);
         inner.turn_prompt = prompt.to_string();
+        inner.prewarmed = false;
+        // Sent once the reply is under way; see `flush_pending_title`.
+        if !std::mem::replace(&mut inner.title_requested, true) {
+            inner.pending_title = Some(title_request(prompt, inner.title_fresh));
+        }
     }
 
-    let mut payload = format_user_message(prompt);
-    let (ask_title, fresh) = {
-        let mut inner = sess.inner.lock();
-        (!std::mem::replace(&mut inner.title_requested, true), inner.title_fresh)
-    };
-    if ask_title {
-        payload.push_str(&title_request(prompt, fresh));
-    }
+    let payload = format_user_message(prompt);
     let mut guard = sess.stdin.lock().await;
     let write = match guard.as_mut() {
         Some(stdin) => stdin
@@ -1590,15 +1618,14 @@ pub async fn run_claude(
         return Err("Empty prompt".into());
     }
 
-    // A WSL chat keeps the distro's own `~/.claude` whatever its workspace, so
-    // its workspace is no part of what it is — and a move must not respawn it.
-    let mut settings = settings;
-    settings.config_dir = util::config_dir_arg(settings.config_dir.take())
-        .filter(|_| Environment::of(&cwd).is_host())
-        .map(|dir| dir.to_string_lossy().into_owned());
-
+    let settings = settings_for_spawn(&cwd, settings);
     let (_, fingerprint) =
         build_spawn_args(&cwd, &settings, worktree_name.as_deref(), None, None, None);
+
+    // Held from the lookup to the insert, so a prewarm still spawning cannot
+    // land its process on top of this one — this waits for it and reuses it.
+    let spawn_lock = spawn_lock(&nyra_session_id);
+    let spawn_guard = spawn_lock.lock().await;
 
     // Reuse the live process when nothing spawn-relevant changed; otherwise tear
     // down and start fresh. A rewind never reuses: the live process holds the
@@ -1633,6 +1660,7 @@ pub async fn run_claude(
             }
         }
     };
+    drop(spawn_guard);
 
     sess.inner.lock().refresh_runtime_settings(&settings);
 
@@ -1658,6 +1686,86 @@ pub async fn run_claude(
     }
 }
 
+/// The settings a spawn actually runs with. A WSL chat keeps the distro's own
+/// `~/.claude` whatever its workspace, so its workspace is no part of what it
+/// is — and a move must not respawn it.
+fn settings_for_spawn(cwd: &str, mut settings: SpawnSettings) -> SpawnSettings {
+    settings.config_dir = util::config_dir_arg(settings.config_dir.take())
+        .filter(|_| Environment::of(cwd).is_host())
+        .map(|dir| dir.to_string_lossy().into_owned());
+    settings
+}
+
+static SPAWN_LOCKS: Lazy<Mutex<HashMap<String, Arc<AsyncMutex<()>>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// One per chat: whoever holds it is the only one deciding whether that chat
+/// gets a new process.
+fn spawn_lock(nyra_session_id: &str) -> Arc<AsyncMutex<()>> {
+    SPAWN_LOCKS
+        .lock()
+        .entry(nyra_session_id.to_string())
+        .or_default()
+        .clone()
+}
+
+/// Start a chat's process before its first message, so the send finds it warm.
+///
+/// CLI boot, the user's MCP servers, plugins and hooks used to be paid on send,
+/// in front of the first token. Only for a chat with no process at all: one that
+/// is alive but shaped differently is the send's to replace, since tearing it
+/// down here would also take any background work it still has running.
+///
+/// At most one of these sits unused. Opening chat after chat must not leave a
+/// trail of idle CLIs, so a new prewarm retires any earlier one that never got
+/// a prompt. Failures are logged and dropped — the send will spawn again and
+/// report whatever is wrong in the chat.
+pub async fn prewarm(
+    cwd: String,
+    resume_session_id: Option<String>,
+    nyra_session_id: String,
+    settings: SpawnSettings,
+    worktree_name: Option<String>,
+) {
+    let spawn_lock = spawn_lock(&nyra_session_id);
+    let _guard = spawn_lock.lock().await;
+    if get_session(&nyra_session_id).is_some_and(|s| s.inner.lock().alive) {
+        return;
+    }
+
+    let idle: Vec<String> = SESSIONS
+        .lock()
+        .iter()
+        .filter(|(id, s)| **id != nyra_session_id && s.inner.lock().prewarmed)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in idle {
+        crate::logf!("Retiring unused prewarm [{}]", util::short(&id));
+        dispose_session(&id);
+    }
+
+    let settings = settings_for_spawn(&cwd, settings);
+    let (_, fingerprint) =
+        build_spawn_args(&cwd, &settings, worktree_name.as_deref(), None, None, None);
+    match spawn_session(
+        &cwd,
+        resume_session_id,
+        None,
+        &nyra_session_id,
+        &settings,
+        worktree_name.as_deref(),
+        fingerprint,
+    )
+    .await
+    {
+        Ok(sess) => {
+            sess.inner.lock().prewarmed = true;
+            crate::logf!("Prewarmed [{}]", util::short(&nyra_session_id));
+        }
+        Err(e) => crate::logf!("Prewarm failed for [{}]: {e}", util::short(&nyra_session_id)),
+    }
+}
+
 fn missing_folder(cwd: &str) -> String {
     format!("This chat's folder no longer exists: {cwd}. Restore it, or start a new chat in a project that does.")
 }
@@ -1680,7 +1788,14 @@ async fn spawn_session(
     }
     let claude_bin = match env.own_claude()? {
         Some(own) => own,
-        None => resolve_claude_binary(&settings.claude_binary_path),
+        // A cache miss runs `--version` on every install and polls it with a
+        // sleep, which has no business on an async worker.
+        None => {
+            let configured = settings.claude_binary_path.clone();
+            tokio::task::spawn_blocking(move || resolve_claude_binary(&configured))
+                .await
+                .map_err(|e| format!("Resolving the claude binary failed: {e}"))?
+        }
     };
     let config_dir = settings.config_dir.as_deref().map(Path::new);
 
@@ -1768,6 +1883,8 @@ async fn spawn_session(
             // forked at a point, and what it was titled is its source.
             title_requested: resumed && resume_at.is_none(),
             title_fresh: resumed && resume_at.is_some(),
+            pending_title: None,
+            prewarmed: false,
             counted_messages: HashSet::new(),
         }),
         stdin: AsyncMutex::new(Some(stdin)),
@@ -2044,6 +2161,18 @@ fn stale_resume(resuming: bool, marker_seen: bool, is_error: bool, num_turns: Op
 /// Returns true when the caller should stop feeding this session lines.
 async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -> bool {
     let event_type = raw.get("type").and_then(Value::as_str).unwrap_or_default();
+
+    // Ahead of the log: dozens a second, and every one is repeated by the
+    // finished `assistant` line that follows its block.
+    if event_type == "stream_event" {
+        flush_pending_title(sess);
+        forward_stream_event(sess, nyra_session_id, &raw);
+        return false;
+    }
+    if event_type == "assistant" || event_type == "result" {
+        flush_pending_title(sess);
+    }
+
     crate::logf!(
         "Event [{}]: {}",
         util::short(nyra_session_id),
@@ -2251,6 +2380,77 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
         handle_event(&raw, nyra_session_id);
     }
     false
+}
+
+/// A token delta, passed on as `assistant_delta` for the renderer's draft.
+///
+/// Main thread and text only. A subagent's deltas belong to its own transcript,
+/// which is fed from its finished lines. Thinking is announced at the start of
+/// its block, which is all the indicator needs. While a permission prompt is up
+/// or a retry is replaying, nothing goes out: those lines are replayed whole
+/// later, and a draft shown now would sit above a prompt it does not follow.
+///
+/// The draft is only ever a preview. The finished `assistant` line for the block
+/// still arrives and still becomes the message; the renderer drops the draft
+/// when it does.
+fn forward_stream_event(sess: &Arc<Session>, nyra_session_id: &str, raw: &Value) {
+    if raw.get("parent_tool_use_id").is_some_and(|p| !p.is_null()) {
+        return;
+    }
+    {
+        let inner = sess.inner.lock();
+        if inner.waiting_for_permission || inner.retry_in_flight {
+            return;
+        }
+    }
+    let Some(event) = raw.get("event") else { return };
+    match event.get("type").and_then(Value::as_str) {
+        Some("content_block_start") => {
+            match event
+                .get("content_block")
+                .and_then(|b| b.get("type"))
+                .and_then(Value::as_str)
+            {
+                Some("text") => emit_event(
+                    nyra_session_id,
+                    json!({ "type": "assistant_delta", "text": "", "reset": true }),
+                ),
+                Some("thinking") => emit_event(
+                    nyra_session_id,
+                    json!({ "type": "thinking", "thinking": "" }),
+                ),
+                _ => {}
+            }
+        }
+        Some("content_block_delta") => {
+            let delta = event.get("delta");
+            if delta.and_then(|d| d.get("type")).and_then(Value::as_str) != Some("text_delta") {
+                return;
+            }
+            let text = delta
+                .and_then(|d| d.get("text"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !text.is_empty() {
+                emit_event(nyra_session_id, json!({ "type": "assistant_delta", "text": text }));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Write this turn's title request, once the reply has started.
+fn flush_pending_title(sess: &Arc<Session>) {
+    let Some(line) = sess.inner.lock().pending_title.take() else {
+        return;
+    };
+    let sess = sess.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut guard = sess.stdin.lock().await;
+        if let Some(stdin) = guard.as_mut() {
+            let _ = stdin.write_all(line.as_bytes()).await.and(stdin.flush().await);
+        }
+    });
 }
 
 /// The `tool_use` blocks in an `assistant` line; empty for anything else.
@@ -2638,7 +2838,13 @@ async fn on_child_exit(sess: &Arc<Session>, nyra_session_id: &str, exit_code: Op
         let _ = turn.send(Err(err_msg));
     }
 
-    SESSIONS.lock().remove(nyra_session_id);
+    // Only if it is still this process's slot: a dispose followed by a spawn —
+    // a settings change, a prewarm retired and reused — puts a new session
+    // under the same id before the old child gets round to exiting.
+    let mut sessions = SESSIONS.lock();
+    if sessions.get(nyra_session_id).is_some_and(|s| Arc::ptr_eq(s, sess)) {
+        sessions.remove(nyra_session_id);
+    }
 }
 
 #[cfg(test)]

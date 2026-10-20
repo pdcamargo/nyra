@@ -440,7 +440,7 @@ export default function ChatInput({
           addInfo('No active session to compact. Send a message first.')
           break
         }
-        addInfo('Compacting context…')
+        // The divider it draws says so; see `CompactionDivider`.
         sendMessage('/compact')
         break
       case 'context':

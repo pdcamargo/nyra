@@ -181,6 +181,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::claude_query,
+            commands::claude_prewarm,
             commands::claude_permission_response,
             commands::claude_abort,
             commands::claude_steer,

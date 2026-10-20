@@ -28,6 +28,7 @@ import { SEND_TO_CHAT, withContext, type SendToChat } from '../lib/messageContex
 import { isQuestionnaireAsk } from './questionnaire/QuestionnaireChip'
 import MessageContextLines, { QuestionnaireRecord } from './MessageContextLines'
 import { contextFill } from '../lib/contextFill'
+import type { CompactionInput } from './CompactionDivider'
 import { historyText } from '../lib/historyText'
 import { extractAskBlocks } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
@@ -66,6 +67,7 @@ import { parseMcpFromInit } from '../utils/mcpParsing'
 import { useRateLimitStore } from '../store/rateLimit'
 import { openLogin } from '../lib/workspaces'
 import { useRunningStore, isSessionRunning } from '../store/running'
+import { useStreamingDraftStore, appendDraft, clearDraft } from '../store/streamingDraft'
 import { useUiStore } from '../store/ui'
 import { useLoopsStore } from '../store/loops'
 import { noteCommandDetails, noteSlashCommands, type CommandDetail } from '../lib/slashCommands'
@@ -104,6 +106,8 @@ type ClaudeEvent = ClaudeEventBase & (
       windows?: Record<string, { resetsAt: number; utilization: number }> | null
     }
   | { type: 'assistant_text'; text: string }
+  | { type: 'assistant_delta'; text: string; reset?: boolean }
+  | { type: 'compact_boundary'; trigger?: string | null; pre_tokens?: number | null }
   | { type: 'goal_set'; condition: string }
   | { type: 'background_tasks'; tasks: { task_id: string; description: string; task_type?: string }[] }
   | { type: 'background_task_progress'; task_id: string; tool_use_id: string; activity: string; last_tool_name: string; subagent_type: string; duration_ms: number }
@@ -151,8 +155,40 @@ function announceAgentEnd(sid: string, agent: Agent, status: 'done' | 'failed'):
   })
 }
 
+/**
+ * The divider of a compaction in flight, per session. Outside the component: a
+ * compaction outlives `Chat` being unmounted for the workflow canvas.
+ */
+const compacting = new Map<string, string>()
+
+/** A compaction's divider, as a synthetic tool call — see `CompactionDivider`. */
+function compactionMessage(input: CompactionInput): ToolCallMessage {
+  const id = `compact-${Date.now()}`
+  return { id, role: 'tool_call', tool_id: id, tool_name: 'Compaction', input, result: '' }
+}
+
+/** Close a compaction's divider: done with what the CLI reported, or failed. */
+function finishCompaction(sid: string, toolId: string, status: 'done' | 'failed', tokens?: number): void {
+  const store = useSessionsStore.getState()
+  const message = store.sessions
+    .find((s) => s.id === sid)
+    ?.messages.find((m) => m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId) as
+    | ToolCallMessage
+    | undefined
+  compacting.delete(sid)
+  if (!message) return
+  const input = message.input as unknown as CompactionInput
+  if (input.status !== 'running') return
+  store.updateToolInput(sid, toolId, {
+    ...input,
+    status,
+    durationMs: Date.now() - input.startedAt,
+    ...(tokens !== undefined ? { tokens } : {})
+  })
+}
+
 /** Tool calls that are a card to answer, not a line in a trace. */
-const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet', 'Skill'])
+const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet', 'Skill', 'Compaction'])
 /** Also standalone: Claude asking questions, which is its own one-line chip. */
 const standsAlone = (m: ToolCallMessage): boolean => STANDALONE_TOOLS.has(m.tool_name) || isQuestionnaireAsk(m)
 
@@ -236,6 +272,11 @@ export default function Chat(): React.JSX.Element {
    *  The call says "open a PR" and only the result says which one, so the
    *  two halves have to be tied together across events. */
   const prCallsRef = useRef<Set<string>>(new Set())
+  /** Sessions whose turn ended with a `result`, waiting on the `stream_end`
+   *  behind it — the one way to tell a finished turn from an aborted one. */
+  const turnResultRef = useRef<Set<string>>(new Set())
+  /** Sessions Nyra is about to compact by itself, with how full they were. */
+  const autoCompactRef = useRef<Map<string, number>>(new Map())
   const [isDragging, setIsDragging] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
   const [copyBlocksOpen, setCopyBlocksOpen] = useState(false)
@@ -503,7 +544,11 @@ export default function Chat(): React.JSX.Element {
         items.push({ kind: 'message', msg, idx })
       }
     }
-    if (isLoading) items.push({ kind: 'loading' })
+    // A compaction's divider is its own progress; a thinking indicator under it
+    // would say the same thing twice.
+    const last = messages[messages.length - 1] as ToolCallMessage | undefined
+    const compactingNow = last?.role === 'tool_call' && last.tool_name === 'Compaction' && last.input.status === 'running'
+    if (isLoading && !compactingNow) items.push({ kind: 'loading' })
     else if (waiting.length > 0) items.push({ kind: 'waiting', tasks: waiting })
     return items
   }, [messages, isLoading, waiting])
@@ -910,6 +955,19 @@ export default function Chat(): React.JSX.Element {
 
   useHighlightMatches(messagesRef, searchOpen ? searchQuery : '', activeMatchIndex)
 
+  // Start the chat's process while the user is still reading or typing, so the
+  // first send skips the CLI's cold start. Rust does nothing for a chat that
+  // already has one. Not for a worktree still to be made — the send creates it
+  // and runs there — or a fork's first message, which spawns rewound.
+  useEffect(() => {
+    if (!activeSessionId || isSessionRunning(activeSessionId)) return
+    const s = useSessionsStore.getState().sessions.find((x) => x.id === activeSessionId)
+    if (!s?.cwd || s.pendingWorktree || (!s.claudeSessionId && s.resumeFrom)) return
+    window.api.claude
+      .prewarm(s.cwd, s.claudeSessionId, activeSessionId, s.worktree?.name, spawnSettingsForSession(activeSessionId))
+      .catch(() => {})
+  }, [activeSessionId])
+
 
   const subscribeToEvents = useCallback(() => {
     if (cleanupRef.current) cleanupRef.current()
@@ -929,11 +987,23 @@ export default function Chat(): React.JSX.Element {
       // button. The main thread's own output is the tell: a subagent's never
       // reaches here as these types. `result` ends it like any other turn.
       if (
-        (event.type === 'tool_start' || event.type === 'assistant_text' || event.type === 'thinking') &&
+        (event.type === 'tool_start' ||
+          event.type === 'assistant_text' ||
+          event.type === 'assistant_delta' ||
+          event.type === 'thinking') &&
         !useRunningStore.getState().running[sid]
       ) {
         useRunningStore.getState().startRun(sid)
       }
+
+      // The reply as it is typed. Only a preview: the finished block arrives as
+      // `assistant_text` and becomes the message, and anything that ends or
+      // interrupts the block takes the draft down with it.
+      if (event.type === 'assistant_delta') {
+        appendDraft(sid, event.text, event.reset === true)
+        return
+      }
+      if (DRAFT_ENDERS.has(event.type)) clearDraft(sid)
 
       // The account's own model list, answered once per process. Global rather
       // than per chat: it is the same account whichever chat asked.
@@ -1004,7 +1074,7 @@ export default function Chat(): React.JSX.Element {
                 useSessionsStore.getState().setPendingAutoCompact(sid, true)
               } else {
                 useSessionsStore.getState().setAutoCompacted(sid, true)
-                addMessage(sid, { id: newMessageId(), role: 'assistant', text: 'Context approaching limit — auto-compacting…' })
+                autoCompactRef.current.set(sid, fill.pct)
                 setTimeout(() => sendMessageRef.current?.('/compact', undefined, undefined, sid), 150)
               }
             }
@@ -1275,6 +1345,20 @@ export default function Chat(): React.JSX.Element {
         return
       }
 
+      // The CLI's only word on a compaction, sent when it is over. One Nyra
+      // started has a divider waiting; the CLI's own, when the window fills
+      // mid-turn, arrives unannounced and gets one now.
+      if (event.type === 'compact_boundary') {
+        const tokens = typeof event.pre_tokens === 'number' ? event.pre_tokens : undefined
+        const toolId = compacting.get(sid)
+        if (toolId) {
+          finishCompaction(sid, toolId, 'done', tokens)
+        } else {
+          addMessage(sid, compactionMessage({ trigger: 'auto', status: 'done', startedAt: Date.now(), tokens }))
+        }
+        return
+      }
+
       if (event.type === 'assistant_text') {
         // The checklist comes out first: a task block is the whole list restated,
         // so it replaces what is there rather than adding to it.
@@ -1392,13 +1476,18 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'result') {
+        turnResultRef.current.add(sid)
         if (event.session_id) updateClaudeSessionId(sid, event.session_id)
         const role = event.is_error ? 'error' : 'assistant'
         // `result` repeats the reply Claude has already streamed, so it is only
         // worth showing when nothing was streamed — an error, or a turn whose
         // text never arrived block by block.
         const alreadySaid = streamedTextRef.current.delete(sid)
-        if (event.result && (!alreadySaid || event.is_error)) {
+        // A compaction's turn says nothing worth reading — its divider is the
+        // whole story. A failure still gets its error line.
+        const compactId = compacting.get(sid)
+        if (compactId) finishCompaction(sid, compactId, event.is_error ? 'failed' : 'done')
+        if (event.result && (!(alreadySaid || compactId) || event.is_error)) {
           // Headless Claude has no AskUserQuestion, so a question it wants
           // answered arrives as a fenced block in the reply. Lift it out before
           // the text is shown, or the user reads the same question twice.
@@ -1434,12 +1523,14 @@ export default function Chat(): React.JSX.Element {
         if (resultSess?.pendingAutoCompact && !event.is_error && sendMessageRef.current) {
           useSessionsStore.getState().setPendingAutoCompact(sid, false)
           useSessionsStore.getState().setAutoCompacted(sid, true)
-          addMessage(sid, { id: newMessageId(), role: 'assistant', text: 'Context approaching limit — auto-compacting…' })
+          autoCompactRef.current.set(sid, contextFill(resultSess)?.pct ?? 0)
           setTimeout(() => sendMessageRef.current?.('/compact', undefined, undefined, sid), 150)
         }
       }
 
       if (event.type === 'error' && event.result) {
+        const compactId = compacting.get(sid)
+        if (compactId) finishCompaction(sid, compactId, 'failed')
         addMessage(sid, { id: newMessageId(), role: 'error', text: event.result })
         useRunningStore.getState().endRun(sid)
         foldTasksAtTurnEnd(sid)
@@ -1455,7 +1546,9 @@ export default function Chat(): React.JSX.Element {
       if (event.type === 'stream_end') {
         const outstandingAtEnd =
           useBackgroundAgentsStore.getState().bySession[sid] ?? []
-        // The child is gone, so anything it had running is gone with it.
+        const finished = turnResultRef.current.delete(sid)
+        const compactId = compacting.get(sid)
+        if (compactId) finishCompaction(sid, compactId, 'failed')
         useBackgroundAgentsStore.getState().forget(sid)
         useSessionsStore.getState().setExecuting(sid, null)
         useRunningStore.getState().endRun(sid)
@@ -1467,10 +1560,17 @@ export default function Chat(): React.JSX.Element {
         // and a plan raised beside it would be a second one nobody invited.
         const endSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         if (!endSession?.needsAnswer) usePlanApprovalStore.getState().promote(sid)
-        // Anything still running when the child died did not finish — except a
-        // background agent, which is exactly the thing that outlives its turn.
-        // Read the roster before `forget` clears it, or every backgrounded agent
-        // is marked failed the moment the turn it was spawned in ends.
+        // A turn that ended with a result interrupted nothing. The process stays
+        // up between turns, and a foreground agent's own result has to arrive
+        // before its turn can end — so an agent still running now is a
+        // background one, and the roster or its notification will settle it.
+        // Matching it against the roster here used to be the only guard, and
+        // a roster that lagged or named it differently marked a live agent
+        // "interrupted", only for it to report "finished" minutes later.
+        if (finished) return
+        // Stopped, or a permission denied: what was running in the foreground
+        // was cut off. A backgrounded agent outlives even that. Read the roster
+        // before `forget` clears it.
         const stillOut = new Set(outstandingAtEnd.map((a) => a.description))
         endSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
           if (stillOut.has(a.name)) return
@@ -1641,7 +1741,23 @@ export default function Chat(): React.JSX.Element {
       // Taken before the turn starts, so it names the reply this message follows.
       resumeAt: useSessionsStore.getState().sessions.find((s) => s.id === sid)?.anchor ?? null
     }
-    useSessionsStore.getState().addMessage(sid, userMessage)
+    // `/compact` is not something to read back as a message: it is drawn as
+    // the divider it produces, running until the CLI reports the boundary.
+    if (/^\/compact(\s|$)/.test(text.trim())) {
+      const fillPct = autoCompactRef.current.get(sid!)
+      autoCompactRef.current.delete(sid!)
+      const divider = compactionMessage({
+        trigger: fillPct === undefined ? 'manual' : 'auto',
+        status: 'running',
+        startedAt: Date.now(),
+        tokens: before?.contextTokens,
+        ...(fillPct === undefined ? {} : { fillPct, afterTurn: true })
+      })
+      compacting.set(sid!, divider.tool_id)
+      useSessionsStore.getState().addMessage(sid, divider)
+    } else {
+      useSessionsStore.getState().addMessage(sid, userMessage)
+    }
 
     // A Worktree choice made in the composer becomes real here, not on click, so
     // chats that were never used leave nothing on disk.
@@ -2221,6 +2337,7 @@ export default function Chat(): React.JSX.Element {
                         purpose: the space belongs above the indicator, between
                         what is finished and what is still going, rather than
                         under it where the composer already provides some. */}
+                    {activeSessionId && <StreamingDraft sessionId={activeSessionId} />}
                     <div className="flex justify-start pt-5 pb-2">
                       <ThinkingIndicator
                         startTime={activeSessionId ? thinkingSince[activeSessionId] : undefined}
@@ -2551,6 +2668,37 @@ function WslNotices({ cwd }: { cwd: string }): React.JSX.Element | null {
  * watched; the indicator then drops the counter rather than inventing a zero,
  * and everything else about it is the same.
  */
+/** Every event that finishes, replaces or abandons the block being streamed. */
+const DRAFT_ENDERS = new Set<ClaudeEvent['type']>([
+  'assistant_text',
+  'tool_start',
+  'tool_input',
+  'tool_denied',
+  'result',
+  'error',
+  'stream_end',
+  'session_reset'
+])
+
+/**
+ * Nyra's own fenced blocks become a checklist, a changes card or a questionnaire
+ * once the block is finished. Shown raw while streaming they would flash up as a
+ * code block and vanish, so they are left out — an unclosed one up to the end.
+ */
+const NYRA_FENCE = /```nyra-[\w-]*\n[\s\S]*?(?:\n```|$)/g
+
+/** The text block Claude is writing right now, styled as the reply it will become. */
+function StreamingDraft({ sessionId }: { sessionId: string }): React.JSX.Element | null {
+  const draft = useStreamingDraftStore((s) => s.drafts[sessionId])
+  const text = draft?.replace(NYRA_FENCE, '').trim()
+  if (!text) return null
+  return (
+    <div className="py-2 text-foreground">
+      <MarkdownRenderer>{text}</MarkdownRenderer>
+    </div>
+  )
+}
+
 function ThinkingIndicator({ startTime }: { startTime?: number }): React.JSX.Element {
   const [elapsed, setElapsed] = useState(0)
   const word = useWorkingWord()

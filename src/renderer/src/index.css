@@ -1022,6 +1022,46 @@ html.nyra-picking [data-theme-editor] * {
   }
 }
 
+/* CompactionDivider's rule while it works: on each side a bright segment
+ * travels in toward the label, the conversation drawing together. Resting
+ * position is beside the label, which is where reduced motion leaves it. */
+.nyra-compact-sweep {
+  position: absolute;
+  inset-block: 0;
+  width: 40%;
+  animation: 2.2s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+}
+
+.nyra-compact-sweep-left {
+  right: 0;
+  background: linear-gradient(90deg, transparent, var(--primary));
+  animation-name: nyra-compact-sweep-left;
+}
+
+.nyra-compact-sweep-right {
+  left: 0;
+  background: linear-gradient(90deg, var(--primary), transparent);
+  animation-name: nyra-compact-sweep-right;
+}
+
+@keyframes nyra-compact-sweep-left {
+  from {
+    transform: translateX(-250%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes nyra-compact-sweep-right {
+  from {
+    transform: translateX(250%);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
 /* DotSpinner's ring: each cluster starts its fade one eighth of a turn behind
  * the one before it, so the bright head travels clockwise. The negative delay
  * puts every cluster mid-fade on the first frame instead of all lit at once. */
@@ -1252,6 +1292,10 @@ html.nyra-picking [data-theme-editor] * {
   }
 
   .nyra-breathe {
+    animation: none;
+  }
+
+  .nyra-compact-sweep {
     animation: none;
   }
 

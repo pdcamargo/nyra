@@ -293,9 +293,13 @@ pub fn child_path() -> String {
 
 /// Warm the cache off the startup path, so the first spawn never waits on an
 /// interactive shell. Safe to call more than once.
+///
+/// The binary's `--version` cache too, in the same thread because it runs with
+/// this PATH: on a miss the first spawn of the session ran every install once.
 pub fn prime_path() {
     std::thread::spawn(|| {
         let _ = child_path();
+        let _ = crate::claude::resolve_claude_binary(&settings().claude_binary_path);
     });
 }
 
