@@ -8,7 +8,18 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Replies now appear word by word as Claude writes them, and a chat starts its process as soon as you open it, so the first reply comes sooner',
+      'Added Regenerate to a reply, between Copy and Fork. The reply it replaces is kept as a version, and Edit does the same with your message instead of deleting everything after it. Switch between versions with the ‹ 1 / 2 › arrows',
+      'Regenerate, Edit and versions can put back the files a turn changed. Nyra keeps a copy of anything it overwrites and tells you where it is',
+      'Added side questions. Select text and press Ask, or type /btw, to ask about the chat in a sheet beside it while Claude keeps working. Side questions never change files or the chat itself',
+      'Added a timeline on the right edge of a chat with a mark for each of your messages. Hover one to see the message and the files it changed, and click to jump there. Press ⌘⇧J to list them all',
+      'Claude can now ask you a question without stopping. It says what it is going with and carries on, and your answer reaches it while it works',
+      'Compacting a chat now shows as a divider with how long it took',
+      "The Pinned Summary folds long lists of pull requests and lists the artifacts and docs a chat published on claude.ai",
+      'Fixed a chat losing its conversation when Nyra quit in the middle of a long turn',
+      "Fixed subagents still running in the background being marked as interrupted when Claude's turn ended"
+    ]
   },
   {
     version: '0.9.3',
