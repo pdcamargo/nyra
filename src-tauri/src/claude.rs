@@ -1533,6 +1533,52 @@ fn build_spawn_args(
     (args, fingerprint)
 }
 
+/// Tools a side question may use without asking. Everything else is denied
+/// by `dontAsk`, so the fork can look but not touch.
+const SIDE_TOOLS: &str = "Read,Grep,Glob,LS,WebSearch,WebFetch";
+
+/// The arguments for a side question: the chat's own spawn, forked.
+///
+/// Everything that shapes the prompt stays exactly the chat's (model, effort,
+/// system prompt, MCP servers), because that prefix is what the prompt cache
+/// keys on; a fork with a different tool list re-writes the whole conversation
+/// at the cache-write rate. What changes is what the process may *do*:
+/// `dontAsk` with a read-only allow-list in place of `bypassPermissions`, no
+/// worktree, and no transcript of its own, so closing the sheet leaves nothing
+/// behind and the chat's own transcript is never written to.
+pub(crate) fn side_spawn_args(
+    cwd: &str,
+    settings: &SpawnSettings,
+    resume_session_id: Option<&str>,
+    nyra_session_id: &str,
+) -> Vec<String> {
+    let (args, _) = build_spawn_args(cwd, settings, None, resume_session_id, None, Some(nyra_session_id));
+    let mut out: Vec<String> = Vec::with_capacity(args.len() + 6);
+    let mut it = args.into_iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            // Only the main process steers; nothing here waits on an echo.
+            "--replay-user-messages" => {}
+            "--permission-mode" | "--allowed-tools" => {
+                it.next();
+            }
+            _ => out.push(arg),
+        }
+    }
+    out.extend(
+        ["--permission-mode", "dontAsk", "--allowed-tools", SIDE_TOOLS, "--no-session-persistence"]
+            .map(String::from),
+    );
+    if resume_session_id.is_some() {
+        out.push("--fork-session".into());
+    }
+    out
+}
+
+pub(crate) fn settings_for_side(cwd: &str, settings: SpawnSettings) -> SpawnSettings {
+    settings_for_spawn(cwd, settings)
+}
+
 /// The prompt as the session's environment has to read it.
 ///
 /// Attachments are staged in Nyra's own temp dirs and the prompt names them by
@@ -3443,6 +3489,35 @@ mod tests {
     #[test]
     fn strips_ansi_and_carriage_returns() {
         assert_eq!(strip_ansi("\x1b[31mred\x1b[0m\r\n"), "red\n");
+    }
+
+    #[test]
+    fn side_args_fork_read_only_and_keep_the_prompt_shape() {
+        let settings = SpawnSettings {
+            model: "opus".into(),
+            effort: "high".into(),
+            allowed_tools: Some(vec!["Bash".into(), "Edit".into()]),
+            ..Default::default()
+        };
+        let main = build_spawn_args("/tmp", &settings, Some("wt"), Some("abc"), None, Some("chat")).0;
+        let side = side_spawn_args("/tmp", &settings, Some("abc"), "chat");
+        let pair = |args: &[String], flag: &str| {
+            args.windows(2).find(|w| w[0] == flag).map(|w| w[1].clone())
+        };
+        // What the cache keys on is the chat's.
+        for flag in ["--model", "--effort", "--append-system-prompt", "--resume"] {
+            assert_eq!(pair(&side, flag), pair(&main, flag), "{flag}");
+        }
+        assert_eq!(pair(&side, "--permission-mode").as_deref(), Some("dontAsk"));
+        assert_eq!(pair(&side, "--allowed-tools").as_deref(), Some(SIDE_TOOLS));
+        assert_eq!(side.iter().filter(|a| *a == "--permission-mode").count(), 1);
+        assert_eq!(side.iter().filter(|a| *a == "--allowed-tools").count(), 1);
+        assert!(side.iter().any(|a| a == "--fork-session"));
+        assert!(side.iter().any(|a| a == "--no-session-persistence"));
+        assert!(!side.iter().any(|a| a == "--worktree" || a == "--replay-user-messages"));
+
+        let fresh = side_spawn_args("/tmp", &settings, None, "chat");
+        assert!(!fresh.iter().any(|a| a == "--fork-session" || a == "--resume"));
     }
 
     #[test]

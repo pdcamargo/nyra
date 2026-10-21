@@ -44,7 +44,7 @@ export type FileAttachment = {
  * `label`. Stored on the message, so resend, edit and fork send it again.
  */
 export type MessageContext = {
-  kind: 'questionnaire' | 'design-feedback' | 'design-comment' | 'chat-annotation'
+  kind: 'questionnaire' | 'design-feedback' | 'design-comment' | 'chat-annotation' | 'side-question'
   /** The bubble's one line. */
   label: string
   /** What Claude receives. Never rendered in the transcript. */

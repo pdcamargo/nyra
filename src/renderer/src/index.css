@@ -574,6 +574,9 @@ html.nyra-picking [data-theme-editor] * {
   --color-merged: var(--merged);
   --color-design-accent: var(--design-accent);
   --color-design-accent-foreground: var(--design-accent-foreground);
+  /* Side questions borrow the design accent's violet under a name of their own,
+     so the two can part ways without touching every call site. */
+  --color-side-accent: var(--design-accent);
 
   --color-border-strong: var(--border-strong);
   --color-separator: var(--separator);
@@ -1611,6 +1614,9 @@ mark.nyra-search-highlight-active {
 }
 ::highlight(nyra-annotation-draft) {
   background-color: color-mix(in oklab, var(--info) 32%, transparent);
+}
+::highlight(nyra-side) {
+  background-color: color-mix(in oklab, var(--design-accent) 22%, transparent);
 }
 ::highlight(nyra-annotation-flash) {
   background-color: color-mix(in oklab, var(--info) 45%, transparent);

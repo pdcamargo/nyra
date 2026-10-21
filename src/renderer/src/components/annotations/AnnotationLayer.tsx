@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAnnotationsStore, useSessionAnnotations } from '../../store/annotations'
 import { rangeAt } from '../../lib/chatAnnotations'
 import { setHighlight } from '../../lib/annotationHighlights'
+import { useOpenSideThread } from '../../store/sideQuestions'
 
 type Pin = { id: string; n: number; x: number; y: number }
 
@@ -33,6 +34,16 @@ export default function AnnotationLayer({
   const mine = useMemo(() => all.filter((a) => a.messageId === messageId), [all, messageId])
   const [pins, setPins] = useState<Pin[]>([])
   const layer = useRef<HTMLDivElement>(null)
+
+  // What the open side question is about, tinted for as long as the sheet is open.
+  const sideQuote = useOpenSideThread(sessionId)?.quote
+  const side = sideQuote?.messageId === messageId ? sideQuote : undefined
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root || !side) return
+    setHighlight('nyra-side', 'side', rangeAt(root, side.start, side.end))
+    return () => setHighlight('nyra-side', 'side', null)
+  }, [side, rootRef, text])
 
   useLayoutEffect(() => {
     const root = rootRef.current

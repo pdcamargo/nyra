@@ -19,6 +19,7 @@ import {
   LogIn,
   Maximize2,
   MessageSquare,
+  MessagesSquare,
   Mic,
   Minimize2,
   Monitor,
@@ -28,6 +29,7 @@ import {
   FolderGit2,
   GitFork,
   Layers,
+  ListTree,
   PencilLine,
   PanelLeft,
   PanelRight,
@@ -78,6 +80,7 @@ import { usePanelTabsStore, panelTabsFor } from '../store/panelTabs'
 import { startBrowserTab, toggleDeviceMode } from '../components/browser/useBrowserSession'
 import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
 import { useChangesStore } from '../store/changes'
+import { openSideQuestion } from '../lib/sideAsk'
 
 /**
  * Everything the app can be asked to do, in one list.
@@ -145,6 +148,8 @@ export type CommandId =
   | 'flow.panel.triggers'
   | 'flow.stop'
   | 'chat.planMode'
+  | 'chat.outline'
+  | 'chat.side'
   | 'app.theme.light'
   | 'app.theme.dark'
   | 'app.theme.system'
@@ -464,6 +469,29 @@ export const COMMANDS: Command[] = [
     run: () => {
       const { activeSessionId, clearMessages } = useSessionsStore.getState()
       if (activeSessionId) clearMessages(activeSessionId)
+    }
+  },
+  {
+    id: 'chat.outline',
+    label: 'Prompt outline',
+    group: 'Session',
+    defaultChord: 'mod+shift+j',
+    icon: ListTree,
+    palette: true,
+    available: hasSession,
+    run: () => window.dispatchEvent(new Event('nyra:prompt-outline'))
+  },
+  {
+    id: 'chat.side',
+    label: 'Ask a side question',
+    group: 'Session',
+    defaultChord: null,
+    icon: MessagesSquare,
+    palette: true,
+    available: hasSession,
+    run: () => {
+      const sid = useSessionsStore.getState().activeSessionId
+      if (sid) openSideQuestion(sid)
     }
   },
   {

@@ -13,6 +13,10 @@ import AttachmentStrip from './AttachmentStrip'
 import AnnotationTray from './annotations/AnnotationTray'
 import { useAnnotationsStore, useSessionAnnotations } from '../store/annotations'
 import { annotationContext } from '../lib/chatAnnotations'
+import { btwQuestion, sideContext } from '../lib/sideQuestions'
+import { openSideQuestion } from '../lib/sideAsk'
+import { useKeptSideThreads, useSideQuestionsStore } from '../store/sideQuestions'
+import SideAnswerTray from './SideAnswerTray'
 import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
 import { BUILT_IN_COMMANDS } from '../data/commands'
 import {
@@ -228,6 +232,7 @@ export default function ChatInput({
   // Focus textarea on session switch
   const activeSessionId = useSessionsStore((s) => s.activeSessionId)
   const annotationCount = useSessionAnnotations(activeSessionId).length
+  const keptSideCount = useKeptSideThreads(activeSessionId).length
   const resourceDock = useResourceDockStore((s) =>
     activeSessionId ? s.bySession[activeSessionId] : undefined
   )
@@ -587,8 +592,16 @@ export default function ChatInput({
     const files = [...stagedFiles]
     const annotationsSid = useSessionsStore.getState().activeSessionId
     const pendingAnnotations = annotationsSid ? useAnnotationsStore.getState().bySession[annotationsSid] ?? [] : []
+    const keptSide = annotationsSid ? useSideQuestionsStore.getState().kept[annotationsSid] ?? [] : []
 
-    if (!text.trim() && images.length === 0 && files.length === 0 && pendingAnnotations.length === 0) return
+    if (
+      !text.trim() &&
+      images.length === 0 &&
+      files.length === 0 &&
+      pendingAnnotations.length === 0 &&
+      keptSide.length === 0
+    )
+      return
 
     // Intercept /loop <interval> <prompt>
     const loopMatch = text.trim().match(/^\/loop\s+(\d+(?:\.\d+)?)(s|m|h)\s+(.+)$/i)
@@ -607,6 +620,19 @@ export default function ChatInput({
     if (text.trim().toLowerCase() === '/loop stop') {
       setInput('')
       window.dispatchEvent(new CustomEvent('nyra:stop-loop'))
+      return
+    }
+
+    // A side question, never the CLI's own `/btw`: headless it refuses, and
+    // records the question in the chat's transcript anyway, where the next
+    // turn reads it. Works mid-turn, so it is caught before the queue.
+    const btw = btwQuestion(text)
+    if (btw !== null) {
+      const sid = useSessionsStore.getState().activeSessionId
+      if (sid) {
+        setInput('')
+        openSideQuestion(sid, { question: btw })
+      }
       return
     }
 
@@ -647,10 +673,15 @@ export default function ChatInput({
     setStagedFiles([])
     // Taken only now: a command run from the box above is not the message they
     // were waiting for, so they stay in the tray through it.
-    const context =
-      annotationsSid && pendingAnnotations.length > 0
+    const taken = [
+      ...(annotationsSid && pendingAnnotations.length > 0
         ? [annotationContext(useAnnotationsStore.getState().take(annotationsSid))]
-        : undefined
+        : []),
+      ...(annotationsSid && keptSide.length > 0
+        ? [sideContext(useSideQuestionsStore.getState().take(annotationsSid))]
+        : [])
+    ]
+    const context = taken.length > 0 ? taken : undefined
 
     if (isLoading) {
       const sid = useSessionsStore.getState().activeSessionId
@@ -1147,6 +1178,7 @@ export default function ChatInput({
           </div>
         )}
         <AnnotationTray sessionId={activeSessionId} />
+        <SideAnswerTray sessionId={activeSessionId} />
         <div className="max-h-[min(24vh,180px)] overflow-y-auto">
           <AttachmentStrip
             images={stagedImages}
@@ -1199,7 +1231,7 @@ export default function ChatInput({
         />
         <ComposerBar
           isLoading={isLoading}
-          canSend={!!input.trim() || stagedImages.length > 0 || stagedFiles.length > 0 || annotationCount > 0}
+          canSend={!!input.trim() || stagedImages.length > 0 || stagedFiles.length > 0 || annotationCount > 0 || keptSideCount > 0}
           onPickFiles={pickFiles}
           onInsert={insertCommand}
           onSend={handleSend}

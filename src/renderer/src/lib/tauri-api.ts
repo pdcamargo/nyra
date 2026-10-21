@@ -164,11 +164,21 @@ export type DesktopBlocked = {
   fix: DesktopFix | null
 }
 
+/** What a side question's process reports; see `side.rs`. */
+export type SideEvent = { sideId: string } & (
+  | { type: 'delta'; text: string }
+  | { type: 'block' }
+  | { type: 'tool'; name: string }
+  | { type: 'done'; isError: boolean; result: string }
+  | { type: 'exit'; code: number | null }
+)
+
 export type LibraryKind = 'skills' | 'commands' | 'agents' | 'plugins'
 
 const EVENT_NAMES = [
   'claude:event',
   'claude:permission',
+  'claude:side',
   'workflow:event',
   'processes:update',
   'keep-awake:update',
@@ -414,6 +424,23 @@ export const api = {
       call<number | null>('claude_steer', { prompt, nyraSessionId }),
 
     dispose: (nyraSessionId: string) => call<void>('claude_dispose', { nyraSessionId }),
+    /**
+     * Ask a side question in thread `sideId`: forked off the chat, read-only,
+     * never written to its transcript. The first ask starts the thread's
+     * process; a follow-up reuses it. Answers arrive through `onSide`.
+     */
+    sideAsk: (args: {
+      sideId: string
+      nyraSessionId: string
+      cwd: string
+      sessionId: string | null
+      prompt: string
+      settings?: SpawnSettings
+    }) => call<void>('claude_side_ask', { ...args, settings: args.settings ?? null }),
+    /** End a side thread and its process. */
+    sideClose: (sideId: string) => call<void>('claude_side_close', { sideId }),
+    onSide: (callback: (event: SideEvent) => void) => on('claude:side', callback),
+
 
     saveImage: (base64: string, mediaType: string) =>
       call<string>('claude_save_image', { base64, mediaType }),

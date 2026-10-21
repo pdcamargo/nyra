@@ -7,12 +7,14 @@
  * under `::highlight(...)`.
  */
 
-type Layer = 'nyra-annotation' | 'nyra-annotation-draft' | 'nyra-annotation-flash'
+type Layer = 'nyra-annotation' | 'nyra-annotation-draft' | 'nyra-annotation-flash' | 'nyra-side'
 
 const ranges: Record<Layer, Map<string, Range>> = {
   'nyra-annotation': new Map(),
   'nyra-annotation-draft': new Map(),
-  'nyra-annotation-flash': new Map()
+  'nyra-annotation-flash': new Map(),
+  /** What the open side question is about. */
+  'nyra-side': new Map()
 }
 
 function paint(layer: Layer): void {

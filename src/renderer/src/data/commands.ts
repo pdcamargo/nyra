@@ -1,5 +1,6 @@
 export const BUILT_IN_COMMANDS = [
   { name: '/help', description: 'Show available commands' },
+  { name: '/btw', description: 'Ask a side question; the chat never sees it, e.g. /btw why a queue here?' },
   { name: '/clear', description: 'Clear conversation history' },
   { name: '/compact', description: 'Compact conversation context' },
   { name: '/config', description: 'Open or manage settings' },

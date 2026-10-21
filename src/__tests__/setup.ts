@@ -65,6 +65,9 @@ Object.defineProperty(globalThis, 'api', {
       abort: noop,
       respondPermission: noop,
       checkBinary: noop,
+      sideAsk: noop,
+      sideClose: noop,
+      onSide: unsub,
       // No CLI here: the account cache keeps what it had rather than guessing.
       accountStatus: () => Promise.resolve({ loggedIn: false, error: 'no claude in tests' })
     },

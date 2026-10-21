@@ -37,6 +37,7 @@ mod platform;
 mod processes;
 mod questionnaires;
 mod settings;
+mod side;
 mod skills;
 mod spellcheck;
 mod subagents;
@@ -185,6 +186,8 @@ pub fn run() {
             commands::claude_permission_response,
             commands::claude_abort,
             commands::claude_steer,
+            commands::claude_side_ask,
+            commands::claude_side_close,
             commands::claude_dispose,
             commands::claude_check_binary,
             commands::claude_account_status,

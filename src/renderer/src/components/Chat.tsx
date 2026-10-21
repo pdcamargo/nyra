@@ -6,7 +6,7 @@ import { noteDesignCall, noteDesignResult } from '../store/designActivity'
 import { useSettingsStore } from '../store/settings'
 import { wslShare } from '../lib/environment'
 import { useEnvironmentInfo } from '../hooks/useEnvironmentInfo'
-import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
+import { spawnSettingsForSession } from '../lib/spawnSettings'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
 import { forkChat, forkMarks, type ForkMarkSpec, type ForkPoint } from '../lib/fork'
 import { ForkMark, ForkMenu } from './ForkMenu'
@@ -76,6 +76,9 @@ import { noteModelId, noteModelVersion, noteOfferedModels } from '../store/model
 import type { OfferedModel } from '../lib/models'
 import { openFileInPanel } from '../lib/openFile'
 import SelectionAnnotator from './annotations/SelectionAnnotator'
+import PromptTimeline from './PromptTimeline'
+import SideQuestionSheet from './SideQuestionSheet'
+import { buildTimeline } from '../lib/promptTimeline'
 import AnnotationLayer from './annotations/AnnotationLayer'
 import AnnotationReceipt from './annotations/AnnotationReceipt'
 import { useAnnotationsStore } from '../store/annotations'
@@ -231,36 +234,6 @@ const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskCheckl
 const standsAlone = (m: ToolCallMessage): boolean => STANDALONE_TOOLS.has(m.tool_name) || isQuestionnaireAsk(m)
 
 
-/** What "auto-accept edits" actually waives — file writes, nothing else. */
-const EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit']
-
-/**
- * Spawn settings for one conversation.
- *
- * Everything but auto-accept is global. That one is per session because it is
- * granted by approving a particular plan, and `autoApproveTools` is sent with
- * every query — so it takes effect on the next turn without respawning.
- */
-function spawnSettingsForSession(sessionId: string): SpawnSettings {
-  // The chat's workspace decides the account. Its project's, when it has one —
-  // so a chat whose project moved respawns under the new account on this send.
-  const base = spawnSettingsFor(useSettingsStore.getState(), configDirForSession(useSessionsStore.getState(), sessionId))
-  const session = useSessionsStore.getState().sessions.find((s) => s.id === sessionId)
-
-  // Plan mode, model and effort are per-conversation, falling back to the
-  // defaults in Settings. They used to be global, so changing one in a chat
-  // changed it in every chat, including ones already running.
-  const resolved: SpawnSettings = {
-    ...base,
-    planMode: session?.planMode ?? base.planMode,
-    model: session?.model ?? base.model,
-    effort: session?.effort ?? base.effort
-  }
-
-  if (!session?.autoAcceptEdits) return resolved
-  const merged = new Set([...resolved.autoApproveTools, ...EDIT_TOOLS])
-  return { ...resolved, autoApproveTools: [...merged] }
-}
 
 // Panel state comes from the ui store rather than props: the title bar owns the
 // toggles now, so threading them back down through App would be a detour.
@@ -2198,6 +2171,25 @@ export default function Chat(): React.JSX.Element {
   // Read every render rather than memoised: the visible range moves on scroll,
   // and the virtualizer re-renders this component when it does.
   const recapRange = virtualizer.range
+
+  const timeline = useMemo(() => buildTimeline(messages), [messages])
+  const promptRows = useMemo(() => {
+    const rows = new Map<string, number>()
+    virtualItems.forEach((item, i) => {
+      if (item.kind === 'message' && item.msg.role === 'user') rows.set(item.msg.id, i)
+    })
+    return rows
+  }, [virtualItems])
+  // The last prompt at or above the top of the view: the turn you are reading.
+  let currentPrompt: string | null = null
+  if (recapRange) {
+    for (const p of timeline) {
+      const row = promptRows.get(p.id)
+      if (row === undefined) continue
+      if (row > recapRange.startIndex) break
+      currentPrompt = p.id
+    }
+  }
   const recapOnScreen = (messageId: string): boolean => {
     const index = recapIndexOf(messageId)
     return (
@@ -2287,8 +2279,11 @@ export default function Chat(): React.JSX.Element {
   const currentPermission = permissionQueue.find((p) => p.nyraSessionId === activeSessionId) ?? null
 
   return (
+    // The side sheet takes its width from the chat rather than floating over
+    // it, so the column recentres in what is left instead of hiding under it.
+    <div className="flex h-full min-w-0">
     <div
-      className="flex h-full flex-col relative"
+      className="flex h-full min-w-0 flex-1 flex-col relative"
       style={columnGeometry}
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
@@ -2333,6 +2328,8 @@ export default function Chat(): React.JSX.Element {
         <SummaryPanel />
         <Miniature />
       </div>
+
+      <PromptTimeline prompts={timeline} currentId={currentPrompt} onJump={handleRecapJump} />
 
       {/* The column is centred and width-limited, and stays put when the summary
           opens — the summary floats in the gutter rather than pushing the text.
@@ -2695,6 +2692,8 @@ export default function Chat(): React.JSX.Element {
       {statsOpen && <StatsModal onClose={() => setStatsOpen(false)} />}
       {copyBlocksOpen && <CopyBlocksModal onClose={() => setCopyBlocksOpen(false)} />}
       {releaseNotesOpen && <ReleaseNotesModal onClose={() => setReleaseNotesOpen(false)} />}
+    </div>
+    <SideQuestionSheet sessionId={activeSessionId} />
     </div>
   )
 }

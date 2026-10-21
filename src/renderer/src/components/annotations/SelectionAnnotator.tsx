@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Copy, MessageSquarePlus, Trash2 } from 'lucide-react'
+import { Copy, MessageSquarePlus, MessagesSquare, Trash2 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useAnnotationsStore } from '../../store/annotations'
 import { newMessageId, type Message } from '../../store/sessions'
 import { ANNOTATABLE, annotatableRoot, clampToRoot, offsetsOf, snapToWords } from '../../lib/chatAnnotations'
 import { annotationRange, setHighlight } from '../../lib/annotationHighlights'
 import { formatChord } from '../../lib/keys'
+import { openSideQuestion } from '../../lib/sideAsk'
 
 const TOOLBAR_HEIGHT = 34
 const POPOVER_WIDTH = 340
@@ -72,9 +73,10 @@ function rectOf(range: Range): DOMRect | null {
 }
 
 /**
- * Select text in any message, yours or Claude's, and a toolbar offers Comment
- * and Copy. Comment opens a popover under the selection; what it adds waits in
- * the composer's tray until the next send. A pin on annotated text reopens the
+ * Select text in any message, yours or Claude's, and a toolbar offers Comment,
+ * Ask and Copy. Comment opens a popover under the selection; what it adds waits
+ * in the composer's tray until the next send. Ask opens a side question about
+ * it right away, beside the chat. A pin on annotated text reopens the
  * same popover to edit or delete it.
  *
  * One instance per chat, positioned in window space rather than inside the
@@ -192,6 +194,19 @@ export default function SelectionAnnotator({
         >
           <MessageSquarePlus className="size-3.5" />
           Comment
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            window.getSelection()?.removeAllRanges()
+            const { messageId, source, start, end, quote } = target
+            openSideQuestion(sessionId, { quote: { messageId, source, start, end, quote } })
+            setMode({ kind: 'idle' })
+          }}
+          className="flex h-6.5 items-center gap-1.5 rounded-at-7 px-2.5 font-[550] transition-colors hover:bg-accent"
+        >
+          <MessagesSquare className="size-3.5" />
+          Ask
         </button>
         <button
           type="button"

@@ -84,6 +84,26 @@ pub async fn claude_steer(prompt: String, nyra_session_id: String) -> Option<u64
     claude::steer_session(&nyra_session_id, &prompt).await
 }
 
+/// Ask a side question: forked off the chat, read-only, and gone on close.
+/// Answers arrive as `claude:side` events for `side_id`.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn claude_side_ask(
+    side_id: String,
+    nyra_session_id: String,
+    cwd: String,
+    session_id: Option<String>,
+    prompt: String,
+    settings: Option<SpawnSettings>,
+) -> Result<(), String> {
+    let settings = settings.unwrap_or_else(|| util::settings().spawn());
+    crate::side::ask(side_id, nyra_session_id, cwd, session_id, prompt, settings).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn claude_side_close(side_id: String) {
+    crate::side::close(&side_id);
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn claude_dispose(nyra_session_id: String) -> Result<(), String> {
     claude::dispose_session_and_wait(&nyra_session_id).await
