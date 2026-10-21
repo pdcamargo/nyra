@@ -85,6 +85,39 @@ export type TextMessage = {
   resumeAt?: Anchor | null
   /** On a user message: the open question it answers, by its header or text. */
   answers?: string
+  /** On a user message: it is one version of an edited prompt — a key into
+   *  `Session.versions`, shared by every version of it. */
+  promptVersions?: string
+  /** On a user message: the turn after it was regenerated, and what follows
+   *  is one of its versions — a key into `Session.versions`. */
+  replyVersions?: string
+}
+
+/** One version of a branch point that is not on screen, with where it ended. */
+export type VersionTail = {
+  messages: Message[]
+  /** The reply it ended on, so continuing it resumes there. */
+  anchor: Anchor | null
+}
+
+/**
+ * A point in a chat that has been edited or regenerated, and every version it
+ * has had. The version on screen lives in `Session.messages`, from the branch
+ * point to the end; its slot here is left empty, since anything kept there
+ * would go stale the moment the chat carried on.
+ *
+ * `prompt` versions start at the edited user message. `reply` versions start
+ * after the user message whose turn was regenerated. Either runs to the end
+ * of the chat, so a version holds everything said after it too — including
+ * other branch points, whose own versions stay in the map until they are on
+ * screen again.
+ */
+export type VersionSet = {
+  kind: 'prompt' | 'reply'
+  tails: VersionTail[]
+  current: number
+  /** The version that ran last. The files on disk are its doing. */
+  ran: number
 }
 
 /**
@@ -288,6 +321,27 @@ export function newMessageId(): string {
   return `${Date.now().toString(36)}-${messageSeq.toString(36)}`
 }
 
+/** Where the version on screen of a set starts in `messages`, or -1. */
+export function versionStart(messages: Message[], key: string, kind: VersionSet['kind']): number {
+  const at = messages.findIndex(
+    (m) => m.role === 'user' && (kind === 'prompt' ? (m as TextMessage).promptVersions : (m as TextMessage).replyVersions) === key
+  )
+  if (at < 0) return -1
+  return kind === 'prompt' ? at : at + 1
+}
+
+/** The keys of every branch point on screen. */
+export function versionKeys(messages: Message[]): string[] {
+  const keys: string[] = []
+  for (const m of messages) {
+    if (m.role !== 'user') continue
+    const { promptVersions, replyVersions } = m as TextMessage
+    if (promptVersions) keys.push(promptVersions)
+    if (replyVersions) keys.push(replyVersions)
+  }
+  return keys
+}
+
 export type Session = {
   id: string
   claudeSessionId: string | null
@@ -334,6 +388,9 @@ export type Session = {
   /** A fork with no anchor to resume from — its history predates them — so the
    *  first message carries a recap of it instead. */
   needsRecap?: boolean
+  /** Every edited or regenerated point in this chat, by the key its messages
+   *  carry. See `VersionSet`. */
+  versions?: Record<string, VersionSet>
   forkOf?: ForkOf
   /** The title was chosen deliberately — renamed by hand, or derived for a fork
    *  — so the one Claude generates must not take it away again. */
@@ -522,6 +579,18 @@ type SessionsStore = {
    *  it. A worktree fork gets a pending worktree, created on its first send. */
   forkSession: (sourceSessionId: string, upToMessageId?: string, mode?: ForkMode) => string
   truncateAtMessage: (sessionId: string, messageId: string) => void
+  /**
+   * Put the chat from a message onward away as a version, and rewind to there.
+   * `prompt` puts the message itself away, for an edit to replace; `reply`
+   * keeps it and puts away its turn, for a regeneration. Answers the set's key,
+   * which an edit's new message carries as its `promptVersions`, or null when
+   * the message is not in the chat.
+   */
+  branchAt: (sessionId: string, messageId: string, kind: VersionSet['kind']) => string | null
+  /** Swap the version on screen for another. The next message resumes it. */
+  showVersion: (sessionId: string, key: string, index: number) => void
+  /** Record the versions on screen as the ones that ran, as a send does. */
+  markVersionsRan: (sessionId: string) => void
   setAutoCompacted: (sessionId: string, value: boolean) => void
   setPendingAutoCompact: (sessionId: string, value: boolean) => void
   setPendingAction: (action: PendingAction) => void
@@ -967,7 +1036,7 @@ export const useSessionsStore = create<SessionsStore>()(
       clearMessages: (sessionId: string) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === sessionId ? { ...s, messages: [], tasks: [], agents: [], usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }, anchor: null, contextTokens: undefined, title: 'New session', titleManual: false, autoCompacted: false, pendingAutoCompact: false } : s
+            s.id === sessionId ? { ...s, messages: [], versions: undefined, tasks: [], agents: [], usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }, anchor: null, contextTokens: undefined, title: 'New session', titleManual: false, autoCompacted: false, pendingAutoCompact: false } : s
           )
         }))
       },
@@ -1396,10 +1465,11 @@ export const useSessionsStore = create<SessionsStore>()(
             : source.messages.length
           const sliceEnd = cutIndex === -1 ? source.messages.length : cutIndex
 
-          const messages = source.messages.slice(0, sliceEnd).map((m) => ({
-            ...m,
-            id: crypto.randomUUID()
-          }))
+          // A fork takes the versions on screen, not the ones behind them.
+          const messages = source.messages.slice(0, sliceEnd).map((m) => {
+            const { promptVersions: _p, replyVersions: _r, ...rest } = m as TextMessage
+            return { ...(m.role === 'tool_call' ? m : rest), id: crypto.randomUUID() } as Message
+          })
 
           const lastMsgId = messages.length > 0 ? source.messages[sliceEnd - 1]?.id ?? '' : ''
 
@@ -1474,6 +1544,95 @@ export const useSessionsStore = create<SessionsStore>()(
               agents: [],
               usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
             }
+          })
+        }))
+      },
+
+      branchAt: (sessionId, messageId, kind) => {
+        let key: string | null = null
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const idx = s.messages.findIndex((m) => m.id === messageId)
+            if (idx === -1) return s
+            const at = s.messages[idx] as TextMessage
+            const start = kind === 'prompt' ? idx : idx + 1
+            const existing = kind === 'prompt' ? at.promptVersions : at.replyVersions
+            const k = existing && s.versions?.[existing] ? existing : crypto.randomUUID()
+            key = k
+            const prior = s.versions?.[k]
+
+            // The first time, the message being put away has to say whose
+            // version it is, or nothing could find the set to bring it back.
+            const away = s.messages.slice(start)
+            if (kind === 'prompt' && !existing) away[0] = { ...at, promptVersions: k }
+            const tails = prior ? [...prior.tails] : []
+            tails[prior ? prior.current : 0] = { messages: away, anchor: s.anchor ?? null }
+            tails.push({ messages: [], anchor: null })
+            const next = tails.length - 1
+
+            const kept = s.messages.slice(0, start)
+            if (kind === 'reply') kept[idx] = { ...at, replyVersions: k }
+            return {
+              ...s,
+              messages: kept,
+              versions: { ...s.versions, [k]: { kind, tails, current: next, ran: next } },
+              claudeSessionId: null,
+              contextTokens: undefined,
+              tasks: [],
+              agents: [],
+              usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
+            }
+          })
+        }))
+        return key
+      },
+
+      showVersion: (sessionId, key, index) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const vs = s.versions?.[key]
+            if (!vs || index === vs.current || !vs.tails[index]) return s
+            const start = versionStart(s.messages, key, vs.kind)
+            if (start < 0) return s
+
+            const tails = [...vs.tails]
+            tails[vs.current] = { messages: s.messages.slice(start), anchor: s.anchor ?? null }
+            const target = tails[index]
+            tails[index] = { messages: [], anchor: null }
+            const messages = [...s.messages.slice(0, start), ...target.messages]
+            const hasHistory = messages.some((m) => m.role === 'user' || m.role === 'assistant')
+            // The live process holds whichever version ran, so the next message
+            // starts a new one at the end of this — the way a fork's first does.
+            return {
+              ...s,
+              messages,
+              versions: { ...s.versions, [key]: { ...vs, tails, current: index } },
+              anchor: target.anchor,
+              claudeSessionId: null,
+              resumeFrom: target.anchor,
+              needsRecap: !target.anchor && hasHistory,
+              contextTokens: undefined,
+              tasks: [],
+              agents: []
+            }
+          })
+        }))
+      },
+
+      markVersionsRan: (sessionId) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId || !s.versions) return s
+            let versions: Record<string, VersionSet> | null = null
+            for (const key of versionKeys(s.messages)) {
+              const vs = s.versions[key]
+              if (!vs || vs.ran === vs.current) continue
+              versions ??= { ...s.versions }
+              versions[key] = { ...vs, ran: vs.current }
+            }
+            return versions ? { ...s, versions } : s
           })
         }))
       },

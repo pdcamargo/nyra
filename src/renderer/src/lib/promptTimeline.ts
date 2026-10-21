@@ -68,6 +68,17 @@ function editOf(call: ToolCallMessage): TimelineFile | null {
   }
 }
 
+/** The files these messages' tool calls changed, once each, in order. */
+export function editedPaths(messages: Message[]): string[] {
+  const paths = new Set<string>()
+  for (const m of messages) {
+    if (m.role !== 'tool_call') continue
+    const edit = editOf(m as ToolCallMessage)
+    if (edit) paths.add(edit.path)
+  }
+  return [...paths]
+}
+
 /** One row per path, summed, biggest first. */
 function merge(entries: TimelineFile[]): TimelineFile[] {
   const byPath = new Map<string, TimelineFile>()

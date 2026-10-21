@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, CornerDownRight, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
-import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, type MessageContext, newMessageId } from '../store/sessions'
+import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, type MessageContext, type Anchor, newMessageId } from '../store/sessions'
 import { noteDesignCall, noteDesignResult } from '../store/designActivity'
 import { useSettingsStore } from '../store/settings'
 import { wslShare } from '../lib/environment'
@@ -10,6 +10,8 @@ import { spawnSettingsForSession } from '../lib/spawnSettings'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
 import { forkChat, forkMarks, type ForkMarkSpec, type ForkPoint } from '../lib/fork'
 import { ForkMark, ForkMenu } from './ForkMenu'
+import { RegenerateButton, VersionSwitch, DiskNote } from './MessageVersions'
+import { turnRegens, versionViews, type TurnRegen, type VersionView } from '../lib/versions'
 import MarkdownRenderer from './MarkdownRenderer'
 import ToolCallCard from './ToolCallCard'
 import AskUserQuestionCard from './AskUserQuestionCard'
@@ -584,6 +586,11 @@ export default function Chat(): React.JSX.Element {
     }
     return ends
   }, [messages, isLoading])
+
+  // Edited and regenerated messages: their switchers, and where Regenerate goes.
+  const versionSets = activeSession?.versions
+  const versionViewsById = useMemo(() => versionViews(messages, versionSets, turnEnds), [messages, versionSets, turnEnds])
+  const regensById = useMemo(() => turnRegens(messages, turnEnds), [messages, turnEnds])
 
   // The fork lines, keyed by the message each goes under. Selected as a string
   // so a store change that moves no line re-renders nothing.
@@ -1805,6 +1812,8 @@ export default function Chat(): React.JSX.Element {
     } else {
       useSessionsStore.getState().addMessage(sid, userMessage)
     }
+    // Carrying on from a version makes it the one whose edits are on disk.
+    useSessionsStore.getState().markVersionsRan(sid!)
 
     // A Worktree choice made in the composer becomes real here, not on click, so
     // chats that were never used leave nothing on disk.
@@ -1888,6 +1897,60 @@ export default function Chat(): React.JSX.Element {
     return true
   }, [])
 
+  /**
+   * Rewind to the reply a message followed and run it from there.
+   *
+   * Rewind rather than recap. The live process still holds everything after
+   * the message, and pasting the history on top of that sent the whole
+   * conversation twice while forgetting none of what was edited away. With an
+   * anchor the CLI forks at the reply the message followed. Without one — a
+   * message from before anchors were recorded — a fresh process gets the
+   * recap, and then it is the only copy it has.
+   *
+   * `branchAt` has already put the old version away; `add` is the new user
+   * message an edit shows, or null for a regeneration, which keeps the one
+   * already on screen.
+   */
+  const rewindAndRun = useCallback(async (
+    sid: string,
+    anchor: Anchor | null,
+    recap: string,
+    text: string,
+    images: ImageAttachment[],
+    files: FileAttachment[],
+    context: MessageContext[] | undefined,
+    add: TextMessage | null
+  ): Promise<void> => {
+    useSessionsStore.getState().setAnchor(sid, anchor)
+    await window.api.claude.dispose(sid).catch(() => {})
+
+    // Through the same fold `sendMessage` uses, so a resent message carries
+    // its attachments and context exactly as the first one did.
+    const prompt = withContext(withAttachments(recap + text, images, files), context)
+
+    useRunningStore.getState().startRun(sid)
+    pendingToolsRef.current.clear()
+    if (add) useSessionsStore.getState().addMessage(sid, add)
+
+    const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)!
+    try {
+      // The worktree name has to match what `sendMessage` passes, or the next
+      // ordinary message after an edit respawns the child all over again.
+      await window.api.claude.query(
+        prompt,
+        session.cwd,
+        anchor?.sessionId ?? null,
+        sid,
+        session.worktree?.name,
+        spawnSettingsForSession(sid),
+        anchor?.uuid
+      )
+    } catch (err) {
+      useSessionsStore.getState().addMessage(sid, { id: newMessageId(), role: 'error', text: String(err) })
+      useRunningStore.getState().endRun(sid)
+    }
+  }, [])
+
   const editAndResend = useCallback(async (
     messageId: string,
     newText: string,
@@ -1901,34 +1964,18 @@ export default function Chat(): React.JSX.Element {
     if (!session) return
 
     const msgIndex = session.messages.findIndex((m) => m.id === messageId)
-    const priorMessages = session.messages.slice(0, msgIndex)
-    const anchor = (session.messages[msgIndex] as TextMessage | undefined)?.resumeAt ?? null
+    const original = session.messages[msgIndex] as TextMessage | undefined
+    const anchor = original?.resumeAt ?? null
     // What the message carried beyond its text goes again with the edit: an
     // edited comment still points at the same element.
-    const context = (session.messages[msgIndex] as TextMessage | undefined)?.context
+    const context = original?.context
+    const recap = anchor ? '' : historyText(session.messages.slice(0, msgIndex))
 
-    // Rewind rather than recap. The live process still holds everything after
-    // the edited message, and pasting the history on top of that sent the whole
-    // conversation twice while forgetting none of what was edited away. With an
-    // anchor the CLI forks at the reply the message followed. Without one — a
-    // message from before anchors were recorded — a fresh process gets the
-    // recap, and then it is the only copy it has.
-    const contextPrefix = anchor ? '' : historyText(priorMessages)
-
-    // Truncate messages from the edited one onward
-    useSessionsStore.getState().truncateAtMessage(sid, messageId)
-    useSessionsStore.getState().setAnchor(sid, anchor)
-    await window.api.claude.dispose(sid).catch(() => {})
+    // The original and everything after it become version 1, not nothing.
+    const key = useSessionsStore.getState().branchAt(sid, messageId, 'prompt')
 
     // The edit box starts from the original's attachments and can add to them,
-    // so these are the whole set — through the same fold `sendMessage` uses. It
-    // used to re-append the original's images by hand and drop its files.
-    const prompt = withContext(withAttachments(contextPrefix + newText, images, files), context)
-
-    // Add user message and send
-    useRunningStore.getState().startRun(sid)
-    pendingToolsRef.current.clear()
-
+    // so these are the whole set.
     const userMessage: TextMessage = {
       id: newMessageId(),
       role: 'user',
@@ -1936,27 +1983,35 @@ export default function Chat(): React.JSX.Element {
       ...(images.length > 0 ? { images } : {}),
       ...(files.length > 0 ? { files } : {}),
       ...(context && context.length > 0 ? { context } : {}),
-      resumeAt: anchor
+      resumeAt: anchor,
+      ...(key ? { promptVersions: key } : {})
     }
-    useSessionsStore.getState().addMessage(sid, userMessage)
+    await rewindAndRun(sid, anchor, recap, newText, images, files, context, userMessage)
+  }, [rewindAndRun])
 
-    const updatedSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)!
-    try {
-      // The worktree name has to match what `sendMessage` passes, or the next
-      // ordinary message after an edit respawns the child all over again.
-      await window.api.claude.query(
-        prompt,
-        updatedSession.cwd,
-        anchor?.sessionId ?? null,
-        sid,
-        updatedSession.worktree?.name,
-        spawnSettingsForSession(sid),
-        anchor?.uuid
-      )
-    } catch (err) {
-      useSessionsStore.getState().addMessage(sid, { id: newMessageId(), role: 'error', text: String(err) })
-      useRunningStore.getState().endRun(sid)
-    }
+  /** Run a turn's prompt again, keeping the turn it replaces as a version. */
+  const regenerate = useCallback(async (promptId: string): Promise<void> => {
+    const sid = useSessionsStore.getState().activeSessionId
+    if (!sid) return
+    const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)
+    if (!session) return
+
+    const index = session.messages.findIndex((m) => m.id === promptId)
+    const prompt = session.messages[index] as TextMessage | undefined
+    if (!prompt || prompt.role !== 'user') return
+    const anchor = prompt.resumeAt ?? null
+    const recap = anchor ? '' : historyText(session.messages.slice(0, index))
+
+    useSessionsStore.getState().branchAt(sid, promptId, 'reply')
+    await rewindAndRun(sid, anchor, recap, prompt.text, prompt.images ?? [], prompt.files ?? [], prompt.context, null)
+  }, [rewindAndRun])
+
+  /** Put another version on screen. The process holds the old one, so it goes. */
+  const handleShowVersion = useCallback((key: string, index: number) => {
+    const sid = useSessionsStore.getState().activeSessionId
+    if (!sid || isSessionRunning(sid)) return
+    useSessionsStore.getState().showVersion(sid, key, index)
+    void window.api.claude.dispose(sid).catch(() => {})
   }, [])
 
   /**
@@ -2588,6 +2643,11 @@ export default function Chat(): React.JSX.Element {
                       onEdit={msg.role === 'user' && !isLoading ? handleStartEdit : undefined}
                       // Not mid-turn: the turn has no anchor to fork from yet.
                       onFork={!isLoading ? handleFork : undefined}
+                      version={versionViewsById.get(msg.id)}
+                      onShowVersion={handleShowVersion}
+                      // Not mid-turn either: there is nothing to rewind to until it ends.
+                      regen={!isLoading ? regensById.get(msg.id) : undefined}
+                      onRegenerate={regenerate}
                       onPlanAnswer={handlePlanAnswer}
                       onQuestionAnswer={handleQuestionAnswer}
                     />
@@ -2873,7 +2933,7 @@ function WaitingIndicator({ tasks }: { tasks: WaitingTask[] }): React.JSX.Elemen
   )
 }
 
-const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoading, showActions, onEdit, onFork, onPlanAnswer, onQuestionAnswer }: { message: Message; sessionId?: string | null; isLoading?: boolean; showActions?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (at: ForkPoint, mode: ForkMode) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
+const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoading, showActions, onEdit, onFork, version, onShowVersion, regen, onRegenerate, onPlanAnswer, onQuestionAnswer }: { message: Message; sessionId?: string | null; isLoading?: boolean; showActions?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (at: ForkPoint, mode: ForkMode) => void; version?: VersionView; onShowVersion?: (key: string, index: number) => void; regen?: TurnRegen; onRegenerate?: (promptId: string) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLDivElement>(null)
@@ -2994,7 +3054,20 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
         {annotated && <AnnotationReceipt context={annotated} />}
         {/* Outside the bubble, or the bubble reserves a line for a timestamp
             nobody is looking at and sits taller than its own text. */}
-        {message.timestamp && (
+        {version && onShowVersion ? (
+          // Versions stay in view; the time beside them still waits for hover.
+          <>
+            <div className="mt-1 flex items-center gap-1">
+              <VersionSwitch view={version} disabled={isLoading} onShow={onShowVersion} />
+              {message.timestamp && (
+                <span className="text-c-xs text-muted-foreground opacity-0 transition-opacity group-hover/msg:opacity-100">
+                  {formatMessageTime(message.timestamp)}
+                </span>
+              )}
+            </div>
+            <DiskNote view={version} disabled={isLoading} onShow={onShowVersion} />
+          </>
+        ) : message.timestamp && (
           <div className="mt-1 text-c-xs text-muted-foreground opacity-0 transition-opacity group-hover/msg:opacity-100">
             {formatMessageTime(message.timestamp)}
           </div>
@@ -3039,8 +3112,18 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
       {message.changes && <ChangesCard block={message.changes} />}
       {/* Actions sit under the reply, not floating beside its first line — a long
           answer's controls belong where you finish reading it. */}
+      {(showActions || version) && (
+      <div className="mt-1 flex items-center">
+      {/* The switcher stays in view; the rest of the row waits for hover. A
+          turn still being written shows the switcher alone. */}
+      {version && onShowVersion && (
+        <>
+          <VersionSwitch view={version} disabled={isLoading} onShow={onShowVersion} />
+          {showActions && <span className="mx-1 h-3.5 w-px bg-border" />}
+        </>
+      )}
       {showActions && (
-      <div className="mt-1 flex opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100">
+      <div className="flex opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -3056,6 +3139,9 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
           </TooltipTrigger>
           <TooltipContent>Copy response</TooltipContent>
         </Tooltip>
+        {regen && onRegenerate && sessionId && (
+          <RegenerateButton sessionId={sessionId} files={regen.files} onRegenerate={() => onRegenerate(regen.promptId)} />
+        )}
         {onFork && sessionId && (
           <ForkMenu sessionId={sessionId} onFork={(mode) => onFork({ kind: 'reply', messageId: message.id }, mode)}>
             <button
@@ -3074,6 +3160,9 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
         )}
       </div>
       )}
+      </div>
+      )}
+      {version && onShowVersion && <DiskNote view={version} disabled={isLoading} onShow={onShowVersion} />}
     </div>
   )
 })

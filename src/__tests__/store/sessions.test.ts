@@ -629,6 +629,105 @@ describe('Sessions Store', () => {
     })
   })
 
+  describe('versions', () => {
+    const A1 = { sessionId: 'cli', uuid: 'a1' }
+    const A2 = { sessionId: 'cli', uuid: 'a2' }
+
+    function chat(): string {
+      const id = createTestSession()
+      const store = useSessionsStore.getState()
+      store.addMessage(id, { id: 'u1', role: 'user', text: 'first', resumeAt: null })
+      store.addMessage(id, { id: 'a1', role: 'assistant', text: 'one' })
+      store.addMessage(id, { id: 'u2', role: 'user', text: 'second', resumeAt: A1 })
+      store.addMessage(id, { id: 'a2', role: 'assistant', text: 'two' })
+      store.setAnchor(id, A2)
+      store.updateClaudeSessionId(id, 'cli')
+      return id
+    }
+    const ids = (id: string) => session(id).messages.map((m) => m.id)
+
+    it('puts a regenerated turn away and keeps its prompt', () => {
+      const id = chat()
+      const key = useSessionsStore.getState().branchAt(id, 'u2', 'reply')!
+      expect(ids(id)).toEqual(['u1', 'a1', 'u2'])
+      expect((session(id).messages[2] as { replyVersions?: string }).replyVersions).toBe(key)
+      expect(session(id).claudeSessionId).toBeNull()
+      const set = session(id).versions![key]
+      expect(set).toMatchObject({ kind: 'reply', current: 1, ran: 1 })
+      expect(set.tails[0].messages.map((m) => m.id)).toEqual(['a2'])
+      expect(set.tails[0].anchor).toEqual(A2)
+    })
+
+    it('puts an edited prompt away with its turn, tagged so it can come back', () => {
+      const id = chat()
+      const key = useSessionsStore.getState().branchAt(id, 'u2', 'prompt')!
+      expect(ids(id)).toEqual(['u1', 'a1'])
+      const away = session(id).versions![key].tails[0].messages
+      expect(away.map((m) => m.id)).toEqual(['u2', 'a2'])
+      expect((away[0] as { promptVersions?: string }).promptVersions).toBe(key)
+    })
+
+    it('adds to the same set when the same point is regenerated again', () => {
+      const id = chat()
+      const store = useSessionsStore.getState()
+      const key = store.branchAt(id, 'u2', 'reply')!
+      store.addMessage(id, { id: 'b2', role: 'assistant', text: 'two again' })
+      expect(store.branchAt(id, 'u2', 'reply')).toBe(key)
+      const set = session(id).versions![key]
+      expect(set.tails).toHaveLength(3)
+      expect(set.tails[1].messages.map((m) => m.id)).toEqual(['b2'])
+      expect(set.current).toBe(2)
+    })
+
+    it('swaps versions, and resumes the one on screen', () => {
+      const id = chat()
+      const store = useSessionsStore.getState()
+      const key = store.branchAt(id, 'u2', 'reply')!
+      store.addMessage(id, { id: 'b2', role: 'assistant', text: 'two again' })
+      store.setAnchor(id, { sessionId: 'cli2', uuid: 'b2' })
+
+      store.showVersion(id, key, 0)
+      expect(ids(id)).toEqual(['u1', 'a1', 'u2', 'a2'])
+      expect(session(id).anchor).toEqual(A2)
+      expect(session(id).resumeFrom).toEqual(A2)
+      expect(session(id).claudeSessionId).toBeNull()
+      expect(session(id).versions![key]).toMatchObject({ current: 0, ran: 1 })
+
+      store.showVersion(id, key, 1)
+      expect(ids(id)).toEqual(['u1', 'a1', 'u2', 'b2'])
+      expect(session(id).anchor).toEqual({ sessionId: 'cli2', uuid: 'b2' })
+    })
+
+    it('carries a version further along when it comes back', () => {
+      const id = chat()
+      const store = useSessionsStore.getState()
+      const key = store.branchAt(id, 'u2', 'reply')!
+      store.addMessage(id, { id: 'b2', role: 'assistant', text: 'two again' })
+      store.showVersion(id, key, 0)
+      store.addMessage(id, { id: 'u3', role: 'user', text: 'third' })
+      store.showVersion(id, key, 1)
+      store.showVersion(id, key, 0)
+      expect(ids(id)).toEqual(['u1', 'a1', 'u2', 'a2', 'u3'])
+    })
+
+    it('marks what is on screen as what ran', () => {
+      const id = chat()
+      const store = useSessionsStore.getState()
+      const key = store.branchAt(id, 'u2', 'reply')!
+      store.showVersion(id, key, 0)
+      store.markVersionsRan(id)
+      expect(session(id).versions![key]).toMatchObject({ current: 0, ran: 0 })
+    })
+
+    it('leaves versions behind in a fork', () => {
+      const id = chat()
+      useSessionsStore.getState().branchAt(id, 'u2', 'reply')
+      const forked = useSessionsStore.getState().forkSession(id)
+      expect(session(forked).versions).toBeUndefined()
+      expect(session(forked).messages.some((m) => 'replyVersions' in m)).toBe(false)
+    })
+  })
+
   describe('pendingAction', () => {
     it('sets and clears pending actions', () => {
       const store = useSessionsStore.getState()
