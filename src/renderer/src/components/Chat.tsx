@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Check, ChevronDown, Copy, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, Copy, CornerDownRight, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
 import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, type MessageContext, newMessageId } from '../store/sessions'
 import { noteDesignCall, noteDesignResult } from '../store/designActivity'
 import { useSettingsStore } from '../store/settings'
@@ -13,6 +13,7 @@ import { ForkMark, ForkMenu } from './ForkMenu'
 import MarkdownRenderer from './MarkdownRenderer'
 import ToolCallCard from './ToolCallCard'
 import AskUserQuestionCard from './AskUserQuestionCard'
+import DeferredQuestionMarker from './DeferredQuestionMarker'
 import PlanCard, { splitPlan, type PlanAnswer } from './PlanCard'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
@@ -30,7 +31,7 @@ import MessageContextLines, { QuestionnaireRecord } from './MessageContextLines'
 import { contextFill } from '../lib/contextFill'
 import type { CompactionInput } from './CompactionDivider'
 import { historyText } from '../lib/historyText'
-import { extractAskBlocks } from '../lib/askBlocks'
+import { extractAskBlocks, deferredAnswerPrompt, questionsOf, type AskQuestion } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
 import { foldChecklistIntoTranscript, foldTasksAtTurnEnd } from '../lib/taskFold'
 import { extractChangeBlocks } from '../lib/changeBlocks'
@@ -93,7 +94,10 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'usage'; input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; context_tokens?: number }
   | { type: 'context_window'; tokens: number }
   | { type: 'anchor'; uuid: string; session_id: string }
-  | { type: 'result'; result: string; session_id: string; is_error: boolean }
+  /** `continues`: a steer was still unread, so the CLI is opening a turn of its
+   *  own to deliver it and this result does not end the run. */
+  | { type: 'result'; result: string; session_id: string; is_error: boolean; continues?: boolean }
+  | { type: 'steer_delivered'; steer_id: number }
   | { type: 'error'; result: string }
   | { type: 'thinking'; thinking: string }
   | { type: 'stream_end' }
@@ -160,6 +164,40 @@ function announceAgentEnd(sid: string, agent: Agent, status: 'done' | 'failed'):
  * compaction outlives `Chat` being unmounted for the workflow canvas.
  */
 const compacting = new Map<string, string>()
+
+/**
+ * Answers to open questions steered into a running turn and not yet read, by
+ * steer id. Outside the component for the same reason as `compacting`.
+ */
+const deferredSteers = new Map<number, { sid: string; toolId: string; answer: string; answers: string }>()
+
+/** One message per question Claude carried on past, so each is answered or kept
+ *  on its own rather than as a set. */
+function addDeferredQuestions(sid: string, deferred: AskQuestion[]): void {
+  const at = Date.now()
+  deferred.forEach((question, i) => {
+    useSessionsStore.getState().addMessage(sid, {
+      id: `${at}-later-${i}`,
+      role: 'tool_call',
+      tool_id: `ask-later-${at}-${i}`,
+      tool_name: 'AskUserQuestion',
+      input: { questions: [question] },
+      deferred: 'open'
+    })
+  })
+}
+
+/**
+ * The turn is over and these answers never reached Claude — stopped, or the CLI
+ * went quiet. Open again rather than shown as sent, so they can be answered anew.
+ */
+function reopenUndelivered(sid: string): void {
+  for (const [id, steer] of deferredSteers) {
+    if (steer.sid !== sid) continue
+    deferredSteers.delete(id)
+    useSessionsStore.getState().setDeferredState(sid, steer.toolId, 'open', null)
+  }
+}
 
 /** A compaction's divider, as a synthetic tool call — see `CompactionDivider`. */
 function compactionMessage(input: CompactionInput): ToolCallMessage {
@@ -287,7 +325,7 @@ export default function Chat(): React.JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
   const dragCounterRef = useRef(0)
-  const sendMessageRef = useRef<((text: string, images?: ImageAttachment[], files?: FileAttachment[], targetSessionId?: string, context?: MessageContext[]) => Promise<void>) | null>(null)
+  const sendMessageRef = useRef<((text: string, images?: ImageAttachment[], files?: FileAttachment[], targetSessionId?: string, context?: MessageContext[], shown?: { text: string; answers: string }) => Promise<void>) | null>(null)
   // After 401, holds the prompt to re-send once /login succeeds, keyed by session id
   const pendingAuthRetryRef = useRef<Map<string, { text: string; images?: ImageAttachment[]; files?: FileAttachment[] }>>(new Map())
   // Extended thinking state: tracks when Claude is actively reasoning
@@ -728,11 +766,22 @@ export default function Chat(): React.JSX.Element {
       const m = messages[i]
       if (m.role !== 'tool_call') continue
       const tc = m as ToolCallMessage
-      if (tc.tool_name !== 'AskUserQuestion') continue
+      // One Claude carried on past is the tray's, and never stops anything.
+      if (tc.tool_name !== 'AskUserQuestion' || tc.deferred) continue
       return tc.result === undefined && tc.denied !== true ? tc : null
     }
     return null
   }, [messages])
+
+  /** Questions Claude carried on past and the user has not settled, oldest first. */
+  const openDeferred = useMemo(
+    () =>
+      messages.filter(
+        (m): m is ToolCallMessage =>
+          m.role === 'tool_call' && (m as ToolCallMessage).deferred === 'open'
+      ),
+    [messages]
+  )
 
   /**
    * Re-read the branch this chat is on.
@@ -1367,7 +1416,7 @@ export default function Chat(): React.JSX.Element {
         // Before the ask block, so a reply that both summarises and asks keeps
         // the summary attached to the prose rather than to the questionnaire.
         const withoutChanges = extractChangeBlocks(withoutTasks.text)
-        const { text, questions } = extractAskBlocks(withoutChanges.text)
+        const { text, questions, deferred } = extractAskBlocks(withoutChanges.text)
         if (text || withoutChanges.changes) {
           streamedTextRef.current.add(sid)
           addMessage(sid, {
@@ -1376,6 +1425,12 @@ export default function Chat(): React.JSX.Element {
             text,
             ...(withoutChanges.changes ? { changes: withoutChanges.changes } : {})
           })
+        }
+        // Right behind the prose that raised them, mid-turn: these do not stop
+        // anything, so they neither raise `needsAnswer` nor take the composer.
+        if (deferred.length > 0) {
+          streamedTextRef.current.add(sid)
+          addDeferredQuestions(sid, deferred)
         }
         if (questions.length > 0) {
           streamedTextRef.current.add(sid)
@@ -1475,8 +1530,19 @@ export default function Chat(): React.JSX.Element {
         return
       }
 
+      if (event.type === 'steer_delivered') {
+        const steer = deferredSteers.get(event.steer_id)
+        if (!steer) return
+        deferredSteers.delete(event.steer_id)
+        useSessionsStore.getState().setDeferredState(steer.sid, steer.toolId, 'read')
+        // Placed now, not when it was sent: this is the step Claude read it at,
+        // and where it reads back between the tool calls around it.
+        addMessage(steer.sid, { id: newMessageId(), role: 'user', text: steer.answer, answers: steer.answers })
+        return
+      }
+
       if (event.type === 'result') {
-        turnResultRef.current.add(sid)
+        if (!event.continues) turnResultRef.current.add(sid)
         if (event.session_id) updateClaudeSessionId(sid, event.session_id)
         const role = event.is_error ? 'error' : 'assistant'
         // `result` repeats the reply Claude has already streamed, so it is only
@@ -1491,8 +1557,9 @@ export default function Chat(): React.JSX.Element {
           // Headless Claude has no AskUserQuestion, so a question it wants
           // answered arrives as a fenced block in the reply. Lift it out before
           // the text is shown, or the user reads the same question twice.
-          const { text, questions } = extractAskBlocks(event.result)
+          const { text, questions, deferred } = extractAskBlocks(event.result)
           if (text) addMessage(sid, { id: newMessageId(), role, text })
+          if (deferred.length > 0 && !event.is_error) addDeferredQuestions(sid, deferred)
           if (questions.length > 0 && !event.is_error) {
             addMessage(sid, {
               id: `${Date.now()}-ask`,
@@ -1504,6 +1571,9 @@ export default function Chat(): React.JSX.Element {
             useSessionsStore.getState().setNeedsAnswer(sid, true)
           }
         }
+        // The CLI is about to open a turn of its own to deliver a steered
+        // answer. The run carries on into it: no end, no queue drain, no fold.
+        if (event.continues) return
         useRunningStore.getState().endRun(sid)
         // One turn, counted where the CLI actually ends one. The recap needs
         // this because the transcript cannot supply it — see `Session.turns`.
@@ -1553,6 +1623,7 @@ export default function Chat(): React.JSX.Element {
         useSessionsStore.getState().setExecuting(sid, null)
         useRunningStore.getState().endRun(sid)
         foldTasksAtTurnEnd(sid)
+        reopenUndelivered(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
         // A plan drafted during this turn becomes an ask now the turn is over:
         // ending the turn in plan mode is what handing control back looks like.
@@ -1697,7 +1768,9 @@ export default function Chat(): React.JSX.Element {
     handlePermissionRespond(true)
   }, [permissionQueue, activeSessionId, updateSettings, handlePermissionRespond])
 
-  const sendMessage = useCallback(async (text: string, images?: ImageAttachment[], files?: FileAttachment[], targetSessionId?: string, context?: MessageContext[]): Promise<void> => {
+  /** `shown`: what the bubble says instead of `text`, for an answer to an open
+   *  question — Claude needs the whole sentence, the transcript only the answer. */
+  const sendMessage = useCallback(async (text: string, images?: ImageAttachment[], files?: FileAttachment[], targetSessionId?: string, context?: MessageContext[], shown?: { text: string; answers: string }): Promise<void> => {
     // Background events (queued message after result, deferred auto-compact) pass
     // targetSessionId so they route to the session that produced the event, not
     // whichever session the user is currently viewing.
@@ -1734,7 +1807,8 @@ export default function Chat(): React.JSX.Element {
     const userMessage: TextMessage = {
       id: newMessageId(),
       role: 'user',
-      text: text.trim(),
+      text: shown ? shown.text : text.trim(),
+      ...(shown ? { answers: shown.answers } : {}),
       ...(imgs.length > 0 ? { images: imgs } : {}),
       ...(fls.length > 0 ? { files: fls } : {}),
       ...(context && context.length > 0 ? { context } : {}),
@@ -1816,13 +1890,13 @@ export default function Chat(): React.JSX.Element {
     const prompt = withContext(withAttachments(text, msg.images, msg.files), msg.context)
     if (!prompt) return false
 
-    let steered = false
+    let steered: number | null = null
     try {
       steered = await window.api.claude.steer(prompt, sid)
     } catch {
       return false
     }
-    if (!steered) return false
+    if (steered === null) return false
 
     // Appended where it happened, between the tool calls it interrupted, because
     // that is where it will read back — the turn kept going around it.
@@ -1947,6 +2021,52 @@ export default function Chat(): React.JSX.Element {
     },
     []
   )
+
+  /**
+   * Answer a question Claude carried on past.
+   *
+   * While the turn runs, the answer is steered in and the question shows as
+   * sending until the CLI hands it to the model (`steer_delivered`). Once the
+   * turn is over there is nothing to steer, so it goes as the next message.
+   */
+  const handleDeferredAnswer = useCallback(async (toolId: string, answer: string): Promise<void> => {
+    const sid = useSessionsStore.getState().activeSessionId
+    if (!sid) return
+    const message = useSessionsStore
+      .getState()
+      .sessions.find((s) => s.id === sid)
+      ?.messages.find((m) => m.role === 'tool_call' && (m as ToolCallMessage).tool_id === toolId) as
+      | ToolCallMessage
+      | undefined
+    const question = message && questionsOf(message.input)[0]
+    if (!question) return
+    const prompt = deferredAnswerPrompt(question, answer)
+    const answers = question.header ?? question.question
+
+    if (isSessionRunning(sid)) {
+      let steered: number | null = null
+      try {
+        steered = await window.api.claude.steer(prompt, sid)
+      } catch {
+        steered = null
+      }
+      if (steered !== null) {
+        deferredSteers.set(steered, { sid, toolId, answer, answers })
+        useSessionsStore.getState().setDeferredState(sid, toolId, 'sending', answer)
+        return
+      }
+      // The turn ended between the click and the write: send it as a message.
+      if (isSessionRunning(sid)) return
+    }
+    useSessionsStore.getState().setDeferredState(sid, toolId, 'read', answer)
+    void sendMessageRef.current?.(prompt, undefined, undefined, sid, undefined, { text: answer, answers })
+  }, [])
+
+  /** Let Claude's assumption stand. Nothing is sent: it is already going with it. */
+  const handleDeferredKeep = useCallback((toolId: string): void => {
+    const sid = useSessionsStore.getState().activeSessionId
+    if (sid) useSessionsStore.getState().setDeferredState(sid, toolId, 'kept')
+  }, [])
 
   /**
    * Answer a plan that came in as a file.
@@ -2554,6 +2674,9 @@ export default function Chat(): React.JSX.Element {
           onPlanAnswer={handlePlanAnswer}
           liveQuestion={pendingQuestion}
           onQuestionAnswer={handleQuestionAnswer}
+          deferredQuestions={openDeferred}
+          onDeferredAnswer={handleDeferredAnswer}
+          onDeferredKeep={handleDeferredKeep}
         />
       </div>
 
@@ -2685,7 +2808,9 @@ const DRAFT_ENDERS = new Set<ClaudeEvent['type']>([
  * once the block is finished. Shown raw while streaming they would flash up as a
  * code block and vanish, so they are left out — an unclosed one up to the end.
  */
-const NYRA_FENCE = /```nyra-[\w-]*\n[\s\S]*?(?:\n```|$)/g
+// Anything after the name on the opening line (`nyra-ask later`), and an opening
+// line still arriving, are both part of the fence.
+const NYRA_FENCE = /```nyra-[^\n]*(?:\n[\s\S]*?(?:\n```|$)|$)/g
 
 /** The text block Claude is writing right now, styled as the reply it will become. */
 function StreamingDraft({ sessionId }: { sessionId: string }): React.JSX.Element | null {
@@ -2759,6 +2884,7 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
   if (message.role === 'tool_call') {
     const tc = message as ToolCallMessage
     if (tc.tool_name === 'AskUserQuestion') {
+      if (tc.deferred) return <DeferredQuestionMarker message={tc} />
       return <AskUserQuestionCard message={tc} onAnswer={onQuestionAnswer} />
     }
     if (tc.tool_name === 'ExitPlanMode') {
@@ -2777,6 +2903,12 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
       textMsg.text.trim().length > 0 || !!textMsg.images?.length || !!textMsg.files?.length || lines.length > 0
     return (
       <div className="flex flex-col items-end group/msg">
+        {textMsg.answers && (
+          <span className="mb-1 flex items-center gap-1 text-c-xs text-muted-foreground">
+            <CornerDownRight className="size-3" />
+            Answer to {textMsg.answers}
+          </span>
+        )}
         {hasBubble && (
         <div data-theme-token="bubble" className="relative max-w-[85%] rounded-lg bg-bubble px-4 py-2.5 text-bubble-foreground">
           {onEdit && (

@@ -19,10 +19,16 @@ export type AskQuestion = {
   header?: string
   options: AskOption[]
   multiSelect?: boolean
+  /** On a question that does not stop the turn: the label Claude is going with. */
+  assumed?: string
 }
 
-/** ```nyra-ask … ``` — tolerant of indentation and of a missing closing fence. */
-const ASK_FENCE = /^[ \t]*```[ \t]*nyra-ask[ \t]*\n([\s\S]*?)(?:^[ \t]*```[ \t]*$|$(?![\s\S]))/gm
+/**
+ * ```nyra-ask … ``` — tolerant of indentation and of a missing closing fence.
+ * ```nyra-ask later``` is the same block for a question Claude carries on past.
+ */
+const ASK_FENCE =
+  /^[ \t]*```[ \t]*nyra-ask(?:[ \t]+(later))?[ \t]*\n([\s\S]*?)(?:^[ \t]*```[ \t]*$|$(?![\s\S]))/gm
 
 const HEADING = /^[ \t]*#{1,6}[ \t]+(.*)$/
 const BULLET = /^[ \t]*[-*][ \t]+(.*)$/
@@ -32,9 +38,12 @@ const LABEL_SPLIT = /\s+(?:—|–|--|-)\s+/
 const MULTI = /\((?:multi|multiple|multi-select|multiselect)\)/i
 /** An optional `[Short label]` chip at the head of the question. */
 const HEADER = /^\[([^\]]{1,24})\]\s*/
+/** The option Claude is going with, in a `later` block. Taught at the end of the
+ *  label, accepted anywhere on the line. */
+const ASSUMED = /\s*\(assumed\)/i
 
 function parseOption(line: string): AskOption | null {
-  const text = line.trim()
+  const text = line.replace(ASSUMED, '').trim()
   if (!text) return null
   const [label, ...rest] = text.split(LABEL_SPLIT)
   const description = rest.join(' ').trim()
@@ -72,7 +81,9 @@ export function parseAskBlock(body: string): AskQuestion[] {
     const bullet = line.match(BULLET)
     if (bullet && current) {
       const option = parseOption(bullet[1])
-      if (option) current.options.push(option)
+      if (!option) continue
+      current.options.push(option)
+      if (ASSUMED.test(bullet[1]) && !current.assumed) current.assumed = option.label
     }
   }
   flush()
@@ -86,14 +97,39 @@ export function parseAskBlock(body: string): AskQuestion[] {
  * user was never meant to see is noise either way, and leaving it in while also
  * showing the card would ask the same thing twice.
  */
-export function extractAskBlocks(reply: string): { text: string; questions: AskQuestion[] } {
+export function extractAskBlocks(reply: string): {
+  text: string
+  questions: AskQuestion[]
+  /** Out of `later` blocks: questions Claude did not stop for, one per entry. */
+  deferred: AskQuestion[]
+} {
   const questions: AskQuestion[] = []
-  const text = reply.replace(ASK_FENCE, (_match, body: string) => {
-    questions.push(...parseAskBlock(body))
+  const deferred: AskQuestion[] = []
+  const text = reply.replace(ASK_FENCE, (_match, later: string | undefined, body: string) => {
+    if (later) {
+      deferred.push(...parseAskBlock(body))
+    } else {
+      // `(assumed)` means nothing on a question that waits for its answer.
+      questions.push(...parseAskBlock(body).map(({ assumed: _assumed, ...q }) => q))
+    }
     return ''
   })
   // Collapse the hole the fence left behind rather than leaving a gap mid-reply.
-  return { text: text.replace(/\n{3,}/g, '\n\n').trim(), questions }
+  return { text: text.replace(/\n{3,}/g, '\n\n').trim(), questions, deferred }
+}
+
+/**
+ * What Claude receives when the user answers a question it carried on past.
+ *
+ * Opens with the words the system prompt tells Claude to expect, because a
+ * steered message reaches the model alongside a tool result, and a weaker model
+ * read bare text there as something the tool printed and ignored it. Names the
+ * assumption too, so Claude knows what it built that may need undoing.
+ */
+export function deferredAnswerPrompt(question: AskQuestion, answer: string): string {
+  const header = question.header ? `[${question.header}] ` : ''
+  const assumed = question.assumed ? ` You went with ${question.assumed}.` : ''
+  return `Answer to your open question ${header}"${question.question}": ${answer}.${assumed}`
 }
 
 /** The questions off a synthesized `AskUserQuestion` tool call. */

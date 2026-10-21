@@ -221,3 +221,24 @@ describe('useQuestionAnswerStore', () => {
     expect(useQuestionAnswerStore.getState().picks).toEqual({ 0: ['Postgres'] })
   })
 })
+
+describe('QuestionDock collapse', () => {
+  it('opens by default and folds down to one line, so the reply above can be read', async () => {
+    render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} />)
+    expect(screen.getByRole('radio', { name: /Postgres/ })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Hide question' }))
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+    expect(screen.getByText('Which store?')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Which store?'))
+    expect(screen.getByRole('radio', { name: /Postgres/ })).toBeInTheDocument()
+  })
+
+  it('opens again for the next question', async () => {
+    const { rerender } = render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Hide question' }))
+    rerender(<QuestionDock message={{ ...ask(), tool_id: 'q2' }} text="" onSubmit={vi.fn()} />)
+    expect(screen.getByRole('radio', { name: /Postgres/ })).toBeInTheDocument()
+  })
+})

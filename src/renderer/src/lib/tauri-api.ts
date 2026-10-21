@@ -411,7 +411,7 @@ export const api = {
      * there was no live turn to drop it into — the caller keeps it queued.
      */
     steer: (prompt: string, nyraSessionId: string) =>
-      call<boolean>('claude_steer', { prompt, nyraSessionId }),
+      call<number | null>('claude_steer', { prompt, nyraSessionId }),
 
     dispose: (nyraSessionId: string) => call<void>('claude_dispose', { nyraSessionId }),
 

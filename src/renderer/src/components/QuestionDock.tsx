@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react'
-import { Check, CircleHelp } from 'lucide-react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { Check, ChevronDown, ChevronUp, CircleHelp } from 'lucide-react'
 import { composeAnswer, questionsOf, type AskOption } from '../lib/askBlocks'
 import { useQuestionAnswerStore } from '../store/questionAnswer'
 import type { ToolCallMessage } from '../store/sessions'
@@ -36,8 +36,33 @@ export default function QuestionDock({
   const pick = useQuestionAnswerStore((s) => s.pick)
   const setPage = useQuestionAnswerStore((s) => s.setPage)
   const skip = useQuestionAnswerStore((s) => s.skip)
+  // Folded down to its header so the reply above — the reasoning the question
+  // comes out of — can be read in full. Open again for every new question.
+  const [collapsed, setCollapsed] = useState(false)
+  useEffect(() => setCollapsed(false), [message.tool_id])
 
   if (questions.length === 0) return null
+
+  if (collapsed) {
+    return (
+      <div className="pb-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="flex w-full items-center gap-2 pb-2 text-start"
+        >
+          <CircleHelp className="size-3.5 shrink-0 text-info" />
+          <span className="shrink-0 text-c-sm font-medium text-foreground/80">Question</span>
+          <span className="min-w-0 flex-1 truncate text-c-sm text-muted-foreground">
+            {questions[Math.min(page, questions.length - 1)].question}
+          </span>
+          <span className="shrink-0 text-c-sm font-medium text-info">Answer</span>
+          <ChevronUp className="size-3.5 shrink-0 text-info" />
+        </button>
+        <div className="h-px bg-separator" />
+      </div>
+    )
+  }
 
   const q = questions[Math.min(page, questions.length - 1)]
   const multi = q.multiSelect === true
@@ -77,6 +102,14 @@ export default function QuestionDock({
             ? `${page + 1} of ${questions.length}${answeredCount > 0 ? ` · ${answeredCount} answered` : ''}`
             : hint}
         </span>
+        <button
+          type="button"
+          onClick={() => setCollapsed(true)}
+          aria-label="Hide question"
+          className="shrink-0 rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+        >
+          <ChevronDown className="size-3.5" />
+        </button>
       </div>
 
       <p className="pb-2 text-c-md leading-snug text-foreground">
@@ -173,7 +206,7 @@ export default function QuestionDock({
   )
 }
 
-function DockButton({
+export function DockButton({
   children,
   onClick,
   solid,

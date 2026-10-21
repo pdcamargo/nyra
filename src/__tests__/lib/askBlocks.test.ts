@@ -4,7 +4,8 @@ import {
   parseAskBlock,
   composeAnswer,
   parseAnswer,
-  readAnswer
+  readAnswer,
+  deferredAnswerPrompt
 } from '../../renderer/src/lib/askBlocks'
 
 const block = (body: string): string => '```nyra-ask\n' + body + '\n```'
@@ -65,7 +66,7 @@ describe('extractAskBlocks', () => {
 
   it('leaves a reply with no block completely alone', () => {
     const reply = 'Here is a plan.\n\n```ts\nconst x = 1\n```'
-    expect(extractAskBlocks(reply)).toEqual({ text: reply, questions: [] })
+    expect(extractAskBlocks(reply)).toEqual({ text: reply, questions: [], deferred: [] })
   })
 
   it('merges several blocks', () => {
@@ -188,5 +189,57 @@ describe('readAnswer', () => {
 
   it('reports an unanswered question as neither', () => {
     expect(readAnswer(null, options)).toEqual({ picked: [], typed: null })
+  })
+})
+
+describe('nyra-ask later', () => {
+  const later = (body: string): string => '```nyra-ask later\n' + body + '\n```'
+
+  it('lifts a later block out as a question that does not stop the turn', () => {
+    const reply = `Starting on auth.\n\n${later('## [Auth] Which method?\n- OAuth — nothing to store\n- API key (assumed) — quicker')}\n\nReading the routes next.`
+    const { text, questions, deferred } = extractAskBlocks(reply)
+    expect(text).toBe('Starting on auth.\n\nReading the routes next.')
+    expect(questions).toEqual([])
+    expect(deferred).toEqual([
+      {
+        question: 'Which method?',
+        header: 'Auth',
+        assumed: 'API key',
+        options: [
+          { label: 'OAuth', description: 'nothing to store' },
+          { label: 'API key', description: 'quicker' }
+        ]
+      }
+    ])
+  })
+
+  it('finds the assumed marker wherever the model put it on the line', () => {
+    const [q] = parseAskBlock('## Store?\n- Postgres — boring and fine (assumed)\n- SQLite')
+    expect(q.assumed).toBe('Postgres')
+    expect(q.options[0]).toEqual({ label: 'Postgres', description: 'boring and fine' })
+  })
+
+  it('keeps a plain block blocking, and drops an assumed marker from it', () => {
+    const { questions, deferred } = extractAskBlocks(block('## Store?\n- Postgres (assumed)\n- SQLite'))
+    expect(deferred).toEqual([])
+    expect(questions).toEqual([{ question: 'Store?', options: [{ label: 'Postgres' }, { label: 'SQLite' }] }])
+  })
+
+  it('separates a later block from a plain one in the same reply', () => {
+    const { questions, deferred } = extractAskBlocks(
+      `${later('## Name?\n- owner\n- admin (assumed)')}\n\nDone.\n\n${block('## Ship it?\n- Yes\n- No')}`
+    )
+    expect(deferred.map((q) => q.question)).toEqual(['Name?'])
+    expect(questions.map((q) => q.question)).toEqual(['Ship it?'])
+  })
+})
+
+describe('deferredAnswerPrompt', () => {
+  it('opens with the words Claude is taught to expect and names the assumption', () => {
+    const prompt = deferredAnswerPrompt(
+      { question: 'Which method?', header: 'Auth', assumed: 'API key', options: [] },
+      'OAuth'
+    )
+    expect(prompt).toBe('Answer to your open question [Auth] "Which method?": OAuth. You went with API key.')
   })
 })

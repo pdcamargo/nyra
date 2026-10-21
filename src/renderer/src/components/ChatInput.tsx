@@ -30,6 +30,7 @@ import { compressImage } from '../utils/imageCompression'
 import { useAttachmentStaging } from '../hooks/useAttachmentStaging'
 import type { Agent, ToolCallMessage } from '../store/sessions'
 import QuestionDock from './QuestionDock'
+import DeferredTray from './DeferredTray'
 import DesktopAccessDock from './desktop/DesktopAccessDock'
 import DesktopStatus from './desktop/DesktopStatus'
 import PlanCard, { type PlanAnswer } from './PlanCard'
@@ -76,6 +77,10 @@ type ChatInputProps = {
   /** The question waiting on an answer, fused into the top of the composer. */
   liveQuestion?: ToolCallMessage | null
   onQuestionAnswer?: (toolId: string, answer: string, images?: ImageAttachment[], files?: FileAttachment[]) => void
+  /** Questions Claude carried on past, unsettled — the tray above the field. */
+  deferredQuestions?: ToolCallMessage[]
+  onDeferredAnswer?: (toolId: string, answer: string) => void
+  onDeferredKeep?: (toolId: string) => void
   sendMessage: (
     text: string,
     images?: ImageAttachment[],
@@ -101,7 +106,10 @@ export default function ChatInput({
   pendingPlan = null,
   onPlanAnswer,
   liveQuestion = null,
-  onQuestionAnswer
+  onQuestionAnswer,
+  deferredQuestions = [],
+  onDeferredAnswer,
+  onDeferredKeep
 }: ChatInputProps): React.JSX.Element {
   const question = liveQuestion
   useEffect(() => {
@@ -1100,6 +1108,16 @@ export default function ChatInput({
         {/* Claude is waiting on this before it touches another app, so it goes
             where its own questions go. */}
         {activeSessionId && <DesktopAccessDock sessionId={activeSessionId} />}
+        {onDeferredAnswer && onDeferredKeep && (
+          <div className="max-h-[min(44vh,380px)] overflow-y-auto">
+            <DeferredTray
+              questions={deferredQuestions}
+              running={!!isLoading}
+              onAnswer={onDeferredAnswer}
+              onKeep={onDeferredKeep}
+            />
+          </div>
+        )}
         {question ? (
           <div className="max-h-[min(44vh,380px)] overflow-y-auto">
             <QuestionDock

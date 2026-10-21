@@ -83,7 +83,16 @@ export type TextMessage = {
    *  the message forks the conversation there, so Claude forgets what came
    *  after instead of being handed a copy of what it already has. */
   resumeAt?: Anchor | null
+  /** On a user message: the open question it answers, by its header or text. */
+  answers?: string
 }
+
+/**
+ * Where a question Claude carried on past stands. `sending` is the stretch
+ * between steering the answer in and the CLI handing it to the model; `kept`
+ * means the user let Claude's assumption stand and nothing was sent.
+ */
+export type DeferredState = 'open' | 'sending' | 'read' | 'kept'
 
 /** A point in a CLI conversation — its session and one assistant line's uuid. */
 export type Anchor = { sessionId: string; uuid: string }
@@ -101,6 +110,8 @@ export type ToolCallMessage = {
   denied?: boolean
   originalContent?: string | null
   timestamp?: number
+  /** Set on an `AskUserQuestion` that did not stop the turn; see `DeferredState`. */
+  deferred?: DeferredState
 }
 
 export type Message = TextMessage | ToolCallMessage
@@ -444,6 +455,9 @@ type SessionsStore = {
   setWindowAway: (away: boolean) => void
   addMessage: (sessionId: string, message: Message) => void
   updateToolResult: (sessionId: string, toolId: string, content: string, isError?: boolean) => void
+  /** Move an open question along. `answer` sets its result; null clears it, for
+   *  an answer that never reached Claude and is open again. */
+  setDeferredState: (sessionId: string, toolId: string, state: DeferredState, answer?: string | null) => void
   updateToolInput: (sessionId: string, toolId: string, input: Record<string, unknown>) => void
   markToolDenied: (sessionId: string, toolId: string) => void
   setAutoAcceptEdits: (sessionId: string, value: boolean) => void
@@ -819,6 +833,24 @@ export const useSessionsStore = create<SessionsStore>()(
                   ? { ...m, result: content, ...(isError ? { isError: true } : {}) }
                   : m
               )
+            }
+          })
+        }))
+      },
+
+      setDeferredState: (sessionId: string, toolId: string, deferred: DeferredState, answer?: string | null) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            return {
+              ...s,
+              messages: s.messages.map((m) => {
+                if (m.role !== 'tool_call' || (m as ToolCallMessage).tool_id !== toolId) return m
+                const next: ToolCallMessage = { ...(m as ToolCallMessage), deferred }
+                if (answer === null) delete next.result
+                else if (answer !== undefined) next.result = answer
+                return next
+              })
             }
           })
         }))

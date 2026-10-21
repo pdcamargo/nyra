@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -356,6 +357,18 @@ struct SessionInner {
     /// line repeats the whole response's usage, so counting lines counts a
     /// text-plus-tool reply two or three times over.
     counted_messages: HashSet<String>,
+    /// Messages steered into the running turn that Claude has not read yet,
+    /// oldest first: the steer id and the exact text written. The CLI echoes a
+    /// queued message back (`--replay-user-messages`) only when it delivers it,
+    /// so an entry leaves here at the moment the model actually sees it.
+    pending_steers: VecDeque<(u64, String)>,
+    /// A result arrived while a steer was still unread. The CLI answers that by
+    /// opening a turn of its own to deliver it, so the current turn is held open
+    /// for that one rather than resolved under it. See [`continuation_watchdog`].
+    continuing: bool,
+    /// When the last line of any kind arrived. The watchdog's measure of a CLI
+    /// that was expected to carry on and went quiet instead.
+    last_line_at: std::time::Instant,
 }
 
 /// The next step in replaying what queued behind the permission gate.
@@ -395,6 +408,9 @@ impl SessionInner {
             pending_title: None,
             prewarmed: false,
             counted_messages: HashSet::new(),
+            pending_steers: VecDeque::new(),
+            continuing: false,
+            last_line_at: std::time::Instant::now(),
         }
     }
 
@@ -515,6 +531,10 @@ pub fn abort_claude(nyra_session_id: Option<&str>) {
     for (id, sess) in targets {
         let (alive, turn) = {
             let mut inner = sess.inner.lock();
+            // Whatever was steered and unread goes with the turn; nobody is
+            // waiting for a turn the CLI might still open to deliver it.
+            inner.pending_steers.clear();
+            inner.continuing = false;
             (inner.alive, inner.current_turn.take())
         };
         if alive {
@@ -883,6 +903,21 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
+        // Held open for a turn the CLI is about to start; see `dispatch_line`.
+        // The reply so far still goes on screen, and nothing else ends.
+        if raw.get("nyra_continues").and_then(Value::as_bool) == Some(true) {
+            emit_event(
+                nyra_session_id,
+                json!({
+                    "type": "result",
+                    "result": raw.get("result").cloned().unwrap_or(Value::String(String::new())),
+                    "session_id": raw.get("session_id").cloned().unwrap_or(Value::Null),
+                    "is_error": false,
+                    "continues": true,
+                }),
+            );
+            return;
+        }
         if let Some(cb) = RESULT_CALLBACKS.lock().remove(nyra_session_id) {
             let _ = cb.send((result_text.to_string(), is_error));
         }
@@ -1087,7 +1122,15 @@ const ASK_CONVENTION: &str = concat!(
     "Rules: at most one block per message, at the end; never repeat those questions ",
     "in prose, because Nyra shows the block itself; never use it for something you ",
     "can settle yourself or find in the code; and prefer asking nothing at all to ",
-    "asking about a decision the user has already made."
+    "asking about a decision the user has already made.",
+    "\n\nThat block ends your turn. When a question can wait — there is a sensible default ",
+    "and changing it later is cheap — ask it with ```nyra-ask later instead, one question ",
+    "per block, in the message where the choice first comes up rather than after you have ",
+    "built on it, and end the label of the option you are going with in ` (assumed)`. ",
+    "Then carry on as if that were the answer. The user may answer ",
+    "while you work: it arrives as a message starting \"Answer to your open question\", ",
+    "and is theirs, not tool output — revisit whatever you built on the assumption. A ",
+    "fork the rest of the work depends on still takes the plain block."
 );
 
 /// Claude can already produce a PNG — matplotlib, sharp, `screencapture`, a
@@ -1354,6 +1397,11 @@ fn build_spawn_args(
         // line for each block. Without it nothing is on screen until a whole
         // paragraph is done; see `forward_stream_event`.
         "--include-partial-messages".into(),
+        // Echoes each stdin message back when the CLI delivers it. A message
+        // steered into a running turn waits in the CLI's queue for the next tool
+        // boundary, and this echo is the only sign of when the model read it;
+        // see `acknowledge_replay`.
+        "--replay-user-messages".into(),
     ];
     if !settings.model.is_empty() {
         args.push("--model".into());
@@ -1530,6 +1578,8 @@ async fn send_prompt_to_session(
         inner.pending_event_buffer.clear();
         inner.replaying = false;
         inner.counted_messages.clear();
+        inner.pending_steers.clear();
+        inner.continuing = false;
         inner.current_turn = Some(tx);
         inner.turn_prompt = prompt.to_string();
         inner.prewarmed = false;
@@ -1559,25 +1609,28 @@ async fn send_prompt_to_session(
 }
 
 /// Write a user message into a turn that is already running, so the model reads
-/// it at its next step instead of after the result. Answers whether it went in.
+/// it at its next step instead of after the result. Answers with an id for the
+/// steer, or None when it did not go in.
 ///
 /// Deliberately not `send_prompt_to_session`: that function *owns* a turn. It
 /// parks a oneshot in `current_turn` and clears the permission and event state,
 /// so calling it twice in one turn would drop the first sender on the floor —
 /// its `run_claude` would never resolve — and reset bookkeeping mid-flight.
-/// Steering writes the line and touches nothing else.
+/// Steering writes the line and records it in `pending_steers`, nothing else.
 ///
 /// No turn in flight means there is nothing to steer: the CLI would open a fresh
 /// turn nobody is listening for, while the UI still believes it is idle. Say so
 /// and let the caller leave the message queued.
-pub async fn steer_session(nyra_session_id: &str, prompt: &str) -> bool {
-    let Some(sess) = get_session(nyra_session_id) else {
-        return false;
-    };
+///
+/// The id comes back as `steer_delivered` when the CLI hands the message to the
+/// model — at the next tool boundary, or, when the turn had none left, in a turn
+/// the CLI opens by itself after the result. Verified against 2.1.296.
+pub async fn steer_session(nyra_session_id: &str, prompt: &str) -> Option<u64> {
+    let sess = get_session(nyra_session_id)?;
     let env = {
         let inner = sess.inner.lock();
         if !inner.alive || inner.current_turn.is_none() {
-            return false;
+            return None;
         }
         Environment::of(&inner.cwd)
     };
@@ -1585,23 +1638,107 @@ pub async fn steer_session(nyra_session_id: &str, prompt: &str) -> bool {
     crate::desktop::turn_started(nyra_session_id);
     crate::keep_awake::turn_started(nyra_session_id);
 
-    let payload = format_user_message(&prompt_in_env(&env, prompt));
+    let text = prompt_in_env(&env, prompt);
+    let payload = format_user_message(&text);
+    let id = NEXT_STEER_ID.fetch_add(1, Ordering::Relaxed);
     let mut guard = sess.stdin.lock().await;
-    let Some(stdin) = guard.as_mut() else {
-        return false;
-    };
+    let stdin = guard.as_mut()?;
+    // Recorded before the write: the echo is read on another task and can beat
+    // this one back from the await.
+    sess.inner.lock().pending_steers.push_back((id, text));
     let wrote = stdin
         .write_all(payload.as_bytes())
         .await
         .and(stdin.flush().await);
     if let Err(err) = wrote {
+        sess.inner.lock().pending_steers.retain(|(pending, _)| *pending != id);
         crate::logf!(
             "Steer failed for [{}]: {err}",
             util::short(nyra_session_id)
         );
-        return false;
+        return None;
     }
-    true
+    Some(id)
+}
+
+/// Ids for [`steer_session`], unique for the life of the app. Starts at one so
+/// no id is falsy on the other side of the bridge.
+static NEXT_STEER_ID: AtomicU64 = AtomicU64::new(1);
+
+/// The text of a user line, whether the CLI wrote its content as a string or as
+/// blocks.
+fn user_text(raw: &Value) -> String {
+    match raw.pointer("/message/content") {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .filter_map(|b| b.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+/// An echo from `--replay-user-messages`. Each stdin message comes back once,
+/// when the CLI delivers it to the model: the turn's own prompt at its start, a
+/// steered one at the step that reads it. The prompt's echo says nothing the
+/// renderer does not already show, so only a steer's is passed on.
+fn acknowledge_replay(sess: &Arc<Session>, nyra_session_id: &str, raw: &Value) {
+    let text = user_text(raw);
+    let delivered = {
+        let mut inner = sess.inner.lock();
+        let at = inner
+            .pending_steers
+            .iter()
+            .position(|(_, pending)| pending.trim() == text.trim());
+        at.and_then(|i| inner.pending_steers.remove(i)).map(|(id, _)| id)
+    };
+    if let Some(id) = delivered {
+        emit_event(nyra_session_id, json!({ "type": "steer_delivered", "steer_id": id }));
+    }
+}
+
+/// How long a CLI that was expected to open a turn of its own may stay silent
+/// before the turn held open for it is settled anyway. Measured at well under a
+/// second; this only has to outlast a slow API start.
+const CONTINUATION_GRACE: Duration = Duration::from_secs(8);
+
+/// Watch a turn held open by `continuing`. If the CLI goes quiet instead of
+/// carrying on — a steer whose echo never matched would otherwise hold the chat
+/// on "Working" for good — settle the turn as though its result had ended it.
+fn continuation_watchdog(sess: Arc<Session>, nyra_session_id: String) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let turn = {
+                let mut inner = sess.inner.lock();
+                if !inner.continuing || !inner.alive {
+                    return;
+                }
+                if inner.last_line_at.elapsed() < CONTINUATION_GRACE {
+                    continue;
+                }
+                inner.continuing = false;
+                inner.pending_steers.clear();
+                inner.current_turn.take()
+            };
+            crate::logf!(
+                "Continuation never came for [{}]; settling the turn",
+                util::short(&nyra_session_id)
+            );
+            if let Some(turn) = turn {
+                let _ = turn.send(Ok(None));
+            }
+            emit_event(
+                &nyra_session_id,
+                json!({ "type": "result", "result": "", "session_id": Value::Null, "is_error": false }),
+            );
+            emit_event(&nyra_session_id, json!({ "type": "stream_end" }));
+            crate::ai_title::turn_ended(&nyra_session_id);
+            crate::desktop::turn_ended(&nyra_session_id);
+            return;
+        }
+    });
 }
 
 pub async fn run_claude(
@@ -1886,6 +2023,9 @@ async fn spawn_session(
             pending_title: None,
             prewarmed: false,
             counted_messages: HashSet::new(),
+            pending_steers: VecDeque::new(),
+            continuing: false,
+            last_line_at: std::time::Instant::now(),
         }),
         stdin: AsyncMutex::new(Some(stdin)),
     });
@@ -2159,8 +2299,14 @@ fn stale_resume(resuming: bool, marker_seen: bool, is_error: bool, num_turns: Op
 }
 
 /// Returns true when the caller should stop feeding this session lines.
-async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -> bool {
-    let event_type = raw.get("type").and_then(Value::as_str).unwrap_or_default();
+async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, mut raw: Value) -> bool {
+    let event_type = raw
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let event_type = event_type.as_str();
+    sess.inner.lock().last_line_at = std::time::Instant::now();
 
     // Ahead of the log: dozens a second, and every one is repeated by the
     // finished `assistant` line that follows its block.
@@ -2171,6 +2317,10 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
     }
     if event_type == "assistant" || event_type == "result" {
         flush_pending_title(sess);
+    }
+    if event_type == "user" && raw.get("isReplay").and_then(Value::as_bool) == Some(true) {
+        acknowledge_replay(sess, nyra_session_id, &raw);
+        return false;
     }
 
     crate::logf!(
@@ -2204,22 +2354,34 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, raw: Value) -
             retry_without_resume(sess, nyra_session_id);
             return true;
         }
-        let turn = {
+        let (turn, continues) = {
             let mut inner = sess.inner.lock();
             // The first result clears the resume — later turns continue the live process.
             inner.resume_session_id = None;
             inner.stale_resume_detected = false;
-            inner.current_turn.take()
+            // A steer still unread when the turn ends is delivered by a turn the
+            // CLI opens itself, straight after this result. Hold this one open
+            // for it, or that turn runs with nobody listening and the UI idle.
+            let continues = !is_error && !inner.pending_steers.is_empty();
+            inner.continuing = continues;
+            (if continues { None } else { inner.current_turn.take() }, continues)
         };
-        if let Some(turn) = turn {
-            let session_id = raw
-                .get("session_id")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let _ = turn.send(Ok(session_id));
+        if continues {
+            if let Some(map) = raw.as_object_mut() {
+                map.insert("nyra_continues".into(), Value::Bool(true));
+            }
+            continuation_watchdog(sess.clone(), nyra_session_id.to_string());
+        } else {
+            if let Some(turn) = turn {
+                let session_id = raw
+                    .get("session_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let _ = turn.send(Ok(session_id));
+            }
+            crate::ai_title::turn_ended(nyra_session_id);
+            crate::desktop::turn_ended(nyra_session_id);
         }
-        crate::ai_title::turn_ended(nyra_session_id);
-        crate::desktop::turn_ended(nyra_session_id);
     }
 
     if event_type == "result" {
@@ -2765,6 +2927,8 @@ async fn on_child_exit(sess: &Arc<Session>, nyra_session_id: &str, exit_code: Op
     let leftover = {
         let mut inner = sess.inner.lock();
         inner.alive = false;
+        inner.continuing = false;
+        inner.pending_steers.clear();
         if inner.retry_in_flight {
             return;
         }
@@ -3434,25 +3598,96 @@ mod tests {
     #[tokio::test]
     async fn steering_needs_a_turn_already_running() {
         // Nothing here to steer into.
-        assert!(!steer_session("never-spawned", "hello").await);
+        assert!(steer_session("never-spawned", "hello").await.is_none());
 
         let sess = test_session(false);
         SESSIONS.lock().insert("steer1".into(), sess.clone());
 
         // Alive but idle: the line would open a turn nobody is waiting on, so the
         // caller is told no and keeps the message queued.
-        assert!(!steer_session("steer1", "hello").await);
+        assert!(steer_session("steer1", "hello").await.is_none());
 
         // A turn in flight, but the pipe is gone — still no.
         let (tx, _rx) = oneshot::channel();
         sess.inner.lock().current_turn = Some(tx);
-        assert!(!steer_session("steer1", "hello").await);
+        assert!(steer_session("steer1", "hello").await.is_none());
+        // A steer that never went in is not waited on.
+        assert!(sess.inner.lock().pending_steers.is_empty());
 
         // Steering must not disturb the turn it writes into.
         assert!(sess.inner.lock().current_turn.is_some());
         assert!(sess.inner.lock().turn_prompt.is_empty());
 
         SESSIONS.lock().remove("steer1");
+    }
+
+    fn replay(text: &str) -> Value {
+        json!({ "type": "user", "isReplay": true, "message": { "role": "user", "content": text } })
+    }
+
+    #[tokio::test]
+    async fn a_replay_echo_settles_only_the_steer_it_repeats() {
+        let sess = test_session(false);
+        sess.inner.lock().pending_steers =
+            VecDeque::from([(7, "first".to_string()), (8, "second".to_string())]);
+
+        // The turn's own prompt comes back too, and matches nothing.
+        dispatch_line(&sess, "replay1", replay("the prompt")).await;
+        assert_eq!(sess.inner.lock().pending_steers.len(), 2);
+
+        // Delivered out of the order written still settles the right one.
+        dispatch_line(&sess, "replay1", replay("second")).await;
+        let left: Vec<u64> = sess.inner.lock().pending_steers.iter().map(|(id, _)| *id).collect();
+        assert_eq!(left, vec![7]);
+
+        // Blocks rather than a string are the same message.
+        let blocks = json!({ "type": "user", "isReplay": true,
+            "message": { "role": "user", "content": [{ "type": "text", "text": "first" }] } });
+        dispatch_line(&sess, "replay1", blocks).await;
+        assert!(sess.inner.lock().pending_steers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_result_with_a_steer_unread_holds_the_turn_for_the_next() {
+        let sess = test_session(false);
+        let (tx, mut rx) = oneshot::channel();
+        {
+            let mut inner = sess.inner.lock();
+            inner.current_turn = Some(tx);
+            inner.pending_steers.push_back((3, "answer".into()));
+        }
+        let result = json!({ "type": "result", "is_error": false, "result": "done" });
+
+        // The CLI is about to open a turn to deliver it: stay open.
+        dispatch_line(&sess, "cont1", result.clone()).await;
+        assert!(sess.inner.lock().continuing);
+        assert!(rx.try_recv().is_err(), "turn resolved under a pending steer");
+
+        // Its echo arrives, then its own result ends the turn for real.
+        dispatch_line(&sess, "cont1", replay("answer")).await;
+        dispatch_line(&sess, "cont1", result).await;
+        assert!(!sess.inner.lock().continuing);
+        assert!(matches!(rx.try_recv(), Ok(Ok(_))));
+    }
+
+    #[tokio::test]
+    async fn an_error_result_never_waits_on_a_steer() {
+        let sess = test_session(false);
+        let (tx, mut rx) = oneshot::channel();
+        {
+            let mut inner = sess.inner.lock();
+            inner.current_turn = Some(tx);
+            inner.pending_steers.push_back((4, "answer".into()));
+        }
+        dispatch_line(&sess, "cont2", json!({ "type": "result", "is_error": true, "result": "boom" })).await;
+        assert!(!sess.inner.lock().continuing);
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    fn steered_messages_are_echoed_back() {
+        let (args, _) = build_spawn_args("/tmp", &SpawnSettings::default(), None, None, None, None);
+        assert!(args.iter().any(|a| a == "--replay-user-messages"));
     }
 
     #[tokio::test]
@@ -3875,6 +4110,17 @@ mod tests {
         let added = with.len() - base.len();
         println!("  + desktop tools {:>5} chars  ~{:>4} tokens", added, added / 4);
         assert!(added < 600, "the desktop convention grew to {added} chars");
+    }
+
+    /// The renderer parses `nyra-ask later` and `(assumed)`, and opens every
+    /// answer with "Answer to your open question" (`deferredAnswerPrompt`). The
+    /// phrase is what tells Claude a steered message is the user's and not tool
+    /// output, so the two sides have to keep saying the same words.
+    #[test]
+    fn the_ask_convention_teaches_what_the_renderer_parses() {
+        for needle in ["```nyra-ask later", "(assumed)", "Answer to your open question"] {
+            assert!(ASK_CONVENTION.contains(needle), "missing {needle}");
+        }
     }
 
     /// The gap a second agent caught while testing the card: `git diff --numstat`
