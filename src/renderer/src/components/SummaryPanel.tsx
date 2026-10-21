@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Eye, FileDiff, Frame, GitBranch, Laptop, MemoryStick, MousePointerClick, RotateCw, Square, SwatchBook, TerminalSquare } from 'lucide-react'
+import { AppWindow, Eye, FileDiff, Frame, GitBranch, Laptop, MemoryStick, MousePointerClick, RotateCw, Square, SwatchBook, TerminalSquare } from 'lucide-react'
 import { useSessionsStore, findProject, type Agent, type Message, type TextMessage } from '../store/sessions'
 import {
   DESIGN_TOOL,
@@ -32,6 +32,8 @@ import { useProcessesStore, type BgProcess } from '../store/processes'
 import { formatElapsed } from './ActivityStrip'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { PrRows } from './PullRequestChips'
+import { sortPrs, spansRepos, type PullRequest } from '../lib/pullRequests'
+import { chatArtifacts, type ChatArtifact } from '../lib/artifacts'
 import { PortBadges, isLive } from './PortChips'
 import { isMonitor, monitorLabel } from './MonitorChips'
 import { useEnvironmentInfo } from '../hooks/useEnvironmentInfo'
@@ -116,24 +118,111 @@ export function newestFirst(agents: readonly Agent[]): Agent[] {
   return [...agents].reverse()
 }
 
-/** How many subagents the summary lists before it starts folding them away. */
+/** How many rows a list in the summary shows before it starts folding them away. */
 export const AGENTS_INLINE_LIMIT = 5
+
+/**
+ * Which rows of a list the summary shows without being asked.
+ *
+ * Up to the limit nothing changes. Past it only the live ones stay — they are
+ * what you glance at the card to find out about — and the rest are one "Show
+ * more" away.
+ */
+export function inlineRows<T>(
+  rows: readonly T[],
+  isLive: (row: T) => boolean,
+  limit = AGENTS_INLINE_LIMIT
+): { shown: T[]; hidden: number } {
+  if (rows.length <= limit) return { shown: [...rows], hidden: 0 }
+  const shown = rows.filter(isLive).slice(0, limit)
+  return { shown, hidden: rows.length - shown.length }
+}
 
 /**
  * Which subagents the summary shows without being asked.
  *
  * A long session can run dozens, and the card listed every one of them, most
- * long finished. Up to the limit nothing changes. Past it only the running ones
- * stay — they are what you glance at the card to find out about — and the rest
- * are one "Show more" away. The Subagents tab still has every one.
+ * long finished. Past the limit only the running ones stay. The Subagents tab
+ * still has every one.
  */
 export function inlineAgents(
   agents: readonly Agent[],
   limit = AGENTS_INLINE_LIMIT
 ): { shown: Agent[]; hidden: number } {
-  if (agents.length <= limit) return { shown: [...agents], hidden: 0 }
-  const shown = agents.filter((a) => a.status === 'running').slice(0, limit)
-  return { shown, hidden: agents.length - shown.length }
+  return inlineRows(agents, (a) => a.status === 'running', limit)
+}
+
+/**
+ * Which PRs the summary shows without being asked: past the limit, the ones
+ * still open or in draft. A merged PR is done news; an open one is something
+ * you may still have to act on. Unknown state counts as open — `gh` not having
+ * answered yet is no reason to hide a PR.
+ */
+export function inlinePrs(
+  prs: readonly PullRequest[],
+  limit = AGENTS_INLINE_LIMIT
+): { shown: PullRequest[]; hidden: number } {
+  return inlineRows(prs, (pr) => pr.state !== 'merged' && pr.state !== 'closed', limit)
+}
+
+/** Artifacts have no "live" to keep, so past the limit the newest few stay. */
+export function inlineArtifacts(
+  artifacts: readonly ChatArtifact[],
+  limit = AGENTS_INLINE_LIMIT
+): { shown: ChatArtifact[]; hidden: number } {
+  if (artifacts.length <= limit) return { shown: [...artifacts], hidden: 0 }
+  return { shown: artifacts.slice(0, limit - 1), hidden: artifacts.length - (limit - 1) }
+}
+
+/**
+ * The foot of a folded list: "Show N more", or "Show N finished" when nothing
+ * was live enough to stay, and "Show less" once open.
+ */
+function ShowMore({
+  hidden,
+  shownCount,
+  expanded,
+  finished = 'more',
+  onToggle
+}: {
+  hidden: number
+  shownCount: number
+  expanded: boolean
+  /** What the folded rows are when none stayed: "finished", "merged or closed". */
+  finished?: string
+  onToggle: () => void
+}): React.JSX.Element | null {
+  if (hidden === 0) return null
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="mt-0.5 rounded-md px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+    >
+      {expanded ? 'Show less' : shownCount === 0 ? `Show ${hidden} ${finished}` : `Show ${hidden} more`}
+    </button>
+  )
+}
+
+function ArtifactRow({ artifact }: { artifact: ChatArtifact }): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      title={artifact.url}
+      onClick={() => void window.api.system.openExternal(artifact.url)}
+      className="-mx-1 flex w-[calc(100%+0.5rem)] items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+    >
+      <span className="mt-px flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+        <AppWindow className="size-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[11px] text-foreground/80">{artifact.title}</span>
+        {artifact.description && (
+          <span className="block truncate text-[10px] text-muted-foreground">{artifact.description}</span>
+        )}
+      </span>
+    </button>
+  )
 }
 
 function AgentRow({ agent, index }: { agent: Agent; index: number }): React.JSX.Element {
@@ -279,6 +368,10 @@ export default function SummaryPanel(): React.JSX.Element | null {
   // Which chat has its full subagent list open. Keyed by session so switching
   // chats does not carry one chat's expanded list into another.
   const [agentsExpandedFor, setAgentsExpandedFor] = useState<string | null>(null)
+  const [prsExpandedFor, setPrsExpandedFor] = useState<string | null>(null)
+  const [artifactsExpandedFor, setArtifactsExpandedFor] = useState<string | null>(null)
+  const messages = session?.messages
+  const artifacts = React.useMemo(() => (messages ? chatArtifacts(messages) : []), [messages])
 
   if (!open || !session) return null
 
@@ -291,6 +384,12 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const ordered = newestFirst(agents)
   const inline = inlineAgents(ordered)
   const agentRows = agentsExpanded ? ordered : inline.shown
+
+  const prs = sortPrs(session.pullRequests ?? [])
+  const prsExpanded = prsExpandedFor === session.id
+  const inlinePr = inlinePrs(prs)
+  const artifactsExpanded = artifactsExpandedFor === session.id
+  const inlineArtifact = inlineArtifacts(artifacts)
 
   // Glass: this is the one panel with real content behind it to blur. The
   // side panel is docked with nothing underneath, so the same treatment
@@ -446,9 +545,35 @@ export default function SummaryPanel(): React.JSX.Element | null {
       {/* What this chat shipped. Above the subagents because it is the outcome
           and they are the machinery, and persisted with the session — a chat
           reopened next week still says what it opened. */}
-      {(session.pullRequests?.length ?? 0) > 0 && (
-        <Section label={session.pullRequests!.length === 1 ? 'Pull request' : 'Pull requests'}>
-          <PrRows prs={session.pullRequests!} />
+      {prs.length > 0 && (
+        <Section label={prs.length === 1 ? 'Pull request' : 'Pull requests'}>
+          {/* The repo prefix is decided over every PR, not just the rows
+              showing, so expanding the list does not relabel the ones there. */}
+          <PrRows prs={prsExpanded ? prs : inlinePr.shown} withRepo={spansRepos(prs)} />
+          <ShowMore
+            hidden={inlinePr.hidden}
+            shownCount={inlinePr.shown.length}
+            expanded={prsExpanded}
+            finished="merged or closed"
+            onToggle={() => setPrsExpandedFor(prsExpanded ? null : session.id)}
+          />
+        </Section>
+      )}
+
+      {/* Pages this chat published to claude.ai, newest first. Beside the PRs
+          because it is the same kind of thing: what the chat put out into the
+          world, and where to find it again. */}
+      {artifacts.length > 0 && (
+        <Section label={artifacts.length === 1 ? 'Artifact' : 'Artifacts'}>
+          {(artifactsExpanded ? artifacts : inlineArtifact.shown).map((a) => (
+            <ArtifactRow key={a.url} artifact={a} />
+          ))}
+          <ShowMore
+            hidden={inlineArtifact.hidden}
+            shownCount={inlineArtifact.shown.length}
+            expanded={artifactsExpanded}
+            onToggle={() => setArtifactsExpandedFor(artifactsExpanded ? null : session.id)}
+          />
         </Section>
       )}
 
@@ -477,19 +602,13 @@ export default function SummaryPanel(): React.JSX.Element | null {
           {agentRows.map((agent) => (
             <AgentRow key={agent.toolId} agent={agent} index={agents.indexOf(agent)} />
           ))}
-          {inline.hidden > 0 && (
-            <button
-              type="button"
-              onClick={() => setAgentsExpandedFor(agentsExpanded ? null : session.id)}
-              className="mt-0.5 rounded-md px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {agentsExpanded
-                ? 'Show less'
-                : inline.shown.length === 0
-                  ? `Show ${inline.hidden} finished`
-                  : `Show ${inline.hidden} more`}
-            </button>
-          )}
+          <ShowMore
+            hidden={inline.hidden}
+            shownCount={inline.shown.length}
+            expanded={agentsExpanded}
+            finished="finished"
+            onToggle={() => setAgentsExpandedFor(agentsExpanded ? null : session.id)}
+          />
         </Section>
       )}
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { AGENTS_INLINE_LIMIT, inlineAgents, newestFirst } from '../../renderer/src/components/SummaryPanel'
+import { AGENTS_INLINE_LIMIT, inlineAgents, inlinePrs, newestFirst } from '../../renderer/src/components/SummaryPanel'
+import type { PullRequest } from '../../renderer/src/lib/pullRequests'
 import type { Agent } from '../../renderer/src/store/sessions'
 
 const agent = (id: string, status: Agent['status']): Agent => ({
@@ -53,5 +54,33 @@ describe('newestFirst', () => {
       'live-4',
       'live-3'
     ])
+  })
+})
+
+describe('inlinePrs', () => {
+  const pr = (n: number, state?: PullRequest['state']): PullRequest => ({
+    url: `https://github.com/o/r/pull/${n}`,
+    owner: 'o',
+    repo: 'r',
+    number: n,
+    state,
+    createdAt: n
+  })
+
+  it('lists every PR while there are few of them', () => {
+    const few = [pr(1, 'merged'), pr(2, 'open')]
+    expect(inlinePrs(few)).toEqual({ shown: few, hidden: 0 })
+  })
+
+  it('keeps open, draft and unknown PRs past the limit, and folds the rest', () => {
+    const many = [
+      ...Array.from({ length: 5 }, (_, i) => pr(i, i % 2 ? 'merged' : 'closed')),
+      pr(10, 'open'),
+      pr(11, 'draft'),
+      pr(12)
+    ]
+    const { shown, hidden } = inlinePrs(many)
+    expect(shown.map((p) => p.number)).toEqual([10, 11, 12])
+    expect(hidden).toBe(5)
   })
 })

@@ -89,8 +89,14 @@ export function usePullRequests(sessionId: string | null): PullRequest[] {
 }
 
 /** One row per PR, for the hover card and the Pinned Summary. */
-export function PrRows({ prs }: { prs: readonly PullRequest[] }): React.JSX.Element {
-  const withRepo = spansRepos(prs)
+export function PrRows({
+  prs,
+  withRepo = spansRepos(prs)
+}: {
+  prs: readonly PullRequest[]
+  /** Whether labels carry the repo. Defaults to whether `prs` spans repos. */
+  withRepo?: boolean
+}): React.JSX.Element {
   return (
     <>
       {sortPrs(prs).map((pr) => (
