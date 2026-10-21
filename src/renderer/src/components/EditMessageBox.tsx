@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, type SetStateAction } from 'react'
+import React, { useCallback, useEffect, useRef, useState, type SetStateAction } from 'react'
 import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
 import AttachmentStrip from './AttachmentStrip'
+import { Checkbox } from './ui/checkbox'
 import { newlineInList } from '../lib/markdownEditing'
 import { useAttachmentStaging } from '../hooks/useAttachmentStaging'
 import type { FileAttachment, ImageAttachment } from '../store/sessions'
@@ -20,6 +21,10 @@ import type { FileAttachment, ImageAttachment } from '../store/sessions'
  * Attachments stage through the composer's own hook, so pasting an image or a
  * file works here exactly as it does there. It starts from the message's own,
  * and whatever is on the strip at Save is what goes.
+ *
+ * When the turns from this message on edited files, it offers to put them back
+ * first, the way Regenerate does. A checkbox rather than a second button,
+ * because Enter saves and should do what clicking does. On by default.
  */
 export default function EditMessageBox({
   value,
@@ -27,16 +32,21 @@ export default function EditMessageBox({
   files,
   onChange,
   onCancel,
-  onSave
+  onSave,
+  restoreCount = 0
 }: {
   value: string
   images?: ImageAttachment[]
   files?: FileAttachment[]
   onChange: (next: string) => void
   onCancel: () => void
-  onSave: (images: ImageAttachment[], files: FileAttachment[]) => void
+  onSave: (images: ImageAttachment[], files: FileAttachment[], restore: boolean) => void
+  /** Files edited since this message that a restore would put back; none
+   *  hides the offer. */
+  restoreCount?: number
 }): React.JSX.Element {
   const editorRef = useRef<MarkdownEditorHandle>(null)
+  const [restore, setRestore] = useState(true)
 
   // The text is the parent's; the hook writes it through an updater, so read
   // the newest value rather than the one this render closed over.
@@ -65,7 +75,7 @@ export default function EditMessageBox({
     pendingAttachments.length === 0 &&
     (!!value.trim() || stagedImages.length > 0 || stagedFiles.length > 0)
   const save = (): void => {
-    if (canSave) onSave(stagedImages, stagedFiles)
+    if (canSave) onSave(stagedImages, stagedFiles, restoreCount > 0 && restore)
   }
 
   // Caret at the end, which is where `autoFocus` used to leave it and where you
@@ -137,7 +147,19 @@ export default function EditMessageBox({
           placeholder="Edit your message…"
         />
       </div>
-      <div className="mt-2 flex justify-end gap-2">
+      <div className="mt-2 flex items-center justify-end gap-2">
+        {restoreCount > 0 && (
+          <label className="mr-auto flex cursor-pointer items-center gap-2 text-c-sm text-muted-foreground">
+            <Checkbox checked={restore} onCheckedChange={(v) => setRestore(v === true)} />
+            <span>
+              Restore the{' '}
+              <span className="font-medium text-foreground">
+                {restoreCount === 1 ? '1 file' : `${restoreCount} files`}
+              </span>{' '}
+              changed since this message
+            </span>
+          </label>
+        )}
         <button
           onClick={onCancel}
           className="rounded-lg px-3 py-1 text-c-md text-foreground/80 transition-colors hover:text-foreground"

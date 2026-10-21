@@ -15,7 +15,7 @@ use crate::workflow::helpers::{build_marketplace_share_url, marketplace_repo_url
 use crate::workflow::types::{MarketplaceEntry, TriggerSource};
 use crate::workflow::{engine, marketplace, store, triggers};
 use crate::{
-    account_status, browser, claude, devtools, dictation, file_extractor, file_tree, fs_ops, gh, git, hooks, login, mcp,
+    account_status, browser, checkpoints, claude, devtools, dictation, file_extractor, file_tree, fs_ops, gh, git, hooks, login, mcp,
     memory, model_catalog, open_with, plugin_logos, plugins, processes, skills, subagents,
 };
 use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
@@ -32,6 +32,7 @@ pub async fn claude_query(
     worktree_name: Option<String>,
     settings: Option<SpawnSettings>,
     resume_at: Option<String>,
+    checkpoint: Option<String>,
 ) -> Value {
     // The renderer owns this now, so a session in one project can run a different
     // model from one in another. Falling back to the global keeps every caller
@@ -45,6 +46,7 @@ pub async fn claude_query(
         nyra_session_id,
         settings,
         worktree_name,
+        checkpoint,
     )
     .await
     {
@@ -691,6 +693,30 @@ pub fn git_snapshot_exists(session_id: String) -> bool {
 #[tauri::command(rename_all = "camelCase")]
 pub fn git_snapshot_discard(session_id: String) {
     git::snapshot_discard(&session_id);
+}
+
+// ---- file checkpoints ----
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn checkpoint_restore(request: checkpoints::RestoreRequest) -> Value {
+    checkpoints::restore(request).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn checkpoint_capture(chat_id: String, cwd: String, paths: Vec<String>) -> Value {
+    tokio::task::spawn_blocking(move || checkpoints::capture(&chat_id, &cwd, &paths))
+        .await
+        .unwrap_or_else(|e| json!({ "error": e.to_string() }))
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn checkpoint_hashes(cwd: String, paths: Vec<String>) -> HashMap<String, Option<String>> {
+    tokio::task::spawn_blocking(move || checkpoints::hashes(&cwd, &paths)).await.unwrap_or_default()
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn checkpoint_discard(chat_id: String) {
+    checkpoints::discard(&chat_id);
 }
 
 #[tauri::command]

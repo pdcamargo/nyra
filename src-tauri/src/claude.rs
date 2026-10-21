@@ -329,6 +329,9 @@ struct SessionInner {
     replaying: bool,
     current_turn: Option<TurnSender>,
     turn_prompt: String,
+    /// The uuid the turn's message went in with, which the CLI files its
+    /// checkpoint under. Kept so a retried turn records the same one.
+    turn_checkpoint: Option<String>,
     line_buffer: String,
     stale_resume_detected: bool,
     retry_in_flight: bool,
@@ -399,6 +402,7 @@ impl SessionInner {
             replaying: false,
             current_turn: None,
             turn_prompt: String::new(),
+            turn_checkpoint: None,
             line_buffer: String::new(),
             stale_resume_detected: false,
             retry_in_flight: false,
@@ -1604,17 +1608,22 @@ fn rewrite_staged_dirs(env: &Environment, prompt: &str, dirs: &[&Path]) -> Strin
     out
 }
 
-fn format_user_message(prompt: &str) -> String {
-    format!(
-        "{}\n",
-        json!({ "type": "user", "message": { "role": "user", "content": prompt } })
-    )
+/// One stdin message. `uuid`, when given, is the id the CLI files the turn's
+/// checkpoint under: it keeps ours rather than minting one, so the renderer can
+/// record it on the message before the turn starts and rewind the files to it.
+fn format_user_message(prompt: &str, uuid: Option<&str>) -> String {
+    let mut line = json!({ "type": "user", "message": { "role": "user", "content": prompt } });
+    if let Some(uuid) = uuid {
+        line["uuid"] = Value::String(uuid.to_string());
+    }
+    format!("{line}\n")
 }
 
 /// Send a prompt to a live session and hand back the receiver for its turn.
 async fn send_prompt_to_session(
     sess: &Arc<Session>,
     prompt: &str,
+    checkpoint: Option<&str>,
 ) -> Result<oneshot::Receiver<Result<Option<String>, String>>, String> {
     let (tx, rx) = oneshot::channel();
     {
@@ -1628,6 +1637,7 @@ async fn send_prompt_to_session(
         inner.continuing = false;
         inner.current_turn = Some(tx);
         inner.turn_prompt = prompt.to_string();
+        inner.turn_checkpoint = checkpoint.map(str::to_string);
         inner.prewarmed = false;
         // Sent once the reply is under way; see `flush_pending_title`.
         if !std::mem::replace(&mut inner.title_requested, true) {
@@ -1635,7 +1645,7 @@ async fn send_prompt_to_session(
         }
     }
 
-    let payload = format_user_message(prompt);
+    let payload = format_user_message(prompt, checkpoint);
     let mut guard = sess.stdin.lock().await;
     let write = match guard.as_mut() {
         Some(stdin) => stdin
@@ -1685,7 +1695,7 @@ pub async fn steer_session(nyra_session_id: &str, prompt: &str) -> Option<u64> {
     crate::keep_awake::turn_started(nyra_session_id);
 
     let text = prompt_in_env(&env, prompt);
-    let payload = format_user_message(&text);
+    let payload = format_user_message(&text, None);
     let id = NEXT_STEER_ID.fetch_add(1, Ordering::Relaxed);
     let mut guard = sess.stdin.lock().await;
     let stdin = guard.as_mut()?;
@@ -1795,6 +1805,7 @@ pub async fn run_claude(
     nyra_session_id: String,
     settings: SpawnSettings,
     worktree_name: Option<String>,
+    checkpoint: Option<String>,
 ) -> Result<Option<String>, String> {
     if prompt.trim().is_empty() {
         fail_result_callback(&nyra_session_id, "Empty prompt");
@@ -1851,7 +1862,7 @@ pub async fn run_claude(
     // A new message from the user lifts whatever Esc refused last turn.
     crate::desktop::turn_started(&nyra_session_id);
     crate::keep_awake::turn_started(&nyra_session_id);
-    let rx = match send_prompt_to_session(&sess, &prompt).await {
+    let rx = match send_prompt_to_session(&sess, &prompt, checkpoint.as_deref()).await {
         Ok(rx) => rx,
         Err(e) => {
             crate::keep_awake::turn_ended(&nyra_session_id);
@@ -1872,7 +1883,7 @@ pub async fn run_claude(
 /// The settings a spawn actually runs with. A WSL chat keeps the distro's own
 /// `~/.claude` whatever its workspace, so its workspace is no part of what it
 /// is — and a move must not respawn it.
-fn settings_for_spawn(cwd: &str, mut settings: SpawnSettings) -> SpawnSettings {
+pub(crate) fn settings_for_spawn(cwd: &str, mut settings: SpawnSettings) -> SpawnSettings {
     settings.config_dir = util::config_dir_arg(settings.config_dir.take())
         .filter(|_| Environment::of(cwd).is_host())
         .map(|dir| dir.to_string_lossy().into_owned());
@@ -1953,6 +1964,23 @@ fn missing_folder(cwd: &str) -> String {
     format!("This chat's folder no longer exists: {cwd}. Restore it, or start a new chat in a project that does.")
 }
 
+/// What every chat's CLI runs with on top of the clean child environment.
+///
+/// Headless, the CLI only snapshots files before Claude edits them when this is
+/// set; the `fileCheckpointingEnabled` setting is ignored under `-p`. Without
+/// it `rewind_files` answers "File rewinding is not enabled", and a version's
+/// files could never come back. See `checkpoints.rs`.
+const CLI_ENV: &[(&str, &str)] = &[("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "true")];
+
+/// The CLI, in `cwd`, with Nyra's environment for it.
+pub(crate) fn cli_command(env: &Environment, claude_bin: &str, cwd: &str, config_dir: Option<&Path>) -> tokio::process::Command {
+    let mut cmd = env.command_with_env(claude_bin, cwd, CLI_ENV);
+    cmd.env_clear()
+        .envs(util::claude_child_env(config_dir))
+        .envs(CLI_ENV.iter().copied());
+    cmd
+}
+
 async fn spawn_session(
     cwd: &str,
     resume_session_id: Option<String>,
@@ -2019,11 +2047,8 @@ async fn spawn_session(
     );
     crate::logf!("CWD: {cwd}");
 
-    let mut child = env
-        .command(&claude_bin, cwd)
+    let mut child = cli_command(&env, &claude_bin, cwd, config_dir)
         .args(&args)
-        .env_clear()
-        .envs(util::claude_child_env(config_dir))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -2058,6 +2083,7 @@ async fn spawn_session(
             replaying: false,
             current_turn: None,
             turn_prompt: String::new(),
+            turn_checkpoint: None,
             line_buffer: String::new(),
             stale_resume_detected: false,
             retry_in_flight: false,
@@ -2926,7 +2952,7 @@ async fn process_tool_blocks(
 /// A `--resume` pointing at a session Claude no longer has. Kill, respawn without
 /// it, and replay the prompt so the user never sees the failure.
 fn retry_without_resume(sess: &Arc<Session>, nyra_session_id: &str) {
-    let (saved_turn, prompt, cwd, worktree, settings) = {
+    let (saved_turn, prompt, checkpoint, cwd, worktree, settings) = {
         let mut inner = sess.inner.lock();
         if inner.retry_in_flight {
             return;
@@ -2935,6 +2961,7 @@ fn retry_without_resume(sess: &Arc<Session>, nyra_session_id: &str) {
         (
             inner.current_turn.take(),
             inner.turn_prompt.clone(),
+            inner.turn_checkpoint.clone(),
             inner.cwd.clone(),
             inner.worktree_name.clone(),
             inner.settings.clone(),
@@ -2957,7 +2984,7 @@ fn retry_without_resume(sess: &Arc<Session>, nyra_session_id: &str) {
     if let Some(turn) = saved_turn {
         let session_id = nyra_session_id.to_string();
         tauri::async_runtime::spawn(async move {
-            let result = run_claude(prompt, cwd, None, None, session_id, settings, worktree).await;
+            let result = run_claude(prompt, cwd, None, None, session_id, settings, worktree, checkpoint).await;
             let _ = turn.send(result);
         });
     }
@@ -3220,6 +3247,18 @@ mod tests {
             "response": { "subtype": "error", "request_id": TITLE_REQUEST_ID, "error": "unknown subtype" }
         });
         assert_eq!(requested_title(&refused), None);
+    }
+
+    #[test]
+    fn a_turn_message_carries_the_uuid_its_checkpoint_is_filed_under() {
+        let line = format_user_message("hi", Some("u-1"));
+        assert!(line.ends_with('\n'));
+        let value: Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(value["uuid"], "u-1");
+        assert_eq!(value["message"]["content"], "hi");
+
+        let steer: Value = serde_json::from_str(format_user_message("hi", None).trim()).unwrap();
+        assert!(steer.get("uuid").is_none());
     }
 
     #[test]

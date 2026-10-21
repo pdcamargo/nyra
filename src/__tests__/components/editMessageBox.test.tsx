@@ -110,7 +110,8 @@ describe('editing a message', () => {
     fireEvent.click(screen.getByText('Save'))
     expect(onSave).toHaveBeenCalledWith(
       [],
-      [expect.objectContaining({ name: 'notes.txt', path: '/tmp/nyra-files/123-notes.txt' })]
+      [expect.objectContaining({ name: 'notes.txt', path: '/tmp/nyra-files/123-notes.txt' })],
+      false
     )
   })
 
@@ -127,6 +128,28 @@ describe('editing a message', () => {
       { wrapper: TooltipProvider }
     )
     fireEvent.click(screen.getByText('Save'))
-    expect(onSave).toHaveBeenCalledWith([expect.objectContaining({ path: '/tmp/a.png' })], [])
+    expect(onSave).toHaveBeenCalledWith([expect.objectContaining({ path: '/tmp/a.png' })], [], false)
+  })
+
+  it('offers to restore the files edited since, on unless unticked', () => {
+    const onSave = vi.fn()
+    render(
+      <EditMessageBox value="again" onChange={vi.fn()} onCancel={vi.fn()} onSave={onSave} restoreCount={2} />,
+      { wrapper: TooltipProvider }
+    )
+    expect(screen.getByText('2 files')).toBeTruthy()
+    fireEvent.click(screen.getByText('Save'))
+    expect(onSave).toHaveBeenLastCalledWith([], [], true)
+
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByText('Save'))
+    expect(onSave).toHaveBeenLastCalledWith([], [], false)
+  })
+
+  it('says nothing about restoring when nothing was edited since', () => {
+    render(<EditMessageBox value="again" onChange={vi.fn()} onCancel={vi.fn()} onSave={vi.fn()} />, {
+      wrapper: TooltipProvider
+    })
+    expect(screen.queryByRole('checkbox')).toBeNull()
   })
 })

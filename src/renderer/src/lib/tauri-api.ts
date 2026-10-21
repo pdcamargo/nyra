@@ -175,6 +175,15 @@ export type SideEvent = { sideId: string } & (
 
 export type LibraryKind = 'skills' | 'commands' | 'agents' | 'plugins'
 
+/**
+ * A restore, as `checkpoint_restore` answers it: the copy it took of what it
+ * overwrote, the files the CLI rewound, each path's hash beforehand, and the
+ * paths that came out different. Or why nothing was touched.
+ */
+export type RestoreResult =
+  | { capture: string; changed: string[]; before: Record<string, string | null>; overwritten: string[] }
+  | { error: string }
+
 const EVENT_NAMES = [
   'claude:event',
   'claude:permission',
@@ -371,7 +380,10 @@ export const api = {
       worktreeName?: string,
       settings?: SpawnSettings,
       /** Rewind `sessionId` to this assistant line and fork from there. */
-      resumeAt?: string
+      resumeAt?: string,
+      /** The uuid the message goes in with, which the CLI files the turn's
+       *  checkpoint under. See `TextMessage.checkpoint`. */
+      checkpoint?: string
     ) =>
       call<{ sessionId: string | null } | { error: string }>('claude_query', {
         prompt,
@@ -382,7 +394,8 @@ export const api = {
         // Omitted means "use whatever settings_sync last pushed" — the backend
         // falls back to the global so workflow and trigger runs keep working.
         settings: settings ?? null,
-        resumeAt: resumeAt ?? null
+        resumeAt: resumeAt ?? null,
+        checkpoint: checkpoint ?? null
       }),
 
     /** Start the chat's process ahead of its first message. A no-op when it has one. */
@@ -726,6 +739,32 @@ export const api = {
       }),
     worktreeRemove: (cwd: string, worktreePath: string) =>
       call<{ success: boolean; error?: string }>('git_worktree_remove', { cwd, worktreePath })
+  },
+
+  /** File checkpoints: see `lib/fileRestore.ts`. */
+  checkpoints: {
+    /** Rewind the files to `checkpoint` in a throwaway fork of `sessionId`,
+     *  then write `overlay` over them, copying whatever that overwrites first. */
+    restore: (request: {
+      chatId: string
+      cwd: string
+      sessionId: string
+      checkpoint: string
+      paths: string[]
+      overlay: string | null
+      settings?: SpawnSettings
+    }) => call<RestoreResult>('checkpoint_restore', { request }),
+    /** Copy `paths` as they are now. */
+    capture: (chatId: string, cwd: string, paths: string[]) =>
+      call<{ capture: string; before: Record<string, string | null> } | { error: string }>('checkpoint_capture', {
+        chatId,
+        cwd,
+        paths
+      }),
+    /** Each path's content hash, or null where there is no file. */
+    hashes: (cwd: string, paths: string[]) =>
+      call<Record<string, string | null>>('checkpoint_hashes', { cwd, paths }),
+    discard: (chatId: string) => call<void>('checkpoint_discard', { chatId })
   },
 
   mcp: {

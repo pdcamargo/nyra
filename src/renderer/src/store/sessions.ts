@@ -91,20 +91,39 @@ export type TextMessage = {
   /** On a user message: the turn after it was regenerated, and what follows
    *  is one of its versions — a key into `Session.versions`. */
   replyVersions?: string
+  /** On a user message that started a turn: the uuid it went to the CLI with,
+   *  which the CLI filed the files under as the turn began. Rewinding to it
+   *  puts back everything Claude edited from here on. See `checkpoints.rs`. */
+  checkpoint?: string
+  /** On the same message, once its turn ended: each file the turn edited, by
+   *  the hash of what it left there, or null for a file it removed. What tells
+   *  a hand edit apart from Claude's when a restore overwrites one. */
+  fileHashes?: Record<string, string | null>
 }
+
+/** A turn's run, as its prompt records it. A regenerated prompt is shared by
+ *  every version, so each version keeps its own in its tail. */
+export type PromptRun = Pick<TextMessage, 'checkpoint' | 'fileHashes'>
 
 /** One version of a branch point that is not on screen, with where it ended. */
 export type VersionTail = {
   messages: Message[]
   /** The reply it ended on, so continuing it resumes there. */
   anchor: Anchor | null
+  /** `reply` versions: their prompt's run. A `prompt` version's is on its own
+   *  first message. */
+  run?: PromptRun
+  /** A copy of the files as this version left them, taken when another one
+   *  replaced it on disk. Kept while the version is on screen too: it is what
+   *  restoring it writes back. */
+  files?: string
 }
 
 /**
  * A point in a chat that has been edited or regenerated, and every version it
  * has had. The version on screen lives in `Session.messages`, from the branch
- * point to the end; its slot here is left empty, since anything kept there
- * would go stale the moment the chat carried on.
+ * point to the end; its slot here is left empty but for `files`, since
+ * anything else kept there would go stale the moment the chat carried on.
  *
  * `prompt` versions start at the edited user message. `reply` versions start
  * after the user message whose turn was regenerated. Either runs to the end
@@ -342,6 +361,26 @@ export function versionKeys(messages: Message[]): string[] {
   return keys
 }
 
+/** A prompt's run, or nothing when it has none to keep. */
+function runOf(m: TextMessage): PromptRun | undefined {
+  if (!m.checkpoint && !m.fileHashes) return undefined
+  return { ...(m.checkpoint ? { checkpoint: m.checkpoint } : {}), ...(m.fileHashes ? { fileHashes: m.fileHashes } : {}) }
+}
+
+/** `m` carrying `run` in place of its own. */
+function withRun(m: TextMessage, run: PromptRun | undefined): TextMessage {
+  const { checkpoint: _c, fileHashes: _f, ...rest } = m
+  return { ...rest, ...run }
+}
+
+function tailOf(messages: Message[], anchor: Anchor | null, run?: PromptRun, files?: string): VersionTail {
+  return { messages, anchor, ...(run ? { run } : {}), ...(files ? { files } : {}) }
+}
+
+function withFiles(tails: VersionTail[], index: number, files: string): VersionTail[] {
+  return tails.map((t, i) => (i === index ? { ...t, files } : t))
+}
+
 export type Session = {
   id: string
   claudeSessionId: string | null
@@ -391,6 +430,9 @@ export type Session = {
   /** Every edited or regenerated point in this chat, by the key its messages
    *  carry. See `VersionSet`. */
   versions?: Record<string, VersionSet>
+  /** The CLI conversation whose turns last touched the files. A rewind runs in
+   *  a fork of it: it is the one that tracked what is on disk now. */
+  diskSession?: string | null
   forkOf?: ForkOf
   /** The title was chosen deliberately — renamed by hand, or derived for a fork
    *  — so the one Claude generates must not take it away again. */
@@ -585,12 +627,27 @@ type SessionsStore = {
    * keeps it and puts away its turn, for a regeneration. Answers the set's key,
    * which an edit's new message carries as its `promptVersions`, or null when
    * the message is not in the chat.
+   *
+   * `files` is the copy taken of the version leaving the disk; `checkpoint`,
+   * for a regeneration, the one its prompt goes to the CLI with this time.
    */
-  branchAt: (sessionId: string, messageId: string, kind: VersionSet['kind']) => string | null
+  branchAt: (
+    sessionId: string,
+    messageId: string,
+    kind: VersionSet['kind'],
+    opts?: { files?: string | null; checkpoint?: string }
+  ) => string | null
   /** Swap the version on screen for another. The next message resumes it. */
   showVersion: (sessionId: string, key: string, index: number) => void
-  /** Record the versions on screen as the ones that ran, as a send does. */
-  markVersionsRan: (sessionId: string) => void
+  /** Record the versions on screen as the ones that ran, as a send does.
+   *  `files` is the copy taken of the ones that stop being on disk. */
+  markVersionsRan: (sessionId: string, files?: string | null) => void
+  /** The files of the version on screen are back on disk; `files` is the copy
+   *  of the version they replaced. */
+  markVersionRestored: (sessionId: string, key: string, files: string) => void
+  setDiskSession: (sessionId: string, cliSessionId: string) => void
+  /** What a turn left in the files it edited; see `TextMessage.fileHashes`. */
+  setFileHashes: (sessionId: string, messageId: string, hashes: Record<string, string | null>) => void
   setAutoCompacted: (sessionId: string, value: boolean) => void
   setPendingAutoCompact: (sessionId: string, value: boolean) => void
   setPendingAction: (action: PendingAction) => void
@@ -1195,6 +1252,8 @@ export const useSessionsStore = create<SessionsStore>()(
         if (doomed?.worktreeSnapshotted) {
           void window.api.git.snapshotDiscard(sessionId).catch(() => {})
         }
+        // And the copies its versions' files were kept in.
+        if (doomed?.versions) void window.api.checkpoints.discard(sessionId).catch(() => {})
         // Nor one a fork still works in: forked into local, it shares this
         // chat's worktree, and removing it would pull the floor out from under
         // a chat that is still in the list.
@@ -1548,7 +1607,7 @@ export const useSessionsStore = create<SessionsStore>()(
         }))
       },
 
-      branchAt: (sessionId, messageId, kind) => {
+      branchAt: (sessionId, messageId, kind, opts) => {
         let key: string | null = null
         set((state) => ({
           sessions: state.sessions.map((s) => {
@@ -1567,12 +1626,18 @@ export const useSessionsStore = create<SessionsStore>()(
             const away = s.messages.slice(start)
             if (kind === 'prompt' && !existing) away[0] = { ...at, promptVersions: k }
             const tails = prior ? [...prior.tails] : []
-            tails[prior ? prior.current : 0] = { messages: away, anchor: s.anchor ?? null }
+            const out = prior ? prior.current : 0
+            tails[out] = tailOf(away, s.anchor ?? null, kind === 'reply' ? runOf(at) : undefined, tails[out]?.files)
+            // The copy belongs to the version leaving the disk, which is the one
+            // that ran — not always the one on screen.
+            if (opts?.files) tails[prior ? prior.ran : 0] = { ...tails[prior ? prior.ran : 0], files: opts.files }
             tails.push({ messages: [], anchor: null })
             const next = tails.length - 1
 
             const kept = s.messages.slice(0, start)
-            if (kind === 'reply') kept[idx] = { ...at, replyVersions: k }
+            if (kind === 'reply') {
+              kept[idx] = withRun({ ...at, replyVersions: k }, opts?.checkpoint ? { checkpoint: opts.checkpoint } : undefined)
+            }
             return {
               ...s,
               messages: kept,
@@ -1597,11 +1662,21 @@ export const useSessionsStore = create<SessionsStore>()(
             const start = versionStart(s.messages, key, vs.kind)
             if (start < 0) return s
 
+            // A regenerated prompt stays on screen, so its run trades places
+            // with the target's the way the turn after it does.
+            const prompt = vs.kind === 'reply' ? (s.messages[start - 1] as TextMessage) : null
             const tails = [...vs.tails]
-            tails[vs.current] = { messages: s.messages.slice(start), anchor: s.anchor ?? null }
+            tails[vs.current] = tailOf(
+              s.messages.slice(start),
+              s.anchor ?? null,
+              prompt ? runOf(prompt) : undefined,
+              vs.tails[vs.current]?.files
+            )
             const target = tails[index]
-            tails[index] = { messages: [], anchor: null }
-            const messages = [...s.messages.slice(0, start), ...target.messages]
+            tails[index] = tailOf([], null, undefined, target.files)
+            const head = s.messages.slice(0, start)
+            if (prompt) head[start - 1] = withRun(prompt, target.run)
+            const messages = [...head, ...target.messages]
             const hasHistory = messages.some((m) => m.role === 'user' || m.role === 'assistant')
             // The live process holds whichever version ran, so the next message
             // starts a new one at the end of this — the way a fork's first does.
@@ -1621,7 +1696,7 @@ export const useSessionsStore = create<SessionsStore>()(
         }))
       },
 
-      markVersionsRan: (sessionId) => {
+      markVersionsRan: (sessionId, files) => {
         set((state) => ({
           sessions: state.sessions.map((s) => {
             if (s.id !== sessionId || !s.versions) return s
@@ -1630,10 +1705,41 @@ export const useSessionsStore = create<SessionsStore>()(
               const vs = s.versions[key]
               if (!vs || vs.ran === vs.current) continue
               versions ??= { ...s.versions }
-              versions[key] = { ...vs, ran: vs.current }
+              versions[key] = { ...vs, tails: files ? withFiles(vs.tails, vs.ran, files) : vs.tails, ran: vs.current }
             }
             return versions ? { ...s, versions } : s
           })
+        }))
+      },
+
+      markVersionRestored: (sessionId, key, files) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            const vs = s.id === sessionId ? s.versions?.[key] : undefined
+            if (!vs) return s
+            return {
+              ...s,
+              versions: { ...s.versions, [key]: { ...vs, tails: withFiles(vs.tails, vs.ran, files), ran: vs.current } }
+            }
+          })
+        }))
+      },
+
+      setDiskSession: (sessionId, cliSessionId) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId && s.diskSession !== cliSessionId ? { ...s, diskSession: cliSessionId } : s
+          )
+        }))
+      },
+
+      setFileHashes: (sessionId, messageId, hashes) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? { ...s, messages: s.messages.map((m) => (m.id === messageId ? { ...m, fileHashes: hashes } as Message : m)) }
+              : s
+          )
         }))
       },
 

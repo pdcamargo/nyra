@@ -5,6 +5,7 @@ mod ai_title;
 mod account_status;
 mod app_mcp;
 mod browser;
+mod checkpoints;
 mod claude;
 mod commands;
 mod comments;
@@ -189,6 +190,10 @@ pub fn run() {
             commands::claude_side_ask,
             commands::claude_side_close,
             commands::claude_dispose,
+            commands::checkpoint_restore,
+            commands::checkpoint_capture,
+            commands::checkpoint_hashes,
+            commands::checkpoint_discard,
             commands::claude_check_binary,
             commands::claude_account_status,
             commands::workspace_create,

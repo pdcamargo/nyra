@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Check, ChevronDown, Copy, CornerDownRight, FileText, GitFork, GitMerge, Info, SquarePen, Trash2 } from 'lucide-react'
-import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, type MessageContext, type Anchor, newMessageId } from '../store/sessions'
+import { Check, ChevronDown, Copy, CornerDownRight, FileText, GitFork, GitMerge, Info, LoaderCircle, SquarePen, Trash2 } from 'lucide-react'
+import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, type MessageContext, type Anchor, newMessageId, versionKeys } from '../store/sessions'
 import { noteDesignCall, noteDesignResult } from '../store/designActivity'
 import { useSettingsStore } from '../store/settings'
 import { wslShare } from '../lib/environment'
@@ -10,8 +10,10 @@ import { spawnSettingsForSession } from '../lib/spawnSettings'
 import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
 import { forkChat, forkMarks, type ForkMarkSpec, type ForkPoint } from '../lib/fork'
 import { ForkMark, ForkMenu } from './ForkMenu'
-import { RegenerateButton, VersionSwitch, DiskNote } from './MessageVersions'
+import { RegenerateButton, VersionSwitch, DiskNote, RestoreNote, shownPath } from './MessageVersions'
 import { turnRegens, versionViews, type TurnRegen, type VersionView } from '../lib/versions'
+import { copyFiles, filesBeforeRun, recordTurnFiles, restoreVersion } from '../lib/fileRestore'
+import { useRestoresStore, isRestoring } from '../store/restores'
 import MarkdownRenderer from './MarkdownRenderer'
 import ToolCallCard from './ToolCallCard'
 import AskUserQuestionCard from './AskUserQuestionCard'
@@ -80,7 +82,7 @@ import { openFileInPanel } from '../lib/openFile'
 import SelectionAnnotator from './annotations/SelectionAnnotator'
 import PromptTimeline from './PromptTimeline'
 import SideQuestionSheet from './SideQuestionSheet'
-import { buildTimeline } from '../lib/promptTimeline'
+import { buildTimeline, editedPaths } from '../lib/promptTimeline'
 import AnnotationLayer from './annotations/AnnotationLayer'
 import AnnotationReceipt from './annotations/AnnotationReceipt'
 import { useAnnotationsStore } from '../store/annotations'
@@ -434,6 +436,10 @@ export default function Chat(): React.JSX.Element {
   const usage = activeSession?.usage ?? null
 
   const isLoading = activeSessionId ? running[activeSessionId] === true : false
+  // A file restore holds the chat still the way a turn does: the versions it is
+  // moving between must not move under it.
+  const restoring = useRestoresStore((s) => (activeSessionId ? s.busy[activeSessionId] : undefined))
+  const frozen = isLoading || restoring !== undefined
 
   // Between turns, what Claude will come back from. Without it a chat waiting
   // on a test run or a monitor looked exactly like one that was done.
@@ -591,6 +597,14 @@ export default function Chat(): React.JSX.Element {
   const versionSets = activeSession?.versions
   const versionViewsById = useMemo(() => versionViews(messages, versionSets, turnEnds), [messages, versionSets, turnEnds])
   const regensById = useMemo(() => turnRegens(messages, turnEnds), [messages, turnEnds])
+  // What an edit could put back: the files edited from that message on, when
+  // it has a checkpoint to rewind to and a conversation to do it in.
+  const diskSession = activeSession?.diskSession
+  const editRestoreCount = useMemo(() => {
+    const at = editingMessageId ? messages.findIndex((m) => m.id === editingMessageId) : -1
+    if (at < 0 || !diskSession || !(messages[at] as TextMessage).checkpoint) return 0
+    return editedPaths(messages.slice(at)).length
+  }, [editingMessageId, messages, diskSession])
 
   // The fork lines, keyed by the message each goes under. Selected as a string
   // so a store change that moves no line re-renders nothing.
@@ -1558,6 +1572,10 @@ export default function Chat(): React.JSX.Element {
         // One turn, counted where the CLI actually ends one. The recap needs
         // this because the transcript cannot supply it — see `Session.turns`.
         useSessionsStore.getState().noteTurn(sid)
+        // The conversation that just touched the files is the one a restore
+        // has to fork, and what the turn left in them is what it compares to.
+        if (event.session_id) useSessionsStore.getState().setDiskSession(sid, event.session_id)
+        void recordTurnFiles(sid)
         foldTasksAtTurnEnd(sid)
         refreshBranch(sid)
         setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
@@ -1756,7 +1774,7 @@ export default function Chat(): React.JSX.Element {
     // whichever session the user is currently viewing.
     const routedSid = targetSessionId ?? useSessionsStore.getState().activeSessionId
     const hasAttachments = (images?.length ?? 0) > 0 || (files?.length ?? 0) > 0 || (context?.length ?? 0) > 0
-    if ((!text.trim() && !hasAttachments) || (routedSid && isSessionRunning(routedSid))) return
+    if ((!text.trim() && !hasAttachments) || (routedSid && (isSessionRunning(routedSid) || isRestoring(routedSid)))) return
 
     // Keep slash invocations intact. The running Claude CLI decides whether a
     // command or skill exists and reports an error for one it does not know.
@@ -1772,6 +1790,8 @@ export default function Chat(): React.JSX.Element {
     useRunningStore.getState().startRun(sid!)
     // Whatever was asked, saying something is an answer to it.
     useSessionsStore.getState().setNeedsAnswer(sid!, false)
+    // A restore's note is about where the chat was; it has moved on.
+    useRestoresStore.getState().dismiss(sid!)
 
     const imgs = images ?? []
     const fls = files ?? []
@@ -1783,6 +1803,10 @@ export default function Chat(): React.JSX.Element {
 
     // Build the full prompt with attachment data for Claude CLI.
     prompt = withContext(withAttachments(recap + prompt, imgs, fls), context)
+    const compact = /^\/compact(\s|$)/.test(text.trim())
+    // What the CLI files this turn's checkpoint under. Not for a compaction,
+    // which is no turn anything could rewind to.
+    const checkpoint = compact ? undefined : crypto.randomUUID()
 
     const userMessage: TextMessage = {
       id: newMessageId(),
@@ -1793,11 +1817,12 @@ export default function Chat(): React.JSX.Element {
       ...(fls.length > 0 ? { files: fls } : {}),
       ...(context && context.length > 0 ? { context } : {}),
       // Taken before the turn starts, so it names the reply this message follows.
-      resumeAt: useSessionsStore.getState().sessions.find((s) => s.id === sid)?.anchor ?? null
+      resumeAt: useSessionsStore.getState().sessions.find((s) => s.id === sid)?.anchor ?? null,
+      ...(checkpoint ? { checkpoint } : {})
     }
     // `/compact` is not something to read back as a message: it is drawn as
     // the divider it produces, running until the CLI reports the boundary.
-    if (/^\/compact(\s|$)/.test(text.trim())) {
+    if (compact) {
       const fillPct = autoCompactRef.current.get(sid!)
       autoCompactRef.current.delete(sid!)
       const divider = compactionMessage({
@@ -1812,8 +1837,14 @@ export default function Chat(): React.JSX.Element {
     } else {
       useSessionsStore.getState().addMessage(sid, userMessage)
     }
-    // Carrying on from a version makes it the one whose edits are on disk.
-    useSessionsStore.getState().markVersionsRan(sid!)
+    // Carrying on from a version makes it the one whose edits are on disk. The
+    // one that was there is copied first, so it can come back.
+    const here = useSessionsStore.getState().sessions.find((s) => s.id === sid)
+    const leaving = versionKeys(here?.messages ?? []).some((k) => {
+      const vs = here?.versions?.[k]
+      return !!vs && vs.ran !== vs.current
+    })
+    useSessionsStore.getState().markVersionsRan(sid!, leaving ? await copyFiles(sid!) : null)
 
     // A Worktree choice made in the composer becomes real here, not on click, so
     // chats that were never used leave nothing on disk.
@@ -1842,7 +1873,8 @@ export default function Chat(): React.JSX.Element {
         sid,
         session.worktree?.name,
         spawnSettingsForSession(sid),
-        fork?.uuid
+        fork?.uuid,
+        checkpoint
       )
     } catch (err) {
       useSessionsStore
@@ -1909,7 +1941,8 @@ export default function Chat(): React.JSX.Element {
    *
    * `branchAt` has already put the old version away; `add` is the new user
    * message an edit shows, or null for a regeneration, which keeps the one
-   * already on screen.
+   * already on screen. `checkpoint` is what the CLI files this run under, and
+   * the message showing it already carries it.
    */
   const rewindAndRun = useCallback(async (
     sid: string,
@@ -1919,7 +1952,8 @@ export default function Chat(): React.JSX.Element {
     images: ImageAttachment[],
     files: FileAttachment[],
     context: MessageContext[] | undefined,
-    add: TextMessage | null
+    add: TextMessage | null,
+    checkpoint: string
   ): Promise<void> => {
     useSessionsStore.getState().setAnchor(sid, anchor)
     await window.api.claude.dispose(sid).catch(() => {})
@@ -1943,7 +1977,8 @@ export default function Chat(): React.JSX.Element {
         sid,
         session.worktree?.name,
         spawnSettingsForSession(sid),
-        anchor?.uuid
+        anchor?.uuid,
+        checkpoint
       )
     } catch (err) {
       useSessionsStore.getState().addMessage(sid, { id: newMessageId(), role: 'error', text: String(err) })
@@ -1955,10 +1990,11 @@ export default function Chat(): React.JSX.Element {
     messageId: string,
     newText: string,
     images: ImageAttachment[],
-    files: FileAttachment[]
+    files: FileAttachment[],
+    restore: boolean
   ): Promise<void> => {
     const sid = useSessionsStore.getState().activeSessionId
-    if (!sid) return
+    if (!sid || isRestoring(sid)) return
 
     const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)
     if (!session) return
@@ -1971,28 +2007,38 @@ export default function Chat(): React.JSX.Element {
     const context = original?.context
     const recap = anchor ? '' : historyText(session.messages.slice(0, msgIndex))
 
+    // The files first: put back to before this message when asked, copied as
+    // they are when not — for the version about to be put away either way.
+    const id = newMessageId()
+    const before = await filesBeforeRun(sid, messageId, 'prompt', restore, id)
+    if (!before) return
+
     // The original and everything after it become version 1, not nothing.
-    const key = useSessionsStore.getState().branchAt(sid, messageId, 'prompt')
+    const key = useSessionsStore.getState().branchAt(sid, messageId, 'prompt', { files: before.files })
+    useSessionsStore.getState().markVersionsRan(sid, before.files)
 
     // The edit box starts from the original's attachments and can add to them,
     // so these are the whole set.
+    const checkpoint = crypto.randomUUID()
     const userMessage: TextMessage = {
-      id: newMessageId(),
+      id,
       role: 'user',
       text: newText,
       ...(images.length > 0 ? { images } : {}),
       ...(files.length > 0 ? { files } : {}),
       ...(context && context.length > 0 ? { context } : {}),
       resumeAt: anchor,
-      ...(key ? { promptVersions: key } : {})
+      ...(key ? { promptVersions: key } : {}),
+      checkpoint
     }
-    await rewindAndRun(sid, anchor, recap, newText, images, files, context, userMessage)
+    await rewindAndRun(sid, anchor, recap, newText, images, files, context, userMessage, checkpoint)
   }, [rewindAndRun])
 
-  /** Run a turn's prompt again, keeping the turn it replaces as a version. */
-  const regenerate = useCallback(async (promptId: string): Promise<void> => {
+  /** Run a turn's prompt again, keeping the turn it replaces as a version, and
+   *  with `restore` the files as they were before it. */
+  const regenerate = useCallback(async (promptId: string, restore: boolean): Promise<void> => {
     const sid = useSessionsStore.getState().activeSessionId
-    if (!sid) return
+    if (!sid || isRestoring(sid)) return
     const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)
     if (!session) return
 
@@ -2002,16 +2048,29 @@ export default function Chat(): React.JSX.Element {
     const anchor = prompt.resumeAt ?? null
     const recap = anchor ? '' : historyText(session.messages.slice(0, index))
 
-    useSessionsStore.getState().branchAt(sid, promptId, 'reply')
-    await rewindAndRun(sid, anchor, recap, prompt.text, prompt.images ?? [], prompt.files ?? [], prompt.context, null)
+    const before = await filesBeforeRun(sid, promptId, 'reply', restore, promptId)
+    if (!before) return
+    // The prompt stays on screen and goes again under a checkpoint of its own.
+    const checkpoint = crypto.randomUUID()
+    useSessionsStore.getState().branchAt(sid, promptId, 'reply', { files: before.files, checkpoint })
+    useSessionsStore.getState().markVersionsRan(sid, before.files)
+    await rewindAndRun(sid, anchor, recap, prompt.text, prompt.images ?? [], prompt.files ?? [], prompt.context, null, checkpoint)
   }, [rewindAndRun])
 
-  /** Put another version on screen. The process holds the old one, so it goes. */
+  /** Put another version on screen. The process holds the old one, so it goes.
+   *  The files stay as they are: restoring them is its own click. */
   const handleShowVersion = useCallback((key: string, index: number) => {
     const sid = useSessionsStore.getState().activeSessionId
-    if (!sid || isSessionRunning(sid)) return
+    if (!sid || isSessionRunning(sid) || isRestoring(sid)) return
     useSessionsStore.getState().showVersion(sid, key, index)
     void window.api.claude.dispose(sid).catch(() => {})
+  }, [])
+
+  /** Put the files of the version on screen back; `at` is where its note sits. */
+  const handleRestoreVersion = useCallback((key: string, at: string) => {
+    const sid = useSessionsStore.getState().activeSessionId
+    if (!sid || isSessionRunning(sid) || isRestoring(sid)) return
+    void restoreVersion(sid, key, at)
   }, [])
 
   /**
@@ -2619,7 +2678,8 @@ export default function Chat(): React.JSX.Element {
                           files={textMsg.files}
                           onChange={setEditText}
                           onCancel={() => { setEditingMessageId(null); setEditText('') }}
-                          onSave={(images, files) => { const mid = editingMessageId!; const text = editText; setEditingMessageId(null); setEditText(''); editAndResend(mid, text, images, files) }}
+                          restoreCount={editRestoreCount}
+                          onSave={(images, files, restore) => { const mid = editingMessageId!; const text = editText; setEditingMessageId(null); setEditText(''); editAndResend(mid, text, images, files, restore) }}
                         />
                       </div>
                     </div>
@@ -2640,13 +2700,17 @@ export default function Chat(): React.JSX.Element {
                       sessionId={activeSessionId}
                       isLoading={isLoading}
                       showActions={turnEnds.has(msg.id)}
-                      onEdit={msg.role === 'user' && !isLoading ? handleStartEdit : undefined}
+                      onEdit={msg.role === 'user' && !frozen ? handleStartEdit : undefined}
                       // Not mid-turn: the turn has no anchor to fork from yet.
-                      onFork={!isLoading ? handleFork : undefined}
+                      onFork={!frozen ? handleFork : undefined}
                       version={versionViewsById.get(msg.id)}
                       onShowVersion={handleShowVersion}
+                      // Restoring forks the conversation that last touched the
+                      // files; a chat with none has nothing to restore from.
+                      onRestoreVersion={activeSession?.diskSession ? handleRestoreVersion : undefined}
                       // Not mid-turn either: there is nothing to rewind to until it ends.
-                      regen={!isLoading ? regensById.get(msg.id) : undefined}
+                      regen={!frozen ? regensById.get(msg.id) : undefined}
+                      canRestore={!!activeSession?.diskSession}
                       onRegenerate={regenerate}
                       onPlanAnswer={handlePlanAnswer}
                       onQuestionAnswer={handleQuestionAnswer}
@@ -2933,12 +2997,25 @@ function WaitingIndicator({ tasks }: { tasks: WaitingTask[] }): React.JSX.Elemen
   )
 }
 
-const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoading, showActions, onEdit, onFork, version, onShowVersion, regen, onRegenerate, onPlanAnswer, onQuestionAnswer }: { message: Message; sessionId?: string | null; isLoading?: boolean; showActions?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (at: ForkPoint, mode: ForkMode) => void; version?: VersionView; onShowVersion?: (key: string, index: number) => void; regen?: TurnRegen; onRegenerate?: (promptId: string) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
+const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoading, showActions, onEdit, onFork, version, onShowVersion, onRestoreVersion, regen, canRestore, onRegenerate, onPlanAnswer, onQuestionAnswer }: { message: Message; sessionId?: string | null; isLoading?: boolean; showActions?: boolean; onEdit?: (id: string, text: string) => void; onFork?: (at: ForkPoint, mode: ForkMode) => void; version?: VersionView; onShowVersion?: (key: string, index: number) => void; onRestoreVersion?: (key: string, at: string) => void; regen?: TurnRegen; canRestore?: boolean; onRegenerate?: (promptId: string, restore: boolean) => void; onPlanAnswer?: (toolId: string, answer: PlanAnswer, planPath?: string, note?: string) => void; onQuestionAnswer?: (toolId: string, answer: string) => void }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLDivElement>(null)
   // Which questionnaire record is open under the bubble, if any.
   const [record, setRecord] = useState<number | null>(null)
+  // A file restore anywhere in the chat holds the switchers still; one asked
+  // from here shows its progress here, and afterwards what did not come back.
+  const restoreBusy = useRestoresStore((s) => (sessionId ? s.busy[sessionId] : undefined))
+  const report = useRestoresStore((s) => (sessionId && s.reports[sessionId]?.at === message.id ? s.reports[sessionId] : undefined))
+  const cwd = useSessionsStore((s) => cwdForSession(s, sessionId))
+  const held = isLoading || restoreBusy !== undefined
+  const restoreNote = report && sessionId && (
+    <RestoreNote
+      report={report}
+      shown={(path) => shownPath(cwd, path)}
+      onDismiss={() => useRestoresStore.getState().dismiss(sessionId)}
+    />
+  )
 
   if (message.role === 'tool_call') {
     const tc = message as ToolCallMessage
@@ -3058,20 +3135,34 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
           // Versions stay in view; the time beside them still waits for hover.
           <>
             <div className="mt-1 flex items-center gap-1">
-              <VersionSwitch view={version} disabled={isLoading} onShow={onShowVersion} />
+              <VersionSwitch view={version} disabled={held} onShow={onShowVersion} />
               {message.timestamp && (
                 <span className="text-c-xs text-muted-foreground opacity-0 transition-opacity group-hover/msg:opacity-100">
                   {formatMessageTime(message.timestamp)}
                 </span>
               )}
             </div>
-            <DiskNote view={version} disabled={isLoading} onShow={onShowVersion} />
+            <DiskNote
+              view={version}
+              disabled={held}
+              restoring={restoreBusy === message.id}
+              onShow={onShowVersion}
+              onRestore={onRestoreVersion && ((key) => onRestoreVersion(key, message.id))}
+            />
           </>
         ) : message.timestamp && (
           <div className="mt-1 text-c-xs text-muted-foreground opacity-0 transition-opacity group-hover/msg:opacity-100">
             {formatMessageTime(message.timestamp)}
           </div>
         )}
+        {/* Regenerate and Edit restore before their run, from this prompt. */}
+        {restoreBusy === message.id && !version && (
+          <div className="mt-1 flex items-center gap-1.5 px-1.5 text-c-xs text-muted-foreground/80">
+            <LoaderCircle className="size-3 animate-spin" />
+            <span>Restoring files…</span>
+          </div>
+        )}
+        {restoreNote}
       </div>
     )
   }
@@ -3118,7 +3209,7 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
           turn still being written shows the switcher alone. */}
       {version && onShowVersion && (
         <>
-          <VersionSwitch view={version} disabled={isLoading} onShow={onShowVersion} />
+          <VersionSwitch view={version} disabled={held} onShow={onShowVersion} />
           {showActions && <span className="mx-1 h-3.5 w-px bg-border" />}
         </>
       )}
@@ -3140,7 +3231,13 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
           <TooltipContent>Copy response</TooltipContent>
         </Tooltip>
         {regen && onRegenerate && sessionId && (
-          <RegenerateButton sessionId={sessionId} files={regen.files} onRegenerate={() => onRegenerate(regen.promptId)} />
+          <RegenerateButton
+            sessionId={sessionId}
+            files={regen.files}
+            commands={regen.commands}
+            canRestore={!!canRestore && !!regen.checkpoint}
+            onRegenerate={(restore) => onRegenerate(regen.promptId, restore)}
+          />
         )}
         {onFork && sessionId && (
           <ForkMenu sessionId={sessionId} onFork={(mode) => onFork({ kind: 'reply', messageId: message.id }, mode)}>
@@ -3162,7 +3259,16 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
       )}
       </div>
       )}
-      {version && onShowVersion && <DiskNote view={version} disabled={isLoading} onShow={onShowVersion} />}
+      {version && onShowVersion && (
+        <DiskNote
+          view={version}
+          disabled={held}
+          restoring={restoreBusy === message.id}
+          onShow={onShowVersion}
+          onRestore={onRestoreVersion && ((key) => onRestoreVersion(key, message.id))}
+        />
+      )}
+      {restoreNote}
     </div>
   )
 })

@@ -71,6 +71,12 @@ Object.defineProperty(globalThis, 'api', {
       // No CLI here: the account cache keeps what it had rather than guessing.
       accountStatus: () => Promise.resolve({ loggedIn: false, error: 'no claude in tests' })
     },
+    checkpoints: {
+      restore: () => Promise.resolve({ error: 'no claude in tests' }),
+      capture: () => Promise.resolve({ error: 'no store in tests' }),
+      hashes: () => Promise.resolve({}),
+      discard: noop
+    },
     git: {
       branch: () => Promise.resolve(''),
       isRepo: () => Promise.resolve(false),

@@ -56,6 +56,14 @@ impl Environment {
     /// Nothing else of Nyra's environment is forwarded. Only what `WSLENV` names
     /// crosses anyway, and a process in the distro should see the distro's own.
     pub fn std_command(&self, program: &str, cwd: &str) -> std::process::Command {
+        self.std_command_with_env(program, cwd, &[])
+    }
+
+    /// [`Environment::std_command`] with `vars` set for `program` inside WSL,
+    /// where they go on `env`'s command line since nothing of Nyra's own crosses.
+    /// On the host they are the caller's to set with `.env`, after any
+    /// `env_clear` — anything set here would be cleared with the rest.
+    pub fn std_command_with_env(&self, program: &str, cwd: &str, vars: &[(&str, &str)]) -> std::process::Command {
         match self {
             Environment::Host => {
                 let mut cmd = crate::platform::std_command(program);
@@ -71,6 +79,9 @@ impl Environment {
                 cmd.args(["--exec", "env"]);
                 if let Some(path) = wsl::probe(distro).map(|p| p.path).filter(|p| !p.is_empty()) {
                     cmd.arg(format!("PATH={path}"));
+                }
+                for (key, value) in vars {
+                    cmd.arg(format!("{key}={value}"));
                 }
                 cmd.arg(program);
                 cmd
@@ -108,6 +119,11 @@ impl Environment {
     /// [`Environment::std_command`], as a tokio command.
     pub fn command(&self, program: &str, cwd: &str) -> tokio::process::Command {
         tokio::process::Command::from(self.std_command(program, cwd))
+    }
+
+    /// [`Environment::std_command_with_env`], as a tokio command.
+    pub fn command_with_env(&self, program: &str, cwd: &str, vars: &[(&str, &str)]) -> tokio::process::Command {
+        tokio::process::Command::from(self.std_command_with_env(program, cwd, vars))
     }
 
     /// The environment's own interactive shell, for the terminal panel, in

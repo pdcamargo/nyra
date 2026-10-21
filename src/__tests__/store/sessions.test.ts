@@ -4,7 +4,8 @@ import {
   queueOf,
   newMessageId,
   type McpServerInfo,
-  type Message
+  type Message,
+  type TextMessage
 } from '../../renderer/src/store/sessions'
 
 const session = (id: string) =>
@@ -725,6 +726,97 @@ describe('Sessions Store', () => {
       const forked = useSessionsStore.getState().forkSession(id)
       expect(session(forked).versions).toBeUndefined()
       expect(session(forked).messages.some((m) => 'replyVersions' in m)).toBe(false)
+    })
+
+    describe('files', () => {
+      const prompt = (id: string): TextMessage => session(id).messages.find((m) => m.id === 'u2') as TextMessage
+      function checkpointed(): string {
+        const id = createTestSession()
+        const store = useSessionsStore.getState()
+        store.addMessage(id, { id: 'u1', role: 'user', text: 'first', resumeAt: null })
+        store.addMessage(id, { id: 'a1', role: 'assistant', text: 'one' })
+        store.addMessage(id, { id: 'u2', role: 'user', text: 'second', resumeAt: A1, checkpoint: 'c1' })
+        store.addMessage(id, { id: 'a2', role: 'assistant', text: 'two' })
+        store.setFileHashes(id, 'u2', { '/r/a.ts': 'h1' })
+        store.setAnchor(id, A2)
+        return id
+      }
+
+      it('gives a regenerated prompt its new checkpoint and keeps the old run with its version', () => {
+        const id = checkpointed()
+        const key = useSessionsStore.getState().branchAt(id, 'u2', 'reply', { checkpoint: 'c2' })!
+        expect(prompt(id).checkpoint).toBe('c2')
+        expect(prompt(id).fileHashes).toBeUndefined()
+        expect(session(id).versions![key].tails[0].run).toEqual({ checkpoint: 'c1', fileHashes: { '/r/a.ts': 'h1' } })
+      })
+
+      it('puts each version’s run back on the prompt as it comes on screen', () => {
+        const id = checkpointed()
+        const store = useSessionsStore.getState()
+        const key = store.branchAt(id, 'u2', 'reply', { checkpoint: 'c2' })!
+        store.showVersion(id, key, 0)
+        expect(prompt(id).checkpoint).toBe('c1')
+        expect(session(id).versions![key].tails[1].run).toEqual({ checkpoint: 'c2' })
+        store.showVersion(id, key, 1)
+        expect(prompt(id).checkpoint).toBe('c2')
+      })
+
+      it('keeps the copy of the version leaving the disk', () => {
+        const id = checkpointed()
+        const key = useSessionsStore.getState().branchAt(id, 'u2', 'reply', { files: 'copy-1' })!
+        expect(session(id).versions![key].tails[0].files).toBe('copy-1')
+      })
+
+      it('files the copy under the version that ran, not the one on screen', () => {
+        const id = checkpointed()
+        const store = useSessionsStore.getState()
+        const key = store.branchAt(id, 'u2', 'reply')!
+        store.showVersion(id, key, 0)
+        store.branchAt(id, 'u2', 'reply', { files: 'copy-2' })
+        const tails = session(id).versions![key].tails
+        expect(tails[1].files).toBe('copy-2')
+        expect(tails[0].files).toBeUndefined()
+      })
+
+      it('keeps a version’s copy while it is on screen', () => {
+        const id = checkpointed()
+        const store = useSessionsStore.getState()
+        const key = store.branchAt(id, 'u2', 'reply', { files: 'copy-1' })!
+        store.showVersion(id, key, 0)
+        expect(session(id).versions![key].tails[0]).toEqual({ messages: [], anchor: null, files: 'copy-1' })
+        store.showVersion(id, key, 1)
+        expect(session(id).versions![key].tails[0].files).toBe('copy-1')
+      })
+
+      it('copies the version a send carries on past', () => {
+        const id = checkpointed()
+        const store = useSessionsStore.getState()
+        const key = store.branchAt(id, 'u2', 'reply')!
+        store.showVersion(id, key, 0)
+        store.markVersionsRan(id, 'copy-3')
+        expect(session(id).versions![key]).toMatchObject({ current: 0, ran: 0 })
+        expect(session(id).versions![key].tails[1].files).toBe('copy-3')
+      })
+
+      it('makes a restored version the one that ran, keeping a copy of the one it replaced', () => {
+        const id = checkpointed()
+        const store = useSessionsStore.getState()
+        const key = store.branchAt(id, 'u2', 'reply', { files: 'copy-1' })!
+        store.showVersion(id, key, 0)
+        store.markVersionRestored(id, key, 'copy-2')
+        const set = session(id).versions![key]
+        expect(set).toMatchObject({ current: 0, ran: 0 })
+        expect(set.tails[1].files).toBe('copy-2')
+      })
+
+      it('records the conversation that last touched the disk, and what a turn left', () => {
+        const id = checkpointed()
+        const store = useSessionsStore.getState()
+        store.setDiskSession(id, 'cli-9')
+        store.setFileHashes(id, 'u2', { '/r/b.ts': null })
+        expect(session(id).diskSession).toBe('cli-9')
+        expect(prompt(id).fileHashes).toEqual({ '/r/b.ts': null })
+      })
     })
   })
 

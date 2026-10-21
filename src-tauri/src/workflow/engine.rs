@@ -326,6 +326,7 @@ async fn execute_prompt_node(
         nyra_session_id.clone(),
         spawn,
         None,
+        None,
     ));
 
     let outcome = match rx.await {
