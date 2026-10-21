@@ -1068,6 +1068,9 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'system' && event.subtype === 'init') {
+        // Recorded now rather than at `result`, so a chat whose app dies
+        // mid-turn resumes its conversation instead of starting a blank one.
+        if (event.session_id) updateClaudeSessionId(sid, event.session_id)
         if (event.mcp_servers) {
           setMcpServers(sid, parseMcpFromInit(event.mcp_servers, event.tools ?? []))
         }

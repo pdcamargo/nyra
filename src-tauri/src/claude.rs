@@ -1003,6 +1003,12 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
                     // claude-opus-5-5 today — this event is the one place a
                     // version number can be put on a label without inventing it.
                     "model": raw.get("model").cloned().unwrap_or(Value::Null),
+                    // The first moment the conversation has a name. Waiting for
+                    // `result` lost it whenever the app died mid-turn — and a
+                    // turn fed by background-task notifications can run for an
+                    // hour without one. The CLI sends this only once a message
+                    // is being answered, so it never names an empty session.
+                    "session_id": raw.get("session_id").cloned().unwrap_or(Value::Null),
                 }),
             ),
             // The end of a compaction — `/compact`, or the CLI's own when the
