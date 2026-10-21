@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '1.0.0',
+    date: '2026-10-21',
     notes: [
       'Replies now appear word by word as Claude writes them, and a chat starts its process as soon as you open it, so the first reply comes sooner',
       'Added Regenerate to a reply, between Copy and Fork. The reply it replaces is kept as a version, and Edit does the same with your message instead of deleting everything after it. Switch between versions with the ‹ 1 / 2 › arrows',
