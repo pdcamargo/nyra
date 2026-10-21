@@ -108,7 +108,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'error'; result: string }
   | { type: 'thinking'; thinking: string }
   | { type: 'stream_end' }
-  | { type: 'system'; subtype: string; mcp_servers?: { name: string; status: string }[]; tools?: string[]; slash_commands?: string[]; model?: string }
+  | { type: 'system'; subtype: string; mcp_servers?: { name: string; status: string }[]; tools?: string[]; slash_commands?: string[]; model?: string; session_id?: string }
   | {
       type: 'rate_limit'
       status: string
