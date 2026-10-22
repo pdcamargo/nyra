@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildDiffFromToolInput, detectLanguage } from '../../renderer/src/utils/diff'
+import { buildDiffFromToolInput, detectLanguage, unifiedHunks } from '../../renderer/src/utils/diff'
 
 describe('buildDiffFromToolInput', () => {
   it('returns null for non-file tools', () => {
@@ -97,3 +97,20 @@ describe('detectLanguage', () => {
     expect(detectLanguage('/a/b/c/d/file.tsx')).toBe('typescript')
   })
 })
+
+describe('unifiedHunks', () => {
+  it('turns two contents into the patch DiffView draws', () => {
+    const [patch] = unifiedHunks('notes.txt', 'a\nb\n', 'a\nb\nc\n')
+    expect(patch).toBe('--- a/notes.txt\n+++ b/notes.txt\n@@ -1,2 +1,3 @@\n a\n b\n+c\n')
+  })
+
+  it('has nothing to draw for two identical contents', () => {
+    expect(unifiedHunks('a.ts', 'same\n', 'same\n')).toEqual([])
+  })
+
+  it('draws a new file as all additions', () => {
+    const [patch] = unifiedHunks('new.md', '', 'one\ntwo\n')
+    expect(patch).toContain('@@ -0,0 +1,2 @@\n+one\n+two')
+  })
+})
+

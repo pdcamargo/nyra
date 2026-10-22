@@ -1,4 +1,5 @@
 import { basename } from '../lib/paths'
+import { structuredPatch } from 'diff'
 
 export type DiffData = {
   filePath: string
@@ -77,4 +78,21 @@ export function detectLanguage(filePath: string): string {
   if (name === 'makefile') return 'makefile'
   const ext = name.split('.').pop() ?? ''
   return EXT_TO_LANG[ext] ?? 'plaintext'
+}
+
+/**
+ * Two versions of a file as the one patch `DiffView` draws: a git-style header
+ * and every hunk. The view computes nothing on its own — given contents and no
+ * hunks it draws an empty table — so a pair of blobs needs this first. Empty
+ * when the two are the same.
+ */
+export function unifiedHunks(fileName: string, original: string, modified: string, context = 3): string[] {
+  const patch = structuredPatch(fileName, fileName, original, modified, '', '', { context })
+  if (patch.hunks.length === 0) return []
+  // An empty side starts at the line before it, as git writes it: `-0,0`.
+  const at = (start: number, lines: number): string => `${lines === 0 ? Math.max(0, start - 1) : start},${lines}`
+  const body = patch.hunks
+    .map((h) => [`@@ -${at(h.oldStart, h.oldLines)} +${at(h.newStart, h.newLines)} @@`, ...h.lines].join('\n'))
+    .join('\n')
+  return [`--- a/${fileName}\n+++ b/${fileName}\n${body}\n`]
 }

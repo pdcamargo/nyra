@@ -3,8 +3,9 @@
  *
  * Used by the permission dialog and the tool card, where what is on offer is a
  * pair of blobs — `Edit`'s old and new strings, or `Write`'s whole file — rather
- * than a patch. `DiffFile.createInstance` covers exactly that case: given both
- * contents and no hunks, it computes the diff itself.
+ * than a patch. `DiffView` draws patches, not pairs: handed two contents and no
+ * hunks it draws an empty table — which every diff here did, the permission
+ * dialog's and the tool card's — so the hunks are computed first.
  *
  * This was Monaco's `DiffEditor`. It moved so the app has one diff renderer
  * rather than two that would drift in colour, font and wrapping — the Changes tab
@@ -14,9 +15,9 @@
  * The props are unchanged so the two call sites did not have to be.
  */
 import React from 'react'
-import { DiffView, DiffFile, DiffModeEnum } from '@git-diff-view/react'
+import { DiffView, DiffModeEnum } from '@git-diff-view/react'
 import '@git-diff-view/react/styles/diff-view.css'
-import { detectLanguage } from '../utils/diff'
+import { detectLanguage, unifiedHunks } from '../utils/diff'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
 import { basename } from '../lib/paths'
 
@@ -39,14 +40,14 @@ export default function DiffViewer({
   const fileName = basename(filePath) || filePath
   const language = detectLanguage(filePath)
 
-  const diffFile = React.useMemo(() => {
-    const file = DiffFile.createInstance({
+  const data = React.useMemo(
+    () => ({
       oldFile: { fileName, fileLang: language, content: original },
-      newFile: { fileName, fileLang: language, content: modified }
-    })
-    file.initRaw()
-    return file
-  }, [fileName, language, original, modified])
+      newFile: { fileName, fileLang: language, content: modified },
+      hunks: unifiedHunks(fileName, original, modified)
+    }),
+    [fileName, language, original, modified]
+  )
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/55">
@@ -56,7 +57,7 @@ export default function DiffViewer({
       </div>
       <div style={{ maxHeight: height }} className="nyra-diff overflow-auto">
         <DiffView
-          diffFile={diffFile}
+          data={data}
           diffViewMode={renderSideBySide ? DiffModeEnum.Split : DiffModeEnum.Unified}
           diffViewTheme={theme}
           diffViewHighlight
