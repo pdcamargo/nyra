@@ -12,7 +12,8 @@ const render = (ui: React.ReactElement): ReturnType<typeof rtlRender> =>
 
 const archived = (over: Partial<Session>): Session => ({
   id: 's',
-  claudeSessionId: null,
+  provider: 'claude',
+  providerSessionIds: {},
   title: 'A chat',
   cwd: '/repo',
   createdAt: 1,

@@ -58,6 +58,7 @@ import type {
 import type { AccountStatus, ConfigDir, FontFamily } from './api-types'
 import type { SpawnSettings } from '@shared/types'
 import type { AnswerFile, Questionnaire } from './questionnaire'
+import type { CodexModel } from '../store/codexModels'
 import type { DesignComment } from './designComments'
 import type {
   MarketplaceIndex,
@@ -165,6 +166,12 @@ export type DesktopBlocked = {
 }
 
 /** What a side question's process reports; see `side.rs`. */
+/** Who a workspace's Codex is signed in as. */
+export type CodexAccount =
+  | { available: false; error: string }
+  | { available: true; signedIn: false }
+  | { available: true; signedIn: true; kind: string | null; email: string | null; planType: string | null }
+
 export type SideEvent = { sideId: string } & (
   | { type: 'delta'; text: string }
   | { type: 'block' }
@@ -188,6 +195,7 @@ const EVENT_NAMES = [
   'claude:event',
   'claude:permission',
   'claude:side',
+  'codex:login',
   'workflow:event',
   'processes:update',
   'keep-awake:update',
@@ -369,6 +377,23 @@ export const api = {
       on('nyra:app-request', cb),
     respond: (requestId: string, result: unknown) =>
       call<void>('app_control_response', { requestId, result })
+  },
+
+  /**
+   * A workspace's Codex, named by the workspace's Claude config dir — its Codex
+   * home sits beside it; null is Default and the CLI's own `~/.codex`. Each of
+   * these starts that Codex if it is not running.
+   */
+  codex: {
+    /** The account's models, or why there are none. */
+    models: (configDir: ConfigDir) =>
+      call<{ available: boolean; error?: string; models?: CodexModel[] }>('codex_models', { configDir }),
+    account: (configDir: ConfigDir) => call<CodexAccount>('codex_account', { configDir }),
+    /** Opens nothing itself: answers the URL to open, and the outcome comes as `onLogin`. */
+    login: (configDir: ConfigDir) => call<{ loginId: string; authUrl: string }>('codex_login', { configDir }),
+    logout: (configDir: ConfigDir) => call<void>('codex_logout', { configDir }),
+    onLogin: (callback: (event: { loginId: string | null; success: boolean; error: string | null }) => void) =>
+      on('codex:login', callback)
   },
 
   claude: {

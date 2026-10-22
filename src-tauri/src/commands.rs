@@ -18,7 +18,7 @@ use crate::{
     account_status, browser, checkpoints, claude, devtools, dictation, file_extractor, file_tree, fs_ops, gh, git, hooks, login, mcp,
     memory, model_catalog, open_with, plugin_logos, plugins, processes, skills, subagents,
 };
-use crate::{settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
+use crate::{agent, settings::NyraSettings, settings::SpawnSettings, terminal, util, webhook_server};
 use crate::environment::Environment;
 
 // ---- claude ----
@@ -38,18 +38,17 @@ pub async fn claude_query(
     // model from one in another. Falling back to the global keeps every caller
     // that has no opinion — and any older renderer — working unchanged.
     let settings = settings.unwrap_or_else(|| util::settings().spawn());
-    match claude::run_claude(
+    let turn = agent::Turn {
         prompt,
         cwd,
-        session_id,
+        resume_session_id: session_id,
         resume_at,
         nyra_session_id,
         settings,
         worktree_name,
         checkpoint,
-    )
-    .await
-    {
+    };
+    match agent::run(turn).await {
         Ok(session_id) => json!({ "sessionId": session_id }),
         Err(e) => json!({ "error": e }),
     }
@@ -65,17 +64,19 @@ pub async fn claude_prewarm(
     settings: Option<SpawnSettings>,
 ) {
     let settings = settings.unwrap_or_else(|| util::settings().spawn());
-    claude::prewarm(cwd, session_id, nyra_session_id, settings, worktree_name).await;
+    agent::prewarm(agent::Prewarm { cwd, resume_session_id: session_id, nyra_session_id, settings, worktree_name }).await;
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn claude_permission_response(approved: bool, nyra_session_id: Option<String>) {
-    claude::respond_permission(approved, nyra_session_id).await;
+    if let Some(id) = nyra_session_id {
+        agent::respond_permission(&id, approved).await;
+    }
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub fn claude_abort(nyra_session_id: Option<String>) {
-    claude::abort_claude(nyra_session_id.as_deref());
+    agent::abort(nyra_session_id.as_deref());
 }
 
 /// Steer the running turn. Answers the steer's id, which comes back in a
@@ -83,7 +84,7 @@ pub fn claude_abort(nyra_session_id: Option<String>) {
 /// to steer, so the caller can leave the message in the queue rather than lose it.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn claude_steer(prompt: String, nyra_session_id: String) -> Option<u64> {
-    claude::steer_session(&nyra_session_id, &prompt).await
+    agent::steer(&nyra_session_id, &prompt).await
 }
 
 /// Ask a side question: forked off the chat, read-only, and gone on close.
@@ -98,17 +99,39 @@ pub async fn claude_side_ask(
     settings: Option<SpawnSettings>,
 ) -> Result<(), String> {
     let settings = settings.unwrap_or_else(|| util::settings().spawn());
-    crate::side::ask(side_id, nyra_session_id, cwd, session_id, prompt, settings).await
+    agent::side_ask(agent::SideAsk { side_id, nyra_session_id, cwd, resume_session_id: session_id, prompt, settings }).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub fn claude_side_close(side_id: String) {
-    crate::side::close(&side_id);
+    agent::side_close(&side_id);
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn claude_dispose(nyra_session_id: String) -> Result<(), String> {
-    claude::dispose_session_and_wait(&nyra_session_id).await
+    agent::dispose(&nyra_session_id).await
+}
+
+/// The Codex models a workspace's account is offered, for the composer's picker.
+/// The workspace by its Claude config dir, which its Codex home sits beside.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn codex_models(config_dir: Option<String>) -> Value {
+    agent::codex::models(config_dir).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn codex_account(config_dir: Option<String>) -> Value {
+    agent::codex::account(config_dir).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn codex_login(config_dir: Option<String>) -> Result<Value, String> {
+    agent::codex::login(config_dir).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn codex_logout(config_dir: Option<String>) -> Result<(), String> {
+    agent::codex::logout(config_dir).await
 }
 
 #[tauri::command(rename_all = "camelCase")]

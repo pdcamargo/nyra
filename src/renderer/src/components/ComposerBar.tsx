@@ -42,16 +42,35 @@ import { chatModelLabel, modelChoices, selectedChoice } from '../lib/models'
 import { useModelVersions } from '../store/modelVersions'
 import { runCommand } from '../commands/registry'
 import { CommandKbd } from './ui/kbd'
-import { useSessionsStore, activeSession as activeSessionSelector } from '../store/sessions'
+import { useSessionsStore, activeSession as activeSessionSelector, configDirForSession } from '../store/sessions'
+import { codexModel, useCodexModelsFor, type CodexModel } from '../store/codexModels'
+import { useCapabilities } from '../hooks/useCapabilities'
+import type { Effort } from '@shared/types'
 import { contextFill } from '../lib/contextFill'
 
-const EFFORTS = [
+type EffortStop = { value: string; label: string }
+
+/** Claude's scale, whatever the model. Its default is `high`, stored as ''. */
+const CLAUDE_EFFORTS: EffortStop[] = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
   { value: 'xhigh', label: 'Extra high' },
   { value: 'max', label: 'Max' }
-] as const
+]
+
+const EFFORT_LABELS: Record<string, string> = {
+  none: 'None',
+  minimal: 'Minimal',
+  ...Object.fromEntries(CLAUDE_EFFORTS.map((e) => [e.value, e.label])),
+  ultra: 'Ultra'
+}
+
+/** A Codex model's own scale, as `model/list` reports it. */
+function codexEfforts(model: CodexModel | undefined): EffortStop[] {
+  const values = model?.efforts.length ? model.efforts : ['low', 'medium', 'high']
+  return values.map((value) => ({ value, label: EFFORT_LABELS[value] ?? value }))
+}
 
 /**
  * Footer-left: attachments, plan mode, the slash commands, and the two things
@@ -69,6 +88,7 @@ function AddMenu({
   onInsert: (command: string) => void
 }): React.JSX.Element {
   const { planMode, update } = useChatSettings()
+  const caps = useCapabilities()
 
   return (
     <DropdownMenu>
@@ -93,28 +113,35 @@ function AddMenu({
             keycap 24px left of every other row's and put a step in the column.
             The state is carried by the icon instead — lit when plan mode is on
             — and the composer's own pill says so too, next to this button. */}
-        <DropdownMenuItem onSelect={() => update({ planMode: !planMode })}>
-          <ListChecks className={planMode ? 'text-info' : undefined} />
-          Plan mode
-          <CommandKbd id="chat.planMode" className="ml-auto" />
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <Slash />
-            Commands
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-80 w-64 overflow-y-auto">
-            {BUILT_IN_COMMANDS.map((cmd) => (
-              <DropdownMenuItem key={cmd.name} onSelect={() => onInsert(cmd.name)}>
-                <span className="font-mono">{cmd.name}</span>
-                <span className="ml-auto truncate pl-3 text-muted-foreground">
-                  {cmd.description}
-                </span>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+        {caps.planMode && (
+          <>
+            <DropdownMenuItem onSelect={() => update({ planMode: !planMode })}>
+              <ListChecks className={planMode ? 'text-info' : undefined} />
+              Plan mode
+              <CommandKbd id="chat.planMode" className="ml-auto" />
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        {/* Claude's commands; a chat on another CLI has none of them to run. */}
+        {caps.cliCommands && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Slash />
+              Commands
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-80 w-64 overflow-y-auto">
+              {BUILT_IN_COMMANDS.map((cmd) => (
+                <DropdownMenuItem key={cmd.name} onSelect={() => onInsert(cmd.name)}>
+                  <span className="font-mono">{cmd.name}</span>
+                  <span className="ml-auto truncate pl-3 text-muted-foreground">
+                    {cmd.description}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => runCommand('search.inSession')}>
           <Search />
@@ -245,7 +272,8 @@ function ApprovalMenu({ tight }: { tight: boolean }): React.JSX.Element {
 /** Shown only while plan mode is on, so the state is never silent. */
 function PlanModePill({ tight }: { tight: boolean }): React.JSX.Element | null {
   const { planMode, update } = useChatSettings()
-  if (!planMode) return null
+  const caps = useCapabilities()
+  if (!planMode || !caps.planMode) return null
   return (
     <Tooltip>
       <TooltipTrigger
@@ -263,6 +291,37 @@ function PlanModePill({ tight }: { tight: boolean }): React.JSX.Element | null {
   )
 }
 
+function ModelSection({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <p className="px-2 pb-0.5 pt-1.5 text-[11px] font-medium text-muted-foreground">{children}</p>
+}
+
+function ModelRow({
+  label,
+  blurb,
+  active,
+  onClick
+}: {
+  label: string
+  blurb: string
+  active: boolean
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-foreground/[0.07]"
+    >
+      {/* A name now rather than an identifier — "Opus 5.5", not `opus` — so it
+          is set proportional like one. */}
+      <span className="shrink-0 text-foreground">{label}</span>
+      <span className="min-w-0 truncate text-muted-foreground" title={blurb}>
+        {blurb}
+      </span>
+      {active && <Check className="ml-auto size-3.5 shrink-0 text-foreground" />}
+    </button>
+  )
+}
+
 /**
  * Footer-right: model and effort behind one trigger, two pages deep.
  *
@@ -275,11 +334,24 @@ function PlanModePill({ tight }: { tight: boolean }): React.JSX.Element | null {
  * a plain checklist. So both live behind one trigger without a submenu.
  */
 function ModelEffort(): React.JSX.Element {
-  const { model, effort, update } = useChatSettings()
+  const { provider, model, effort, update } = useChatSettings()
   const versions = useModelVersions()
   const running = useSessionsStore((s) => activeSessionSelector(s)?.resolvedModel)
+  // The models of this chat's workspace's Codex account.
+  const configDir = useSessionsStore((s) => configDirForSession(s, s.activeSessionId))
+  const codex = useCodexModelsFor(configDir)
   const [page, setPage] = React.useState<'effort' | 'model'>('effort')
   const [custom, setCustom] = React.useState('')
+
+  // Codex only starts when something needs its list: the picker opening, or a
+  // chat already on it that wants its model's name on the pill.
+  React.useEffect(() => {
+    if (provider === 'codex') codex.load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `load` is new each render and idempotent
+  }, [provider, configDir])
+
+  const onCodex = provider === 'codex'
+  const runningCodex = onCodex ? codexModel(codex.models, model) : undefined
 
   // The number on the pill is the one the CLI reported, so it reads "Opus 5.5"
   // today and whatever is true after the next release without an edit here.
@@ -288,20 +360,47 @@ function ModelEffort(): React.JSX.Element {
   // as a synonym for `opus`: they resolve to different models. This read
   // `model || 'opus'` while the session it described was running on the older
   // one, which is the whole reason any of this is on screen.
-  const shownModel = chatModelLabel(model, running, versions)
+  const shownModel = onCodex
+    ? (runningCodex?.displayName ?? (model || 'Codex'))
+    : chatModelLabel(model, running, versions)
   const choices = modelChoices(versions)
-  const selected = selectedChoice(model, choices, versions)
-  const shownEffort = effort || 'high'
-  const effortIndex = Math.max(0, EFFORTS.findIndex((e) => e.value === shownEffort))
+  const selected = onCodex ? null : selectedChoice(model, choices, versions)
+
+  // Each CLI's own scale. Its default is stored as '', so a chat left alone
+  // follows whatever the CLI decides the default is.
+  const efforts = onCodex ? codexEfforts(runningCodex) : CLAUDE_EFFORTS
+  const defaultEffort = onCodex ? (runningCodex?.defaultEffort ?? 'medium') : 'high'
+  const shownEffort = effort || defaultEffort
+  const effortIndex = Math.max(0, efforts.findIndex((e) => e.value === shownEffort))
   const isDefault = !model && !effort
 
   const setEffort = (index: number): void => {
-    const next = EFFORTS[Math.min(EFFORTS.length - 1, Math.max(0, index))].value
-    update({ effort: next === 'high' ? '' : next })
+    const next = efforts[Math.min(efforts.length - 1, Math.max(0, index))].value
+    update({ effort: (next === defaultEffort ? '' : next) as Effort })
+  }
+
+  // An effort the new model has no stop for goes back to that model's default.
+  const keptEffort = (stops: EffortStop[]): Effort => (stops.some((e) => e.value === effort) ? effort : '')
+
+  const pickClaude = (value: string): void => {
+    update({ provider: 'claude', model: value, effort: keptEffort(CLAUDE_EFFORTS) })
+    setPage('effort')
+  }
+  // Headed by CLI only once there is a second one to tell apart.
+  const sections = codex.status === 'ready' || codex.status === 'loading'
+
+  const pickCodex = (m: CodexModel): void => {
+    update({ provider: 'codex', model: m.id, effort: keptEffort(codexEfforts(m)) })
+    setPage('effort')
   }
 
   return (
-    <Popover onOpenChange={(open) => !open && setPage('effort')}>
+    <Popover
+      onOpenChange={(open) => {
+        if (open) codex.load()
+        else setPage('effort')
+      }}
+    >
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger
@@ -309,7 +408,7 @@ function ModelEffort(): React.JSX.Element {
             className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs transition-colors hover:bg-foreground/[0.07] aria-expanded:bg-accent"
           >
             <span className="font-medium text-foreground">{shownModel}</span>
-            <span className="text-muted-foreground">{EFFORTS[effortIndex].label}</span>
+            <span className="text-muted-foreground">{efforts[effortIndex].label}</span>
             <ChevronDown className="size-3 text-muted-foreground" />
           </PopoverTrigger>
         </TooltipTrigger>
@@ -329,7 +428,7 @@ function ModelEffort(): React.JSX.Element {
                   className="min-w-0 rounded-md px-2 py-0.5 text-center transition-colors hover:bg-foreground/[0.07]"
                 >
                   <span className="flex items-center justify-center gap-0.5 text-sm font-medium text-info">
-                    {EFFORTS[effortIndex].label}
+                    {efforts[effortIndex].label}
                     <ChevronRight className="size-3.5 text-muted-foreground" />
                   </span>
                   <span className="block truncate text-xs text-muted-foreground">{shownModel}</span>
@@ -360,14 +459,14 @@ function ModelEffort(): React.JSX.Element {
                 className="[&_[data-slot=slider-range]]:h-full [&_[data-slot=slider-range]]:bg-info [&_[data-slot=slider-thumb]]:size-7 [&_[data-slot=slider-thumb]]:rounded-full [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-track]]:h-5 [&_[data-slot=slider-track]]:rounded-full [&_[data-slot=slider-track]]:bg-accent"
                 value={[effortIndex]}
                 min={0}
-                max={EFFORTS.length - 1}
+                max={efforts.length - 1}
                 step={1}
                 onValueChange={([v]) => setEffort(v)}
                 aria-label="Reasoning effort"
               />
               {/* A tick per stop, so the scale reads as discrete rather than continuous. */}
               <div className="pointer-events-none absolute inset-x-1 top-1/2 flex -translate-y-1/2 justify-between px-3">
-                {EFFORTS.map((e) => (
+                {efforts.map((e) => (
                   <span key={e.value} className="size-1 rounded-full bg-background/50" />
                 ))}
               </div>
@@ -389,32 +488,37 @@ function ModelEffort(): React.JSX.Element {
                 Opus it is offered, not only whichever one `opus` resolves to.
                 Scrolls, because that list runs to a dozen rows. */}
             <div className="max-h-72 overflow-y-auto">
-              {choices.map((c) => {
-                const active = selected === c.value
-                return (
-                  <button
-                    key={c.value}
-                    onClick={() => {
-                      // The value, not ''. Picking opus used to store "no
-                      // --model", which hands the choice to the CLI's own
-                      // default — a pinned older Opus — so the one row that
-                      // claimed to select the latest was the only one that
-                      // could not.
-                      update({ model: c.value })
-                      setPage('effort')
-                    }}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-foreground/[0.07]"
-                  >
-                    {/* A name now rather than an identifier — "Opus 5.5", not
-                        `opus` — so it is set proportional like one. */}
-                    <span className="shrink-0 text-foreground">{c.label}</span>
-                    <span className="min-w-0 truncate text-muted-foreground" title={c.blurb}>
-                      {c.blurb}
-                    </span>
-                    {active && <Check className="ml-auto size-3.5 shrink-0 text-foreground" />}
-                  </button>
-                )
-              })}
+              {sections && <ModelSection>Claude</ModelSection>}
+              {choices.map((c) => (
+                // The value, not ''. Picking opus used to store "no --model",
+                // which hands the choice to the CLI's own default — a pinned
+                // older Opus — so the one row that claimed to select the latest
+                // was the only one that could not.
+                <ModelRow
+                  key={c.value}
+                  label={c.label}
+                  blurb={c.blurb}
+                  active={selected === c.value}
+                  onClick={() => pickClaude(c.value)}
+                />
+              ))}
+              {codex.status === 'loading' && (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">Asking Codex for its models…</p>
+              )}
+              {codex.status === 'ready' && codex.models.length > 0 && (
+                <>
+                  <ModelSection>Codex</ModelSection>
+                  {codex.models.map((m) => (
+                    <ModelRow
+                      key={m.id}
+                      label={m.displayName ?? m.id}
+                      blurb={m.description ?? ''}
+                      active={onCodex && runningCodex?.id === m.id}
+                      onClick={() => pickCodex(m)}
+                    />
+                  ))}
+                </>
+              )}
             </div>
             {/* Anything else the CLI will take: another alias, or a pinned full
                 name like claude-fable-5-1 when "latest" is not what you want. */}

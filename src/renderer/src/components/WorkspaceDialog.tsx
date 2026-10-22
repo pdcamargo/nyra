@@ -3,7 +3,8 @@ import { ImageIcon } from 'lucide-react'
 import Modal from './Modal'
 import WorkspaceAvatar from './WorkspaceAvatar'
 import { useUiStore } from '../store/ui'
-import { findWorkspace, useWorkspacesStore } from '../store/workspaces'
+import { configDirOf, findWorkspace, useWorkspacesStore } from '../store/workspaces'
+import CodexAccountRow from './CodexAccountRow'
 import { accountLabel, useAccountsStore } from '../store/accounts'
 import { createWorkspace, openLogin } from '../lib/workspaces'
 import { squareThumbnail } from '../utils/imageCompression'
@@ -148,6 +149,10 @@ export default function WorkspaceDialog(): React.JSX.Element | null {
         {/* Enter submits from the name field. */}
         <button type="submit" hidden aria-hidden tabIndex={-1} />
       </form>
+
+      {/* Its Codex account, beside its Claude one. Only once it exists: a new
+          workspace has no home for Codex to sign in under yet. */}
+      {editing && <CodexAccountRow configDir={configDirOf(dialog.workspaceId)} />}
 
       <div className="flex items-center justify-between gap-3 border-t border-border/55 bg-muted/40 px-4 py-2.5">
         <span className="min-w-0 truncate text-xs text-danger">{error ?? ''}</span>

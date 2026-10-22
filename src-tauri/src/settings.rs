@@ -119,6 +119,8 @@ impl Default for NyraSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SpawnSettings {
+    /// Which CLI runs the chat. Absent from anything older, which ran on Claude.
+    pub provider: crate::agent::Provider,
     /// "" = CLI default, otherwise a model id like `sonnet` / `opus` / `haiku`.
     pub model: String,
     /// "" | low | medium | high | max
@@ -139,6 +141,7 @@ pub struct SpawnSettings {
 impl Default for SpawnSettings {
     fn default() -> Self {
         Self {
+            provider: crate::agent::Provider::default(),
             model: String::new(),
             effort: String::new(),
             system_prompt: String::new(),
@@ -158,6 +161,7 @@ impl NyraSettings {
     /// cron and webhook triggers.
     pub fn spawn(&self) -> SpawnSettings {
         SpawnSettings {
+            provider: crate::agent::Provider::default(),
             model: self.model.clone(),
             effort: self.effort.clone(),
             system_prompt: self.system_prompt.clone(),

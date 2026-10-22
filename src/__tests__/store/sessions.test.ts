@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   useSessionsStore,
+  providerSessionId,
+  withProviderSessions,
   queueOf,
   newMessageId,
   type McpServerInfo,
@@ -60,7 +62,7 @@ describe('Sessions Store', () => {
       expect(state.activeSessionId).toBe(id)
       expect(state.sessions[0].cwd).toBe('/tmp/test')
       expect(state.sessions[0].title).toBe('New session')
-      expect(state.sessions[0].claudeSessionId).toBeNull()
+      expect(state.sessions[0].providerSessionIds).toEqual({})
     })
 
     it('prepends new sessions', () => {
@@ -205,9 +207,9 @@ describe('Sessions Store', () => {
   })
 
   describe('restartSession', () => {
-    it('clears claudeSessionId but keeps messages', () => {
+    it('clears the provider session ids but keeps messages', () => {
       const id = createTestSession()
-      useSessionsStore.getState().updateClaudeSessionId(id, 'claude-123')
+      useSessionsStore.getState().setProviderSessionId(id, 'claude-123')
       useSessionsStore.getState().addMessage(id, {
         id: 'msg-1',
         role: 'user',
@@ -215,7 +217,7 @@ describe('Sessions Store', () => {
       })
       useSessionsStore.getState().restartSession(id)
       const session = useSessionsStore.getState().sessions.find((s) => s.id === id)!
-      expect(session.claudeSessionId).toBeNull()
+      expect(session.providerSessionIds).toEqual({})
       expect(session.messages).toHaveLength(1)
     })
   })
@@ -359,18 +361,18 @@ describe('Sessions Store', () => {
   })
 
   describe('forkSession', () => {
-    it('creates a forked session with copied messages and null claudeSessionId', () => {
+    it('creates a forked session with copied messages and no provider session ids', () => {
       const id = createTestSession()
       useSessionsStore.getState().addMessage(id, { id: 'msg-1', role: 'user', text: 'Hello' })
       useSessionsStore.getState().addMessage(id, { id: 'msg-2', role: 'assistant', text: 'Hi!' })
-      useSessionsStore.getState().updateClaudeSessionId(id, 'cli-123')
+      useSessionsStore.getState().setProviderSessionId(id, 'cli-123')
 
       const forkId = useSessionsStore.getState().forkSession(id)
       const state = useSessionsStore.getState()
       const forked = state.sessions.find((s) => s.id === forkId)!
 
       expect(forked).toBeDefined()
-      expect(forked.claudeSessionId).toBeNull()
+      expect(forked.providerSessionIds).toEqual({})
       expect(forked.messages).toHaveLength(2)
       expect(forked.messages[0].id).not.toBe('msg-1') // new IDs
       expect((forked.messages[0] as { text: string }).text).toBe('Hello')
@@ -407,7 +409,7 @@ describe('Sessions Store', () => {
       expect(forked.needsRecap).toBe(false)
 
       // Once the fork has a conversation of its own, it stops resuming the source's.
-      useSessionsStore.getState().updateClaudeSessionId(forkId, 'cli-2')
+      useSessionsStore.getState().setProviderSessionId(forkId, 'cli-2')
       expect(session(forkId).resumeFrom).toBeNull()
     })
 
@@ -620,13 +622,13 @@ describe('Sessions Store', () => {
       store.addMessage(id, { id: 'msg-1', role: 'user', text: 'first' })
       store.addMessage(id, { id: 'msg-2', role: 'assistant', text: 'response' })
       store.addMessage(id, { id: 'msg-3', role: 'user', text: 'second' })
-      store.updateClaudeSessionId(id, 'claude-abc')
+      store.setProviderSessionId(id, 'claude-abc')
 
       useSessionsStore.getState().truncateAtMessage(id, 'msg-2')
       const session = useSessionsStore.getState().sessions.find((s) => s.id === id)!
       expect(session.messages).toHaveLength(1)
       expect(session.messages[0].id).toBe('msg-1')
-      expect(session.claudeSessionId).toBeNull()
+      expect(session.providerSessionIds).toEqual({})
     })
   })
 
@@ -642,7 +644,7 @@ describe('Sessions Store', () => {
       store.addMessage(id, { id: 'u2', role: 'user', text: 'second', resumeAt: A1 })
       store.addMessage(id, { id: 'a2', role: 'assistant', text: 'two' })
       store.setAnchor(id, A2)
-      store.updateClaudeSessionId(id, 'cli')
+      store.setProviderSessionId(id, 'cli')
       return id
     }
     const ids = (id: string) => session(id).messages.map((m) => m.id)
@@ -652,7 +654,7 @@ describe('Sessions Store', () => {
       const key = useSessionsStore.getState().branchAt(id, 'u2', 'reply')!
       expect(ids(id)).toEqual(['u1', 'a1', 'u2'])
       expect((session(id).messages[2] as { replyVersions?: string }).replyVersions).toBe(key)
-      expect(session(id).claudeSessionId).toBeNull()
+      expect(session(id).providerSessionIds).toEqual({})
       const set = session(id).versions![key]
       expect(set).toMatchObject({ kind: 'reply', current: 1, ran: 1 })
       expect(set.tails[0].messages.map((m) => m.id)).toEqual(['a2'])
@@ -691,7 +693,7 @@ describe('Sessions Store', () => {
       expect(ids(id)).toEqual(['u1', 'a1', 'u2', 'a2'])
       expect(session(id).anchor).toEqual(A2)
       expect(session(id).resumeFrom).toEqual(A2)
-      expect(session(id).claudeSessionId).toBeNull()
+      expect(session(id).providerSessionIds).toEqual({})
       expect(session(id).versions![key]).toMatchObject({ current: 0, ran: 1 })
 
       store.showVersion(id, key, 1)
@@ -912,5 +914,46 @@ describe('message ids', () => {
     expect(msgs).toHaveLength(2)
     expect(new Set(msgs.map((m) => m.id)).size).toBe(2)
     expect(msgs[1].id).not.toBe('same')
+  })
+})
+
+describe('provider session ids', () => {
+  beforeEach(resetStore)
+
+  it('starts a chat on Claude with nothing to resume', () => {
+    const id = createTestSession()
+    expect(session(id).provider).toBe('claude')
+    expect(providerSessionId(session(id))).toBeNull()
+  })
+
+  it('records the id against the provider the chat runs on, and leaves the others', () => {
+    const id = createTestSession()
+    useSessionsStore.setState((state) => ({
+      sessions: state.sessions.map((s) => ({ ...s, provider: 'codex' as const, providerSessionIds: { claude: 'c-1' } }))
+    }))
+    useSessionsStore.getState().setProviderSessionId(id, 't-1')
+    expect(session(id).providerSessionIds).toEqual({ claude: 'c-1', codex: 't-1' })
+    expect(providerSessionId(session(id))).toBe('t-1')
+
+    useSessionsStore.getState().setProviderSessionId(id, null)
+    expect(session(id).providerSessionIds).toEqual({ claude: 'c-1' })
+  })
+
+  it("carries a stored chat's claudeSessionId over as its Claude id", () => {
+    const id = createTestSession()
+    const { provider: _p, providerSessionIds: _ids, ...legacy } = session(id)
+    const migrated = withProviderSessions({ ...legacy, claudeSessionId: 'old-1' } as never)
+    expect(migrated.provider).toBe('claude')
+    expect(migrated.providerSessionIds).toEqual({ claude: 'old-1' })
+    expect('claudeSessionId' in migrated).toBe(false)
+
+    const blank = withProviderSessions({ ...legacy, claudeSessionId: null } as never)
+    expect(blank.providerSessionIds).toEqual({})
+  })
+
+  it('leaves a chat that already has provider ids alone', () => {
+    const id = createTestSession()
+    const current = { ...session(id), provider: 'codex' as const, providerSessionIds: { codex: 't-9' } }
+    expect(withProviderSessions(current)).toEqual(current)
   })
 })

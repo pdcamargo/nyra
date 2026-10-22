@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useState } from 'react'
 import Modal from './Modal'
-import { useSessionsStore, workspaceIdForSession, type SessionUsage } from '../store/sessions'
+import { useSessionsStore, providerSessionId, workspaceIdForSession, type SessionUsage } from '../store/sessions'
 import { useChatSettings } from '../hooks/useChatSettings'
 import { chatModelLabel } from '../lib/models'
 import { useModelVersions } from '../store/modelVersions'
@@ -97,6 +97,7 @@ export default function StatsModal({ onClose }: { onClose: () => void }): React.
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  const cliSessionId = providerSessionId(session)
   const usage = session?.usage ?? { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
   const totalTokens = usage.inputTokens + usage.outputTokens
   const contextPct = Math.min((totalTokens / 1_000_000) * 100, 100)
@@ -128,8 +129,8 @@ export default function StatsModal({ onClose }: { onClose: () => void }): React.
           {effort && <StatRow label="Effort" value={effort} color="text-info" />}
           <StatRow label="Duration" value={formatDuration(duration)} />
           <StatRow label="Messages" value={String(messageCount)} />
-          {session?.claudeSessionId && (
-            <StatRow label="Session ID" value={session.claudeSessionId.slice(0, 12)} color="text-muted-foreground" />
+          {cliSessionId && (
+            <StatRow label="Session ID" value={cliSessionId.slice(0, 12)} color="text-muted-foreground" />
           )}
         </div>
 

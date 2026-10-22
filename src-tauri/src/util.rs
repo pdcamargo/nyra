@@ -318,6 +318,16 @@ pub fn clean_child_env() -> Vec<(String, String)> {
     env
 }
 
+/// Terminal colour codes and carriage returns out of a CLI's output, so it
+/// reads as text in an error or a log.
+pub fn strip_ansi(s: &str) -> String {
+    static CSI: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"\x1B\[[\d;]*[a-zA-Z]").unwrap());
+    static ESC: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"\x1B[^\[]").unwrap());
+    let s = CSI.replace_all(s, "");
+    let s = ESC.replace_all(&s, "");
+    s.replace('\r', "")
+}
+
 /// Incremental UTF-8 decoder for PTY output.
 ///
 /// A read can land mid-code-point; decoding each chunk independently would turn

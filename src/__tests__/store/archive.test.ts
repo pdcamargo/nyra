@@ -18,7 +18,8 @@ const OTHER = 'chat-2'
 
 const session = (over: Partial<Session> = {}): Session => ({
   id: CHAT,
-  claudeSessionId: null,
+  provider: 'claude',
+  providerSessionIds: {},
   title: 'Fix the sidebar',
   cwd: '/repo',
   projectId: 'p1',

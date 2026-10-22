@@ -142,7 +142,7 @@ async fn poll(nyra_session_id: &str, generation: u64) {
                     "AI title [{}]: {title}",
                     crate::util::short(nyra_session_id)
                 );
-                crate::claude::emit_event(
+                crate::agent::emit_event(
                     nyra_session_id,
                     json!({ "type": "ai_title", "title": title }),
                 );

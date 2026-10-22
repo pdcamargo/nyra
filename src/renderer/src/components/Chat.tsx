@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, Copy, CornerDownRight, FileText, GitFork, GitMerge, Info, LoaderCircle, SquarePen, Trash2 } from 'lucide-react'
-import { useSessionsStore, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, type MessageContext, type Anchor, newMessageId, versionKeys } from '../store/sessions'
+import { useSessionsStore, providerSessionId, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, type MessageContext, type Anchor, newMessageId, versionKeys } from '../store/sessions'
 import { noteDesignCall, noteDesignResult } from '../store/designActivity'
 import { useSettingsStore } from '../store/settings'
 import { wslShare } from '../lib/environment'
@@ -34,7 +34,9 @@ import { isQuestionnaireAsk } from './questionnaire/QuestionnaireChip'
 import MessageContextLines, { QuestionnaireRecord } from './MessageContextLines'
 import { contextFill } from '../lib/contextFill'
 import type { CompactionInput } from './CompactionDivider'
-import { historyText } from '../lib/historyText'
+import { historyText, recapFor } from '../lib/historyText'
+import { anchorFor, capabilitiesOf } from '../lib/providers'
+import type { Provider } from '@shared/types'
 import { extractAskBlocks, deferredAnswerPrompt, questionsOf, type AskQuestion } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
 import { foldChecklistIntoTranscript, foldTasksAtTurnEnd } from '../lib/taskFold'
@@ -100,7 +102,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'tool_denied'; tool_id: string; tool_name: string; input: Record<string, unknown>; originalContent?: string | null }
   | { type: 'usage'; input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; context_tokens?: number }
   | { type: 'context_window'; tokens: number }
-  | { type: 'anchor'; uuid: string; session_id: string }
+  | { type: 'anchor'; uuid: string; session_id: string; provider?: Provider }
   /** `continues`: a steer was still unread, so the CLI is opening a turn of its
    *  own to deliver it and this result does not end the run. */
   | { type: 'result'; result: string; session_id: string; is_error: boolean; continues?: boolean }
@@ -171,6 +173,9 @@ function announceAgentEnd(sid: string, agent: Agent, status: 'done' | 'failed'):
  * compaction outlives `Chat` being unmounted for the workflow canvas.
  */
 const compacting = new Map<string, string>()
+/** Which CLI is running each chat's turn. The chat can be moved to another
+ *  before the turn's end arrives, and what that turn wrote is the first one's. */
+const turnProvider = new Map<string, Provider>()
 
 /**
  * Answers to open questions steered into a running turn and not yet read, by
@@ -440,6 +445,7 @@ export default function Chat(): React.JSX.Element {
   // moving between must not move under it.
   const restoring = useRestoresStore((s) => (activeSessionId ? s.busy[activeSessionId] : undefined))
   const frozen = isLoading || restoring !== undefined
+  const caps = capabilitiesOf(activeSession)
 
   // Between turns, what Claude will come back from. Without it a chat waiting
   // on a test run or a monitor looked exactly like one that was done.
@@ -602,9 +608,9 @@ export default function Chat(): React.JSX.Element {
   const diskSession = activeSession?.diskSession
   const editRestoreCount = useMemo(() => {
     const at = editingMessageId ? messages.findIndex((m) => m.id === editingMessageId) : -1
-    if (at < 0 || !diskSession || !(messages[at] as TextMessage).checkpoint) return 0
+    if (at < 0 || !diskSession || !caps.fileRestore || !(messages[at] as TextMessage).checkpoint) return 0
     return editedPaths(messages.slice(at)).length
-  }, [editingMessageId, messages, diskSession])
+  }, [editingMessageId, messages, diskSession, caps.fileRestore])
 
   // The fork lines, keyed by the message each goes under. Selected as a string
   // so a store change that moves no line re-renders nothing.
@@ -1005,9 +1011,9 @@ export default function Chat(): React.JSX.Element {
   useEffect(() => {
     if (!activeSessionId || isSessionRunning(activeSessionId)) return
     const s = useSessionsStore.getState().sessions.find((x) => x.id === activeSessionId)
-    if (!s?.cwd || s.pendingWorktree || (!s.claudeSessionId && s.resumeFrom)) return
+    if (!s?.cwd || s.pendingWorktree || (!providerSessionId(s) && anchorFor(s, s.resumeFrom))) return
     window.api.claude
-      .prewarm(s.cwd, s.claudeSessionId, activeSessionId, s.worktree?.name, spawnSettingsForSession(activeSessionId))
+      .prewarm(s.cwd, providerSessionId(s), activeSessionId, s.worktree?.name, spawnSettingsForSession(activeSessionId))
       .catch(() => {})
   }, [activeSessionId])
 
@@ -1018,7 +1024,7 @@ export default function Chat(): React.JSX.Element {
 
     const cleanup = window.api.claude.onEvent((raw: unknown) => {
       const event = raw as ClaudeEvent
-      const { addMessage, updateClaudeSessionId, updateToolResult, addTask, updateTask, setTasks, removeTask, setTaskId, addAgent, updateAgent, addUsage, setMcpServers } =
+      const { addMessage, setProviderSessionId, updateToolResult, addTask, updateTask, setTasks, removeTask, setTaskId, addAgent, updateAgent, addUsage, setMcpServers } =
         useSessionsStore.getState()
       // Route events to the session identified by nyraSessionId tag
       const sid = event.nyraSessionId ?? useSessionsStore.getState().activeSessionId
@@ -1070,7 +1076,7 @@ export default function Chat(): React.JSX.Element {
       if (event.type === 'system' && event.subtype === 'init') {
         // Recorded now rather than at `result`, so a chat whose app dies
         // mid-turn resumes its conversation instead of starting a blank one.
-        if (event.session_id) updateClaudeSessionId(sid, event.session_id)
+        if (event.session_id) setProviderSessionId(sid, event.session_id)
         if (event.mcp_servers) {
           setMcpServers(sid, parseMcpFromInit(event.mcp_servers, event.tools ?? []))
         }
@@ -1113,7 +1119,7 @@ export default function Chat(): React.JSX.Element {
           useSessionsStore.getState().setAutoCompacted(sid, false)
         }
         if (autoCompact && fill?.measured) {
-          if (sess && sess.claudeSessionId && !sess.autoCompacted) {
+          if (sess && providerSessionId(sess) && !sess.autoCompacted) {
             if (fill.pct >= autoCompactThreshold) {
               const isBusy = isSessionRunning(sid)
               if (isBusy) {
@@ -1135,7 +1141,7 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'anchor') {
-        useSessionsStore.getState().setAnchor(sid, { sessionId: event.session_id, uuid: event.uuid })
+        useSessionsStore.getState().setAnchor(sid, { sessionId: event.session_id, uuid: event.uuid, provider: event.provider ?? 'claude' })
         return
       }
 
@@ -1507,7 +1513,7 @@ export default function Chat(): React.JSX.Element {
         usePlanApprovalStore.getState().clearSession(sid)
         // Main process dropped a stale --resume conversation; clear the local id so
         // the retry's fresh session_id can replace it on the upcoming 'result'.
-        updateClaudeSessionId(sid, null)
+        setProviderSessionId(sid, null)
         return
       }
 
@@ -1540,7 +1546,7 @@ export default function Chat(): React.JSX.Element {
 
       if (event.type === 'result') {
         if (!event.continues) turnResultRef.current.add(sid)
-        if (event.session_id) updateClaudeSessionId(sid, event.session_id)
+        if (event.session_id) setProviderSessionId(sid, event.session_id)
         const role = event.is_error ? 'error' : 'assistant'
         // `result` repeats the reply Claude has already streamed, so it is only
         // worth showing when nothing was streamed — an error, or a turn whose
@@ -1615,6 +1621,9 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'stream_end') {
+        // Whatever it wrote this turn, the CLI that ran it has seen.
+        useSessionsStore.getState().markSeenThrough(sid, turnProvider.get(sid))
+        turnProvider.delete(sid)
         const outstandingAtEnd =
           useBackgroundAgentsStore.getState().bySession[sid] ?? []
         const finished = turnResultRef.current.delete(sid)
@@ -1800,9 +1809,10 @@ export default function Chat(): React.JSX.Element {
     const fls = files ?? []
 
     // A fork whose history predates anchors has nothing to resume, so its first
-    // message carries the history as text — read before this one is added.
+    // message carries the history as text — and a chat that has moved to another
+    // CLI carries what that one missed. Read before this message is added.
     const before = useSessionsStore.getState().sessions.find((s) => s.id === sid)
-    const recap = before?.needsRecap ? historyText(before.messages) : ''
+    const recap = before ? recapFor(before) : ''
 
     // Build the full prompt with attachment data for Claude CLI.
     prompt = withContext(withAttachments(recap + prompt, imgs, fls), context)
@@ -1840,6 +1850,8 @@ export default function Chat(): React.JSX.Element {
     } else {
       useSessionsStore.getState().addMessage(sid, userMessage)
     }
+    turnProvider.set(sid!, before?.provider ?? 'claude')
+    useSessionsStore.getState().markSeenThrough(sid!, turnProvider.get(sid!))
     // Carrying on from a version makes it the one whose edits are on disk. The
     // one that was there is copied first, so it can come back.
     const here = useSessionsStore.getState().sessions.find((s) => s.id === sid)
@@ -1867,12 +1879,13 @@ export default function Chat(): React.JSX.Element {
     const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)!
 
     try {
-      // A fork's first message forks its source's conversation at the cut.
-      const fork = session.claudeSessionId ? null : session.resumeFrom
+      // A fork's first message forks its source's conversation at the cut — on
+      // a CLI that can, which is the one whose transcript the cut is in.
+      const fork = providerSessionId(session) ? null : anchorFor(session, session.resumeFrom)
       await window.api.claude.query(
         prompt,
         session.cwd,
-        fork?.sessionId ?? session.claudeSessionId,
+        fork?.sessionId ?? providerSessionId(session),
         sid,
         session.worktree?.name,
         spawnSettingsForSession(sid),
@@ -2004,7 +2017,7 @@ export default function Chat(): React.JSX.Element {
 
     const msgIndex = session.messages.findIndex((m) => m.id === messageId)
     const original = session.messages[msgIndex] as TextMessage | undefined
-    const anchor = original?.resumeAt ?? null
+    const anchor = anchorFor(session, original?.resumeAt)
     // What the message carried beyond its text goes again with the edit: an
     // edited comment still points at the same element.
     const context = original?.context
@@ -2048,7 +2061,7 @@ export default function Chat(): React.JSX.Element {
     const index = session.messages.findIndex((m) => m.id === promptId)
     const prompt = session.messages[index] as TextMessage | undefined
     if (!prompt || prompt.role !== 'user') return
-    const anchor = prompt.resumeAt ?? null
+    const anchor = anchorFor(session, prompt.resumeAt)
     const recap = anchor ? '' : historyText(session.messages.slice(0, index))
 
     const before = await filesBeforeRun(sid, promptId, 'reply', restore, promptId)
@@ -2703,17 +2716,17 @@ export default function Chat(): React.JSX.Element {
                       sessionId={activeSessionId}
                       isLoading={isLoading}
                       showActions={turnEnds.has(msg.id)}
-                      onEdit={msg.role === 'user' && !frozen ? handleStartEdit : undefined}
+                      onEdit={msg.role === 'user' && !frozen && caps.rewind ? handleStartEdit : undefined}
                       // Not mid-turn: the turn has no anchor to fork from yet.
                       onFork={!frozen ? handleFork : undefined}
                       version={versionViewsById.get(msg.id)}
-                      onShowVersion={handleShowVersion}
+                      onShowVersion={caps.rewind ? handleShowVersion : undefined}
                       // Restoring forks the conversation that last touched the
                       // files; a chat with none has nothing to restore from.
-                      onRestoreVersion={activeSession?.diskSession ? handleRestoreVersion : undefined}
+                      onRestoreVersion={activeSession?.diskSession && caps.fileRestore ? handleRestoreVersion : undefined}
                       // Not mid-turn either: there is nothing to rewind to until it ends.
-                      regen={!frozen ? regensById.get(msg.id) : undefined}
-                      canRestore={!!activeSession?.diskSession}
+                      regen={!frozen && caps.rewind ? regensById.get(msg.id) : undefined}
+                      canRestore={!!activeSession?.diskSession && caps.fileRestore}
                       onRegenerate={regenerate}
                       onPlanAnswer={handlePlanAnswer}
                       onQuestionAnswer={handleQuestionAnswer}

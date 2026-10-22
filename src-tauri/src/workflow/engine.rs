@@ -20,7 +20,7 @@ use tokio::sync::oneshot;
 use super::helpers::{apply_extractor, evaluate_condition, interpolate};
 use super::store;
 use super::types::*;
-use crate::claude;
+use crate::agent;
 use crate::settings::NyraSettings;
 use crate::util;
 
@@ -255,6 +255,7 @@ async fn execute_prompt_node(
     let WorkflowNodeData::Prompt {
         prompt,
         system_prompt,
+        provider,
         model,
         allowed_tools,
         set_vars,
@@ -297,9 +298,9 @@ async fn execute_prompt_node(
     {
         let exec = exec.clone();
         let node_id = node.id.clone();
-        claude::on_claude_usage(
+        agent::on_usage(
             &nyra_session_id,
-            Arc::new(move |u: claude::Usage| {
+            Arc::new(move |u: agent::Usage| {
                 let delta = WorkflowTokenUsage {
                     input: u.input_tokens,
                     output: u.output_tokens,
@@ -315,19 +316,20 @@ async fn execute_prompt_node(
     }
 
     let mut spawn = node_settings.spawn();
+    spawn.provider = provider.unwrap_or_default();
     spawn.config_dir = exec.config_dir.as_ref().map(|dir| dir.to_string_lossy().into_owned());
 
-    let rx = claude::on_claude_result(&nyra_session_id);
-    let run = tauri::async_runtime::spawn(claude::run_claude(
-        resolved,
-        exec.cwd.clone(),
-        None,
-        None,
-        nyra_session_id.clone(),
-        spawn,
-        None,
-        None,
-    ));
+    let rx = agent::on_result(&nyra_session_id);
+    let run = tauri::async_runtime::spawn(agent::run(agent::Turn {
+        prompt: resolved,
+        cwd: exec.cwd.clone(),
+        resume_session_id: None,
+        resume_at: None,
+        nyra_session_id: nyra_session_id.clone(),
+        settings: spawn,
+        worktree_name: None,
+        checkpoint: None,
+    }));
 
     let outcome = match rx.await {
         Ok((result, is_error)) => {
@@ -347,7 +349,7 @@ async fn execute_prompt_node(
     };
 
     exec.active_sessions.lock().remove(&nyra_session_id);
-    claude::off_claude_usage(&nyra_session_id);
+    agent::off_usage(&nyra_session_id);
 
     let output = outcome?;
     apply_set_vars(exec, set_vars, &output);
@@ -1256,7 +1258,7 @@ pub fn abort_workflow(execution_id: &str) {
         state.pending_reviews.drain().map(|(_, tx)| tx).collect()
     };
     for session in sessions {
-        claude::abort_claude(Some(&session));
+        agent::abort(Some(&session));
     }
     for tx in reviews {
         let _ = tx.send(false);

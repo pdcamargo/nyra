@@ -30,7 +30,8 @@ describe('a turn the CLI starts by itself', () => {
       sessions: [
         {
           id: 's1',
-          claudeSessionId: 'c1',
+          provider: 'claude',
+          providerSessionIds: { claude: 'c1' },
           title: 'Chat',
           cwd: '/tmp',
           createdAt: 0,

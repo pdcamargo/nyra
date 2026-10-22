@@ -98,6 +98,14 @@ Object.defineProperty(globalThis, 'api', {
       saveFile: () => Promise.resolve(null)
     },
     system: { homedir: () => Promise.resolve('/home/test') },
+    // No Codex in tests: the picker and the flow inspector leave its section out.
+    codex: {
+      models: () => Promise.resolve({ available: false, error: 'Codex CLI not found.' }),
+      account: () => Promise.resolve({ available: false, error: 'Codex CLI not found.' }),
+      login: () => Promise.reject(new Error('Codex CLI not found.')),
+      logout: () => Promise.resolve(),
+      onLogin: () => () => {}
+    },
     environment: {
       info: () =>
         Promise.resolve({

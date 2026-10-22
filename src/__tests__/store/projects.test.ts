@@ -14,7 +14,8 @@ import { backfillProjects, basename, nameForPath, qualifiedName } from '@rendere
 import { attachWorktreeSessions } from '@renderer/store/attachWorktrees'
 
 const session = (over: Partial<Session> & { id: string }): Session => ({
-  claudeSessionId: null,
+  provider: 'claude',
+  providerSessionIds: {},
   title: 'chat',
   cwd: '',
   createdAt: 0,

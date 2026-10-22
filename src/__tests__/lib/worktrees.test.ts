@@ -10,7 +10,8 @@ const wt = (over: Partial<WorktreeInfo> = {}): WorktreeInfo => ({
 })
 
 const session = (over: Partial<Session> & { id: string }): Session => ({
-  claudeSessionId: null,
+  provider: 'claude',
+  providerSessionIds: {},
   title: 'chat',
   cwd: '/wt/feat',
   createdAt: 0,

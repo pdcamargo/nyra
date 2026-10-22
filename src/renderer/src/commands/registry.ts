@@ -81,6 +81,7 @@ import { startBrowserTab, toggleDeviceMode } from '../components/browser/useBrow
 import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
 import { useChangesStore } from '../store/changes'
 import { openSideQuestion } from '../lib/sideAsk'
+import { capabilitiesOf } from '../lib/providers'
 
 /**
  * Everything the app can be asked to do, in one list.
@@ -255,6 +256,11 @@ function flowIsOpen(): boolean {
 
 function hasSession(): boolean {
   return useSessionsStore.getState().activeSessionId !== null
+}
+
+/** What the chat in front of you can do; Claude's set when there is none. */
+function activeCaps() {
+  return capabilitiesOf(activeSession(useSessionsStore.getState()))
 }
 
 /** The PR this chat opened most recently, if it opened one. */
@@ -488,7 +494,7 @@ export const COMMANDS: Command[] = [
     defaultChord: null,
     icon: MessagesSquare,
     palette: true,
-    available: hasSession,
+    available: () => hasSession() && activeCaps().sideQuestions,
     run: () => {
       const sid = useSessionsStore.getState().activeSessionId
       if (sid) openSideQuestion(sid)
@@ -975,6 +981,7 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+shift+p',
     icon: Target,
     palette: true,
+    available: () => activeCaps().planMode,
     run: () => {
       // The chat you are looking at, not every chat at once.
       const { activeSessionId, sessions, setSessionSettings } = useSessionsStore.getState()

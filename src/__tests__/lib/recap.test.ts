@@ -7,7 +7,8 @@ const T0 = 1_700_000_000_000
 function session(partial: Partial<Session> = {}): Session {
   return {
     id: 's1',
-    claudeSessionId: null,
+    provider: 'claude',
+    providerSessionIds: {},
     title: 'Test',
     cwd: '/tmp',
     createdAt: T0,

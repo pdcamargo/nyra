@@ -11,7 +11,8 @@ const THRESHOLD = 2 * MIN
 function base(id: string, partial: Partial<Session> = {}): Session {
   return {
     id,
-    claudeSessionId: null,
+    provider: 'claude',
+    providerSessionIds: {},
     title: id,
     cwd: '/tmp',
     createdAt: T0,

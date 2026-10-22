@@ -3,6 +3,7 @@
 mod updates;
 mod ai_title;
 mod account_status;
+mod agent;
 mod app_mcp;
 mod browser;
 mod checkpoints;
@@ -73,7 +74,7 @@ fn shutdown() {
     browser::stop();
     dictation::dispose();
     login::cancel_login();
-    claude::dispose_all();
+    agent::dispose_all();
     workflow::triggers::stop_trigger_runtime();
     webhook_server::stop();
     fs_ops::cleanup_temp_dirs();
@@ -195,6 +196,10 @@ pub fn run() {
             commands::checkpoint_hashes,
             commands::checkpoint_discard,
             commands::claude_check_binary,
+            commands::codex_models,
+            commands::codex_account,
+            commands::codex_login,
+            commands::codex_logout,
             commands::claude_account_status,
             commands::workspace_create,
             commands::workspace_copy_transcripts,

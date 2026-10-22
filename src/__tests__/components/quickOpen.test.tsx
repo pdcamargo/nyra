@@ -14,7 +14,8 @@ const FILES = [
 function seedSession(): void {
   const s: Session = {
     id: 's1',
-    claudeSessionId: null,
+    provider: 'claude',
+    providerSessionIds: {},
     title: 'T',
     cwd: '/repo',
     createdAt: 0,

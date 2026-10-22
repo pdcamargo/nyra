@@ -3,6 +3,7 @@ import { spawnSettingsForSession } from './spawnSettings'
 import { chatEditedPaths, lastWritten, overwrittenEdits, shellCommands, turnHashes, versionCheckpoint } from './versions'
 import { useSessionsStore, versionStart, type Session, type TextMessage, type VersionSet } from '../store/sessions'
 import { useRestoresStore } from '../store/restores'
+import { capabilitiesOf } from './providers'
 
 /**
  * Putting a version's files back: the renderer's half of `checkpoints.rs`.
@@ -112,7 +113,9 @@ export async function filesBeforeRun(
   const idx = s?.messages.findIndex((m) => m.id === messageId) ?? -1
   const m = s?.messages[idx] as TextMessage | undefined
   if (!s || !m) return null
-  if (!restore || !m.checkpoint) return { files: await copyFiles(sid) }
+  // Only the CLI that checkpointed the turn can rewind its files; a chat on one
+  // that cannot copies them as they are, the way an edit without restore does.
+  if (!restore || !m.checkpoint || !capabilitiesOf(s).fileRestore) return { files: await copyFiles(sid) }
 
   const key = kind === 'prompt' ? m.promptVersions : m.replyVersions
   const set = key ? s.versions?.[key] : undefined

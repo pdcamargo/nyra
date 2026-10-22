@@ -5,7 +5,8 @@ import { useSessionsStore, type Session } from '../../renderer/src/store/session
 
 const session: Session = {
   id: 'chat-a',
-  claudeSessionId: null,
+  provider: 'claude',
+  providerSessionIds: {},
   title: 'A chat',
   cwd: '/repo',
   projectId: null,

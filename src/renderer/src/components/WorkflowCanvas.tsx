@@ -51,6 +51,9 @@ import { triggerSummary } from '../lib/flowGrouping'
 import { extractorKind, extractorTemplate } from '../lib/extractors'
 import '@xyflow/react/dist/style.css'
 import { useWorkflowStore } from '../store/workflow'
+import { useCodexModelsFor } from '../store/codexModels'
+import { activeWorkspaceId, configDirOf } from '../store/workspaces'
+import type { Provider } from '@shared/types'
 import { useSessionsStore, activeCwd, activeProject } from '../store/sessions'
 import {
   laidOut,
@@ -527,6 +530,7 @@ export function toFlowNodes(
     if (d.type === 'prompt') {
       extra = {
         prompt: d.prompt,
+        provider: d.provider,
         model: d.model,
         systemPrompt: d.systemPrompt,
         allowedTools: d.allowedTools,
@@ -622,6 +626,7 @@ export function fromFlowNodes(nodes: Node[]): WorkflowNode[] {
         type: 'prompt',
         prompt: (n.data.prompt as string) || '',
         systemPrompt: (n.data.systemPrompt as string) || undefined,
+        provider: (n.data.provider as Provider) || undefined,
         model: (n.data.model as string) || undefined,
         allowedTools: (n.data.allowedTools as string[]) || undefined,
         setVars: (n.data.setVars as SetVarSpec[]) || undefined
@@ -1350,6 +1355,13 @@ function PromptNodeConfig({
   variables: FlowVariable[]
 }): React.JSX.Element {
   const allowedTools = node.allowedTools ?? []
+  // Codex's models are the account's own, asked for when a prompt node is open.
+  // The active workspace's, which is the account a flow run from here uses.
+  const configDir = configDirOf(activeWorkspaceId())
+  const codex = useCodexModelsFor(configDir)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `load` is new each render and idempotent
+  useEffect(() => codex.load(), [configDir])
+  const onCodex = node.provider === 'codex'
   const unusedTools = AVAILABLE_TOOLS.filter((t) => !allowedTools.includes(t))
   const setVars = node.setVars ?? []
 
@@ -1377,14 +1389,21 @@ function PromptNodeConfig({
       <Field label="Model">
         <ChoiceSelect
           mono
-          value={node.model || 'default'}
-          onChange={(v) => update({ model: v === 'default' ? undefined : v })}
+          // A Codex model is `codex:<id>` here, so one select can pick the CLI
+          // as well as the model; the node stores the two apart.
+          value={onCodex ? `codex:${node.model ?? ''}` : node.model || 'default'}
+          onChange={(v) =>
+            v.startsWith('codex:')
+              ? update({ provider: 'codex', model: v.slice('codex:'.length) || undefined })
+              : update({ provider: undefined, model: v === 'default' ? undefined : v })
+          }
           disabled={disabled}
           options={[
             { value: 'default', label: 'default', hint: "Whatever the chat is set to" },
             { value: 'opus', label: 'opus', hint: 'Deepest reasoning, slowest' },
             { value: 'sonnet', label: 'sonnet', hint: 'The balanced default' },
-            { value: 'haiku', label: 'haiku', hint: 'Fast and cheap, for gathering' }
+            { value: 'haiku', label: 'haiku', hint: 'Fast and cheap, for gathering' },
+            ...codex.models.map((m) => ({ value: `codex:${m.id}`, label: m.id, hint: `Codex · ${m.description ?? m.displayName ?? ''}` }))
           ]}
         />
       </Field>
@@ -1424,55 +1443,60 @@ function PromptNodeConfig({
         />
       </Field>
 
-      {/* Allowed tools — the chosen ones, as chips you can take off, and a `+`
-          for the rest. A grid of every tool made the common case (two or three
-          chosen) the hardest one to read. */}
-      <Field
-        label="Allowed tools"
-        hint={
-          allowedTools.length === 0
-            ? 'Every tool is allowed. Add one to restrict this node to only those.'
-            : undefined
-        }
-      >
-        <div className="flex flex-wrap items-center gap-1">
-          {allowedTools.map((tool) => (
-            <span
-              key={tool}
-              className="flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-[0.77em] text-foreground/80"
-            >
-              {tool}
-              <button
-                type="button"
-                onClick={() => toggleTool(tool)}
-                disabled={disabled}
-                aria-label={`Remove ${tool}`}
-                className="text-muted-foreground hover:text-danger disabled:opacity-40"
+      {/* Claude's tool names; a Codex node runs with Codex's own tools. */}
+      {!onCodex && (
+        <>
+        {/* Allowed tools — the chosen ones, as chips you can take off, and a `+`
+            for the rest. A grid of every tool made the common case (two or three
+            chosen) the hardest one to read. */}
+        <Field
+          label="Allowed tools"
+          hint={
+            allowedTools.length === 0
+              ? 'Every tool is allowed. Add one to restrict this node to only those.'
+              : undefined
+          }
+        >
+          <div className="flex flex-wrap items-center gap-1">
+            {allowedTools.map((tool) => (
+              <span
+                key={tool}
+                className="flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-[0.77em] text-foreground/80"
               >
-                <X className="size-2.5" />
-              </button>
-            </span>
-          ))}
-          {unusedTools.length > 0 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                disabled={disabled}
-                aria-label="Allow another tool"
-                className="flex size-5 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground/80 disabled:opacity-40"
-              >
-                <Plus className="size-2.5" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-44">
-                {unusedTools.map((tool) => (
-                  <DropdownMenuItem key={tool} onSelect={() => toggleTool(tool)}>
-                    <span className="font-mono text-[0.85em]">{tool}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-      </Field>
+                {tool}
+                <button
+                  type="button"
+                  onClick={() => toggleTool(tool)}
+                  disabled={disabled}
+                  aria-label={`Remove ${tool}`}
+                  className="text-muted-foreground hover:text-danger disabled:opacity-40"
+                >
+                  <X className="size-2.5" />
+                </button>
+              </span>
+            ))}
+            {unusedTools.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  disabled={disabled}
+                  aria-label="Allow another tool"
+                  className="flex size-5 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground/80 disabled:opacity-40"
+                >
+                  <Plus className="size-2.5" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-44">
+                  {unusedTools.map((tool) => (
+                    <DropdownMenuItem key={tool} onSelect={() => toggleTool(tool)}>
+                      <span className="font-mono text-[0.85em]">{tool}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
+        </Field>
+        </>
+      )}
 
       {/* One noun for this across the whole app: a variable. The label used to
           say "Capture output" while the panel listing the results said

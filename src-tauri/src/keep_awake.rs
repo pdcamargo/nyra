@@ -9,7 +9,7 @@
 //! idea of a running turn is fed by `Chat`, which is unmounted whenever the
 //! main view is something else — so a turn that ended while the Flows canvas
 //! was open would stay "running" there, and hold the machine awake for good.
-//! Every event reaches `claude::emit_event` whatever is on screen, which is
+//! Every event reaches `agent::emit_event` whatever is on screen, which is
 //! where `note_event` is called from.
 //!
 //! Only idle sleep is prevented. Closing a laptop's lid still sleeps it on both

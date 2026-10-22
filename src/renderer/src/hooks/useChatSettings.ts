@@ -1,6 +1,6 @@
 import { useSettingsStore } from '../store/settings'
 import { useSessionsStore } from '../store/sessions'
-import type { NyraSettings } from '../../../shared/types'
+import type { NyraSettings, Provider } from '../../../shared/types'
 
 /**
  * The spawn settings in force for the conversation you are looking at.
@@ -28,7 +28,10 @@ export function resolveChatSettings(
 }
 
 export function useChatSettings(): ChatSettings & {
-  update: (partial: Partial<ChatSettings>) => void
+  /** The CLI the chat runs on. Not a default anything else inherits: a new
+   *  chat starts on Claude, and moves when a Codex model is picked in it. */
+  provider: Provider
+  update: (partial: Partial<ChatSettings> & { provider?: Provider }) => void
 } {
   const activeSessionId = useSessionsStore((s) => s.activeSessionId)
   const session = useSessionsStore((s) => s.sessions.find((x) => x.id === s.activeSessionId))
@@ -40,11 +43,14 @@ export function useChatSettings(): ChatSettings & {
 
   return {
     ...resolved,
+    provider: session?.provider ?? 'claude',
     update: (partial) => {
       // No chat open yet — the composer in an empty window still has to go
-      // somewhere, and the default is the only thing there is.
+      // somewhere, and the default is the only thing there is. The defaults
+      // are Claude's, so a Codex pick has nowhere to land.
       if (!activeSessionId) {
-        useSettingsStore.getState().updateSettings(partial)
+        const { provider, ...defaults } = partial
+        if (provider !== 'codex') useSettingsStore.getState().updateSettings(defaults)
         return
       }
       useSessionsStore.getState().setSessionSettings(activeSessionId, partial)

@@ -220,6 +220,21 @@ pub const CLAUDE_INSTALLS: &[&str] = &[
     "/opt/homebrew/bin/claude",
 ];
 
+/// Where the Codex CLI's installers put it: a global npm prefix, then Homebrew
+/// on either architecture.
+pub const CODEX_INSTALLS: &[&str] = &[
+    "~/.local/bin/codex",
+    "~/.npm-global/bin/codex",
+    "/opt/homebrew/bin/codex",
+    "/usr/local/bin/codex",
+];
+
+/// Nothing to trade: npm's launcher here is a script with a shebang, which
+/// runs as it is and passes stdio straight through.
+pub fn codex_native(_launcher: &Path) -> Option<PathBuf> {
+    None
+}
+
 // ---- files ----
 
 /// Owner-only from the moment the file exists. Only bites on create.

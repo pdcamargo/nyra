@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Info, X } from 'lucide-react'
-import { configDirForSession, useSessionsStore } from '../store/sessions'
+import { configDirForSession, providerSessionId, useSessionsStore } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useResourceDockStore } from '../store/resourceDock'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
@@ -64,7 +64,7 @@ export default function StatusDock({ sessionId }: { sessionId: string }): React.
       <dl className="grid grid-cols-1 gap-x-6 gap-y-2.5 min-[460px]:grid-cols-2">
         <StatusField label="Claude Code" value={display(version)} />
         <StatusField label="Working directory" value={display(session?.cwd)} />
-        <StatusField label="Session ID" value={session?.claudeSessionId ?? 'Not started'} />
+        <StatusField label="Session ID" value={providerSessionId(session) ?? 'Not started'} />
         <StatusField label="Login method" value={account?.loggedIn ? display(account.loginMethod) : 'Not signed in'} />
         <StatusField label="Session kind" value="Local" />
         <StatusField label="Organization" value={display(account?.organization)} />

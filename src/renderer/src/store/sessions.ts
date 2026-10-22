@@ -10,7 +10,7 @@ import { DEFAULT_WORKSPACE_ID, activeWorkspaceId, configDirOf } from './workspac
 import type { ConfigDir } from '../lib/api-types'
 import { homedir } from '../lib/homedir'
 import { samePath } from '../lib/paths'
-import type { NyraSettings } from '../../../shared/types'
+import type { NyraSettings, Provider } from '../../../shared/types'
 import { useTerminalsStore } from './terminals'
 import { useResourceDockStore } from './resourceDock'
 import type { ChangeBlock } from '../lib/changeBlocks'
@@ -147,7 +147,9 @@ export type VersionSet = {
 export type DeferredState = 'open' | 'sending' | 'read' | 'kept'
 
 /** A point in a CLI conversation — its session and one assistant line's uuid. */
-export type Anchor = { sessionId: string; uuid: string }
+/** A point in one CLI's transcript: Claude's message uuid, or Codex's turn id.
+ *  `provider` absent is Claude, which every anchor was before there were two. */
+export type Anchor = { sessionId: string; uuid: string; provider?: Provider }
 
 export type ToolCallMessage = {
   id: string
@@ -381,9 +383,38 @@ function withFiles(tails: VersionTail[], index: number, files: string): VersionT
   return tails.map((t, i) => (i === index ? { ...t, files } : t))
 }
 
+/** Each CLI's own id for one conversation: Claude's session id, Codex's thread id. */
+export type ProviderSessionIds = Partial<Record<Provider, string>>
+
+/** The id the chat's current CLI resumes, or null when it has not started one. */
+export function providerSessionId(session: Pick<Session, 'provider' | 'providerSessionIds'> | null | undefined): string | null {
+  if (!session) return null
+  return session.providerSessionIds[session.provider] ?? null
+}
+
+/**
+ * A chat as stored before providers: every one ran on Claude, and kept its id in
+ * `claudeSessionId`. One-way — a build from before this cannot read the new
+ * field, so a chat opened there starts a fresh conversation rather than resuming.
+ */
+export function withProviderSessions(session: Session & { claudeSessionId?: string | null }): Session {
+  const { claudeSessionId, ...rest } = session
+  return {
+    ...rest,
+    provider: session.provider ?? 'claude',
+    providerSessionIds: session.providerSessionIds ?? (claudeSessionId ? { claude: claudeSessionId } : {})
+  }
+}
+
 export type Session = {
   id: string
-  claudeSessionId: string | null
+  /** Which CLI runs this chat. */
+  provider: Provider
+  /** Per provider, so a chat that moves to another CLI and back can resume both. */
+  providerSessionIds: ProviderSessionIds
+  /** The last message each CLI has seen, so one taking over is told only what
+   *  happened while the other was answering. Reset with the session ids. */
+  providerSeenThrough?: ProviderSessionIds
   title: string
   cwd: string
   createdAt: number
@@ -563,7 +594,7 @@ type SessionsStore = {
   /** Override a spawn setting for one conversation. */
   setSessionSettings: (
     sessionId: string,
-    partial: Partial<Pick<Session, 'planMode' | 'model' | 'effort'>>
+    partial: Partial<Pick<Session, 'provider' | 'planMode' | 'model' | 'effort'>>
   ) => void
   setSessionPanels: (sessionId: string, partial: NonNullable<Session['panels']>) => void
   /** Record what `system/init` said this chat's process actually resolved to. */
@@ -574,7 +605,10 @@ type SessionsStore = {
   noteTurn: (sessionId: string) => void
   /** Put the recap away. It does not come back for the same window. */
   dismissAway: (sessionId: string) => void
-  updateClaudeSessionId: (sessionId: string, claudeSessionId: string | null) => void
+  /** Record, or forget, the chat's id with the CLI it runs on now. */
+  setProviderSessionId: (sessionId: string, providerSessionId: string | null) => void
+  /** `provider` — the chat's own when omitted — has now seen every message in it. */
+  markSeenThrough: (sessionId: string, provider?: Provider) => void
   updateSessionCwd: (sessionId: string, cwd: string) => void
   clearMessages: (sessionId: string) => void
   restartSession: (sessionId: string) => void
@@ -705,7 +739,9 @@ export const useSessionsStore = create<SessionsStore>()(
         const id = crypto.randomUUID()
         const session: Session = {
           id,
-          claudeSessionId: null,
+          provider: 'claude',
+          providerSessionIds: {},
+          providerSeenThrough: {},
           title: 'New session',
           cwd,
           projectId,
@@ -1072,13 +1108,25 @@ export const useSessionsStore = create<SessionsStore>()(
         }))
       },
 
-      updateClaudeSessionId: (sessionId: string, claudeSessionId: string | null) => {
+      setProviderSessionId: (sessionId: string, providerSessionId: string | null) => {
         set((state) => ({
-          sessions: state.sessions.map((s) =>
-            s.id === sessionId
-              ? { ...s, claudeSessionId, ...(claudeSessionId ? { resumeFrom: null, needsRecap: false } : {}) }
-              : s
-          )
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const { [s.provider]: _previous, ...others } = s.providerSessionIds
+            const providerSessionIds = providerSessionId ? { ...others, [s.provider]: providerSessionId } : others
+            return { ...s, providerSessionIds, ...(providerSessionId ? { resumeFrom: null, needsRecap: false } : {}) }
+          })
+        }))
+      },
+
+      markSeenThrough: (sessionId: string, provider?: Provider) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            const last = s.messages[s.messages.length - 1]
+            const who = provider ?? s.provider
+            if (s.id !== sessionId || !last || s.providerSeenThrough?.[who] === last.id) return s
+            return { ...s, providerSeenThrough: { ...s.providerSeenThrough, [who]: last.id } }
+          })
         }))
       },
 
@@ -1101,7 +1149,7 @@ export const useSessionsStore = create<SessionsStore>()(
       restartSession: (sessionId: string) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === sessionId ? { ...s, claudeSessionId: null, anchor: null, contextTokens: undefined, autoCompacted: false, pendingAutoCompact: false } : s
+            s.id === sessionId ? { ...s, providerSessionIds: {}, providerSeenThrough: {}, anchor: null, contextTokens: undefined, autoCompacted: false, pendingAutoCompact: false } : s
           )
         }))
       },
@@ -1543,7 +1591,9 @@ export const useSessionsStore = create<SessionsStore>()(
           newId = crypto.randomUUID()
           const forked: Session = {
             id: newId,
-            claudeSessionId: null,
+            provider: source.provider,
+            providerSessionIds: {},
+            providerSeenThrough: {},
             // Not the source's title: a family of forks wearing one name is a
             // list of identical rows. Claude names it after its first message.
             title: resumeFrom ? NEW_FORK_TITLE : source.title,
@@ -1597,7 +1647,8 @@ export const useSessionsStore = create<SessionsStore>()(
             return {
               ...s,
               messages: s.messages.slice(0, idx),
-              claudeSessionId: null,
+              providerSessionIds: {},
+              providerSeenThrough: {},
               contextTokens: undefined,
               tasks: [],
               agents: [],
@@ -1642,7 +1693,8 @@ export const useSessionsStore = create<SessionsStore>()(
               ...s,
               messages: kept,
               versions: { ...s.versions, [k]: { kind, tails, current: next, ran: next } },
-              claudeSessionId: null,
+              providerSessionIds: {},
+              providerSeenThrough: {},
               contextTokens: undefined,
               tasks: [],
               agents: [],
@@ -1685,7 +1737,8 @@ export const useSessionsStore = create<SessionsStore>()(
               messages,
               versions: { ...s.versions, [key]: { ...vs, tails, current: index } },
               anchor: target.anchor,
-              claudeSessionId: null,
+              providerSessionIds: {},
+              providerSeenThrough: {},
               resumeFrom: target.anchor,
               needsRecap: !target.anchor && hasHistory,
               contextTokens: undefined,
@@ -1781,7 +1834,7 @@ export const useSessionsStore = create<SessionsStore>()(
       merge: (persisted, current) => {
         const stored = persisted as Partial<SessionsStore> | undefined
         const normalized = (stored?.sessions ?? current.sessions).map((s) => ({
-          ...s,
+          ...withProviderSessions(s),
           tasks: s.tasks ?? [],
           agents: s.agents ?? [],
           usage: s.usage ?? { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }

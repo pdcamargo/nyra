@@ -285,7 +285,7 @@ export default function McpExplorer({
  * down and the next turn starts them again against the same conversation.
  *
  * Two things this deliberately does not do. It does not use `restartSession`,
- * which clears `claudeSessionId` — a reconnect that forgot what the chat was
+ * which clears the chat's provider session ids — a reconnect that forgot what the chat was
  * doing is not a reconnect. And it does not dispose a session that is mid-turn:
  * that would kill a running agent to fix a status dot, so it says so instead
  * and waits for a turn boundary.

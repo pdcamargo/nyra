@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
-import { useSessionsStore, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, type MessageContext, queueOf, createSiblingSession, newMessageId } from '../store/sessions'
+import { useSessionsStore, providerSessionId, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, type MessageContext, queueOf, createSiblingSession, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useUiStore } from '../store/ui'
 import { forkChat } from '../lib/fork'
@@ -15,6 +15,7 @@ import { useAnnotationsStore, useSessionAnnotations } from '../store/annotations
 import { annotationContext } from '../lib/chatAnnotations'
 import { btwQuestion, sideContext } from '../lib/sideQuestions'
 import { openSideQuestion } from '../lib/sideAsk'
+import { capabilitiesOf, PROVIDER_LABEL } from '../lib/providers'
 import { useKeptSideThreads, useSideQuestionsStore } from '../store/sideQuestions'
 import SideAnswerTray from './SideAnswerTray'
 import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
@@ -302,7 +303,10 @@ export default function ChatInput({
   // This chat's account: its skills, commands and agents are that workspace's.
   const configDir = useSessionsStore((s) => configDirForSession(s, s.activeSessionId))
   const acItems = useSlashItems(slashQuery ?? '', cwd, configDir)
-  const autocompleteVisible = slashQuery !== null && !isLoading && acItems.length > 0
+  // The list is the CLI's: Claude's commands, offered to a chat that can run them.
+  const cliCommands = useSessionsStore((s) => capabilitiesOf(s.sessions.find((x) => x.id === s.activeSessionId)).cliCommands)
+  const chatProvider = useSessionsStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.provider ?? 'claude')
+  const autocompleteVisible = slashQuery !== null && !isLoading && acItems.length > 0 && cliCommands
 
   useEffect(() => {
     setAcSelectedIndex(0)
@@ -403,6 +407,19 @@ export default function ChatInput({
       })
     }
 
+    // What only Claude's CLI answers. Compaction is not among them: every CLI
+    // Nyra runs has its own, which the backend calls `/compact`.
+    const caps = capabilitiesOf(session)
+    const cliOnly = ['context', 'login', 'logout'].includes(name)
+    if (!caps.cliCommands && cliOnly) {
+      addInfo(
+        name === 'context'
+          ? `\`/context\` is a Claude Code command; this chat runs on ${PROVIDER_LABEL[session.provider]}.`
+          : `Sign in to ${PROVIDER_LABEL[session.provider]} from a terminal: \`codex login\`.`
+      )
+      return
+    }
+
     switch (name) {
       case 'clear':
         useSessionsStore.getState().clearMessages(sid)
@@ -449,7 +466,7 @@ export default function ChatInput({
         window.dispatchEvent(new CustomEvent('nyra:open-stats'))
         break
       case 'compact':
-        if (!session.claudeSessionId) {
+        if (!providerSessionId(session)) {
           addInfo('No active session to compact. Send a message first.')
           break
         }
@@ -457,7 +474,7 @@ export default function ChatInput({
         sendMessage('/compact')
         break
       case 'context':
-        if (!session.claudeSessionId) {
+        if (!providerSessionId(session)) {
           addInfo('No active session. Send a message first.')
           break
         }
@@ -494,6 +511,10 @@ export default function ChatInput({
         break
       }
       default:
+        if (!caps.cliCommands) {
+          addInfo(`\`/${name}\` is a Claude Code command; this chat runs on ${PROVIDER_LABEL[session.provider]}.`)
+          break
+        }
         // Built-in commands without a Nyra-native handler are forwarded to Claude.
         // Prepend the slash so /login, /model, /config, etc. land as real CLI commands
         // rather than being stripped by the prompt sender.
@@ -627,11 +648,18 @@ export default function ChatInput({
     // records the question in the chat's transcript anyway, where the next
     // turn reads it. Works mid-turn, so it is caught before the queue.
     const btw = btwQuestion(text)
+    const btwSession = useSessionsStore.getState().sessions.find((s) => s.id === useSessionsStore.getState().activeSessionId)
     if (btw !== null) {
       const sid = useSessionsStore.getState().activeSessionId
       if (sid) {
         setInput('')
-        openSideQuestion(sid, { question: btw })
+        if (capabilitiesOf(btwSession).sideQuestions) openSideQuestion(sid, { question: btw })
+        else
+          useSessionsStore.getState().addMessage(sid, {
+            id: newMessageId(),
+            role: 'assistant',
+            text: `Side questions are not available in ${PROVIDER_LABEL[btwSession!.provider]} chats yet.`
+          })
       }
       return
     }
@@ -1215,7 +1243,7 @@ export default function ChatInput({
                 ? 'Keep planning — what should change?'
                 : isLoading
                   ? 'Type to queue next message…'
-                  : 'Message Claude…'
+                  : `Message ${PROVIDER_LABEL[chatProvider]}…`
           }
           // What dictation has heard so far, drawn after the caret at
           // placeholder weight. It is a decoration, not document text: it

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Copy, MessageSquarePlus, MessagesSquare, Trash2 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useAnnotationsStore } from '../../store/annotations'
-import { newMessageId, type Message } from '../../store/sessions'
+import { newMessageId, useSessionsStore, type Message } from '../../store/sessions'
+import { capabilitiesOf } from '../../lib/providers'
 import { ANNOTATABLE, annotatableRoot, clampToRoot, offsetsOf, snapToWords } from '../../lib/chatAnnotations'
 import { annotationRange, setHighlight } from '../../lib/annotationHighlights'
 import { formatChord } from '../../lib/keys'
@@ -91,6 +92,7 @@ export default function SelectionAnnotator({
 }): React.JSX.Element | null {
   const [mode, setMode] = useState<Mode>({ kind: 'idle' })
   const [rect, setRect] = useState<DOMRect | null>(null)
+  const canAsk = useSessionsStore((s) => capabilitiesOf(s.sessions.find((x) => x.id === sessionId)).sideQuestions)
   const modeRef = useRef(mode)
   modeRef.current = mode
   const messagesRef = useRef(messages)
@@ -195,19 +197,21 @@ export default function SelectionAnnotator({
           <MessageSquarePlus className="size-3.5" />
           Comment
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            window.getSelection()?.removeAllRanges()
-            const { messageId, source, start, end, quote } = target
-            openSideQuestion(sessionId, { quote: { messageId, source, start, end, quote } })
-            setMode({ kind: 'idle' })
-          }}
-          className="flex h-6.5 items-center gap-1.5 rounded-at-7 px-2.5 font-[550] transition-colors hover:bg-accent"
-        >
-          <MessagesSquare className="size-3.5" />
-          Ask
-        </button>
+        {canAsk && (
+          <button
+            type="button"
+            onClick={() => {
+              window.getSelection()?.removeAllRanges()
+              const { messageId, source, start, end, quote } = target
+              openSideQuestion(sessionId, { quote: { messageId, source, start, end, quote } })
+              setMode({ kind: 'idle' })
+            }}
+            className="flex h-6.5 items-center gap-1.5 rounded-at-7 px-2.5 font-[550] transition-colors hover:bg-accent"
+          >
+            <MessagesSquare className="size-3.5" />
+            Ask
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {

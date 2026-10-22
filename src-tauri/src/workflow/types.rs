@@ -34,6 +34,9 @@ pub enum WorkflowNodeData {
         prompt: String,
         #[serde(default)]
         system_prompt: Option<String>,
+        /// Which CLI runs the node; absent is Claude.
+        #[serde(default)]
+        provider: Option<crate::agent::Provider>,
         #[serde(default)]
         model: Option<String>,
         #[serde(default)]

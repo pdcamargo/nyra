@@ -1,4 +1,5 @@
-import { cwdForSession, newMessageId, useSessionsStore } from '../store/sessions'
+import { cwdForSession, newMessageId, providerSessionId, useSessionsStore } from '../store/sessions'
+import { capabilitiesOf } from './providers'
 import { useSideQuestionsStore, type SideQuote, type SideThread } from '../store/sideQuestions'
 import type { SideEvent } from './tauri-api'
 import { spawnSettingsForSession } from './spawnSettings'
@@ -12,6 +13,9 @@ import { sidePrompt } from './sideQuestions'
 
 /** Open the sheet on a fresh thread, asking `question` right away when there is one. */
 export function openSideQuestion(sessionId: string, opts: { quote?: SideQuote; question?: string } = {}): void {
+  // Every way in — `/btw`, Ask on a selection, the palette — comes through here.
+  const session = useSessionsStore.getState().sessions.find((s) => s.id === sessionId)
+  if (!capabilitiesOf(session).sideQuestions) return
   const thread: SideThread = { id: newMessageId(), quote: opts.quote, turns: [] }
   const previous = useSideQuestionsStore.getState().start(sessionId, thread)
   if (previous) void window.api.claude.sideClose(previous.id)
@@ -34,7 +38,7 @@ export function askSide(sessionId: string, question: string): void {
       nyraSessionId: sessionId,
       cwd: cwdForSession(sessions, sessionId),
       // Nothing to fork before the chat's first reply: the thread starts blank.
-      sessionId: session?.claudeSessionId ?? null,
+      sessionId: providerSessionId(session),
       // Only the first message needs telling what this is; the process remembers.
       prompt: first ? sidePrompt(question, thread.quote) : question.trim(),
       settings: spawnSettingsForSession(sessionId)

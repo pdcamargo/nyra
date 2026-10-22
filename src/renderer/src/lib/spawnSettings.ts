@@ -1,6 +1,7 @@
 import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
 import { configDirForSession, useSessionsStore } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
+import { capabilitiesOf } from './providers'
 
 /** What "auto-accept edits" actually waives — file writes, nothing else. */
 const EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit']
@@ -23,7 +24,9 @@ export function spawnSettingsForSession(sessionId: string): SpawnSettings {
   // changed it in every chat, including ones already running.
   const resolved: SpawnSettings = {
     ...base,
-    planMode: session?.planMode ?? base.planMode,
+    provider: session?.provider ?? base.provider,
+    // Plan mode is Claude's; a chat that moved off it does not carry it along.
+    planMode: capabilitiesOf(session).planMode && (session?.planMode ?? base.planMode),
     model: session?.model ?? base.model,
     effort: session?.effort ?? base.effort
   }

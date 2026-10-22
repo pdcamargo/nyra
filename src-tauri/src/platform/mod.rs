@@ -32,7 +32,7 @@ pub use imp::{
     canonical_dir, default_shell, executable_names, file_id, find_processes, force_kill,
     is_alive, listening_ports, log_dir, login_shell_path, on_shutdown_signal,
     private_open_options, process_table, restrict_to_owner, simplified, terminate,
-    CLAUDE_INSTALLS, FALLBACK_BINS,
+    codex_native, CLAUDE_INSTALLS, CODEX_INSTALLS, FALLBACK_BINS,
 };
 
 // ---------------------------------------------------------------------------

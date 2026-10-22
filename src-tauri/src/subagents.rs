@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::time::{Duration, Instant};
 
-use crate::claude::emit_event;
+use crate::agent::emit_event;
 use crate::util;
 
 /// A tool result can be a whole file. The panel shows a trace line, not a dump.

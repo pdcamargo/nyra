@@ -1,3 +1,5 @@
+import type { Provider } from './types'
+
 // Workflow node status during execution
 export type WorkflowNodeStatus =
   | 'idle'
@@ -23,6 +25,8 @@ export type PromptNodeData = {
   type: 'prompt'
   prompt: string
   systemPrompt?: string
+  /** Which CLI runs the node; absent is Claude, which every node was before. */
+  provider?: Provider
   model?: string
   allowedTools?: string[]
   setVars?: SetVarSpec[]

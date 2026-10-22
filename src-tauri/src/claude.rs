@@ -13,7 +13,6 @@
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use regex::Regex;
-use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -26,6 +25,7 @@ use tokio::process::ChildStdin;
 use tokio::sync::oneshot;
 use tokio::sync::Mutex as AsyncMutex;
 
+use crate::agent::{self, emit_event, fail_before_turn, AgentBackend, Prewarm, SideAsk, Turn, Usage};
 use crate::ai_title;
 use crate::environment::Environment;
 use crate::notify_user::notify;
@@ -222,72 +222,6 @@ pub fn is_auth_error(msg: &str) -> bool {
         .unwrap()
     });
     RE.is_match(msg)
-}
-
-fn strip_ansi(s: &str) -> String {
-    static CSI: Lazy<Regex> = Lazy::new(|| Regex::new(r"\x1B\[[\d;]*[a-zA-Z]").unwrap());
-    static ESC: Lazy<Regex> = Lazy::new(|| Regex::new(r"\x1B[^\[]").unwrap());
-    let s = CSI.replace_all(s, "");
-    let s = ESC.replace_all(&s, "");
-    s.replace('\r', "")
-}
-
-// ---- workflow-engine hooks ----
-
-pub type UsageCallback = Arc<dyn Fn(Usage) + Send + Sync>;
-
-#[derive(Debug, Clone, Copy, Default, Serialize)]
-pub struct Usage {
-    pub input_tokens: i64,
-    pub output_tokens: i64,
-    pub cache_creation_input_tokens: i64,
-    pub cache_read_input_tokens: i64,
-}
-
-/// `(final text, is_error)` handed to whoever is awaiting a session's outcome.
-type ResultSender = oneshot::Sender<(String, bool)>;
-
-static RESULT_CALLBACKS: Lazy<Mutex<HashMap<String, ResultSender>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-static USAGE_CALLBACKS: Lazy<Mutex<HashMap<String, UsageCallback>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-
-/// Register a one-shot result sink for a session. Used by the workflow engine to
-/// await a prompt node's final text instead of reading the renderer's events.
-pub fn on_claude_result(nyra_session_id: &str) -> oneshot::Receiver<(String, bool)> {
-    let (tx, rx) = oneshot::channel();
-    RESULT_CALLBACKS.lock().insert(nyra_session_id.to_string(), tx);
-    rx
-}
-
-pub fn on_claude_usage(nyra_session_id: &str, cb: UsageCallback) {
-    USAGE_CALLBACKS.lock().insert(nyra_session_id.to_string(), cb);
-}
-
-pub fn off_claude_usage(nyra_session_id: &str) {
-    USAGE_CALLBACKS.lock().remove(nyra_session_id);
-}
-
-/// Close out a session's result sink with an error.
-///
-/// The workflow engine blocks on this sink, so it has to fire exactly once for
-/// every session — including the ones that die without ever emitting a `result`
-/// event (abort, spawn failure, non-zero exit, permission denial).
-/// A turn that failed before Claude could start it: the spawn or the first
-/// write. The CLI never ran, so no `result` or exit is coming to end the turn
-/// the renderer has already started — and `claude_query`'s `{ error }` is not
-/// read by the send path. Say it the way a process exit does, or the chat spins
-/// with no error.
-fn fail_before_turn(nyra_session_id: &str, reason: &str) {
-    emit_event(nyra_session_id, json!({ "type": "error", "result": reason }));
-    emit_event(nyra_session_id, json!({ "type": "stream_end" }));
-    fail_result_callback(nyra_session_id, reason);
-}
-
-fn fail_result_callback(nyra_session_id: &str, reason: &str) {
-    if let Some(cb) = RESULT_CALLBACKS.lock().remove(nyra_session_id) {
-        let _ = cb.send((reason.to_string(), true));
-    }
 }
 
 // ---- session state ----
@@ -488,17 +422,6 @@ fn get_session(id: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().get(id).cloned()
 }
 
-pub(crate) fn emit_event(nyra_session_id: &str, mut extra: Value) {
-    crate::keep_awake::note_event(nyra_session_id, &extra);
-    if let Value::Object(map) = &mut extra {
-        map.insert(
-            "nyraSessionId".into(),
-            Value::String(nyra_session_id.to_string()),
-        );
-    }
-    util::emit("claude:event", extra);
-}
-
 // ---- lifecycle ----
 
 fn kill_session_pty(sess: &Arc<Session>) {
@@ -520,7 +443,7 @@ fn kill_session_pty(sess: &Arc<Session>) {
 /// no console with us at all. The control request is what the Agent SDK's
 /// `interrupt()` sends: the CLI acknowledges it, ends the turn with the same
 /// `error_during_execution` result SIGINT produced, and stays up.
-pub fn abort_claude(nyra_session_id: Option<&str>) {
+fn abort_claude(nyra_session_id: Option<&str>) {
     let targets: Vec<(String, Arc<Session>)> = {
         let sessions = SESSIONS.lock();
         match nyra_session_id {
@@ -559,7 +482,7 @@ pub fn abort_claude(nyra_session_id: Option<&str>) {
         if let Some(turn) = turn {
             let _ = turn.send(Err("Aborted by user".into()));
         }
-        fail_result_callback(&id, "Aborted by user");
+        agent::fail_result(&id, "Aborted by user");
         emit_event(&id, json!({ "type": "stream_end" }));
     }
 }
@@ -569,18 +492,18 @@ pub fn dispose_session(nyra_session_id: &str) {
         return;
     };
     kill_session_pty(&sess);
-    USAGE_CALLBACKS.lock().remove(nyra_session_id);
+    agent::off_usage(nyra_session_id);
     ai_title::forget(nyra_session_id);
     subagents::forget_session(nyra_session_id);
     crate::desktop::forget(nyra_session_id);
     crate::keep_awake::forget(nyra_session_id);
-    fail_result_callback(nyra_session_id, "Session disposed");
+    agent::fail_result(nyra_session_id, "Session disposed");
 }
 
 /// Dispose a chat and wait for its process to exit before a caller snapshots
 /// files it may have been writing. The ordinary dispose path is intentionally
 /// fire-and-forget; archiving needs a stronger completion boundary.
-pub async fn dispose_session_and_wait(nyra_session_id: &str) -> Result<(), String> {
+async fn dispose_session_and_wait(nyra_session_id: &str) -> Result<(), String> {
     let pid = get_session(nyra_session_id).and_then(|session| session.inner.lock().pid);
     dispose_session(nyra_session_id);
 
@@ -596,12 +519,12 @@ pub async fn dispose_session_and_wait(nyra_session_id: &str) -> Result<(), Strin
     Ok(())
 }
 
-pub fn dispose_all() {
+fn dispose_all() {
     let all: Vec<Arc<Session>> = SESSIONS.lock().drain().map(|(_, v)| v).collect();
     for sess in all {
         kill_session_pty(&sess);
     }
-    USAGE_CALLBACKS.lock().clear();
+    agent::clear_usage_callbacks();
 }
 
 // ---- permissions ----
@@ -666,7 +589,7 @@ async fn revert_file_change(env: &Environment, info: &PendingPermission) {
     }
 }
 
-pub async fn respond_permission(approved: bool, nyra_session_id: Option<String>) {
+async fn respond_permission(approved: bool, nyra_session_id: Option<String>) {
     let Some(nyra_session_id) = nyra_session_id else {
         return;
     };
@@ -922,10 +845,8 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
             );
             return;
         }
-        if let Some(cb) = RESULT_CALLBACKS.lock().remove(nyra_session_id) {
-            let _ = cb.send((result_text.to_string(), is_error));
-        }
-        USAGE_CALLBACKS.lock().remove(nyra_session_id);
+        agent::deliver_result(nyra_session_id, result_text, is_error);
+        agent::off_usage(nyra_session_id);
         // Claude is exiting; background bash children are orphaned but still
         // tracked by pid so they remain killable.
         processes::clear_session(nyra_session_id);
@@ -1334,8 +1255,28 @@ fn compose_system_prompt(
     has_app: bool,
     has_desktop: bool,
 ) -> String {
+    compose_system_prompt_for(agent::Provider::Claude, cwd, user_prompt, has_browser, has_app, has_desktop)
+}
+
+/// What Nyra teaches whichever CLI runs the chat: the same conventions for
+/// both, under a first line that names the right one.
+pub(crate) fn compose_system_prompt_for(
+    provider: agent::Provider,
+    cwd: &str,
+    user_prompt: &str,
+    has_browser: bool,
+    has_app: bool,
+    has_desktop: bool,
+) -> String {
+    let host = format!(
+        "You are running inside Nyra, a desktop GUI for {}.",
+        match provider {
+            agent::Provider::Claude => "Claude Code",
+            agent::Provider::Codex => "Codex",
+        }
+    );
     let mut parts: Vec<&str> = vec![
-        "You are running inside Nyra, a desktop GUI for Claude Code.",
+        &host,
         "Tool call results are NOT shown inline — they are hidden inside collapsible cards the user may not open.",
         "So when a result is part of the answer, put the part that matters in your reply — the relevant lines, the figures, the error — and summarize the rest rather than pasting whole files or long output.",
         "Never say \"here it is\" or \"see above\" without actually showing it in your message.",
@@ -1687,7 +1628,7 @@ async fn send_prompt_to_session(
 /// The id comes back as `steer_delivered` when the CLI hands the message to the
 /// model — at the next tool boundary, or, when the turn had none left, in a turn
 /// the CLI opens by itself after the result. Verified against 2.1.296.
-pub async fn steer_session(nyra_session_id: &str, prompt: &str) -> Option<u64> {
+async fn steer_session(nyra_session_id: &str, prompt: &str) -> Option<u64> {
     let sess = get_session(nyra_session_id)?;
     let env = {
         let inner = sess.inner.lock();
@@ -1803,7 +1744,7 @@ fn continuation_watchdog(sess: Arc<Session>, nyra_session_id: String) {
     });
 }
 
-pub async fn run_claude(
+async fn run_claude(
     prompt: String,
     cwd: String,
     resume_session_id: Option<String>,
@@ -1814,7 +1755,7 @@ pub async fn run_claude(
     checkpoint: Option<String>,
 ) -> Result<Option<String>, String> {
     if prompt.trim().is_empty() {
-        fail_result_callback(&nyra_session_id, "Empty prompt");
+        agent::fail_result(&nyra_session_id, "Empty prompt");
         return Err("Empty prompt".into());
     }
 
@@ -1920,7 +1861,7 @@ fn spawn_lock(nyra_session_id: &str) -> Arc<AsyncMutex<()>> {
 /// trail of idle CLIs, so a new prewarm retires any earlier one that never got
 /// a prompt. Failures are logged and dropped — the send will spawn again and
 /// report whatever is wrong in the chat.
-pub async fn prewarm(
+async fn prewarm(
     cwd: String,
     resume_session_id: Option<String>,
     nyra_session_id: String,
@@ -2168,7 +2109,7 @@ async fn spawn_session(
 async fn consume_stdout(sess: &Arc<Session>, nyra_session_id: &str, data: &str) {
     let lines: Vec<String> = {
         let mut inner = sess.inner.lock();
-        inner.line_buffer.push_str(&strip_ansi(data));
+        inner.line_buffer.push_str(&util::strip_ansi(data));
 
         if inner.line_buffer.len() > MAX_LINE_BUFFER {
             crate::logf!("Line buffer exceeded {MAX_LINE_BUFFER} bytes, truncating");
@@ -2525,10 +2466,7 @@ async fn dispatch_line(sess: &Arc<Session>, nyra_session_id: &str, mut raw: Valu
                 );
             }
             emit_event(nyra_session_id, event);
-            let cb = USAGE_CALLBACKS.lock().get(nyra_session_id).cloned();
-            if let Some(cb) = cb {
-                cb(normalized);
-            }
+            agent::report_usage(nyra_session_id, normalized);
         }
     }
 
@@ -2981,7 +2919,7 @@ fn retry_without_resume(sess: &Arc<Session>, nyra_session_id: &str) {
 
     kill_session_pty(sess);
     SESSIONS.lock().remove(nyra_session_id);
-    USAGE_CALLBACKS.lock().remove(nyra_session_id);
+    agent::off_usage(nyra_session_id);
     emit_event(
         nyra_session_id,
         json!({ "type": "session_reset", "reason": "stale_resume" }),
@@ -3077,7 +3015,7 @@ async fn on_child_exit(sess: &Arc<Session>, nyra_session_id: &str, exit_code: Op
         let err_msg = format!("Claude exited with code {}", exit_code.unwrap_or(-1));
         emit_event(nyra_session_id, json!({ "type": "error", "result": err_msg }));
         emit_event(nyra_session_id, json!({ "type": "stream_end" }));
-        fail_result_callback(nyra_session_id, &err_msg);
+        agent::fail_result(nyra_session_id, &err_msg);
         let _ = turn.send(Err(err_msg));
     }
 
@@ -3087,6 +3025,64 @@ async fn on_child_exit(sess: &Arc<Session>, nyra_session_id: &str, exit_code: Op
     let mut sessions = SESSIONS.lock();
     if sessions.get(nyra_session_id).is_some_and(|s| Arc::ptr_eq(s, sess)) {
         sessions.remove(nyra_session_id);
+    }
+}
+
+// ---- the backend ----
+
+/// Claude Code, as one of Nyra's agent backends. Everything above is how it is
+/// driven; this is the whole of what the rest of the app gets to call.
+pub struct Claude;
+
+impl AgentBackend for Claude {
+    async fn run(&self, turn: Turn) -> Result<Option<String>, String> {
+        run_claude(
+            turn.prompt,
+            turn.cwd,
+            turn.resume_session_id,
+            turn.resume_at,
+            turn.nyra_session_id,
+            turn.settings,
+            turn.worktree_name,
+            turn.checkpoint,
+        )
+        .await
+    }
+
+    async fn prewarm(&self, warm: Prewarm) {
+        prewarm(warm.cwd, warm.resume_session_id, warm.nyra_session_id, warm.settings, warm.worktree_name).await;
+    }
+
+    fn abort(&self, nyra_session_id: &str) {
+        abort_claude(Some(nyra_session_id));
+    }
+
+    fn abort_all(&self) {
+        abort_claude(None);
+    }
+
+    async fn steer(&self, nyra_session_id: &str, prompt: &str) -> Option<u64> {
+        steer_session(nyra_session_id, prompt).await
+    }
+
+    async fn respond_permission(&self, nyra_session_id: &str, approved: bool) {
+        respond_permission(approved, Some(nyra_session_id.to_string())).await;
+    }
+
+    async fn dispose(&self, nyra_session_id: &str) -> Result<(), String> {
+        dispose_session_and_wait(nyra_session_id).await
+    }
+
+    fn dispose_all(&self) {
+        dispose_all();
+    }
+
+    async fn side_ask(&self, ask: SideAsk) -> Result<(), String> {
+        crate::side::ask(ask.side_id, ask.nyra_session_id, ask.cwd, ask.resume_session_id, ask.prompt, ask.settings).await
+    }
+
+    fn side_close(&self, side_id: &str) {
+        crate::side::close(side_id);
     }
 }
 
@@ -3533,7 +3529,7 @@ mod tests {
 
     #[test]
     fn strips_ansi_and_carriage_returns() {
-        assert_eq!(strip_ansi("\x1b[31mred\x1b[0m\r\n"), "red\n");
+        assert_eq!(util::strip_ansi("\x1b[31mred\x1b[0m\r\n"), "red\n");
     }
 
     #[test]
@@ -3950,7 +3946,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::<i64>::new()));
         {
             let seen = seen.clone();
-            on_claude_usage("usage-once", Arc::new(move |u: Usage| seen.lock().push(u.output_tokens)));
+            agent::on_usage("usage-once", Arc::new(move |u: Usage| seen.lock().push(u.output_tokens)));
         }
         let line = |id: &str, block: Value| {
             json!({
@@ -3967,7 +3963,7 @@ mod tests {
         dispatch_line(&sess, "usage-once", line("msg_1", json!({ "type": "text", "text": "Reading" }))).await;
         dispatch_line(&sess, "usage-once", line("msg_1", json!({ "type": "thinking", "thinking": "" }))).await;
         dispatch_line(&sess, "usage-once", line("msg_2", json!({ "type": "text", "text": "Done" }))).await;
-        off_claude_usage("usage-once");
+        agent::off_usage("usage-once");
 
         assert_eq!(*seen.lock(), vec![40, 40]);
     }

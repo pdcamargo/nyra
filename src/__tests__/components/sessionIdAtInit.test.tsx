@@ -10,7 +10,7 @@ type Api = { claude: Record<string, unknown>; agents: Record<string, unknown> }
 
 let emit: (event: unknown) => void = () => {}
 
-const claudeSessionId = () => useSessionsStore.getState().sessions.find((s) => s.id === 's1')?.claudeSessionId
+const claudeSessionId = () => useSessionsStore.getState().sessions.find((s) => s.id === 's1')?.providerSessionIds.claude
 
 describe("a chat's Claude session id", () => {
   beforeEach(() => {
@@ -30,7 +30,8 @@ describe("a chat's Claude session id", () => {
       sessions: [
         {
           id: 's1',
-          claudeSessionId: null,
+          provider: 'claude',
+          providerSessionIds: {},
           title: 'Chat',
           cwd: '/tmp',
           createdAt: 0,
@@ -58,7 +59,7 @@ describe("a chat's Claude session id", () => {
 
   it('is left alone by an init that names none', () => {
     useSessionsStore.setState((state) => ({
-      sessions: state.sessions.map((s) => ({ ...s, claudeSessionId: 'c-old' }))
+      sessions: state.sessions.map((s) => ({ ...s, providerSessionIds: { claude: 'c-old' } }))
     }))
     render(
       <TooltipProvider>

@@ -8,7 +8,8 @@ import { useAccountsStore } from '@renderer/store/accounts'
 import { deleteWorkspace, planDelete } from '@renderer/lib/workspaceDelete'
 
 const session = (over: Partial<Session> & { id: string }): Session => ({
-  claudeSessionId: null,
+  provider: 'claude',
+  providerSessionIds: {},
   title: 'chat',
   cwd: '/repo',
   createdAt: 0,

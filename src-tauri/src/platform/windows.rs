@@ -418,6 +418,41 @@ pub const CLAUDE_INSTALLS: &[&str] = &[
     "~/AppData/Roaming/npm/claude.cmd",
 ];
 
+/// The standalone installer, then a global npm install. An npm `.cmd` is
+/// traded for the binary it ends up running — see [`codex_native`].
+pub const CODEX_INSTALLS: &[&str] = &[
+    "~/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe",
+    "~/AppData/Roaming/npm/codex.cmd",
+];
+
+/// The `codex.exe` an npm install keeps beside the launcher it put on PATH.
+///
+/// The `.cmd` runs a Node script that spawns this, so running it direct is one
+/// process instead of three, and the one Nyra stops is the one doing the work.
+/// The platform package sits under `@openai/codex` or hoisted next to it,
+/// depending on the npm that installed it.
+pub fn codex_native(launcher: &Path) -> Option<PathBuf> {
+    let is_cmd = launcher.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("cmd"));
+    if !is_cmd {
+        return None;
+    }
+    let modules = launcher.parent()?.join("node_modules");
+    let roots = [modules.join("@openai").join("codex").join("node_modules"), modules];
+    let targets = [("x64", "x86_64-pc-windows-msvc"), ("arm64", "aarch64-pc-windows-msvc")];
+    roots.iter().find_map(|root| {
+        targets.iter().find_map(|(arch, triple)| {
+            let exe = root
+                .join("@openai")
+                .join(format!("codex-win32-{arch}"))
+                .join("vendor")
+                .join(triple)
+                .join("bin")
+                .join("codex.exe");
+            exe.is_file().then_some(exe)
+        })
+    })
+}
+
 // ---- files ----
 
 /// Nothing to add: `%TEMP%` is under the user's own profile, whose ACL already

@@ -29,7 +29,7 @@ function seed(servers: McpServerInfo[] = []): void {
   useSessionsStore.setState({
     activeSessionId: SID,
     sessions: [
-      { id: SID, cwd: CWD, messages: [], mcpServers: servers, claudeSessionId: 'claude-9' }
+      { id: SID, cwd: CWD, messages: [], mcpServers: servers, provider: 'claude', providerSessionIds: { claude: 'claude-9' } }
     ],
     projects: []
   } as never)
@@ -288,7 +288,7 @@ describe('reconnecting', () => {
     expect(await screen.findByText(/reconnect on your next message/)).toBeInTheDocument()
     // The conversation is kept: clearing the Claude session id is what
     // `restartSession` does, and it is not what a reconnect is.
-    expect(useSessionsStore.getState().sessions[0].claudeSessionId).toBe('claude-9')
+    expect(useSessionsStore.getState().sessions[0].providerSessionIds.claude).toBe('claude-9')
   })
 
   // Killing a running agent to refresh a status dot would be a bad trade.

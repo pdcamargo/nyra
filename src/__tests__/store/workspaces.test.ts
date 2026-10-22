@@ -27,7 +27,8 @@ import {
 import { runCommand } from '@renderer/commands/registry'
 
 const session = (over: Partial<Session> & { id: string }): Session => ({
-  claudeSessionId: null,
+  provider: 'claude',
+  providerSessionIds: {},
   title: 'chat',
   cwd: '/repo',
   createdAt: 0,

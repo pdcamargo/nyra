@@ -39,6 +39,14 @@ fn config_dir_in(root: &Path, id: &str) -> PathBuf {
     root.join(id).join(".claude")
 }
 
+/// A workspace's Codex home: `.codex` beside its `.claude`, so one directory is
+/// the whole of a workspace's accounts. None for Default, whose Codex is the
+/// CLI's own `~/.codex`, and for a config dir that is not a workspace's.
+pub fn codex_home_for(config_dir: Option<&str>) -> Option<PathBuf> {
+    let dir = Path::new(config_dir?);
+    (dir.file_name()? == ".claude").then(|| dir.with_file_name(".codex"))
+}
+
 /// Every workspace config dir that exists — not Default's. Read from disk
 /// rather than from the renderer, so the managed-skills sync and the transcript
 /// search see workspaces a second instance created too.
@@ -198,6 +206,14 @@ pub fn config_dir_for_project(project_id: Option<&str>) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_workspaces_codex_home_sits_beside_its_claude_dir() {
+        let claude = Path::new("ws").join("abc").join(".claude");
+        assert_eq!(codex_home_for(claude.to_str()), Some(Path::new("ws").join("abc").join(".codex")));
+        assert_eq!(codex_home_for(None), None);
+        assert_eq!(codex_home_for(Some("/somewhere/else")), None);
+    }
 
     struct Tmp(PathBuf);
     impl Drop for Tmp {

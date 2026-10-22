@@ -10,7 +10,8 @@ import {
 import { useSessionsStore, type Project, type Session } from '@renderer/store/sessions'
 
 const session = (over: Partial<Session> & { id: string }): Session => ({
-  claudeSessionId: null,
+  provider: 'claude',
+  providerSessionIds: {},
   title: over.id,
   cwd: '',
   createdAt: 0,

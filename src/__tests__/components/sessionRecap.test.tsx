@@ -11,7 +11,8 @@ const T0 = 1_700_000_000_000
 function seed(partial: Partial<Session>): Session {
   const s: Session = {
     id: 's1',
-    claudeSessionId: null,
+    provider: 'claude',
+    providerSessionIds: {},
     title: 'Test',
     cwd: '/tmp',
     createdAt: T0,

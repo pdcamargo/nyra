@@ -1,12 +1,15 @@
 export type ThemePreference = 'dark' | 'light' | 'system'
 
+/** How hard the model thinks. '' is the CLI's own default; `ultra` is Codex's alone. */
+export type Effort = '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
+
 export type NyraSettings = {
   model: string // '' = default, or model ID like 'sonnet', 'opus', 'haiku'
   skipPermissions: boolean
   notifications: boolean
   systemPrompt: string
   claudeBinaryPath: string
-  effort: '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  effort: Effort
   planMode: boolean
   autoCompact: boolean
   autoCompactThreshold: number
@@ -142,6 +145,9 @@ export type DiffViewMode = 'auto' | 'unified' | 'split'
 /** How wide the conversation column is allowed to get. */
 export type ChatWidth = 'compact' | 'default' | 'wide' | 'full'
 
+/** Which CLI runs a chat. */
+export type Provider = 'claude' | 'codex'
+
 /**
  * The subset of settings that reaches a spawned Claude process, sent with each
  * `claude.query` rather than read from the backend's process-global. This is the
@@ -159,6 +165,8 @@ export type SpawnSettings = Pick<
   | 'skipPermissions'
   | 'autoApproveTools'
 > & {
+  /** Which CLI runs the chat. The backend treats an absent one as Claude. */
+  provider: Provider
   /** The workspace's `CLAUDE_CONFIG_DIR`; null is Default. Part of the spawn
    *  fingerprint, so a changed account respawns the chat. */
   configDir: string | null
@@ -166,6 +174,7 @@ export type SpawnSettings = Pick<
 
 export function spawnSettingsFor(settings: NyraSettings, configDir: string | null): SpawnSettings {
   return {
+    provider: 'claude',
     configDir,
     model: settings.model,
     effort: settings.effort,

@@ -22,6 +22,27 @@ const WINDOWS: { type: string; label: string }[] = [
   { type: 'seven_day', label: 'Weekly' }
 ]
 
+/** "Weekly", "5 hours": a Codex window is named for its length. */
+function windowLength(minutes: number): string {
+  if (minutes === 10080) return 'Weekly'
+  if (minutes === 1440) return 'Daily'
+  if (minutes % 60 === 0) return `${minutes / 60} hours`
+  return `${minutes} minutes`
+}
+
+/**
+ * The Codex windows this account has reported, shortest first. Codex keys them
+ * by length, and a plan may have one or two, so they are listed as they come
+ * rather than drawn as empty slots the way Claude's two are.
+ */
+function codexWindows(windows: Record<string, unknown>): { type: string; label: string }[] {
+  return Object.keys(windows)
+    .map((type) => ({ type, minutes: Number(/^codex_(\d+)$/.exec(type)?.[1]) }))
+    .filter((w) => Number.isFinite(w.minutes) && w.minutes > 0)
+    .sort((a, b) => a.minutes - b.minutes)
+    .map(({ type, minutes }) => ({ type, label: `Codex · ${windowLength(minutes)}` }))
+}
+
 /** "3h 19m", "5m 22s", "2d 4h" — the largest two units that still say something. */
 function until(resetsAtSec: number, now: number): string | null {
   const ms = resetsAtSec * 1000 - now
@@ -201,7 +222,7 @@ export default function UsageMenu(): React.JSX.Element {
           </>
         )}
         <DropdownMenuLabel>Limits</DropdownMenuLabel>
-        {WINDOWS.map(({ type, label }) => {
+        {[...WINDOWS, ...codexWindows(windows)].map(({ type, label }) => {
           const w = windows[type]
           const used = w?.utilization === undefined ? null : pct(w.utilization)
           const left = w ? until(w.resetsAt, now) : null
