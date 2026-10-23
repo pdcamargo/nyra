@@ -209,6 +209,7 @@ pub fn run() {
             commands::workspace_copy_transcripts,
             commands::workspace_logout,
             commands::workspace_delete,
+            commands::workspace_sign_in,
             commands::workspaces_sync_projects,
             commands::model_alias_targets,
             commands::claude_save_image,

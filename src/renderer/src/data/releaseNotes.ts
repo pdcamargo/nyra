@@ -8,7 +8,24 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Projects in the sidebar are easier to tell apart. Pick a style in Settings → Appearance → Sidebar: Headings puts a rule between projects, Cards boxes an open one, and Spine gives each project a tile and a line in its colour. A project with no colour gets one',
+      'While a chat is open, the other projects fade so you can see which one you are in. Their spinners and waiting chips stay at full strength. Turn it off in the same place',
+      'A chat waiting on you is now amber and says what it is waiting on: Allow Bash, Question or Plan. It used to be the same blue as unread',
+      'A running chat shows its spinner left of the title and how long the turn has been going on the right',
+      'Each project header counts its running and waiting chats and its open and merged pull requests, including chats under Show more',
+      'A Needs you tray above Pinned gathers every chat waiting on you from every project, including collapsed ones. It can be turned off',
+      "A project's chats are now sorted by last activity unless you pick another order. A chosen order still tints the sort button, which now only shows on hover",
+      'Reorder your projects from the new button beside Projects: drag a project by its handle, or focus the handle and use the arrow keys',
+      'Wrapping long lines in a code block is now remembered, and applies to every code block',
+      "A code block's header, with Copy and Wrap, stays at the top of the chat while you scroll through a long block",
+      'Choose how faded the other projects get, from 30% to 90%, under Dim other projects',
+      "Turning off the task checklist now hides all of it: Claude's to-do tool lines in the transcript and the checklist line in the away recap too",
+      'Shader code is highlighted: HLSL, GLSL, WGSL, ShaderLab and Godot shaders in the chat, and HLSL, GLSL and WGSL files in the file preview. Fences labelled frag, vert, fx, opengl, naga or metal work too',
+      'Tables in a markdown file preview are drawn as tables',
+      'Press Ctrl+Space right after an @ to see everything you can mention before typing anything: agents, and the top of the project to browse into',
+      "A new workspace can use the Claude or Codex sign-in of one you already have, instead of signing in again. The two share one login, so it stays signed in in both. Sharing Codex also shares its Codex chats and settings. A workspace whose sign-in others use can't be deleted until they are"
+    ]
   },
   {
     version: '1.1.0',

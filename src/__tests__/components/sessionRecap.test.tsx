@@ -45,7 +45,7 @@ function draw(props: Partial<React.ComponentProps<typeof SessionRecap>> = {}) {
 describe('SessionRecap', () => {
   beforeEach(() => {
     useSessionsStore.setState({ sessions: [], activeSessionId: null })
-    useSettingsStore.setState({ awayRecap: true })
+    useSettingsStore.setState({ awayRecap: true, showTasks: true })
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(T0 + 12 * 60_000)
   })
@@ -181,5 +181,18 @@ describe('SessionRecap', () => {
     })
     draw()
     expect(screen.getByText(/Checklist left partly done — 1 of 2 tasks done/)).toBeInTheDocument()
+  })
+
+  it('leaves the checklist out with the checklist turned off', () => {
+    useSettingsStore.setState({ showTasks: false })
+    seed({
+      away: { since: T0, turnsAtLeave: 0 },
+      turns: 1,
+      messages: [msg('a', T0 + 10)],
+      tasks: [{ taskId: '1', subject: 'x', description: '', status: 'completed', createdByToolId: 't' }]
+    })
+    draw()
+    expect(screen.getByText('While you were away')).toBeInTheDocument()
+    expect(screen.queryByText(/checklist/i)).not.toBeInTheDocument()
   })
 })

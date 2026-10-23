@@ -57,6 +57,8 @@ pub fn home_dir() -> PathBuf {
 /// What points a `claude` process at a workspace's own login, settings,
 /// plugins and transcripts.
 pub const CLAUDE_CONFIG_DIR: &str = "CLAUDE_CONFIG_DIR";
+/// Where the CLI keeps credentials, when not in the config dir. See `workspaces.rs`.
+pub const CLAUDE_SECURESTORAGE_CONFIG_DIR: &str = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
 
 /// A workspace's config directory as the renderer sends it. `None`, or a blank
 /// string, is the Default workspace: it sets nothing, which is exactly the
@@ -97,11 +99,21 @@ pub fn claude_json(env: &Environment, config_dir: Option<&Path>) -> PathBuf {
 /// Default adds nothing, so its children see what they always did — including a
 /// `CLAUDE_CONFIG_DIR` the user exported themselves. A workspace replaces any
 /// inherited one rather than adding a second: which of two wins is up to the OS.
+///
+/// A workspace that borrows another's sign-in also gets
+/// `CLAUDE_SECURESTORAGE_CONFIG_DIR`, the lender's store; see `workspaces.rs`.
+/// Set here because every `claude` Nyra starts — chats, flows, terminals,
+/// login, status, logout — takes its env from this one function.
 pub fn claude_child_env(config_dir: Option<&Path>) -> Vec<(String, String)> {
     let mut env = clean_child_env();
     if let Some(dir) = config_dir {
-        env.retain(|(k, _)| !k.eq_ignore_ascii_case(CLAUDE_CONFIG_DIR));
+        env.retain(|(k, _)| {
+            !k.eq_ignore_ascii_case(CLAUDE_CONFIG_DIR) && !k.eq_ignore_ascii_case(CLAUDE_SECURESTORAGE_CONFIG_DIR)
+        });
         env.push((CLAUDE_CONFIG_DIR.to_string(), dir.to_string_lossy().into_owned()));
+        if let Some(store) = crate::workspaces::claude_store_for(dir) {
+            env.push((CLAUDE_SECURESTORAGE_CONFIG_DIR.to_string(), store));
+        }
     }
     env
 }

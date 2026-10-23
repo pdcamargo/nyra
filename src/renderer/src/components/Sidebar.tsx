@@ -16,12 +16,14 @@ import { useUiStore, type MainView } from '../store/ui'
 import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBrowserStore } from '../store/browser'
-import { useRunningStore, projectSpinnerVisible } from '../store/running'
+import { useRunningStore } from '../store/running'
+import { usePendingPermissionsStore } from '../store/pendingPermissions'
+import { useSettingsStore } from '../store/settings'
 import { useBusyChats } from '../lib/backgroundWait'
 import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { ALargeSmall, Archive, ArrowDown, ArrowDownWideNarrow, ArrowUp, Brain, CalendarPlus, Check, CircleDot, CopyCheck, GitPullRequest, MessageSquare, RotateCcw, type LucideIcon, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, FolderGit2, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, Settings2, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
+import { ALargeSmall, Archive, ArrowDown, ArrowUpDown, ArrowDownWideNarrow, ArrowUp, Brain, CalendarPlus, Check, CircleDot, CopyCheck, GitPullRequest, MessageSquare, RotateCcw, type LucideIcon, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, FolderGit2, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, Settings2, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -43,7 +45,19 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { Popover, PopoverAnchor, PopoverContent } from './ui/popover'
 import ProjectSettings from './ProjectSettings'
+import ProjectOrderDialog from './ProjectOrderDialog'
 import { projectIcon, tintColor } from '../lib/project-appearance'
+import { autoTint, chatWait, projectRollup, type ChatWait } from '../lib/sidebarStatus'
+import {
+  ChatStatusGlyph,
+  Elapsed,
+  NeedsYouTray,
+  ProjectRollupMarks,
+  ProjectTile,
+  WaitChip,
+  type NeedsYouItem
+} from './SidebarStatus'
+import type { SidebarStyle } from '../../../shared/types'
 import { ChatRowPrChip, PrCardLines } from './PullRequestChips'
 import UsageMenu from './UsageMenu'
 import { CommandKbd, useChordLabel } from './ui/kbd'
@@ -310,6 +324,36 @@ function SectionLabel({ label }: { label: string }): React.JSX.Element {
 /** How many chats a project shows before `Show more`. */
 const VISIBLE_PER_PROJECT = 6
 
+/** How far a fork sits in from the chat it came from. */
+const FORK_STEP = 14
+
+/**
+ * Where each style puts a project's chats: the title's left edge and the status
+ * glyph's, both from the row's own left. The glyph is centred under the
+ * project's mark — its folder, its tile, or its spine.
+ */
+const STYLE_LAYOUT: Record<SidebarStyle, { indent: number; gutter: number }> = {
+  headings: { indent: 27, gutter: 8 },
+  cards: { indent: 32, gutter: 10 },
+  // Rows start beside the spine rather than across it (`ml-[24px]`), so the
+  // open chat's fill never covers the line. The glyph reaches back onto it.
+  spine: { indent: 8, gutter: -14 }
+}
+
+/** Where a project's own text lines up with its chats' titles. */
+const textLeft = (style: SidebarStyle): number =>
+  style === 'spine' ? 24 + STYLE_LAYOUT.spine.indent : STYLE_LAYOUT[style].indent
+
+/**
+ * Another project has the open chat. Only names, titles and marks fade:
+ * spinners, amber chips, PR marks and the header's counts are the one thing
+ * reporting a result, so they keep full strength. Hovering the project brings
+ * it back. How far they fade is a setting, `dimOpacity`, set on the list as
+ * `--project-dim`; most values put titles already at foreground/80 under AA
+ * contrast, which is the point of a faded project, and hovering restores it.
+ */
+const DIM_CLASS = 'opacity-(--project-dim) transition-opacity group-hover/project:opacity-100'
+
 /**
  * What a chat is, on hover.
  *
@@ -431,21 +475,6 @@ function FlowCard({
 }
 
 /**
- * A chat that is waiting on you, said in the list rather than only inside it.
- *
- * A shimmering title says Claude is busy. This says the opposite — it has
- * stopped, and it stopped on you. Without it the two look identical from the
- * sidebar: quiet.
- */
-function WaitingChip({ label }: { label: string }): React.JSX.Element {
-  return (
-    <span className="shrink-0 rounded-sm bg-info/15 px-1 py-px text-[0.70em] font-medium uppercase tracking-wide text-info">
-      {label}
-    </span>
-  )
-}
-
-/**
  * A project's overflow menu.
  *
  * Renaming happens inline in the menu rather than in a dialog, which is why the
@@ -461,10 +490,9 @@ const SORT_ICONS: Record<ChatSortKey, LucideIcon> = {
 }
 
 /**
- * The last slot of a project's hover cluster. On the default sort it hides
- * with the rest; off it, it stays, tinted — and being last, it rests flush
- * right in the rows' trailing column, so ⋯ and New chat fade in beside it on
- * hover without anything moving.
+ * The last slot of a project's hover cluster, and like the rest of it, there
+ * only on hover. Off the default sort it is tinted, so the hover says the list
+ * is in an order you chose; at rest the header's counts have that place.
  *
  * Choosing a key or a direction keeps the menu open: the list reorders behind
  * it, which is the quickest way to see what a key does.
@@ -483,9 +511,9 @@ function ChatSortMenu({ project }: { project: Project }): React.JSX.Element {
           <DropdownMenuTrigger
             onClick={(e) => e.stopPropagation()}
             aria-label={`Sort chats in ${project.name}`}
-            className={`rounded-sm p-1 transition-[color,opacity] aria-expanded:opacity-100 focus-visible:opacity-100 ${
+            className={`rounded-sm p-1 opacity-0 transition-[color,opacity] group-hover:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100 ${
               isDefault
-                ? 'text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground aria-expanded:text-foreground'
+                ? 'text-muted-foreground hover:text-foreground aria-expanded:text-foreground'
                 : 'text-info/80 hover:text-info'
             }`}
           >
@@ -523,9 +551,6 @@ function ChatSortMenu({ project }: { project: Project }): React.JSX.Element {
             >
               <Icon className="text-muted-foreground" />
               <span className="flex-1">{CHAT_SORT_LABEL[key]}</span>
-              {key === DEFAULT_CHAT_SORT.key && (
-                <span className="text-[0.85em] text-muted-foreground">default</span>
-              )}
               <Check className={checked ? '' : 'invisible'} />
             </DropdownMenuItem>
           )
@@ -715,6 +740,13 @@ function SessionsList(): React.JSX.Element {
   const browsers = useBrowserStore((s) => s.bySession)
   const pendingPlans = usePlanApprovalStore((s) => s.pending)
   const planPending = useMemo(() => new Set(Object.values(pendingPlans)), [pendingPlans])
+  const permissions = usePendingPermissionsStore((s) => s.bySession)
+  const waitCtx = useMemo(() => ({ planPending, permissions }), [planPending, permissions])
+  const startedAt = useRunningStore((s) => s.startedAt)
+  const sidebarStyle = useSettingsStore((s) => s.sidebarStyle)
+  const showNeedsYou = useSettingsStore((s) => s.needsYouTray)
+  const dimOthers = useSettingsStore((s) => s.dimOtherProjects)
+  const dimOpacity = useSettingsStore((s) => s.dimOpacity)
   const { setActiveSession, deleteSession, renameSession, toggleFavorite, reorderFavorites } =
     useSessionsStore()
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -725,6 +757,7 @@ function SessionsList(): React.JSX.Element {
   const [renameValue, setRenameValue] = useState('')
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [orderingProjects, setOrderingProjects] = useState(false)
   // Archiving a chat that is working has to ask first — it stops the work. A
   // chat that is idle goes straight away, and only shows up here if it could
   // not go: a snapshot that failed is not worth a silent menu item.
@@ -796,24 +829,28 @@ function SessionsList(): React.JSX.Element {
 
   const renderRow = (
     session: Session,
-    opts: { indented?: boolean; showFolder?: boolean; depth?: number } = {}
+    opts: { indented?: boolean; showFolder?: boolean; depth?: number; dim?: boolean } = {}
   ): React.JSX.Element => {
     const isPinned = !!session.favorite
     const isActive = session.id === activeSessionId && onChatView
     const isRunning = running[session.id] === true
     const isBusy = busy[session.id] === true
     const unread = session.unread ?? 0
+    const layout = STYLE_LAYOUT[sidebarStyle]
+    const depth = opts.depth ?? 0
+    const indentPx = layout.indent + depth * FORK_STEP
+    // On the spine the glyph stays on the line whatever the depth; elsewhere it
+    // moves in with the fork, under the title it belongs to.
+    const gutterPx = sidebarStyle === 'spine' ? layout.gutter : layout.gutter + depth * FORK_STEP
+    const onSpine = opts.indented && sidebarStyle === 'spine'
+    const since = isRunning ? startedAt[session.id] : undefined
     // A chat's browser keeps running whether or not you are looking at that
     // chat, and a background chat gets no miniature. Without this there would
     // be nothing anywhere saying it has one.
     const hasBrowser = (browsers[session.id]?.tabs.length ?? 0) > 0
-    // A plan outranks a question: it is the bigger decision, and a session
-    // rarely has both.
-    const waiting = planPending.has(session.id)
-      ? 'Pending approval'
-      : session.needsAnswer
-        ? 'Needs answer'
-        : null
+    const waiting: ChatWait | null = chatWait(session, waitCtx)
+    const glyph = <ChatStatusGlyph wait={waiting} busy={isBusy} />
+    const hasGlyph = !!waiting || isBusy
     return (
       <ContextMenu key={session.id}>
       <ContextMenuTrigger
@@ -824,7 +861,7 @@ function SessionsList(): React.JSX.Element {
           isActive ? 'bg-rail-selected ring-1 ring-rail-selected-ring' : 'hover:bg-rail-hover'
         } ${
           dragId === session.id ? 'opacity-40' : ''
-        }`}
+        } ${onSpine ? 'ml-[24px]' : ''}`}
         onDragOver={
           isPinned
             ? (e) => {
@@ -839,6 +876,19 @@ function SessionsList(): React.JSX.Element {
       >
         {dragOverId === session.id && dragId !== session.id && (
           <div className="absolute top-[-3.5px] left-1 right-1 h-0.5 rounded-full bg-info" />
+        )}
+        {/* In the gutter left of the title, where the eye runs down the list,
+            so a title never shifts when its chat starts or stops. On the spine
+            it sits on the line, cut out of it by the rail's own fill. */}
+        {opts.indented && hasGlyph && (
+          <span
+            className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 rounded-full p-px ${
+              onSpine ? 'bg-sidebar' : ''
+            }`}
+            style={{ left: gutterPx }}
+          >
+            {glyph}
+          </span>
         )}
         {isPinned && !opts.indented && (
           <Tooltip>
@@ -871,12 +921,11 @@ function SessionsList(): React.JSX.Element {
             setRenamingId(session.id)
             setRenameValue(session.title)
           }}
-          className={`min-w-0 flex-1 py-1 pr-2 text-left ${
-            // A fork sits one step in from the chat it came from.
-            !opts.indented ? 'pl-2' : !opts.depth ? 'pl-[27px]' : opts.depth === 1 ? 'pl-[41px]' : 'pl-[55px]'
-          } ${
+          className={`min-w-0 flex-1 py-1 pr-2 text-left ${!opts.indented ? 'pl-2' : ''} ${
             isActive ? 'text-foreground' : 'text-foreground/80'
           }`}
+          // A fork sits one step in from the chat it came from.
+          style={opts.indented ? { paddingLeft: indentPx } : undefined}
         >
           {renamingId === session.id ? (
             <input
@@ -894,18 +943,16 @@ function SessionsList(): React.JSX.Element {
             />
           ) : (
             <div className="flex min-w-0 items-center gap-1.5">
+              {/* Pinned and Recents rows have no gutter to put it in. */}
+              {!opts.indented && glyph}
               {session.forkOf && <GitFork className="size-3 shrink-0 text-muted-foreground" aria-label="Fork" />}
-              {/* Running shimmers the title, the transcript's signal for the
-                  same state; the trailing slot carries a spinner too, so the
-                  row is findable in a long list. */}
               <p
-                className={`truncate text-[0.92em] ${
-                  isRunning ? 'nyra-shimmer' : unread ? 'font-medium text-foreground' : ''
+                className={`truncate text-[0.92em] ${unread && !isRunning ? 'font-medium text-foreground' : ''} ${
+                  opts.dim ? DIM_CLASS : ''
                 }`}
               >
                 {session.title}
               </p>
-              {waiting && <WaitingChip label={waiting} />}
             </div>
           )}
         </button>
@@ -930,6 +977,8 @@ function SessionsList(): React.JSX.Element {
         <div className="grid shrink-0 items-center justify-items-end pr-1.5 *:[grid-area:1/1]">
           {/* 5px in from the right puts a 12px mark on the 14px star's centre. */}
           <span className="flex items-center gap-1.5 pr-[5px] group-hover:invisible group-has-[:focus-visible]:invisible">
+            {waiting && <WaitChip wait={waiting} />}
+            {!waiting && since !== undefined && <Elapsed since={since} />}
             {/* Held back until the turn ends: a dot on a running chat invites
                 a click that lands on half a thought. */}
             {!waiting && !isRunning && unread > 0 && (
@@ -938,7 +987,7 @@ function SessionsList(): React.JSX.Element {
                 className="size-1.5 shrink-0 rounded-full bg-info"
               />
             )}
-            <ChatRowPrChip sessionId={session.id} running={isBusy} />
+            {!waiting && !isBusy && <ChatRowPrChip sessionId={session.id} />}
           </span>
           <div className="invisible flex items-center group-hover:visible group-has-[:focus-visible]:visible">
             <Tooltip>
@@ -1011,6 +1060,31 @@ function SessionsList(): React.JSX.Element {
     )
   }
 
+  // The project the open chat belongs to. Nothing is dimmed when a page covers
+  // the chat, or when the open chat is in no project.
+  const focusProjectId = onChatView
+    ? (railSessions.find((s) => s.id === activeSessionId)?.projectId ?? null)
+    : null
+  const dimmed = dimOthers && !!focusProjectId && knownProjects.has(focusProjectId)
+
+  // The open chat is left out: you are already looking at what it wants.
+  const needsYou: NeedsYouItem[] = showNeedsYou
+    ? railSessions.flatMap((session) => {
+        if (onChatView && session.id === activeSessionId) return []
+        const wait = chatWait(session, waitCtx)
+        if (!wait) return []
+        const project = projects.find((p) => p.id === session.projectId) ?? null
+        const tint = project
+          ? (tintColor(project.color) ?? (sidebarStyle === 'spine' ? tintColor(autoTint(project.id)) : null))
+          : null
+        return [{ session, project, tint, wait }]
+      })
+    : []
+  const openChat = (sessionId: string): void => {
+    setActiveSession(sessionId)
+    showChat('chat')
+  }
+
   const renderProject = (project: Project): React.JSX.Element => {
     // A chat with nothing in it is not worth a row — it reads as a stray
     // "New session" line. The one you are looking at stays, or it would vanish
@@ -1038,16 +1112,23 @@ function SessionsList(): React.JSX.Element {
     const tint = tintColor(project.color)
     const settingsOpen = settingsFor === project.id
     const ProjectIcon = projectIcon(project.icon) ?? (collapsed ? Folder : FolderOpen)
-
-    const projectSpinner = projectSpinnerVisible({
-      collapsed,
-      childIds: nested.map(({ session: s }) => s.id),
-      visibleCount: visible.length,
-      running: busy
-    })
+    // The spine is the one style that has to tell two uncustomised projects
+    // apart, so a project with no colour borrows one.
+    const markTint = sidebarStyle === 'spine' ? (tint ?? tintColor(autoTint(project.id))) : tint
+    // Counted over every chat, so a spinner or a wait under Show more or inside
+    // a collapsed project still reaches the header.
+    const rollup = projectRollup(children, { ...waitCtx, busy })
+    const dim = dimmed && project.id !== focusProjectId
+    const boxed = sidebarStyle === 'cards' && !collapsed
+    const strong = sidebarStyle === 'headings' || !collapsed
 
     return (
-      <div key={project.id} className="relative space-y-[5px]">
+      <div
+        key={project.id}
+        className={`group/project relative space-y-[5px] ${
+          sidebarStyle === 'headings' ? 'border-t border-border pt-1.5 first:border-t-0 first:pt-0' : ''
+        } ${boxed ? 'rounded-lg border border-border bg-project-card p-0.5' : ''}`}
+      >
         <Popover open={settingsOpen} onOpenChange={(open) => setSettingsFor(open ? project.id : null)}>
         <PopoverAnchor asChild>
         <div
@@ -1061,39 +1142,62 @@ function SessionsList(): React.JSX.Element {
             className="min-w-0 flex-1 flex items-center gap-1.5 px-2 py-1 text-left text-foreground/80"
             title={project.path}
           >
-            <ProjectIcon
-              className={`size-3.5 shrink-0 ${tint ? '' : 'text-muted-foreground'}`}
-              style={tint ? { color: tint } : undefined}
-            />
-            <span className={`truncate text-[0.92em] ${projectSpinner ? 'nyra-shimmer' : ''}`}>
+            {sidebarStyle === 'headings' ? (
+              <ProjectIcon
+                className={`size-3.5 shrink-0 ${tint ? '' : 'text-muted-foreground'} ${dim ? DIM_CLASS : ''}`}
+                style={tint ? { color: tint } : undefined}
+              />
+            ) : (
+              <ProjectTile project={project} tint={markTint} className={dim ? DIM_CLASS : ''} />
+            )}
+            <span
+              className={`truncate text-[0.92em] ${strong ? 'font-semibold text-foreground' : ''} ${
+                dim ? DIM_CLASS : ''
+              }`}
+            >
               {project.name}
             </span>
             <EnvironmentBadge cwd={project.path} />
           </button>
           <div className="flex items-center shrink-0 pr-1.5">
-            <div
-              className={`flex items-center transition-opacity ${
-                settingsOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-              }`}
-            >
-              <ProjectMenu project={project} onSettings={() => setSettingsFor(project.id)} />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      newChatIn(project)
-                    }}
-                    className="p-1 text-muted-foreground hover:text-foreground/80 transition-colors"
-                    aria-label={`New chat in ${project.name}`}
-                  >
-                    <SquarePen className="size-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{`New chat in ${project.name}`}</TooltipContent>
-              </Tooltip>
+            {/* One slot, two faces, like a chat row's: what the project's chats
+                add up to at rest, its actions on hover. */}
+            <div className="grid items-center justify-items-end *:[grid-area:1/1]">
+              <span
+                className={`flex pr-[5px] transition-opacity ${
+                  settingsOpen
+                    ? 'opacity-0'
+                    : 'group-hover:opacity-0 group-has-[:focus-visible]:opacity-0 group-has-[[aria-expanded=true]]:opacity-0'
+                }`}
+              >
+                <ProjectRollupMarks rollup={rollup} />
+              </span>
+              <div
+                className={`flex items-center transition-opacity ${
+                  settingsOpen
+                    ? 'opacity-100'
+                    : 'opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 group-has-[[aria-expanded=true]]:opacity-100'
+                }`}
+              >
+                <ProjectMenu project={project} onSettings={() => setSettingsFor(project.id)} />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        newChatIn(project)
+                      }}
+                      className="p-1 text-muted-foreground hover:text-foreground/80 transition-colors"
+                      aria-label={`New chat in ${project.name}`}
+                    >
+                      <SquarePen className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{`New chat in ${project.name}`}</TooltipContent>
+                </Tooltip>
+                <ChatSortMenu project={project} />
+              </div>
             </div>
-            <ChatSortMenu project={project} />
           </div>
         </div>
         </PopoverAnchor>
@@ -1112,14 +1216,30 @@ function SessionsList(): React.JSX.Element {
             {/* The rail is drawn beside the rows rather than as a border on each
                 one, so it runs unbroken through the gaps between them. */}
             <div className="relative space-y-[5px]">
-              {project.rail && tint && visible.length > 0 && (
+              {sidebarStyle === 'spine' && markTint && visible.length > 0 ? (
+                // Centred under the tile, and faded so a status glyph on it
+                // still reads as the thing to look at.
                 <span
                   aria-hidden
-                  className="pointer-events-none absolute top-0.5 bottom-0.5 left-[14px] w-0.5 rounded-full"
-                  style={{ background: tint }}
+                  className={`pointer-events-none absolute top-0.5 bottom-0.5 left-[16px] w-0.5 rounded-full ${
+                    dim ? 'opacity-[calc(0.6*var(--project-dim))]' : 'opacity-60'
+                  }`}
+                  style={{ background: markTint }}
                 />
+              ) : (
+                project.rail &&
+                tint &&
+                visible.length > 0 && (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute top-0.5 bottom-0.5 left-[14px] w-0.5 rounded-full"
+                    style={{ background: tint }}
+                  />
+                )
               )}
-              {visible.map(({ session: s, depth }) => renderRow(s, { indented: true, showFolder: false, depth }))}
+              {visible.map(({ session: s, depth }) =>
+                renderRow(s, { indented: true, showFolder: false, depth, dim })
+              )}
             </div>
             {/* One control, both directions. `Show more` was a one-way door: a
                 project opened to forty chats stayed forty rows tall for the
@@ -1135,13 +1255,19 @@ function SessionsList(): React.JSX.Element {
                 onClick={() =>
                   useSessionsStore.getState().setProjectShowAllChats(project.id, !showingAll)
                 }
-                className="pt-0.5 pb-1 pl-[27px] pr-2 text-left text-[0.77em] text-muted-foreground transition-colors hover:text-foreground/80"
+                className="pt-0.5 pb-1 pr-2 text-left text-[0.77em] text-muted-foreground transition-colors hover:text-foreground/80"
+                style={{ paddingLeft: textLeft(sidebarStyle) }}
               >
                 {showingAll ? 'Show less' : `Show more (${hiddenCount})`}
               </button>
             )}
             {children.length === 0 && (
-              <p className="pt-0.5 pb-1 pl-[27px] pr-2 text-[0.77em] text-muted-foreground">No chats yet</p>
+              <p
+                className="pt-0.5 pb-1 pr-2 text-[0.77em] text-muted-foreground"
+                style={{ paddingLeft: textLeft(sidebarStyle) }}
+              >
+                No chats yet
+              </p>
             )}
           </>
         )}
@@ -1150,7 +1276,9 @@ function SessionsList(): React.JSX.Element {
   }
 
   return (
-    <div>
+    <div style={{ '--project-dim': dimOpacity } as React.CSSProperties}>
+      {needsYou.length > 0 && <NeedsYouTray items={needsYou} onOpen={openChat} />}
+
       {pinned.length > 0 && (
         <div className="mb-2">
           <div className="flex items-center gap-1 px-2 mb-1.5">
@@ -1168,19 +1296,41 @@ function SessionsList(): React.JSX.Element {
           <span className="text-[0.77em] font-semibold uppercase tracking-widest text-muted-foreground">
             Projects
           </span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={addProject}
-                className="p-0.5 text-muted-foreground hover:text-foreground/80 transition-colors"
-                aria-label="Add project"
-              >
-                <Plus className="size-3" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Add project</TooltipContent>
-          </Tooltip>
+          <span className="flex items-center gap-0.5">
+            {projects.length > 1 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setOrderingProjects(true)}
+                    className="p-0.5 text-muted-foreground hover:text-foreground/80 transition-colors"
+                    aria-label="Reorder projects"
+                  >
+                    <ArrowUpDown className="size-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Reorder projects</TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={addProject}
+                  className="p-0.5 text-muted-foreground hover:text-foreground/80 transition-colors"
+                  aria-label="Add project"
+                >
+                  <Plus className="size-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Add project</TooltipContent>
+            </Tooltip>
+          </span>
         </div>
+        <ProjectOrderDialog
+          open={orderingProjects}
+          onClose={() => setOrderingProjects(false)}
+          projects={projects}
+        />
         {projects.length === 0 ? (
           <button
             onClick={addProject}
@@ -1189,7 +1339,7 @@ function SessionsList(): React.JSX.Element {
             Add a folder to get started
           </button>
         ) : (
-          <div className="space-y-1.5">{projects.map(renderProject)}</div>
+          <div className={sidebarStyle === 'cards' ? 'space-y-1' : 'space-y-1.5'}>{projects.map(renderProject)}</div>
         )}
       </div>
 

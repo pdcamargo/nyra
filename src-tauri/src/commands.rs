@@ -176,9 +176,10 @@ pub async fn claude_account_status(binary_path: String, config_dir: Option<Strin
 // ---- workspaces ----
 
 /// A new workspace's config dir, created — the `configDir` the renderer keeps.
+/// `sign_in` names workspaces to borrow the Claude and Codex sign-ins from.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn workspace_create(id: String) -> Value {
-    match crate::workspaces::create(&id).await {
+pub async fn workspace_create(id: String, sign_in: Option<crate::workspaces::SignIn>) -> Value {
+    match crate::workspaces::create(&id, &sign_in.unwrap_or_default()).await {
         Ok(dir) => json!({ "configDir": dir.to_string_lossy() }),
         Err(e) => json!({ "error": e }),
     }
@@ -195,13 +196,31 @@ pub async fn workspace_copy_transcripts(id: String, target_config_dir: Option<St
 }
 
 /// Sign a workspace's account out, so a Keychain entry does not outlive it.
+///
+/// Not for a workspace that borrows its sign-in: the login is the lender's,
+/// and `claude auth logout` revokes it on the server for everyone using it.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn workspace_logout(config_dir: Option<String>) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    if config_dir.as_deref().and_then(crate::workspaces::claude_store_for).is_some() {
+        return json!({ "ok": true, "shared": true });
+    }
     let binary = util::settings().claude_binary_path;
-    match account_status::logout(&binary, util::config_dir_arg(config_dir).as_deref()).await {
+    match account_status::logout(&binary, config_dir.as_deref()).await {
         Ok(()) => json!({ "ok": true }),
         Err(e) => json!({ "ok": false, "error": e }),
     }
+}
+
+/// Where a workspace's sign-ins come from, and who borrows its own.
+#[tauri::command(rename_all = "camelCase")]
+pub fn workspace_sign_in(id: String) -> Value {
+    let sign_in = crate::workspaces::sign_in(&id);
+    json!({
+        "claude": sign_in.claude,
+        "codex": sign_in.codex,
+        "borrowers": crate::workspaces::borrowers_of(&id),
+    })
 }
 
 /// Delete, last step. Takes an id, never a path: the directory is worked out

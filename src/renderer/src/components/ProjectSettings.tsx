@@ -10,6 +10,7 @@ import {
 } from '../lib/project-appearance'
 import { Input } from './ui/input'
 import { Toggle } from './settings/primitives'
+import { useSettingsStore } from '../store/settings'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const TINT_LABELS: Record<string, string> = {
@@ -54,6 +55,7 @@ export default function ProjectSettings({ project }: { project: Project }): Reac
   const colorInput = useRef<HTMLInputElement>(null)
   const store = useSessionsStore.getState
   const set = (patch: ProjectAppearance): void => store().setProjectAppearance(project.id, patch)
+  const spine = useSettingsStore((s) => s.sidebarStyle === 'spine')
 
   const tint = tintColor(project.color)
   const custom = isCustomTint(project.color) ? project.color : null
@@ -188,10 +190,11 @@ export default function ProjectSettings({ project }: { project: Project }): Reac
           disabled={!tint}
           onChange={(on) => set({ wash: on })}
         />
+        {/* The Spine style draws one for every project, coloured or not. */}
         <ToggleRow
-          label="Rail down its chats"
-          checked={!!project.rail}
-          disabled={!tint}
+          label={spine ? 'Rail down its chats — always, in Spine' : 'Rail down its chats'}
+          checked={spine || !!project.rail}
+          disabled={spine || !tint}
           onChange={(on) => set({ rail: on })}
         />
       </div>

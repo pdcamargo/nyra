@@ -168,6 +168,7 @@ export type CommandId =
   | 'composer.heading'
   | 'composer.dictate'
   | 'composer.stash'
+  | 'composer.mentions'
   | 'composer.send'
   | 'composer.newline'
 
@@ -1104,7 +1105,8 @@ export const COMMANDS: Command[] = [
     allowInInput: true,
     run: () => window.dispatchEvent(new Event('nyra:dictate-toggle'))
   },
-  { id: 'composer.stash', label: 'Stash / restore draft', group: 'Composer', defaultChord: 'ctrl+s', readOnly: true }
+  { id: 'composer.stash', label: 'Stash / restore draft', group: 'Composer', defaultChord: 'ctrl+s', readOnly: true },
+  { id: 'composer.mentions', label: 'Show everything after @', group: 'Composer', defaultChord: 'ctrl+space', readOnly: true }
 ]
 
 /** Deferred so the registry does not import the zoom module at load time. */

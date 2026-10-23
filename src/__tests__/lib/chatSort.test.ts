@@ -127,13 +127,14 @@ describe('sortChats', () => {
 
 describe('describing a sort', () => {
   it('names the key and the end that comes first', () => {
-    expect(describeChatSort({ key: 'activity', reverse: false })).toBe('Last activity · Most recent')
-    expect(describeChatSort(undefined)).toBe('Created · Newest first')
+    expect(describeChatSort({ key: 'created', reverse: false })).toBe('Created · Newest first')
+    expect(describeChatSort(undefined)).toBe('Last activity · Most recent')
   })
 
   it('counts a reversed default as off the default', () => {
     expect(isDefaultChatSort(undefined)).toBe(true)
-    expect(isDefaultChatSort({ key: 'created', reverse: true })).toBe(false)
+    expect(isDefaultChatSort({ key: 'activity', reverse: true })).toBe(false)
+    expect(isDefaultChatSort({ key: 'created', reverse: false })).toBe(false)
   })
 })
 

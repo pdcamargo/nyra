@@ -53,11 +53,13 @@ import { isMemoryPeek, memoryWritesFrom, type MemoryWrite } from '../lib/memoryW
 import MemoryChip from './MemoryChip'
 import { formatMessageTime } from '../lib/messageTime'
 import { extractPlan } from '../utils/permission'
+import { TODO_TOOLS } from '../utils/toolSummary'
 import ToolCallGroup from './ToolCallGroup'
 import SubagentChip from './SubagentChip'
 import BackgroundChip from './BackgroundChip'
 import { isBackgroundCall } from '../lib/backgroundCalls'
 import PermissionDialog, { type PermissionRequest } from './PermissionDialog'
+import { usePendingPermissionsStore } from '../store/pendingPermissions'
 import ChatInput from './ChatInput'
 import EditMessageBox from './EditMessageBox'
 import TaskStrip from './TaskStrip'
@@ -276,12 +278,17 @@ export default function Chat(): React.JSX.Element {
   const summaryOpen = useUiStore((s) => s.summaryOpen)
   const pipVisible = useMiniature() !== null
   const chatWidth = useSettingsStore((s) => s.chatWidth)
+  const showTasks = useSettingsStore((s) => s.showTasks)
   const columnGeometry = useMemo(
     () => columnVars(summaryOpen || pipVisible, chatWidth),
     [summaryOpen, pipVisible, chatWidth]
   )
   const thinkingSince = useRunningStore((s) => s.thinkingSince)
   const [permissionQueue, setPermissionQueue] = useState<(PermissionRequest & { nyraSessionId?: string })[]>([])
+  // The rail says which chats are stopped on a prompt; the queue is only here.
+  // Emptied on unmount, because the queue goes with this component.
+  useEffect(() => usePendingPermissionsStore.getState().publish(permissionQueue), [permissionQueue])
+  useEffect(() => () => usePendingPermissionsStore.getState().publish([]), [])
   const messagesRef = useRef<HTMLDivElement>(null)
   /** The virtualised list inside the scroller, whose top is offset 0 for the virtualizer. */
   const listRef = useRef<HTMLDivElement>(null)
@@ -523,6 +530,12 @@ export default function Chat(): React.JSX.Element {
       // Group consecutive tool_call messages
       if (msg.role === 'tool_call') {
         const tc = msg as ToolCallMessage
+        // With the checklist turned off, none of it is in the transcript: not
+        // the finished list, and not the trace lines of the CLI's own to-do
+        // tools either. Left out here rather than drawn as nothing, so no
+        // empty row keeps its padding and a strip never says "updated todo
+        // list" about calls it no longer shows.
+        if (!showTasks && (tc.tool_name === 'TaskChecklist' || TODO_TOOLS.includes(tc.tool_name))) continue
         // Writing a memory is one event even though it is two writes — the
         // memory, then its pointer line in MEMORY.md — so consecutive ones
         // collect into a single card rather than announcing the bookkeeping.
@@ -605,7 +618,7 @@ export default function Chat(): React.JSX.Element {
     if (isLoading && !compactingNow) items.push({ kind: 'loading' })
     else if (waiting.length > 0) items.push({ kind: 'waiting', tasks: waiting })
     return items
-  }, [messages, isLoading, waiting])
+  }, [messages, isLoading, waiting, showTasks])
 
   /**
    * The assistant message that closes each turn — the last one before the next

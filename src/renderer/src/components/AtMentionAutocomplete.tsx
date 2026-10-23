@@ -7,12 +7,17 @@ export type MentionItem = {
   meta?: string
 }
 
-export function useAtMentionItems(query: string | null, cwd: string): MentionItem[] {
+/**
+ * The files and folders an @ could name. Nothing for a bare `@` — the popup
+ * waits for a letter — unless `everything` asks for it (Ctrl+Space), when an
+ * empty query lists the top of the project.
+ */
+export function useAtMentionItems(query: string | null, cwd: string, everything = false): MentionItem[] {
   const [items, setItems] = useState<MentionItem[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
-    if (query === null || query.length === 0) {
+    if (query === null || (query.length === 0 && !everything)) {
       setItems([])
       return
     }
@@ -31,7 +36,7 @@ export function useAtMentionItems(query: string | null, cwd: string): MentionIte
     }, 80)
 
     return () => clearTimeout(debounceRef.current)
-  }, [query, cwd])
+  }, [query, cwd, everything])
 
   return items
 }

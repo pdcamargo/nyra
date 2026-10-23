@@ -71,11 +71,14 @@ export default function SessionRecap({
   const session = useSessionsStore((s) => s.sessions.find((x) => x.id === sessionId))
   const dismissAway = useSessionsStore((s) => s.dismissAway)
   const enabled = useSettingsStore((s) => s.awayRecap)
+  const showTasks = useSettingsStore((s) => s.showTasks)
 
   // Only a fallback for a window pinned before its length was recorded. Frozen
   // at mount rather than ticking: a stopwatch would imply it is still running.
   const [now] = React.useState(() => Date.now())
-  const recap = session ? buildRecap(session, now) : null
+  const built = session ? buildRecap(session, now) : null
+  // The checklist's line goes with the checklist when that is turned off.
+  const recap = built && !showTasks ? { ...built, stats: built.stats.filter((s) => s.kind !== 'tasks') } : built
   if (!enabled || !session || !recap) return null
 
   const shown = recap.files.slice(0, RECAP_FILE_LIMIT)

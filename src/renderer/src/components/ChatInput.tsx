@@ -366,7 +366,13 @@ export default function ChatInput({
     return [query, atIdx]
   }, [input, autocompleteVisible])
 
-  const fsMentionItems = useAtMentionItems(mentionQuery, cwd)
+  // Ctrl+Space on a bare `@`: open the list before anything is typed. Held
+  // only while the caret stays in that mention.
+  const [mentionEverything, setMentionEverything] = useState(false)
+  useEffect(() => {
+    if (mentionQuery === null) setMentionEverything(false)
+  }, [mentionQuery])
+  const fsMentionItems = useAtMentionItems(mentionQuery, cwd, mentionEverything)
   const sessionAgents = useSessionsStore((s) => {
     const session = s.sessions.find((sess) => sess.id === s.activeSessionId)
     return session?.agents ?? EMPTY_AGENTS
@@ -416,7 +422,8 @@ export default function ChatInput({
 
     return [...liveAgentItems, ...defAgentItems, ...fsMentionItems]
   }, [mentionQuery, sessionAgents, agentDefs, fsMentionItems])
-  const mentionVisible = mentionQuery !== null && mentionQuery.length > 0 && !isLoading && mentionItems.length > 0
+  const mentionVisible =
+    mentionQuery !== null && (mentionQuery.length > 0 || mentionEverything) && !isLoading && mentionItems.length > 0
   // The popup used to anchor at 0 because nothing ever set this. The editor can
   // say where the caret actually is, so it now opens under the @ you typed.
   useEffect(() => {
@@ -874,6 +881,14 @@ export default function ChatInput({
     if (e.altKey && !e.metaKey && !e.ctrlKey && /^[1-6]$/.test(e.key)) {
       e.preventDefault()
       applyEdit(toggleHeading(input, ...sel(), Number(e.key)))
+      return
+    }
+
+    // Ctrl+Space (⌘Space too, where the OS leaves it alone) with the caret in
+    // an @: everything it could name, before a letter is typed.
+    if (e.code === 'Space' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && mentionQuery !== null) {
+      e.preventDefault()
+      setMentionEverything(true)
       return
     }
 

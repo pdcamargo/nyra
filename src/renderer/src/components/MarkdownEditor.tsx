@@ -3,10 +3,11 @@ import { Compartment, EditorState, Prec, type Extension } from '@codemirror/stat
 import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
-import { markdown } from '@codemirror/lang-markdown'
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { tags as t } from '@lezer/highlight'
 import { livePreview } from '../lib/livePreview'
+import { tablePreview } from '../lib/tablePreview'
 import { composerDecorations } from '../lib/composerDecorations'
 import { ghostText, setGhostText } from '../lib/ghostText'
 
@@ -117,6 +118,39 @@ const theme = EditorView.theme({
     fontFamily: 'var(--font-mono)',
     fontSize: '0.92em'
   },
+  // Drawn as the transcript draws one (MarkdownRenderer's `table`), so a plan
+  // reads the same in the chat and in its file.
+  '.cm-md-table': {
+    margin: '0.5em 0',
+    overflowX: 'auto',
+    border: '1px solid color-mix(in oklab, var(--border) 55%, transparent)',
+    borderRadius: 'var(--radius-md, 6px)'
+  },
+  '.cm-md-table table': { width: '100%', borderCollapse: 'collapse' },
+  '.cm-md-table thead': { borderBottom: '1px solid var(--border-strong)' },
+  '.cm-md-table th': {
+    textAlign: 'left',
+    padding: '0.35em 0.75em',
+    fontWeight: '500',
+    fontSize: '0.85em',
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+    color: 'color-mix(in oklab, var(--foreground) 80%, transparent)'
+  },
+  '.cm-md-table td': {
+    padding: '0.35em 0.75em',
+    borderBottom: '1px solid color-mix(in oklab, var(--border) 55%, transparent)',
+    color: 'color-mix(in oklab, var(--foreground) 80%, transparent)'
+  },
+  '.cm-md-table tr:last-child td': { borderBottom: 'none' },
+  '.cm-md-table code': {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.9em',
+    backgroundColor: 'var(--accent)',
+    borderRadius: '3px',
+    padding: '0.05em 0.3em'
+  },
+  '.cm-md-table-link': { color: 'var(--info)', textDecoration: 'underline' },
 
   // The composer chips — a slash command, ultrathink, an @-mention, an
   // attachment — are not styled here. A CodeMirror theme scopes every rule
@@ -191,9 +225,15 @@ export default function MarkdownEditor({
     // listener writing a document nothing can edit.
     const extensions: Extension[] = [
       ...(readOnly ? [] : [history(), keymap.of([...historyKeymap, ...defaultKeymap])]),
-      markdown({ codeLanguages: languages }),
+      // GitHub's flavour, not bare CommonMark: tables, strikethrough and task
+      // lists are what READMEs and plans are written in, and CommonMark parses
+      // a table as a paragraph of pipes.
+      markdown({ base: markdownLanguage, codeLanguages: languages }),
       syntaxHighlighting(highlightStyle),
       livePreview,
+      // Only in the file preview. In the composer a table is something being
+      // typed, and its source is the thing to see.
+      ...(readOnly ? [tablePreview] : []),
       ...(readOnly ? [] : [composerDecorations, ghostText]),
       wrapComp.of(wrap ? EditorView.lineWrapping : []),
       ...(readOnly

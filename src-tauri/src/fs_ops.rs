@@ -590,6 +590,13 @@ async fn fuzzy_list_files(cwd: &str, query: &str) -> Vec<FileEntry> {
         }
     };
 
+    // A bare `@` opened with Ctrl+Space: the top of the project, folders first.
+    // Picking a folder keeps the mention open and browses into it, so this is
+    // every file one step at a time rather than the first fifteen of them.
+    if query.is_empty() {
+        return top_level(&files);
+    }
+
     const LIMIT: usize = 15;
     let q = query.to_lowercase();
     let mut results: Vec<FileEntry> = Vec::new();
@@ -625,6 +632,30 @@ async fn fuzzy_list_files(cwd: &str, query: &str) -> Vec<FileEntry> {
 
     results.truncate(LIMIT);
     results
+}
+
+/// The first level of a file list: each top folder once, then the files at the
+/// root. `git ls-files` writes `/` on every OS.
+fn top_level(files: &[String]) -> Vec<FileEntry> {
+    const LIMIT: usize = 80;
+    let mut folders = std::collections::BTreeSet::new();
+    let mut root = std::collections::BTreeSet::new();
+    for file in files {
+        match file.split_once('/') {
+            Some((top, _)) => {
+                folders.insert(format!("{top}/"));
+            }
+            None => {
+                root.insert(file.clone());
+            }
+        }
+    }
+    folders
+        .into_iter()
+        .map(|path| FileEntry { path, kind: "folder" })
+        .chain(root.into_iter().map(|path| FileEntry { path, kind: "file" }))
+        .take(LIMIT)
+        .collect()
 }
 
 pub async fn save_image(base64_data: &str, media_type: &str) -> Result<String, String> {
@@ -718,6 +749,25 @@ pub fn sweep_orphan_dirs() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bare_mention_lists_the_top_of_the_project_folders_first() {
+        let files: Vec<String> = ["src/a.ts", "src/b/c.ts", "README.md", "docs/x.md", ".github/ci.yml", "Cargo.toml"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let listed: Vec<(String, &str)> = top_level(&files).into_iter().map(|e| (e.path, e.kind)).collect();
+        assert_eq!(
+            listed,
+            vec![
+                (".github/".to_string(), "folder"),
+                ("docs/".to_string(), "folder"),
+                ("src/".to_string(), "folder"),
+                ("Cargo.toml".to_string(), "file"),
+                ("README.md".to_string(), "file"),
+            ]
+        );
+    }
 
     /// The reason the pid suffix exists: two instances must not be able to name
     /// — and so wipe — each other's scratch dirs.

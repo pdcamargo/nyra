@@ -216,6 +216,7 @@ Object.defineProperty(globalThis, 'api', {
     login: { start: noop, input: noop, resize: noop, cancel: noop, onData: unsub, onExit: unsub },
     workspace: {
       create: (id: string) => Promise.resolve({ configDir: `/home/test/.nyra/workspaces/${id}/.claude` }),
+      signIn: () => Promise.resolve({ claude: null, codex: null, borrowers: [] }),
       copyTranscripts: () => Promise.resolve({ ok: true, projects: 0 }),
       logout: () => Promise.resolve({ ok: true }),
       delete: () => Promise.resolve({ ok: true }),

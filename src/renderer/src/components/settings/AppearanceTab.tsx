@@ -14,6 +14,7 @@ import { type ChatWidth } from '../../../../shared/types'
 import FontPicker from './FontPicker'
 import ThemeSection from './ThemeSection'
 import CornersSection from './CornersSection'
+import SidebarSection from './SidebarSection'
 import { SectionLabel, SectionNote, SegmentedControl, Select, SettingRow } from './primitives'
 
 export default function AppearanceTab(): React.JSX.Element {
@@ -144,6 +145,8 @@ export default function AppearanceTab(): React.JSX.Element {
           ]}
         />
       </SettingRow>
+
+      <SidebarSection />
     </>
   )
 }

@@ -382,6 +382,22 @@ html:not(.dark) .nyra-on-bubble {
 }
 
 /*
+ * An open project in the sidebar's Cards style.
+ *
+ * Derived from --sidebar rather than a theme key of its own, so a theme that
+ * repaints the rail repaints its cards with it. Lighter than the rail in both
+ * modes, the way a raised surface is — and the opposite way to light's
+ * --rail-selected, which steps down, so the open chat still shows inside one.
+ */
+:root {
+  --project-card: color-mix(in oklab, var(--sidebar), white 75%);
+}
+
+.dark {
+  --project-card: color-mix(in oklab, var(--sidebar), white 3%);
+}
+
+/*
  * The workspace rail, down the sidebar's left edge.
  *
  * Its own surface, so the column of accounts reads apart from the list beside
@@ -592,6 +608,7 @@ html.nyra-picking [data-theme-editor] * {
   --color-rail-hover: var(--rail-hover);
   --color-rail-selected: var(--rail-selected);
   --color-rail-selected-ring: var(--rail-selected-ring);
+  --color-project-card: var(--project-card);
 
   --color-workspace-rail: var(--workspace-rail);
   --color-workspace-tile: var(--workspace-tile);

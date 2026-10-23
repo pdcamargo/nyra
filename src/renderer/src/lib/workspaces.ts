@@ -27,6 +27,7 @@ import { useAccountsStore } from '../store/accounts'
 import type { ConfigDir } from './api-types'
 import { homedir } from './homedir'
 import { isWithin, relativeTo } from './paths'
+import type { WorkspaceSignInRequest } from './tauri-api'
 
 /**
  * What the rail shows for a workspace with no picture: the first character of
@@ -107,11 +108,16 @@ export function cycleWorkspace(step: 1 | -1): void {
 
 /**
  * A new workspace: its config dir made in Rust, then added and switched to.
- * Signing its account in is the caller's next step — see `openLogin`.
+ * Signing its account in is the caller's next step — see `openLogin` — unless
+ * `signIn` borrows another workspace's, in which case it is signed in already.
  */
-export async function createWorkspace(name: string, image?: string): Promise<Workspace> {
+export async function createWorkspace(
+  name: string,
+  image?: string,
+  signIn?: WorkspaceSignInRequest
+): Promise<Workspace> {
   const id = crypto.randomUUID()
-  const result = await window.api.workspace.create(id)
+  const result = await window.api.workspace.create(id, signIn)
   if (!result.configDir) throw new Error(result.error ?? 'Could not create the workspace.')
   const workspace: Workspace = { id, name: name.trim(), configDir: result.configDir, ...(image ? { image } : {}) }
   useWorkspacesStore.getState().add(workspace)

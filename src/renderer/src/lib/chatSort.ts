@@ -13,9 +13,14 @@ export type ChatSortKey = 'created' | 'activity' | 'status' | 'pr' | 'name'
 
 export type ChatSort = { key: ChatSortKey; reverse: boolean }
 
-export const DEFAULT_CHAT_SORT: ChatSort = { key: 'created', reverse: false }
+/** Last activity: the chat you touched last is the one you are most likely
+ *  to want back. Created kept a finished chat from an hour ago above the one
+ *  you were in a minute ago. A project with no sort stored follows this, so
+ *  changing it re-sorts every project nobody chose an order for. */
+export const DEFAULT_CHAT_SORT: ChatSort = { key: 'activity', reverse: false }
 
-export const CHAT_SORT_KEYS: ChatSortKey[] = ['created', 'activity', 'status', 'pr', 'name']
+/** Menu order. The default leads, so the list starts where an unsorted project is. */
+export const CHAT_SORT_KEYS: ChatSortKey[] = ['activity', 'created', 'status', 'pr', 'name']
 
 export const CHAT_SORT_LABEL: Record<ChatSortKey, string> = {
   created: 'Created',

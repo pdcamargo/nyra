@@ -17,6 +17,9 @@ interface RunningState {
   running: Record<string, true>
   /** Session id → when its thinking indicator started. */
   thinkingSince: Record<string, number>
+  /** Session id → when its turn started, for the sidebar's elapsed time. A
+   *  turn that carries on into the CLI's own follow-up keeps its start. */
+  startedAt: Record<string, number>
   startRun: (sessionId: string) => void
   endRun: (sessionId: string) => void
   startThinking: (sessionId: string, at?: number) => void
@@ -28,18 +31,26 @@ interface RunningState {
 export const useRunningStore = create<RunningState>((set) => ({
   running: {},
   thinkingSince: {},
+  startedAt: {},
 
   startRun: (sessionId) =>
     set((state) =>
-      state.running[sessionId] ? state : { running: { ...state.running, [sessionId]: true } }
+      state.running[sessionId]
+        ? state
+        : {
+            running: { ...state.running, [sessionId]: true },
+            startedAt: { ...state.startedAt, [sessionId]: Date.now() }
+          }
     ),
 
   endRun: (sessionId) =>
     set((state) => {
       if (!state.running[sessionId]) return state
       const running = { ...state.running }
+      const startedAt = { ...state.startedAt }
       delete running[sessionId]
-      return { running }
+      delete startedAt[sessionId]
+      return { running, startedAt }
     }),
 
   startThinking: (sessionId, at = Date.now()) =>
@@ -57,9 +68,11 @@ export const useRunningStore = create<RunningState>((set) => ({
     set((state) => {
       const running = { ...state.running }
       const thinkingSince = { ...state.thinkingSince }
+      const startedAt = { ...state.startedAt }
       delete running[sessionId]
       delete thinkingSince[sessionId]
-      return { running, thinkingSince }
+      delete startedAt[sessionId]
+      return { running, thinkingSince, startedAt }
     })
 }))
 
@@ -71,23 +84,4 @@ export function isSessionRunning(sessionId: string | null | undefined): boolean 
 /** True when any of `sessionIds` is running. The sidebar's spinner rule. */
 export function anyRunning(running: Record<string, true>, sessionIds: string[]): boolean {
   return sessionIds.some((id) => running[id] === true)
-}
-
-/**
- * Whether a project row shows a spinner. Spec §2, including its own caveat.
- *
- * Collapsed, the project row stands in for its chats. Expanded, the spinner
- * belongs on the individual chat rows instead — except for a chat hidden behind
- * `Show more`, whose spinner would otherwise be invisible with no hint that
- * anything is running.
- */
-export function projectSpinnerVisible(opts: {
-  collapsed: boolean
-  childIds: string[]
-  visibleCount: number
-  running: Record<string, true>
-}): boolean {
-  const { collapsed, childIds, visibleCount, running } = opts
-  if (collapsed) return anyRunning(running, childIds)
-  return anyRunning(running, childIds.slice(visibleCount))
 }

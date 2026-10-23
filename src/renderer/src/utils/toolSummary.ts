@@ -1,6 +1,10 @@
 import type { ToolCallMessage } from '../store/sessions'
 import { basename, isAbsolute, segments, separatorOf } from '../lib/paths'
 
+/** The CLI's own to-do tools. `TaskChecklist` is not one: it is Nyra's record
+ *  of a finished `nyra-tasks` list, folded into the transcript. */
+export const TODO_TOOLS = ['TodoWrite', 'TodoRead', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet']
+
 /** Compact display name. mcp__<server>__<function> → <server>:<function> */
 export function formatToolName(name: string): string {
   const m = name.match(/^mcp__(.+?)__(.+)$/)
@@ -211,8 +215,7 @@ export function buildGroupSummary(messages: ToolCallMessage[]): string {
   if (counts['Grep']) parts.push(`${counts['Grep']} search${counts['Grep'] > 1 ? 'es' : ''}`)
   if (counts['Glob']) parts.push(`${counts['Glob']} glob${counts['Glob'] > 1 ? 's' : ''}`)
 
-  const todoKeys = ['TodoWrite', 'TodoRead', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet']
-  const todos = todoKeys.reduce((sum, k) => sum + (counts[k] ?? 0), 0)
+  const todos = TODO_TOOLS.reduce((sum, k) => sum + (counts[k] ?? 0), 0)
   if (todos > 0) parts.push('updated todo list')
 
   // An MCP call says which server it reached rather than disappearing into
@@ -229,7 +232,7 @@ export function buildGroupSummary(messages: ToolCallMessage[]): string {
     parts.push(`${n} ${server} call${n > 1 ? 's' : ''}`)
   }
 
-  const known = ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', ...todoKeys]
+  const known = ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', ...TODO_TOOLS]
   const other =
     messages.length - mcpTotal - known.reduce((sum, k) => sum + (counts[k] ?? 0), 0)
   if (other > 0) parts.push(`${other} other tool${other > 1 ? 's' : ''}`)

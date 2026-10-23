@@ -52,6 +52,19 @@ export async function deleteWorkspace(workspaceId: string, targetId: string): Pr
   if (!workspace) return { ok: false, error: 'That workspace no longer exists.' }
   if (!target || target.id === workspace.id) return { ok: false, error: 'Choose another workspace for its chats.' }
 
+  // Asked before anything moves: Rust refuses the last step too, but by then
+  // the chats would already be in the target.
+  const sharing = await window.api.workspace.signIn(workspace.id).catch(() => null)
+  if (sharing && sharing.borrowers.length > 0) {
+    const names = sharing.borrowers.map((id) => findWorkspace(id)?.name ?? 'another workspace')
+    return {
+      ok: false,
+      error: `${names.join(', ')} ${names.length === 1 ? 'uses' : 'use'} its sign-in. Delete ${
+        names.length === 1 ? 'that' : 'those'
+      } first.`
+    }
+  }
+
   const sessions = useSessionsStore.getState()
   const chatIds = sessionsInWorkspace(sessions, sessions.sessions, workspace.id).map((s) => s.id)
   const running = chatIds.filter((id) => anyRunning(useRunningStore.getState().running, [id])).length
@@ -80,7 +93,8 @@ export async function deleteWorkspace(workspaceId: string, targetId: string): Pr
   }
 
   // 4. Sign the account out. Deleting the folder alone would leave a login the
-  //    OS keeps elsewhere — the macOS Keychain — behind.
+  //    OS keeps elsewhere — the macOS Keychain — behind. One that borrows its
+  //    sign-in is left signed in: the login is the lender's, and Rust skips it.
   let warning: string | undefined
   const signedOut = await window.api.workspace
     .logout(workspace.configDir)

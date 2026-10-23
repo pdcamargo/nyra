@@ -109,6 +109,15 @@ export type NyraSettings = {
   cornerRadius: number
   /** The conversation's measure. */
   chatWidth: ChatWidth
+  /** How the rail draws a project and its chats. */
+  sidebarStyle: SidebarStyle
+  /** Chats waiting on you, from every project, gathered above Pinned. */
+  needsYouTray: boolean
+  /** While a chat is open, fade the projects it is not in. Status marks keep
+   *  full strength: they are the only thing reporting a result. */
+  dimOtherProjects: boolean
+  /** How visible a faded project stays, from `MIN_DIM_OPACITY` to 0.9. */
+  dimOpacity: number
   /** How the Changes tab draws a patch. Preferences rather than per-chat state:
    *  someone who reads diffs unified reads every diff unified. */
   diffView: DiffViewMode
@@ -119,6 +128,10 @@ export type NyraSettings = {
    *  `diffWrap` because reading a patch and reading a file are different jobs
    *  and someone can reasonably want one wrapped and not the other. */
   fileWrap: boolean
+  /** Soft-wrap code blocks in the conversation. Saved, because a block is
+   *  remounted every time it scrolls back into view and a choice kept on the
+   *  block was gone by the next scroll. */
+  codeWrap: boolean
   /** Passes `-w` to git. Unlike the other two this is not a rendering choice —
    *  the library draws a patch that git already computed, so whitespace has to
    *  be dropped when the patch is made, not when it is shown. */
@@ -148,6 +161,14 @@ export type DiffViewMode = 'auto' | 'unified' | 'split'
 
 /** How wide the conversation column is allowed to get. */
 export type ChatWidth = 'compact' | 'default' | 'wide' | 'full'
+
+/** `headings`: rules between projects. `cards`: an open project is boxed.
+ *  `spine`: a tile per project and a line in its colour down its chats. */
+export type SidebarStyle = 'headings' | 'cards' | 'spine'
+
+/** Fainter than this and a faded project's names stop being readable at all. */
+export const MIN_DIM_OPACITY = 0.3
+export const MAX_DIM_OPACITY = 0.9
 
 /** Which CLI runs a chat. */
 export type Provider = 'claude' | 'codex'
@@ -235,9 +256,14 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   // 0.84rem, what the stylesheet has always said.
   cornerRadius: 13.44,
   chatWidth: 'wide',
+  sidebarStyle: 'spine',
+  needsYouTray: true,
+  dimOtherProjects: true,
+  dimOpacity: 0.4,
   diffView: 'auto',
   diffWrap: false,
   fileWrap: false,
+  codeWrap: false,
   diffIgnoreWhitespace: false,
   dictationModel: 'turbo',
   dictationLanguage: '',

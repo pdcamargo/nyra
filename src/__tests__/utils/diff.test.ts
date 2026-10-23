@@ -83,6 +83,19 @@ describe('detectLanguage', () => {
     expect(detectLanguage('/config.yml')).toBe('yaml')
   })
 
+  it('detects shader languages', () => {
+    expect(detectLanguage('/shaders/lit.hlsl')).toBe('hlsl')
+    expect(detectLanguage('/shaders/common.hlsli')).toBe('hlsl')
+    expect(detectLanguage('/shaders/blur.slang')).toBe('hlsl')
+    expect(detectLanguage('/shaders/basic.vert')).toBe('glsl')
+    expect(detectLanguage('/shaders/basic.frag')).toBe('glsl')
+    expect(detectLanguage('/shaders/sky.wgsl')).toBe('wgsl')
+    expect(detectLanguage('/shaders/water.gdshader')).toBe('glsl')
+    expect(detectLanguage('/shaders/k.metal')).toBe('cpp')
+    // F#, not a fragment shader.
+    expect(detectLanguage('/src/Program.fs')).toBe('plaintext')
+  })
+
   it('detects special filenames', () => {
     expect(detectLanguage('/project/Dockerfile')).toBe('dockerfile')
     expect(detectLanguage('/project/Makefile')).toBe('makefile')

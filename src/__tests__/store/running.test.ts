@@ -1,12 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  useRunningStore,
-  isSessionRunning,
-  anyRunning,
-  projectSpinnerVisible
-} from '@renderer/store/running'
+import { useRunningStore, isSessionRunning, anyRunning } from '@renderer/store/running'
 
-const reset = (): void => useRunningStore.setState({ running: {}, thinkingSince: {} })
+const reset = (): void => useRunningStore.setState({ running: {}, thinkingSince: {}, startedAt: {} })
 
 describe('running store', () => {
   beforeEach(reset)
@@ -59,6 +54,24 @@ describe('running store', () => {
     expect(useRunningStore.getState().thinkingSince.a).toBeUndefined()
   })
 
+  it('records when a run started, and keeps it while the run carries on', () => {
+    // The sidebar's elapsed time: a second startRun on a run already going is
+    // the CLI's own follow-up turn, not a new start.
+    const { startRun } = useRunningStore.getState()
+    startRun('a')
+    const started = useRunningStore.getState().startedAt.a
+    expect(started).toBeTypeOf('number')
+    startRun('a')
+    expect(useRunningStore.getState().startedAt.a).toBe(started)
+  })
+
+  it('forgets the start when the run ends', () => {
+    const { startRun, endRun } = useRunningStore.getState()
+    startRun('a')
+    endRun('a')
+    expect(useRunningStore.getState().startedAt.a).toBeUndefined()
+  })
+
   it('isSessionRunning tolerates a null id', () => {
     expect(isSessionRunning(null)).toBe(false)
     expect(isSessionRunning(undefined)).toBe(false)
@@ -71,34 +84,5 @@ describe('running store', () => {
     expect(anyRunning(running, ['chat-1', 'chat-2'])).toBe(true)
     expect(anyRunning(running, ['chat-1', 'chat-3'])).toBe(false)
     expect(anyRunning(running, [])).toBe(false)
-  })
-})
-
-describe('projectSpinnerVisible', () => {
-  const running = { c2: true } as Record<string, true>
-
-  it('shows on a collapsed project when any chat is running', () => {
-    expect(
-      projectSpinnerVisible({ collapsed: true, childIds: ['c1', 'c2'], visibleCount: 0, running })
-    ).toBe(true)
-  })
-
-  it('stays off a collapsed project with nothing running', () => {
-    expect(
-      projectSpinnerVisible({ collapsed: true, childIds: ['c1', 'c3'], visibleCount: 0, running })
-    ).toBe(false)
-  })
-
-  it('moves to the chat rows once expanded', () => {
-    expect(
-      projectSpinnerVisible({ collapsed: false, childIds: ['c1', 'c2'], visibleCount: 2, running })
-    ).toBe(false)
-  })
-
-  it('comes back when the running chat is hidden behind Show more', () => {
-    // Spec §2's open question: expanded, but the spinner would be off-list.
-    expect(
-      projectSpinnerVisible({ collapsed: false, childIds: ['c1', 'c2'], visibleCount: 1, running })
-    ).toBe(true)
   })
 })

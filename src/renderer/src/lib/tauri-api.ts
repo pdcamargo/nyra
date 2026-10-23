@@ -167,6 +167,11 @@ export type DesktopBlocked = {
 }
 
 /** What a side question's process reports; see `side.rs`. */
+/** Workspaces to borrow sign-ins from when creating one. */
+export type WorkspaceSignInRequest = { claude?: string; codex?: string }
+
+export type WorkspaceSignIn = { claude: string | null; codex: string | null; borrowers: string[] }
+
 /** Who a workspace's Codex is signed in as. */
 export type CodexAccount =
   | { available: false; error: string }
@@ -850,14 +855,21 @@ export const api = {
    * takes an id and never a path.
    */
   workspace: {
-    create: (id: string) => call<{ configDir?: string; error?: string }>('workspace_create', { id }),
+    /** `signIn` names workspaces whose Claude and Codex sign-ins this one uses
+     *  rather than signing in itself. */
+    create: (id: string, signIn?: WorkspaceSignInRequest) =>
+      call<{ configDir?: string; error?: string }>('workspace_create', { id, signIn: signIn ?? null }),
+    /** Where its sign-ins come from (a workspace id, or null for its own), and
+     *  which workspaces borrow from it. */
+    signIn: (id: string) => call<WorkspaceSignIn>('workspace_sign_in', { id }),
     copyTranscripts: (id: string, targetConfigDir: ConfigDir) =>
       call<{ ok: boolean; projects?: number; error?: string }>('workspace_copy_transcripts', {
         id,
         targetConfigDir
       }),
+    /** `shared` when it borrows its sign-in, which is then left alone. */
     logout: (configDir: ConfigDir) =>
-      call<{ ok: boolean; error?: string }>('workspace_logout', { configDir }),
+      call<{ ok: boolean; shared?: boolean; error?: string }>('workspace_logout', { configDir }),
     delete: (id: string) => call<{ ok: boolean; error?: string }>('workspace_delete', { id }),
     /** Project id → config dir, for flows a trigger starts. Merged, not replaced. */
     syncProjects: (projects: Record<string, ConfigDir>, removed: string[]) =>

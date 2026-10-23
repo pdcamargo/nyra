@@ -91,6 +91,23 @@ describe('deleting a workspace', () => {
     expect(useWorkspacesStore.getState().workspaces.some((w) => w.id === 'work')).toBe(true)
   })
 
+  it('refuses a workspace others borrow their sign-in from, before anything moves', async () => {
+    useWorkspacesStore.setState({
+      workspaces: [...useWorkspacesStore.getState().workspaces, { id: 'side', name: 'Side', configDir: '/s' }]
+    })
+    vi.spyOn(window.api.workspace, 'signIn').mockResolvedValue({ claude: null, codex: null, borrowers: ['side'] })
+    const copy = vi.spyOn(window.api.workspace, 'copyTranscripts')
+    const logout = vi.spyOn(window.api.workspace, 'logout')
+    const before = useSessionsStore.getState().sessions
+
+    const outcome = await deleteWorkspace('work', DEFAULT_WORKSPACE_ID)
+
+    expect(outcome).toEqual({ ok: false, error: 'Side uses its sign-in. Delete that first.' })
+    expect(copy).not.toHaveBeenCalled()
+    expect(logout).not.toHaveBeenCalled()
+    expect(useSessionsStore.getState().sessions).toBe(before)
+  })
+
   it('aborts with nothing changed when a transcript copy fails', async () => {
     vi.spyOn(window.api.workspace, 'copyTranscripts').mockResolvedValue({ ok: false, error: 'disk full' })
     const logout = vi.spyOn(window.api.workspace, 'logout')

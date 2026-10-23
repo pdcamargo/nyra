@@ -98,4 +98,37 @@ describe('@-mentions', () => {
     await pickMention()
     expect(doc()).toBe('@../api.v2/routes.ts ')
   })
+
+  it('lists everything for a bare @ on Ctrl+Space, and nothing before it', async () => {
+    const queries: string[] = []
+    ;(window.api as unknown as { fs: { listFiles: unknown } }).fs.listFiles = (_cwd: string, query: string) => {
+      queries.push(query)
+      return Promise.resolve([
+        { path: 'src/', type: 'folder' },
+        { path: 'README.md', type: 'file' }
+      ])
+    }
+    render(
+      <TooltipProvider>
+        <ChatInput cwd="/tmp/nyra-test" isLoading={false} sendMessage={async () => {}} />
+      </TooltipProvider>
+    )
+    // Typed with the caret after it, as a real @ is: the popup reads its query
+    // from the caret, and only looks again when the text changes.
+    await act(async () => {
+      const view = EditorView.findFromDOM(content())!
+      view.dispatch({ changes: { from: 0, insert: '@' }, selection: { anchor: 1 } })
+    })
+    await waitFor(() => expect(doc()).toBe('@'))
+    // A bare @ waits for a letter.
+    await new Promise((r) => setTimeout(r, 150))
+    expect(screen.queryByText('README.md')).toBeNull()
+
+    await act(async () => {
+      fireEvent.keyDown(content(), { key: ' ', code: 'Space', ctrlKey: true })
+    })
+    expect(await screen.findByText('README.md')).toBeInTheDocument()
+    expect(screen.getByText('src/')).toBeInTheDocument()
+    expect(queries).toEqual([''])
+  })
 })

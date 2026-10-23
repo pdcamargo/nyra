@@ -69,7 +69,30 @@ const EXT_TO_LANG: Record<string, string> = {
   bash: 'shell',
   zsh: 'shell',
   dockerfile: 'dockerfile',
-  makefile: 'makefile'
+  makefile: 'makefile',
+  // Shaders. WGSL is Monaco's own; HLSL and GLSL are registered in
+  // `monacoShaders.ts`. Slang and Unreal's .usf are HLSL with extras, Godot's
+  // shading language and Unity's ShaderLab read close enough to GLSL and HLSL,
+  // and Metal is C++ underneath.
+  wgsl: 'wgsl',
+  hlsl: 'hlsl',
+  hlsli: 'hlsl',
+  fx: 'hlsl',
+  fxh: 'hlsl',
+  slang: 'hlsl',
+  usf: 'hlsl',
+  ush: 'hlsl',
+  shader: 'hlsl',
+  cginc: 'hlsl',
+  glsl: 'glsl',
+  vert: 'glsl',
+  frag: 'glsl',
+  geom: 'glsl',
+  comp: 'glsl',
+  tesc: 'glsl',
+  tese: 'glsl',
+  gdshader: 'glsl',
+  metal: 'cpp'
 }
 
 export function detectLanguage(filePath: string): string {

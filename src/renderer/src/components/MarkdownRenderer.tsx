@@ -36,8 +36,26 @@ const THEME_BG: Record<string, string> = {
 
 // Load only the most common languages initially (~1 MB vs ~3.8 MB)
 const INITIAL_LANGS = ['typescript', 'javascript', 'tsx', 'jsx', 'json', 'bash', 'markdown', 'text', 'diff']
-const DEFERRED_LANGS = ['python', 'sh', 'shell', 'jsonc', 'yaml', 'toml', 'css', 'html', 'rust', 'go', 'java', 'c', 'cpp', 'sql', 'regex']
+const DEFERRED_LANGS = [
+  'python', 'sh', 'shell', 'jsonc', 'yaml', 'toml', 'css', 'html', 'rust', 'go', 'java', 'c', 'cpp', 'sql', 'regex',
+  'hlsl', 'glsl', 'wgsl', 'shaderlab', 'gdshader'
+]
 const ALL_LANGS = [...INITIAL_LANGS, ...DEFERRED_LANGS]
+
+/**
+ * What a fence is labelled → the grammar that colours it. Shader code comes
+ * labelled every way there is: by stage (`frag`), by API (`opengl`, `metal`), or
+ * by the tool that reads it (`naga` takes WGSL). The label shown on the block
+ * stays what was written.
+ */
+const LANG_ALIASES: Record<string, string> = {
+  frag: 'glsl', vert: 'glsl', geom: 'glsl', comp: 'glsl', tesc: 'glsl', tese: 'glsl', vs: 'glsl', fs: 'glsl',
+  opengl: 'glsl', gl: 'glsl', gles: 'glsl', glslang: 'glsl', vulkan: 'glsl', spirv: 'glsl',
+  fx: 'hlsl', fxh: 'hlsl', hlsli: 'hlsl', cg: 'hlsl', directx: 'hlsl', dx: 'hlsl', slang: 'hlsl', usf: 'hlsl',
+  naga: 'wgsl', webgpu: 'wgsl',
+  shader: 'shaderlab', unity: 'shaderlab', godot: 'gdshader',
+  metal: 'cpp', msl: 'cpp'
+}
 const deferredSet = new Set(DEFERRED_LANGS)
 
 // Dynamically import shiki on first use so its grammars/engine stay out of the
@@ -76,17 +94,24 @@ async function ensureLang(highlighter: HighlighterGeneric<string, string>, lang:
 const highlighted = new Map<string, string>()
 const HIGHLIGHT_CACHE_LIMIT = 500
 
+/** `bg-muted/40` over `bg-code`, as one opaque fill. */
+const CODE_HEADER_FILL =
+  'linear-gradient(color-mix(in oklab, var(--muted) 40%, transparent), color-mix(in oklab, var(--muted) 40%, transparent)), var(--code)'
+
 const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: string; code: string }): React.JSX.Element {
   const resolvedTheme = useResolvedTheme()
   const shikiTheme = resolvedTheme === 'light' ? THEME_LIGHT : THEME_DARK
-  const lang = ALL_LANGS.includes(language) ? language : 'text'
+  const named = language.toLowerCase()
+  const wanted = LANG_ALIASES[named] ?? named
+  const lang = ALL_LANGS.includes(wanted) ? wanted : 'text'
   const cacheKey = `${shikiTheme}\0${lang}\0${code}`
   const [html, setHtml] = useState(() => highlighted.get(cacheKey) ?? '')
   const [copied, setCopied] = useState(false)
-  // Per block, not per app: whether a snippet is better wrapped or scrolled
-  // depends on the snippet — a long shell command wants wrapping, a table of
-  // output wants its columns kept.
-  const [wrapped, setWrapped] = useState(false)
+  // Every block's toggle sets the same preference. It used to be each block's
+  // own state, and the transcript is virtualised: a block scrolled out and back
+  // remounted unwrapped, so the choice never outlived a scroll.
+  const wrapped = useSettingsStore((s) => s.codeWrap)
+  const setWrapped = (next: boolean): void => useSettingsStore.getState().updateSettings({ codeWrap: next })
 
   useEffect(() => {
     const hit = highlighted.get(cacheKey)
@@ -116,8 +141,17 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
   }
 
   return (
-    <div data-theme-token="code" className="my-3 rounded-lg overflow-hidden border border-border bg-code">
-      <div className="flex items-center justify-between border-b border-border/55 bg-muted/40 py-1 pl-3 pr-2 select-none">
+    // `overflow-clip` rather than `hidden`: both round the corners, but hidden
+    // makes the block a scroll container, and a sticky header then sticks to
+    // the block instead of to the transcript.
+    <div data-theme-token="code" className="my-3 rounded-lg overflow-clip border border-border bg-code">
+      {/* Sticks to the top of the transcript while any of its block is on
+          screen, and leaves with the block's last line. Opaque, since code
+          scrolls under it: the muted tint is laid over the block's own fill. */}
+      <div
+        className="sticky top-0 z-10 flex items-center justify-between border-b border-border/55 py-1 pl-3 pr-2 select-none"
+        style={{ background: CODE_HEADER_FILL }}
+      >
         <span className="text-c-xs text-muted-foreground font-mono">{language || 'code'}</span>
         {/* Icon-only, and the separation comes from each button's own padding
             rather than a gap — the hit target and the spacing are then the same
@@ -126,7 +160,7 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={() => setWrapped((w) => !w)}
+                onClick={() => setWrapped(!wrapped)}
                 aria-pressed={wrapped}
                 aria-label={wrapped ? 'Stop wrapping long lines' : 'Wrap long lines'}
                 className={`rounded-md p-1.5 transition-colors hover:bg-accent/50 ${

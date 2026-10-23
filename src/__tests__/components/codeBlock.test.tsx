@@ -1,5 +1,5 @@
 import type React from 'react'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { render as rtlRender, screen } from '@testing-library/react'
 import { TooltipProvider } from '@renderer/components/ui/tooltip'
 
@@ -9,6 +9,7 @@ const render = (ui: React.ReactElement): ReturnType<typeof rtlRender> =>
   rtlRender(<TooltipProvider>{ui}</TooltipProvider>)
 import userEvent from '@testing-library/user-event'
 import MarkdownRenderer from '../../renderer/src/components/MarkdownRenderer'
+import { useSettingsStore } from '@renderer/store/settings'
 
 const LONG =
   'rcodesign notary-submit --api-key-file key.json --staple Nyra.dmg --and-more-flags-to-push-well-past-the-column'
@@ -22,6 +23,8 @@ const wraps = (el: HTMLElement): boolean => el.innerHTML.includes('whitespace-pr
 const scrolls = (el: HTMLElement): boolean => el.innerHTML.includes('overflow-x-auto')
 
 describe('code block wrap toggle', () => {
+  beforeEach(() => useSettingsStore.setState({ codeWrap: false }))
+
   it('scrolls long lines by default and wraps once toggled', async () => {
     const user = userEvent.setup()
     const { container } = render(<MarkdownRenderer>{'```bash\n' + LONG + '\n```'}</MarkdownRenderer>)
@@ -46,14 +49,23 @@ describe('code block wrap toggle', () => {
     expect(wraps(container)).toBe(false)
   })
 
-  it('is per block, so toggling one does not move the other', async () => {
+  it('is one preference: toggling a block wraps every block', async () => {
     const user = userEvent.setup()
     render(<MarkdownRenderer>{'```bash\na\n```\n\n```bash\nb\n```'}</MarkdownRenderer>)
 
-    expect(screen.getAllByLabelText('Wrap long lines')).toHaveLength(2)
     await user.click(screen.getAllByLabelText('Wrap long lines')[0])
-    expect(screen.getAllByLabelText('Wrap long lines')).toHaveLength(1)
-    expect(screen.getAllByLabelText('Stop wrapping long lines')).toHaveLength(1)
+    expect(screen.getAllByLabelText('Stop wrapping long lines')).toHaveLength(2)
+    expect(useSettingsStore.getState().codeWrap).toBe(true)
+  })
+
+  it('survives the block remounting, as it does when scrolled back into view', async () => {
+    const user = userEvent.setup()
+    const first = render(<MarkdownRenderer>{'```bash\n' + LONG + '\n```'}</MarkdownRenderer>)
+    await user.click(screen.getByLabelText('Wrap long lines'))
+    first.unmount()
+
+    const { container } = render(<MarkdownRenderer>{'```bash\n' + LONG + '\n```'}</MarkdownRenderer>)
+    expect(wraps(container)).toBe(true)
   })
 
   it('sits to the left of Copy', () => {

@@ -16,6 +16,7 @@
 import { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import { StandaloneServices } from 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js'
+import { registerShaderLanguages } from './monacoShaders'
 
 let installed = false
 
@@ -33,6 +34,8 @@ export function installMonacoEnvironment(): void {
   // Before anything asks Monaco for a service: once its stock clipboard
   // service exists, the override is ignored.
   StandaloneServices.initialize({ clipboardService: plainClipboard() })
+
+  registerShaderLanguages(monaco)
 }
 
 /**
