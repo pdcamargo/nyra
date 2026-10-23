@@ -8,7 +8,24 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'Chats can now run on Codex as well as Claude. Pick a Codex model in the composer to move a chat to Codex, and a Claude model to move it back. Each workspace has its own Codex account beside its Claude one',
+      'Moving a long chat to the other CLI hands over a summary written by the one that was answering, plus the last exchange word for word. The composer shows what your next message will carry before you send it',
+      'Claude and Codex can hand work to each other. Either one can start the other, wait for it and pass back its answer. The agent shows in the chat as a row with its own steps, and its approval prompts come to you',
+      'An agent started this way can be given a model and effort, and the Subagents panel shows the CLI, model and effort each one got',
+      "Codex chats can use your Claude skills and commands. Type /name to run one. The Skills page now lists Codex's own skills too",
+      'Codex asks for approval in the same permission dialog as Claude',
+      'Side questions, Edit, Regenerate and versions work in Codex chats, Codex rate limits show in the usage menu, and flow prompt steps can run on Codex',
+      "A flow can now stop at a chat step and wait in the chat that started it. It carries on with what the conversation settled on: Claude's final version, its last reply, or yours",
+      'A flow started from a chat shows there: a card in the chat, a tab in the side panel, a Flows section in the Pinned Summary, and a bar above the composer while it waits on you. Type /flow to start one',
+      'Ignore now drops every open question and gives you the composer back. The questions tray has Ignore all',
+      'Added a setting to hide the task checklist',
+      'The prompt timeline moved to the left edge of the chat, clear of the Pinned Summary',
+      'The sidebar shows a chat as busy while it waits on subagents or a flow',
+      'Fixed diffs in permission dialogs and tool cards showing up blank',
+      'Fixed messages sent into a chat while the Flows view was open getting lost',
+      "Fixed a first message with no text blanking the chat's title"
+    ]
   },
   {
     version: '1.0.0',
