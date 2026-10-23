@@ -206,6 +206,8 @@ export type Agent = {
   outputFile?: string
   /** Its face in the transcript and the pinned summary. Assigned by `addAgent`. */
   cat?: AgentCat
+  /** An agent handed out through `nyra_agent`: the id its progress comes under. */
+  delegateId?: string
 }
 
 export type McpServerInfo = {

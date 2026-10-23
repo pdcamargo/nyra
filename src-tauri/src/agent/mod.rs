@@ -20,6 +20,7 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 pub mod codex;
+pub mod delegate;
 
 use self::codex::Codex;
 use crate::claude::Claude;
@@ -123,6 +124,7 @@ async fn claim(nyra_session_id: &str, provider: Provider) {
 
 pub async fn run(turn: Turn) -> Result<Option<String>, String> {
     let provider = turn.settings.provider;
+    delegate::remember(&turn);
     claim(&turn.nyra_session_id, provider).await;
     match provider {
         Provider::Claude => Claude.run(turn).await,
@@ -150,6 +152,8 @@ pub fn abort(nyra_session_id: Option<&str>) {
         Provider::Claude => Claude.abort(id),
         Provider::Codex => Codex.abort(id),
     }
+    // Stopping a turn stops what it handed out.
+    delegate::abort_children(id);
 }
 
 pub async fn steer(nyra_session_id: &str, prompt: &str) -> Option<u64> {
@@ -167,6 +171,12 @@ pub async fn respond_permission(nyra_session_id: &str, approved: bool) {
 }
 
 pub async fn dispose(nyra_session_id: &str) -> Result<(), String> {
+    delegate::dispose_children(nyra_session_id).await;
+    dispose_chat(nyra_session_id).await
+}
+
+/// One chat's process, and nothing it started.
+async fn dispose_chat(nyra_session_id: &str) -> Result<(), String> {
     let provider = OWNERS.lock().remove(nyra_session_id).unwrap_or_default();
     dispose_with(provider, nyra_session_id).await
 }
@@ -204,10 +214,36 @@ pub fn side_close(side_id: &str) {
 /// Every backend emits through here.
 pub fn emit_event(nyra_session_id: &str, mut extra: Value) {
     crate::keep_awake::note_event(nyra_session_id, &extra);
+    // A delegated agent has no window: what it does is its parent's to show.
+    if let Some(parent) = delegate::parent_of(nyra_session_id) {
+        delegate::on_child_event(nyra_session_id, &parent, &extra);
+        return;
+    }
     if let Value::Object(map) = &mut extra {
         map.insert("nyraSessionId".into(), Value::String(nyra_session_id.to_string()));
     }
     util::emit("claude:event", extra);
+}
+
+/// A permission prompt, for the renderer's dialog. Every backend asks through
+/// here. A delegated agent's prompt is shown in its parent's chat, with whom it
+/// is from, and the answer goes back to the agent itself (`respondTo`).
+pub fn emit_permission(nyra_session_id: &str, mut payload: Value) {
+    if let Value::Object(map) = &mut payload {
+        match delegate::parent_of(nyra_session_id) {
+            Some(parent) => {
+                map.insert("nyraSessionId".into(), Value::String(parent));
+                map.insert("respondTo".into(), Value::String(nyra_session_id.to_string()));
+                if let Some(label) = delegate::label_of(nyra_session_id) {
+                    map.insert("delegate".into(), Value::String(label));
+                }
+            }
+            None => {
+                map.insert("nyraSessionId".into(), Value::String(nyra_session_id.to_string()));
+            }
+        }
+    }
+    util::emit("claude:permission", payload);
 }
 
 /// A turn that failed before the CLI could start it. No `result` or exit is

@@ -127,6 +127,8 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'subagent_stream'; tool_id: string; at: number; entries: SubagentWireEntry[] }
   | { type: 'subagent_model'; tool_id: string; model: string }
   | { type: 'subagent_reset'; tool_id: string }
+  | { type: 'delegate_progress'; agent_id: string; entries: SubagentWireEntry[] }
+  | { type: 'delegate_done'; agent_id: string; status: 'completed' | 'failed' | 'cancelled'; duration_ms: number; total_tokens: number; result?: string }
   | { type: 'plan_ready'; tool_id: string; path: string; plan: string }
   | { type: 'session_reset'; reason: string }
   | { type: 'ai_title'; title: string; fresh?: boolean }
@@ -173,6 +175,8 @@ function announceAgentEnd(sid: string, agent: Agent, status: 'done' | 'failed'):
  * compaction outlives `Chat` being unmounted for the workflow canvas.
  */
 const compacting = new Map<string, string>()
+/** Nyra's own tool for handing work to another CLI, as either CLI names it. */
+const DELEGATE_TOOL = 'mcp__nyra-app__nyra_agent'
 /** Which CLI is running each chat's turn. The chat can be moved to another
  *  before the turn's end arrives, and what that turn wrote is the first one's. */
 const turnProvider = new Map<string, Provider>()
@@ -1246,6 +1250,21 @@ export default function Chat(): React.JSX.Element {
           }
         }
 
+        // An agent handed out to another CLI through Nyra's own tool. The
+        // call returns at once with its id; the row runs until Nyra reports
+        // the agent done, as `delegate_done`.
+        if (tool_name === DELEGATE_TOOL && (event.input as Record<string, unknown>).action === 'spawn') {
+          const inp = event.input as Record<string, unknown>
+          const prompt = String(inp.prompt ?? '').trim()
+          addAgent(sid, {
+            toolId: event.tool_id,
+            name: (prompt.split('\n')[0] || 'Delegated agent').slice(0, 60),
+            subagentType: [inp.provider === 'codex' ? 'Codex' : 'Claude', inp.model].filter(Boolean).join(' · '),
+            status: 'running',
+            startedAt: Date.now()
+          })
+        }
+
         // Sub-agent spawned via Task tool
         if (tool_name === 'Agent' || tool_name === 'Task') {
           const inp = event.input as Record<string, unknown>
@@ -1283,7 +1302,19 @@ export default function Chat(): React.JSX.Element {
         // Update agent status on completion
         const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         const agent = session?.agents?.find((a) => a.toolId === event.tool_id)
-        if (agent) {
+        // A spawn's result is the agent starting, not finishing: it names the
+        // id the agent's progress and end come under.
+        if (agent && !agent.delegateId && session?.messages.some((m) => m.role === 'tool_call' && m.tool_id === event.tool_id && m.tool_name === DELEGATE_TOOL)) {
+          try {
+            const started = JSON.parse(event.content ?? '') as { agent_id?: string }
+            if (started.agent_id && !event.is_error) {
+              updateAgent(sid, event.tool_id, { delegateId: started.agent_id })
+              return
+            }
+          } catch { /* not a start: the agent never ran */ }
+          updateAgent(sid, event.tool_id, { status: 'failed', durationMs: Date.now() - agent.startedAt })
+          announceAgentEnd(sid, agent, 'failed')
+        } else if (agent) {
           const updates: Partial<{
             status: AgentStatus
             durationMs: number
@@ -1328,6 +1359,9 @@ export default function Chat(): React.JSX.Element {
         const outstanding = new Set(event.tasks.map((t) => t.description))
         const sess = useSessionsStore.getState().sessions.find((x) => x.id === sid)
         for (const agent of sess?.agents ?? []) {
+          // An agent handed to another CLI is not on Claude's roster; Nyra
+          // reports its end itself.
+          if (agent.delegateId) continue
           const stillOut = outstanding.has(agent.name)
           if (stillOut && agent.status !== 'running') updateAgent(sid, agent.toolId, { status: 'running' })
           if (!stillOut && agent.status === 'running') {
@@ -1335,6 +1369,30 @@ export default function Chat(): React.JSX.Element {
             announceAgentEnd(sid, agent, 'done')
           }
         }
+        return
+      }
+
+      // An agent this chat handed out, at work: what it says and runs, filed
+      // under the row its spawn opened.
+      if (event.type === 'delegate_progress' || event.type === 'delegate_done') {
+        const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)
+        const agent = session?.agents?.find((a) => a.delegateId === event.agent_id)
+        if (!agent) return
+        if (event.type === 'delegate_progress') {
+          useSubagentTranscriptsStore.getState().append(sid, agent.toolId, event.entries)
+          const tool = [...event.entries].reverse().find((e) => e.kind === 'tool')
+          if (tool && tool.kind === 'tool') updateAgent(sid, agent.toolId, { activity: `Running ${tool.name}` })
+          return
+        }
+        const status = event.status === 'completed' ? 'done' : 'failed'
+        // The card's report is the agent's answer; the spawn only said it began.
+        if (event.result) updateToolResult(sid, agent.toolId, event.result, status === 'failed')
+        updateAgent(sid, agent.toolId, {
+          status,
+          durationMs: event.duration_ms,
+          ...(event.total_tokens > 0 ? { totalTokens: event.total_tokens } : {})
+        })
+        announceAgentEnd(sid, agent, status)
         return
       }
 
@@ -1587,7 +1645,7 @@ export default function Chat(): React.JSX.Element {
         void recordTurnFiles(sid)
         foldTasksAtTurnEnd(sid)
         refreshBranch(sid)
-        setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
+        setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid || p.respondTo))
 
         // Send the next queued message, if any. One per turn, in order.
         const queued = useSessionsStore.getState().dequeueMessage(sid)
@@ -1611,7 +1669,7 @@ export default function Chat(): React.JSX.Element {
         addMessage(sid, { id: newMessageId(), role: 'error', text: event.result })
         useRunningStore.getState().endRun(sid)
         foldTasksAtTurnEnd(sid)
-        setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
+        setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid || p.respondTo))
         // Mark any still-running agents as failed
         const errSession = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         errSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
@@ -1634,7 +1692,7 @@ export default function Chat(): React.JSX.Element {
         useRunningStore.getState().endRun(sid)
         foldTasksAtTurnEnd(sid)
         reopenUndelivered(sid)
-        setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
+        setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid || p.respondTo))
         // A plan drafted during this turn becomes an ask now the turn is over:
         // ending the turn in plan mode is what handing control back looks like.
         // Unless the turn ended by asking something — a question is its own ask,
@@ -1666,12 +1724,12 @@ export default function Chat(): React.JSX.Element {
       const settings = useSettingsStore.getState()
       // Skip-all overrides everything
       if (settings.skipPermissions) {
-        window.api.claude.respondPermission(true, perm.nyraSessionId)
+        window.api.claude.respondPermission(true, perm.respondTo ?? perm.nyraSessionId)
         return
       }
       // Per-tool auto-approve
       if (settings.autoApproveTools.includes(perm.tool_name)) {
-        window.api.claude.respondPermission(true, perm.nyraSessionId)
+        window.api.claude.respondPermission(true, perm.respondTo ?? perm.nyraSessionId)
         return
       }
       // A plan is something you read, so it goes in the transcript as a card
@@ -1742,6 +1800,9 @@ export default function Chat(): React.JSX.Element {
     // shortcut silently approving a tool call in a project you aren't looking at.
     const current = permissionQueue.find((p) => p.nyraSessionId === activeSessionId)
     const sid = current?.nyraSessionId
+    // A delegated agent's prompt is answered to the agent, and its denial is
+    // the agent's to handle: the chat showing it is not the one that stops.
+    const to = current?.respondTo ?? sid
     setPermissionQueue((q) => {
       const idx = q.findIndex((p) => p.tool_id === current?.tool_id)
       if (idx < 0) return q
@@ -1750,10 +1811,10 @@ export default function Chat(): React.JSX.Element {
     // Safety net for denial: main sends stream_end which clears loading, but if
     // that event is delayed/dropped (e.g., the PTY race seen with plan-mode
     // ExitPlanMode rejection), clear loading here so the UI never gets stuck.
-    if (!approved && sid) {
+    if (!approved && sid && !current?.respondTo) {
       useRunningStore.getState().endRun(sid)
     }
-    window.api.claude.respondPermission(approved, sid)
+    window.api.claude.respondPermission(approved, to)
   }, [permissionQueue, activeSessionId])
 
   const handlePermissionAllowAll = useCallback((): void => {
@@ -1761,7 +1822,7 @@ export default function Chat(): React.JSX.Element {
     const toAllow = permissionQueue.filter((p) => p.nyraSessionId === sid)
     setPermissionQueue((q) => q.filter((p) => p.nyraSessionId !== sid))
     for (const perm of toAllow) {
-      window.api.claude.respondPermission(true, perm.nyraSessionId)
+      window.api.claude.respondPermission(true, perm.respondTo ?? perm.nyraSessionId)
     }
   }, [permissionQueue, activeSessionId])
 

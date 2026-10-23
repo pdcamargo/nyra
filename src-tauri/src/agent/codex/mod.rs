@@ -50,7 +50,7 @@ struct Chat {
     abort_requested: bool,
     skip_permissions: bool,
     /// Approval requests waiting on the dialog, oldest first, by request id.
-    approvals: VecDeque<Value>,
+    approvals: VecDeque<(Value, translate::ApprovalKind)>,
     /// Turns ended to make way for a newer message; whatever they still send
     /// is dropped rather than read as the new turn's.
     replaced_turns: Vec<String>,
@@ -220,21 +220,24 @@ async fn on_request(server: Arc<Server>, id: Value, method: String, params: Valu
         server.reply(id, Err(format!("Nyra cannot answer {method} yet"))).await;
         return;
     };
-    if skip {
-        server.reply(id, Ok(json!({ "decision": "accept" }))).await;
+    // Nyra's own tools run unasked, as they do for Claude: the user's gate is
+    // for what a model does to their machine, not for it talking to Nyra.
+    let nyras_own = method == "mcpServer/elicitation/request"
+        && params.get("serverName").and_then(Value::as_str).is_some_and(|s| s.starts_with("nyra-"));
+    if skip || nyras_own {
+        server.reply(id, Ok(approval.kind.answer(true))).await;
         return;
     }
     if let Some(chat) = CHATS.lock().get_mut(&chat_id) {
-        chat.approvals.push_back(id);
+        chat.approvals.push_back((id, approval.kind));
     }
-    util::emit(
-        "claude:permission",
+    super::emit_permission(
+        &chat_id,
         json!({
             "tool_id": approval.tool_id,
             "tool_name": approval.tool_name,
             "input": approval.input,
             "originalContent": approval.original,
-            "nyraSessionId": chat_id,
         }),
     );
     crate::notify_user::notify("Permission Needed", &format!("Codex wants to use {}", approval.tool_name), &chat_id);
@@ -641,11 +644,10 @@ impl AgentBackend for Codex {
     async fn respond_permission(&self, nyra_session_id: &str, approved: bool) {
         let next = {
             let mut chats = CHATS.lock();
-            chats.get_mut(nyra_session_id).and_then(|c| c.approvals.pop_front().map(|id| (c.server.clone(), id)))
+            chats.get_mut(nyra_session_id).and_then(|c| c.approvals.pop_front().map(|(id, kind)| (c.server.clone(), id, kind)))
         };
-        let Some((server, id)) = next else { return };
-        let decision = if approved { "accept" } else { "decline" };
-        server.reply(id, Ok(json!({ "decision": decision }))).await;
+        let Some((server, id, kind)) = next else { return };
+        server.reply(id, Ok(kind.answer(approved))).await;
     }
 
     async fn dispose(&self, nyra_session_id: &str) -> Result<(), String> {

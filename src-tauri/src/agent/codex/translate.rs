@@ -46,9 +46,29 @@ struct PendingFile {
 #[derive(Debug, PartialEq)]
 pub struct Approval {
     pub tool_id: String,
-    pub tool_name: &'static str,
+    pub tool_name: String,
     pub input: Value,
     pub original: Option<String>,
+    pub kind: ApprovalKind,
+}
+
+/// How an answer to an approval is worded: commands and patches take a
+/// decision, an MCP server's elicitation an action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalKind {
+    Decision,
+    Elicitation,
+}
+
+impl ApprovalKind {
+    pub fn answer(self, approved: bool) -> Value {
+        match (self, approved) {
+            (ApprovalKind::Decision, true) => json!({ "decision": "accept" }),
+            (ApprovalKind::Decision, false) => json!({ "decision": "decline" }),
+            (ApprovalKind::Elicitation, true) => json!({ "action": "accept", "content": {}, "_meta": null }),
+            (ApprovalKind::Elicitation, false) => json!({ "action": "decline", "content": null, "_meta": null }),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -356,31 +376,58 @@ impl Translator {
                 if let Some(reason) = params.get("reason").and_then(Value::as_str) {
                     input["description"] = json!(reason);
                 }
-                Some(Approval { tool_id: item, tool_name: "Bash", input, original: None })
+                Some(Approval { tool_id: item, tool_name: "Bash".into(), input, original: None, kind: ApprovalKind::Decision })
             }
             "item/fileChange/requestApproval" => {
                 // The dialog shows one file; a patch over several is rare and
                 // the cards that follow it show them all.
                 let file = self.patches.get(&item).and_then(|files| files.first());
                 let Some(file) = file else {
-                    return Some(Approval { tool_id: item, tool_name: "Edit", input: json!({}), original: None });
+                    return Some(Approval { tool_id: item, tool_name: "Edit".into(), input: json!({}), original: None, kind: ApprovalKind::Decision });
                 };
                 Some(match &file.before {
                     None => Approval {
                         tool_id: item,
-                        tool_name: "Write",
+                        tool_name: "Write".into(),
                         input: json!({ "file_path": file.path, "content": file.diff }),
                         original: None,
+                        kind: ApprovalKind::Decision,
                     },
                     Some(before) => {
                         let (old, new) = split_unified_diff(&file.diff);
                         Approval {
                             tool_id: item,
-                            tool_name: "Edit",
+                            tool_name: "Edit".into(),
                             input: json!({ "file_path": file.path, "old_string": old, "new_string": new }),
                             original: Some(before.clone()),
+                            kind: ApprovalKind::Decision,
                         }
                     }
+                })
+            }
+            // An MCP server asking before one of its tools runs. Shown as the
+            // tool it is about, named the way Claude names MCP tools, so the
+            // dialog and "always allow" treat both CLIs' calls alike.
+            "mcpServer/elicitation/request" => {
+                let server = str_at(params, "serverName");
+                let meta = params.get("_meta").unwrap_or(&Value::Null);
+                // 0.163 names the tool only in the message: `Allow the nyra-app
+                // MCP server to run tool "nyra_agent"?`
+                let message = str_at(params, "message");
+                let tool = message.split("tool \"").nth(1).and_then(|rest| rest.split('"').next()).unwrap_or_default();
+                let tool_name = if tool.is_empty() { format!("mcp__{server}") } else { format!("mcp__{server}__{tool}") };
+                // The call's own arguments, as the dialog shows any tool's input.
+                let input = meta
+                    .get("tool_params")
+                    .filter(|p| p.is_object())
+                    .cloned()
+                    .unwrap_or_else(|| json!({ "message": message }));
+                Some(Approval {
+                    tool_id: format!("elicitation-{}", params.get("elicitationId").and_then(Value::as_str).unwrap_or(server)),
+                    tool_name,
+                    input,
+                    original: None,
+                    kind: ApprovalKind::Elicitation,
                 })
             }
             _ => None,
@@ -681,6 +728,20 @@ mod tests {
         assert_eq!(closed[0], json!({ "type": "tool_result", "tool_id": "agent-child", "content": "notes.txt has 4 lines.", "is_error": false }));
         // Codex interrupts an agent that already finished; nothing is left to close.
         assert!(events(&t.notification("item/completed", &activity("interrupted"), &no_files)).is_empty());
+    }
+
+    #[test]
+    fn an_mcp_elicitation_is_a_prompt_for_the_tool_it_names() {
+        let t = Translator::default();
+        // As 0.163 asks before an MCP tool call, trimmed.
+        let params = json!({ "serverName": "nyra-app", "mode": "form", "requestedSchema": { "type": "object", "properties": {} },
+            "message": "Allow the nyra-app MCP server to run tool \"nyra_agent\"?",
+            "_meta": { "codex_approval_kind": "mcp_tool_call", "tool_params": { "action": "spawn", "provider": "claude" } } });
+        let ask = t.approval("mcpServer/elicitation/request", &params).unwrap();
+        assert_eq!(ask.tool_name, "mcp__nyra-app__nyra_agent");
+        assert_eq!(ask.input, json!({ "action": "spawn", "provider": "claude" }));
+        assert_eq!(ask.kind.answer(true), json!({ "action": "accept", "content": {}, "_meta": null }));
+        assert_eq!(ApprovalKind::Decision.answer(false), json!({ "decision": "decline" }));
     }
 
     #[test]

@@ -12,6 +12,10 @@ export type PermissionRequest = {
   tool_name: string
   input: Record<string, unknown>
   originalContent?: string | null
+  /** An agent this chat handed work to is asking: its CLI and model. */
+  delegate?: string
+  /** The chat the answer goes to, when that is not the one showing it. */
+  respondTo?: string
 }
 
 const TOOL_ICONS: Record<string, string> = {
@@ -142,6 +146,7 @@ export default function PermissionDialog({
           <div className="min-w-0 flex-1">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
               {isFileOp ? 'Review file change' : 'Permission required'}
+              {permission.delegate ? ` · from ${permission.delegate}` : ''}
               {queueLength > 1 ? ` (${queueLength} pending)` : ''}
             </p>
             <p className="text-sm font-medium text-foreground">

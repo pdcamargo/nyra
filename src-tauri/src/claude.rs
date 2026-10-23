@@ -2875,14 +2875,7 @@ async fn process_tool_blocks(
         announce(info);
     }
     for info in prompts {
-        let mut payload = info.to_json();
-        if let Value::Object(map) = &mut payload {
-            map.insert(
-                "nyraSessionId".into(),
-                Value::String(nyra_session_id.to_string()),
-            );
-        }
-        util::emit("claude:permission", payload);
+        agent::emit_permission(nyra_session_id, info.to_json());
         notify(
             "Permission Needed",
             &format!("Claude wants to use {}", info.tool_name),

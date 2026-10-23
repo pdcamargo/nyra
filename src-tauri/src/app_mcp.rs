@@ -319,6 +319,22 @@ fn tool_schemas() -> Value {
             }
         },
         {
+            "name": "nyra_agent",
+            "description": "Hand a task to another agent CLI (Claude or Codex) in this project. spawn returns an agent_id at once; wait until it is done. Its prompt sees none of this chat.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["spawn", "wait", "reply", "cancel"] },
+                    "provider": { "type": "string", "enum": ["claude", "codex"] },
+                    "model": { "type": "string" },
+                    "prompt": { "type": "string" },
+                    "agent_id": { "type": "string" },
+                    "timeout_seconds": { "type": "number" }
+                },
+                "required": ["action"]
+            }
+        },
+        {
             "name": "nyra_update",
             "description": "Check whether a newer Nyra has been released. Reports the version and gives you a link to offer — installing restarts the app, so the user presses it, never you.",
             "inputSchema": { "type": "object", "properties": {} }
@@ -396,8 +412,9 @@ async fn call_tool(chat_id: &str, name: &str, args: Value) -> Result<String, Str
         "nyra_design" => design_tool(chat_id, args).await,
         "nyra_flow" => flow_tool(args).await,
         "nyra_update" => update_tool().await,
+        "nyra_agent" => crate::agent::delegate::tool(chat_id, args).await,
         other => Err(format!(
-            "Unknown tool '{other}'. This server offers nyra_ui, nyra_flow and nyra_update."
+            "Unknown tool '{other}'. This server offers nyra_ui, nyra_design, nyra_flow, nyra_agent and nyra_update."
         )),
     }
 }
@@ -1293,16 +1310,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tools_list_carries_exactly_the_four() {
+    async fn tools_list_carries_exactly_the_five() {
         let listed = handle("chat", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await;
         let tools = listed["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["nyra_ui", "nyra_design", "nyra_flow", "nyra_update"]);
+        assert_eq!(names, ["nyra_ui", "nyra_design", "nyra_flow", "nyra_agent", "nyra_update"]);
         // Every one of these rides in every turn, so the schemas stay small on
-        // purpose. If this trips, move a catalogue into a result.
+        // purpose. If this trips, move a catalogue into a result. It was 4000
+        // until nyra_agent, which is a fifth tool rather than a catalogue and
+        // costs about 120 tokens a turn on its own.
         let weight = serde_json::to_string(&tool_schemas()).unwrap().len();
         println!("  tool schemas    {weight:>5} chars  ~{:>4} tokens", weight / 4);
-        assert!(weight < 4000, "tool schemas grew to {weight} bytes");
+        assert!(weight < 4600, "tool schemas grew to {weight} bytes");
     }
 
     #[tokio::test]
