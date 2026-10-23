@@ -86,6 +86,9 @@ pub(super) async fn server_for(home: Option<PathBuf>) -> Result<Arc<Server>, Str
     if let Some(home) = &home {
         std::fs::create_dir_all(home).map_err(|e| format!("Could not make {}: {e}", home.display()))?;
     }
+    // Its way back to Claude — the `claude` agent — before Codex reads its
+    // agents, so a home made a minute ago has it too.
+    crate::managed_skills::sync_codex_home(home.as_deref()).await;
     let install = tokio::task::spawn_blocking(binary::cached)
         .await
         .map_err(|e| format!("Could not look for Codex: {e}"))??;

@@ -28,6 +28,43 @@ use std::path::{Path, PathBuf};
 
 use crate::util;
 
+/// Which CLI's home a managed file goes into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Home {
+    /// A Claude config dir: `~/.claude`, or a workspace's `.claude`.
+    Claude,
+    /// A Codex home: `~/.codex`, or a workspace's `.codex`.
+    Codex,
+}
+
+/// A file other than a skill that Nyra ships into a CLI's home, kept current by
+/// the same three rules. `rel` is relative to the home; `key` is what the state
+/// file records it under, apart from the skills' names.
+pub struct BundledFile {
+    pub key: &'static str,
+    pub home: Home,
+    pub rel: &'static str,
+    pub content: &'static str,
+}
+
+/// Each CLI's way to the other: an agent definition it can choose like any of
+/// its own, which hands the task to the other CLI through `nyra_agent` and
+/// brings the answer back. The model in each stays in its own harness.
+pub const FILES: &[BundledFile] = &[
+    BundledFile {
+        key: "agent:codex",
+        home: Home::Claude,
+        rel: "agents/codex.md",
+        content: include_str!("../managed/claude-agents/codex.md"),
+    },
+    BundledFile {
+        key: "agent:claude",
+        home: Home::Codex,
+        rel: "agents/claude.toml",
+        content: include_str!("../managed/codex-agents/claude.toml"),
+    },
+];
+
 /// A skill compiled into the binary.
 pub struct Bundled {
     pub name: &'static str,
@@ -231,6 +268,9 @@ pub async fn sync() {
     for config_dir in crate::workspaces::config_roots() {
         sync_in(&Paths::for_config_dir(&config_dir), BUNDLED).await;
     }
+    for (home, record) in codex_homes() {
+        sync_entries(&record, &files_for(Home::Codex, &home)).await;
+    }
 }
 
 /// A new workspace, so its first chat already has the skills the others do.
@@ -239,29 +279,65 @@ pub async fn sync_into(config_dir: &Path) {
 }
 
 async fn sync_in(paths: &Paths, bundled: &[Bundled]) {
-    let mut state = read_state(paths).await;
+    let mut entries: Vec<Entry> = bundled
+        .iter()
+        .map(|skill| Entry { key: skill.name, path: paths.skill(skill.name), content: skill.content })
+        .collect();
+    // The Claude agents ride with the skills: same home, same record.
+    if let Some(home) = paths.skills_root.parent() {
+        entries.extend(files_for(Home::Claude, home));
+    }
+    sync_entries(&paths.state_file, &entries).await;
+}
+
+/// One file to keep current: where it goes, what it should hold, and the name
+/// its record is under.
+struct Entry {
+    key: &'static str,
+    path: PathBuf,
+    content: &'static str,
+}
+
+fn files_for(home: Home, root: &Path) -> Vec<Entry> {
+    FILES
+        .iter()
+        .filter(|f| f.home == home)
+        .map(|f| Entry { key: f.key, path: root.join(f.rel), content: f.content })
+        .collect()
+}
+
+async fn write_file(path: &Path, content: &str) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        tokio::fs::create_dir_all(dir).await.map_err(|e| e.to_string())?;
+    }
+    tokio::fs::write(path, content).await.map_err(|e| e.to_string())
+}
+
+async fn sync_entries(state_file: &Path, entries: &[Entry]) {
+    let paths = Paths { skills_root: PathBuf::new(), state_file: state_file.to_path_buf() };
+    let mut state = read_state(&paths).await;
     let mut dirty = false;
 
-    for skill in bundled {
-        let bundled_hash = sha256(skill.content);
-        let disk = tokio::fs::read_to_string(paths.skill(skill.name)).await.ok();
-        let action = decide(disk.as_deref(), state.get(skill.name), &bundled_hash);
+    for entry in entries {
+        let bundled_hash = sha256(entry.content);
+        let disk = tokio::fs::read_to_string(&entry.path).await.ok();
+        let action = decide(disk.as_deref(), state.get(entry.key), &bundled_hash);
+        let name = entry.key;
 
         let record = match action {
             Action::Nothing => continue,
             Action::Install | Action::Update => {
-                if let Err(e) = write_skill(paths, skill.name, skill.content).await {
-                    crate::logf!("managed-skills: could not write {}: {e}", skill.name);
+                if let Err(e) = write_file(&entry.path, entry.content).await {
+                    crate::logf!("managed-skills: could not write {name}: {e}");
                     continue;
                 }
                 crate::logf!(
-                    "managed-skills: {} {}",
+                    "managed-skills: {} {name}",
                     if action == Action::Install {
                         "installed"
                     } else {
                         "updated"
-                    },
-                    skill.name
+                    }
                 );
                 Record {
                     status: Status::Managed,
@@ -273,20 +349,14 @@ async fn sync_in(paths: &Paths, bundled: &[Bundled]) {
                 hash: bundled_hash,
             },
             Action::Adopt(hash) => {
-                crate::logf!(
-                    "managed-skills: {} was edited — leaving it alone from now on",
-                    skill.name
-                );
+                crate::logf!("managed-skills: {name} was edited — leaving it alone from now on");
                 Record {
                     status: Status::Adopted,
                     hash,
                 }
             }
             Action::MarkRemoved => {
-                crate::logf!(
-                    "managed-skills: {} was deleted — not reinstalling it",
-                    skill.name
-                );
+                crate::logf!("managed-skills: {name} was deleted — not reinstalling it");
                 Record {
                     status: Status::Removed,
                     hash: String::new(),
@@ -294,13 +364,52 @@ async fn sync_in(paths: &Paths, bundled: &[Bundled]) {
             }
         };
 
-        state.insert(skill.name.to_string(), record);
+        state.insert(name.to_string(), record);
         dirty = true;
     }
 
     if dirty {
-        write_state(paths, &state).await;
+        write_state(&paths, &state).await;
     }
+}
+
+/// Every Codex home there is to keep current, with the record for each: the
+/// CLI's own `~/.codex`, and each workspace's `.codex`. Only homes that exist —
+/// one appears the first time Codex runs there, and a machine without Codex
+/// should not grow a `~/.codex` because Nyra wanted to put an agent in it.
+fn codex_homes() -> Vec<(PathBuf, PathBuf)> {
+    let mut homes = Vec::new();
+    let default = util::home_dir().join(".codex");
+    if default.is_dir() {
+        homes.push((default.clone(), codex_record(&default)));
+    }
+    for config_dir in crate::workspaces::config_roots() {
+        let codex = config_dir.with_file_name(".codex");
+        if codex.is_dir() {
+            homes.push((codex.clone(), codex_record(&codex)));
+        }
+    }
+    homes
+}
+
+/// Where a Codex home's record lives: Default's beside the skills', a
+/// workspace's in the workspace directory, gone with it.
+fn codex_record(home: &Path) -> PathBuf {
+    if home == util::home_dir().join(".codex") {
+        util::home_dir().join(".nyra").join("managed-codex.json")
+    } else {
+        home.parent().unwrap_or(home).join("managed-codex.json")
+    }
+}
+
+/// One Codex home, as Codex is about to start in it: `None` is `~/.codex`.
+/// Not in a passive dev instance, for the reason `sync` is not run there.
+pub async fn sync_codex_home(home: Option<&Path>) {
+    if crate::passive_dev() {
+        return;
+    }
+    let home = home.map(Path::to_path_buf).unwrap_or_else(|| util::home_dir().join(".codex"));
+    sync_entries(&codex_record(&home), &files_for(Home::Codex, &home)).await;
 }
 
 /// Put one bundled skill back, whatever its current state. This is the way out
@@ -644,5 +753,30 @@ mod tests {
                 skill.name
             );
         }
+    }
+
+    #[test]
+    fn the_codex_agent_lands_beside_the_skills_and_is_kept_like_one() {
+        let (_tmp, paths) = tmp_paths("claude-agent");
+        rt().block_on(sync_in(&paths, &[]));
+        let home = paths.skills_root.parent().unwrap();
+        let agent = std::fs::read_to_string(home.join("agents").join("codex.md")).unwrap();
+        assert!(agent.contains("name: codex") && agent.contains("mcp__nyra-app__nyra_agent"));
+
+        // Edited, it is the user's: a later sync leaves it alone.
+        std::fs::write(home.join("agents").join("codex.md"), "mine").unwrap();
+        rt().block_on(sync_in(&paths, &[]));
+        assert_eq!(std::fs::read_to_string(home.join("agents").join("codex.md")).unwrap(), "mine");
+    }
+
+    #[test]
+    fn the_claude_agent_goes_into_a_codex_home_as_toml() {
+        let (tmp, _) = tmp_paths("codex-agent");
+        let home = tmp.0.join(".codex");
+        rt().block_on(sync_entries(&tmp.0.join("managed-codex.json"), &files_for(Home::Codex, &home)));
+        let agent = std::fs::read_to_string(home.join("agents").join("claude.toml")).unwrap();
+        assert!(agent.starts_with("name = \"claude\""));
+        assert!(agent.contains("developer_instructions"));
+        assert!(agent.contains("shell_tool = false"));
     }
 }
