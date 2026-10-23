@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '1.1.1',
+    date: '2026-10-23',
     notes: [
       'Projects in the sidebar are easier to tell apart. Pick a style in Settings → Appearance → Sidebar: Headings puts a rule between projects, Cards boxes an open one, and Spine gives each project a tile and a line in its colour. A project with no colour gets one',
       'While a chat is open, the other projects fade so you can see which one you are in. Their spinners and waiting chips stay at full strength. Turn it off in the same place',
