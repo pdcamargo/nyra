@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '1.1.0',
+    date: '2026-10-23',
     notes: [
       'Chats can now run on Codex as well as Claude. Pick a Codex model in the composer to move a chat to Codex, and a Claude model to move it back. Each workspace has its own Codex account beside its Claude one',
       'Moving a long chat to the other CLI hands over a summary written by the one that was answering, plus the last exchange word for word. The composer shows what your next message will carry before you send it',
