@@ -13,6 +13,7 @@
 mod binary;
 mod rpc;
 mod side;
+pub mod skills;
 mod translate;
 
 use std::collections::{HashMap, VecDeque};
@@ -93,6 +94,7 @@ pub(super) async fn server_for(home: Option<PathBuf>) -> Result<Arc<Server>, Str
         .await
         .map_err(|e| format!("Could not look for Codex: {e}"))??;
     let server = Server::spawn(&install.path, home.clone(), Arc::new(on_message)).await?;
+    skills::share_claude_skills(&server, home.as_deref()).await;
     SERVERS.lock().insert(home, server.clone());
     Ok(server)
 }
@@ -322,7 +324,7 @@ fn finish_turn(chat_id: &str, finish: translate::Finish) {
 
 /// The instructions and Nyra's own MCP servers, on the same terms Claude gets
 /// them: each behind its setting, and only for a chat with a window to drive.
-fn thread_config(chat_id: &str, cwd: &str, settings: &SpawnSettings) -> (String, Value) {
+async fn thread_config(chat_id: &str, cwd: &str, settings: &SpawnSettings) -> (String, Value) {
     let app = util::settings();
     let endpoints = [
         ("nyra-browser", app.browser_tools.then(|| crate::browser::mcp_endpoint(chat_id)).flatten()),
@@ -346,7 +348,7 @@ fn thread_config(chat_id: &str, cwd: &str, settings: &SpawnSettings) -> (String,
         has("nyra-browser"),
         has("nyra-app"),
         has("nyra-desktop"),
-    );
+    ) + &skills::project_note(cwd).await;
     (instructions, Value::Object(config))
 }
 
@@ -465,7 +467,7 @@ impl AgentBackend for Codex {
             Err(e) => return fail(e),
         };
 
-        let (instructions, config) = thread_config(&chat_id, &cwd, &settings);
+        let (instructions, config) = thread_config(&chat_id, &cwd, &settings).await;
         let fingerprint = format!("{cwd}\n{instructions}\n{config}");
         let current = CHATS.lock().get(&chat_id).map(|c| {
             (c.thread_id.clone(), c.fingerprint == fingerprint && Arc::ptr_eq(&c.server, &server))

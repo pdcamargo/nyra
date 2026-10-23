@@ -78,6 +78,14 @@ let skills: SlashCommand[] = []
 /** Custom commands on disk — one `.md` file under a `.claude/commands`. */
 let customCommands: SlashCommand[] = []
 
+/** What a Codex chat can name: Codex's own skills, the Claude ones it shares,
+ *  and the project's. See `agent/codex/skills.rs`. */
+let codexSkills: SlashCommand[] = []
+
+/** Nyra's own commands, which work whichever CLI the chat is on. The rest of
+ *  the built-ins are Claude Code's, and a Codex chat has nowhere to send them. */
+const ANY_CLI = new Set(['btw', 'clear', 'compact', 'copy', 'fork', 'fork worktree', 'rename', 'release-notes', 'stats', 'tasks'])
+
 /** Commands contributed by installed plugins, keyed by the plugin that owns
  *  them so one plugin's list replaces its own entry and nobody else's. */
 const pluginCommands = new Map<string, SlashCommand[]>()
@@ -129,6 +137,13 @@ export function noteCustomCommands(list: { name: string; description?: string }[
     }))
 }
 
+/** Record what a Codex chat can name, from `codex.skills`. */
+export function noteCodexSkills(list: { name: string; description?: string }[]): void {
+  codexSkills = list
+    .filter((s) => typeof s.name === 'string' && s.name.length > 0)
+    .map((s) => ({ name: `/${s.name}`, description: s.description ?? '', kind: 'skill' as const }))
+}
+
 /**
  * Record the commands an installed plugin contributes.
  *
@@ -157,6 +172,7 @@ export function resetSlashCommands(): void {
   details = new Map()
   skills = []
   customCommands = []
+  codexSkills = []
   pluginCommands.clear()
 }
 
@@ -209,11 +225,33 @@ export function slashCommands(): SlashCommand[] {
   return out
 }
 
+/**
+ * Everything a Codex chat completes: its skills, Claude's custom commands —
+ * which Nyra writes out into the message, Codex having none of its own — and
+ * the built-ins Nyra answers itself.
+ */
+export function codexSlashCommands(): SlashCommand[] {
+  const out: SlashCommand[] = []
+  const seen = new Set<string>()
+  const push = (command: SlashCommand): void => {
+    if (seen.has(command.name)) return
+    seen.add(command.name)
+    out.push(command)
+  }
+  for (const skill of codexSkills) push(skill)
+  for (const command of customCommands) push(command)
+  for (const command of BUILT_IN_COMMANDS) {
+    if (ANY_CLI.has(command.name.slice(1))) push({ ...command, kind: 'command' })
+  }
+  return out
+}
+
 /** Whether `/name` is a real command — what the composer draws as a command. */
 export function isKnownCommand(name: string): boolean {
   if (CURATED.has(name)) return true
   if (skills.some((s) => s.name.slice(1) === name)) return true
   if (customCommands.some((c) => c.name.slice(1) === name)) return true
+  if (codexSkills.some((c) => c.name.slice(1) === name)) return true
   for (const commands of pluginCommands.values()) {
     if (commands.some((c) => c.name.slice(1) === name)) return true
   }

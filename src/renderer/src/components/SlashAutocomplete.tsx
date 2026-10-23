@@ -1,6 +1,7 @@
 import type { ConfigDir } from '../lib/api-types'
+import type { Provider } from '@shared/types'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { noteCustomCommands, noteSkills, slashCommands } from '../lib/slashCommands'
+import { codexSlashCommands, noteCodexSkills, noteCustomCommands, noteSkills, slashCommands } from '../lib/slashCommands'
 
 export type AutocompleteItem = {
   name: string
@@ -27,8 +28,11 @@ const read = async <T,>(fn: () => Promise<{ global: T[]; project: T[] }>): Promi
  * step with the disk. Nodes are re-read when the popup opens and whenever
  * something says a skill or a command changed, so one added a moment ago
  * completes without a restart.
+ *
+ * A Codex chat completes from its own list: what Codex can load, Claude's
+ * commands, and the built-ins Nyra answers itself.
  */
-export function useSlashItems(query: string, cwd: string, configDir: ConfigDir): AutocompleteItem[] {
+export function useSlashItems(query: string, cwd: string, configDir: ConfigDir, provider: Provider = 'claude'): AutocompleteItem[] {
   // The index is module state, not React state, so its revision is what a
   // re-render hangs off. The number itself is never read.
   const [, setRevision] = useState(0)
@@ -37,14 +41,16 @@ export function useSlashItems(query: string, cwd: string, configDir: ConfigDir):
   const refresh = useCallback((): void => {
     void Promise.all([
       read(() => window.api.skills.list(cwd, configDir)),
-      read(() => window.api.commands.list(cwd, configDir))
-    ]).then(([skills, commands]) => {
+      read(() => window.api.commands.list(cwd, configDir)),
+      provider === 'codex' ? window.api.codex.skills(configDir, cwd).catch(() => []) : Promise.resolve(null)
+    ]).then(([skills, commands, codex]) => {
       if (!live.current) return
       noteSkills(skills)
       noteCustomCommands(commands)
+      if (codex) noteCodexSkills(codex)
       setRevision((n) => n + 1)
     })
-  }, [cwd, configDir])
+  }, [cwd, configDir, provider])
 
   // Re-fetch skills each time the autocomplete opens (query becomes non-empty)
   // so newly created skills appear without needing a restart
@@ -66,7 +72,7 @@ export function useSlashItems(query: string, cwd: string, configDir: ConfigDir):
   }, [refresh])
 
   const q = query.toLowerCase()
-  return slashCommands()
+  return (provider === 'codex' ? codexSlashCommands() : slashCommands())
     .filter((c) => c.name.slice(1).toLowerCase().includes(q))
     .map((c) => ({
       name: c.name.slice(1),

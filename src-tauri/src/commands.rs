@@ -134,6 +134,19 @@ pub async fn codex_models(config_dir: Option<String>) -> Value {
     agent::codex::models(config_dir).await
 }
 
+/// The skills a Codex chat in `cwd` can name: Codex's own, the Claude ones it
+/// shares, and the project's.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn codex_skills(config_dir: Option<String>, cwd: String) -> Value {
+    agent::codex::skills::list(config_dir, &cwd).await
+}
+
+/// `/name …` as a Codex chat sends it: the skill or Claude command written out.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn codex_expand(config_dir: Option<String>, cwd: String, text: String) -> String {
+    agent::codex::skills::expand(config_dir, &cwd, &text).await
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn codex_account(config_dir: Option<String>) -> Value {
     agent::codex::account(config_dir).await

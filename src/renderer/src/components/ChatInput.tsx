@@ -302,11 +302,10 @@ export default function ChatInput({
   const slashQuery = input.startsWith('/') && !input.includes(' ') ? input.slice(1) : null
   // This chat's account: its skills, commands and agents are that workspace's.
   const configDir = useSessionsStore((s) => configDirForSession(s, s.activeSessionId))
-  const acItems = useSlashItems(slashQuery ?? '', cwd, configDir)
-  // The list is the CLI's: Claude's commands, offered to a chat that can run them.
-  const cliCommands = useSessionsStore((s) => capabilitiesOf(s.sessions.find((x) => x.id === s.activeSessionId)).cliCommands)
   const chatProvider = useSessionsStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.provider ?? 'claude')
-  const autocompleteVisible = slashQuery !== null && !isLoading && acItems.length > 0 && cliCommands
+  const acItems = useSlashItems(slashQuery ?? '', cwd, configDir, chatProvider)
+  // Each CLI's own list: a Codex chat is offered only what it can run.
+  const autocompleteVisible = slashQuery !== null && !isLoading && acItems.length > 0
 
   useEffect(() => {
     setAcSelectedIndex(0)

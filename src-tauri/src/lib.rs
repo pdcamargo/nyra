@@ -197,6 +197,8 @@ pub fn run() {
             commands::checkpoint_discard,
             commands::claude_check_binary,
             commands::codex_models,
+            commands::codex_skills,
+            commands::codex_expand,
             commands::agent_side_answer,
             commands::codex_account,
             commands::codex_login,

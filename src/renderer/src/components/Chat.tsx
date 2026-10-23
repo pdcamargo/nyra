@@ -1963,8 +1963,15 @@ export default function Chat(): React.JSX.Element {
 
     try {
       const recap = await resolveHandoff(handoff, { sid: sid!, cwd: session.cwd, settings: spawnSettingsForSession(sid!) })
+      // A Codex chat's `/name`: the skill or Claude command it names, written
+      // out, since Codex has no slash commands to hand it to. The message on
+      // screen stays what was typed.
+      const said =
+        session.provider === 'codex' && typed.trimStart().startsWith('/')
+          ? await window.api.codex.expand(configDirForSession(useSessionsStore.getState(), sid), session.cwd, typed)
+          : typed
       // Build the full prompt with attachment data for the CLI.
-      prompt = withContext(withAttachments(recap + typed, imgs, fls), context)
+      prompt = withContext(withAttachments(recap + said, imgs, fls), context)
       // A fork's first message forks its source's conversation at the cut — on
       // a CLI that can, which is the one whose transcript the cut is in.
       const fork = providerSessionId(session) ? null : anchorFor(session, session.resumeFrom)

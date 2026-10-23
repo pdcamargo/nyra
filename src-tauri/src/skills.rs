@@ -53,6 +53,11 @@ fn parse_skill_frontmatter(content: &str) -> (String, String) {
     (yaml_description(yaml), body.to_string())
 }
 
+/// A skill or command file without its frontmatter: the instructions alone.
+pub fn body_of(content: &str) -> String {
+    parse_skill_frontmatter(&content.replace("\r\n", "\n")).1
+}
+
 /// `description:` out of a frontmatter block, in the three ways skills write it:
 /// inline, quoted, or as a `>`/`|` block on the lines below. The block form is
 /// common in skills from `npx skills`, and reading only the inline value showed

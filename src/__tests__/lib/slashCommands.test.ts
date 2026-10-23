@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   argumentHint,
+  codexSlashCommands,
   isKnownCommand,
+  noteCodexSkills,
   noteCommandDetails,
   noteCustomCommands,
   notePluginCommands,
@@ -213,5 +215,24 @@ describe('what a command takes', () => {
     noteCommandDetails([{ name: 'model', argumentHint: '<model>' }])
     noteCommandDetails([])
     expect(argumentHint('model')).toBe('<model>')
+  })
+})
+
+describe('a Codex chat', () => {
+  it('offers its skills, Claude commands and only the built-ins Nyra answers itself', () => {
+    noteCodexSkills([{ name: 'deploy', description: 'Ship it' }, { name: 'pdf:pdf' }])
+    noteCustomCommands([{ name: 'git:sync', description: 'Sync' }])
+    noteSlashCommands(['context', 'doctor'])
+    const names = codexSlashCommands().map((c) => c.name)
+    expect(names.slice(0, 3)).toEqual(['/deploy', '/pdf:pdf', '/git:sync'])
+    expect(names).toEqual(expect.arrayContaining(['/clear', '/compact', '/fork', '/btw']))
+    // Claude Code's own, which a Codex chat has nowhere to send.
+    for (const name of ['/context', '/doctor', '/model', '/login']) expect(names).not.toContain(name)
+  })
+
+  it('draws a Codex skill as a command', () => {
+    expect(isKnownCommand('pdf:pdf')).toBe(false)
+    noteCodexSkills([{ name: 'pdf:pdf' }])
+    expect(isKnownCommand('pdf:pdf')).toBe(true)
   })
 })

@@ -8,6 +8,7 @@ import { claudeDirLabel } from '../../lib/workspaces'
 import { useUiStore, type MainView } from '../../store/ui'
 import { homedir } from '../../lib/homedir'
 import type { BundledSkill, CommandInfo, ConfigDir, SkillInfo } from '../../lib/api-types'
+import type { CodexSkill } from '../../lib/tauri-api'
 import { openFileInPanel } from '../../lib/openFile'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
@@ -205,7 +206,7 @@ function SkillsView(): React.JSX.Element {
     <Page
       title="Skills"
       Icon={Sparkles}
-      blurb="Extend Claude with task-specific skills, for this project or for every one."
+      blurb="Extend Claude and Codex with task-specific skills, for this project or for every one."
       actions={<SkillActions />}
     >
       <InstallFromCommand
@@ -281,6 +282,8 @@ function SkillsView(): React.JSX.Element {
         )}
       </section>
 
+      <CodexSkillsSection configDir={configDir} cwd={installCwd} search={search} />
+
       {open && (
         <PreviewDialog
           open
@@ -329,6 +332,74 @@ function SkillsView(): React.JSX.Element {
         />
       )}
     </Page>
+  )
+}
+
+/**
+ * Codex's own skills: its home's, its plugins' and the ones it ships with. The
+ * Claude skills above are shared with it, so they are not listed again.
+ * Nothing at all for a workspace without Codex.
+ */
+function CodexSkillsSection({
+  configDir,
+  cwd,
+  search
+}: {
+  configDir: ConfigDir
+  cwd: string
+  search: string
+}): React.JSX.Element | null {
+  const [skills, setSkills] = useState<CodexSkill[]>([])
+  const [open, setOpen] = useState<CodexSkill | null>(null)
+
+  useEffect(() => {
+    let live = true
+    window.api.codex
+      .skills(configDir, cwd)
+      .then((list) => live && setSkills(list.filter((s) => !s.fromClaude)))
+      .catch(() => live && setSkills([]))
+    return () => {
+      live = false
+    }
+  }, [configDir, cwd])
+
+  if (skills.length === 0) return null
+  const shown = matches(skills, search)
+  const scope = (skill: CodexSkill): React.JSX.Element => (
+    <span className="text-c-xs text-muted-foreground">{skill.scope}</span>
+  )
+
+  return (
+    <section className="mt-8">
+      <SectionHeading trailing="its own, its plugins’ and built-in">Codex</SectionHeading>
+      {shown.length > 0 ? (
+        <LibraryGrid>
+          {shown.map((skill) => (
+            <LibraryCard
+              key={skill.filePath}
+              name={`/${skill.name}`}
+              description={skill.description}
+              Icon={Sparkles}
+              badge={scope(skill)}
+              onClick={() => setOpen(skill)}
+            />
+          ))}
+        </LibraryGrid>
+      ) : (
+        <EmptyNote>Nothing matches here.</EmptyNote>
+      )}
+      {open && (
+        <PreviewDialog
+          open
+          onClose={() => setOpen(null)}
+          name={`/${open.name}`}
+          description={open.description}
+          filePath={open.filePath}
+          kind="Codex skill"
+          badge={scope(open)}
+        />
+      )}
+    </section>
   )
 }
 

@@ -172,6 +172,17 @@ export type CodexAccount =
   | { available: true; signedIn: false }
   | { available: true; signedIn: true; kind: string | null; email: string | null; planType: string | null }
 
+/** A skill a Codex chat can name. `scope` is `project` for the project's Claude
+ *  skills, else what Codex calls it: `user`, `system`, `repo`. */
+export type CodexSkill = {
+  name: string
+  description: string
+  filePath: string
+  scope: string
+  /** Read from a Claude skills folder, so the Skills page already lists it as Claude's. */
+  fromClaude: boolean
+}
+
 export type SideEvent = { sideId: string } & (
   | { type: 'delta'; text: string }
   | { type: 'block' }
@@ -398,6 +409,10 @@ export const api = {
     models: (configDir: ConfigDir) =>
       call<{ available: boolean; error?: string; models?: CodexModel[] }>('codex_models', { configDir }),
     account: (configDir: ConfigDir) => call<CodexAccount>('codex_account', { configDir }),
+    /** What a Codex chat in `cwd` can name with `/`: its own skills, the Claude ones it shares, the project's. */
+    skills: (configDir: ConfigDir, cwd: string) => call<CodexSkill[]>('codex_skills', { configDir, cwd }),
+    /** `/name …` written out as the skill or Claude command it names; anything else as it was. */
+    expand: (configDir: ConfigDir, cwd: string, text: string) => call<string>('codex_expand', { configDir, cwd, text }),
     /** Opens nothing itself: answers the URL to open, and the outcome comes as `onLogin`. */
     login: (configDir: ConfigDir) => call<{ loginId: string; authUrl: string }>('codex_login', { configDir }),
     logout: (configDir: ConfigDir) => call<void>('codex_logout', { configDir }),
