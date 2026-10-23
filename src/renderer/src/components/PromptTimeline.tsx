@@ -13,7 +13,7 @@ const PITCH = 12
 const MIN_PROMPTS = 2
 
 /**
- * A rail on the transcript's right edge: one tick per prompt you sent, longer
+ * A rail on the transcript's left edge: one tick per prompt you sent, longer
  * when that turn changed files. Hover shows the prompt and its files, a click
  * jumps there, and the button under it opens the outline of every prompt.
  *
@@ -59,8 +59,10 @@ export default function PromptTimeline({
   return (
     <Popover open={outlineOpen} onOpenChange={setOutlineOpen}>
       <div
-        className="absolute top-1/2 z-20 flex -translate-y-1/2 flex-col items-end gap-3"
-        style={{ right: 'calc(var(--scrollbar-size) + 4px)', height: `min(${(n - 1) * PITCH + 48}px, 60%)` }}
+        /* Left, not right: the right gutter is where the summary and the
+           browser miniature float, and pinned open they covered the rail. */
+        className="absolute top-1/2 z-20 flex -translate-y-1/2 flex-col items-start gap-3"
+        style={{ left: 4, height: `min(${(n - 1) * PITCH + 48}px, 60%)` }}
       >
         <PopoverAnchor asChild>
           <div
@@ -83,7 +85,7 @@ export default function PromptTimeline({
                 <span
                   key={p.id}
                   aria-hidden
-                  className={`absolute right-1 h-[3px] rounded-full transition-[width,background-color] duration-100 ${
+                  className={`absolute left-1 h-[3px] rounded-full transition-[width,background-color] duration-100 ${
                     state === 'hover'
                       ? 'w-[18px] bg-info'
                       : state === 'current'
@@ -98,7 +100,7 @@ export default function PromptTimeline({
             })}
             {hovered && !outlineOpen && (
               <div
-                className="pointer-events-none absolute right-8 w-[300px] -translate-y-1/2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-panel"
+                className="pointer-events-none absolute left-8 w-[300px] -translate-y-1/2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-panel"
                 style={{ top: `calc(${topOf(hover!)} + 1.5px)` }}
               >
                 <PromptMeta prompt={hovered} />
@@ -122,13 +124,13 @@ export default function PromptTimeline({
           command="chat.outline"
           active={outlineOpen}
           onClick={() => setOutlineOpen((open) => !open)}
-          className="mr-0.5 text-muted-foreground"
+          className="ml-0.5 text-muted-foreground"
         >
           <ListTree className="size-3.5" />
         </IconButton>
       </div>
       <PopoverContent
-        side="left"
+        side="right"
         align="center"
         sideOffset={12}
         className="w-[380px] gap-0 overflow-hidden p-0"

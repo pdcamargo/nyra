@@ -17,6 +17,7 @@ import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBrowserStore } from '../store/browser'
 import { useRunningStore, projectSpinnerVisible } from '../store/running'
+import { useBusyChats } from '../lib/backgroundWait'
 import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
@@ -708,6 +709,9 @@ function SessionsList(): React.JSX.Element {
   )
   const activeSessionId = useSessionsStore((state) => state.activeSessionId)
   const running = useRunningStore((s) => s.running)
+  // Running, or waiting on agents and tasks it will come back from: either way
+  // the chat is not done, and its row and project say so.
+  const busy = useBusyChats()
   const browsers = useBrowserStore((s) => s.bySession)
   const pendingPlans = usePlanApprovalStore((s) => s.pending)
   const planPending = useMemo(() => new Set(Object.values(pendingPlans)), [pendingPlans])
@@ -797,6 +801,7 @@ function SessionsList(): React.JSX.Element {
     const isPinned = !!session.favorite
     const isActive = session.id === activeSessionId && onChatView
     const isRunning = running[session.id] === true
+    const isBusy = busy[session.id] === true
     const unread = session.unread ?? 0
     // A chat's browser keeps running whether or not you are looking at that
     // chat, and a background chat gets no miniature. Without this there would
@@ -933,7 +938,7 @@ function SessionsList(): React.JSX.Element {
                 className="size-1.5 shrink-0 rounded-full bg-info"
               />
             )}
-            <ChatRowPrChip sessionId={session.id} running={isRunning} />
+            <ChatRowPrChip sessionId={session.id} running={isBusy} />
           </span>
           <div className="invisible flex items-center group-hover:visible group-has-[:focus-visible]:visible">
             <Tooltip>
@@ -1038,7 +1043,7 @@ function SessionsList(): React.JSX.Element {
       collapsed,
       childIds: nested.map(({ session: s }) => s.id),
       visibleCount: visible.length,
-      running
+      running: busy
     })
 
     return (

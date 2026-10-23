@@ -900,6 +900,42 @@ pub async fn workflow_run(
     }
 }
 
+/// Start a run and answer with its id straight away. The run reports through
+/// `workflow:event`; `chatId` ties it to the chat that asked for it.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn workflow_start(
+    workflow_id: String,
+    cwd: String,
+    input_values: Option<HashMap<String, String>>,
+    chat_id: Option<String>,
+) -> Value {
+    match engine::start_workflow(
+        &workflow_id,
+        &cwd,
+        util::settings(),
+        input_values,
+        Some(TriggerSource::Manual),
+        chat_id,
+    )
+    .await
+    {
+        Ok(execution_id) => json!({ "executionId": execution_id }),
+        Err(e) => json!({ "error": e }),
+    }
+}
+
+/// Every run in flight, as it stands — for a window that reloaded mid-run.
+#[tauri::command]
+pub fn workflow_active() -> Value {
+    json!(engine::active_runs())
+}
+
+/// Tie a running flow to a chat: the one its first chat step opened.
+#[tauri::command(rename_all = "camelCase")]
+pub fn workflow_link_chat(execution_id: String, chat_id: String) -> Value {
+    json!({ "ok": engine::link_chat(&execution_id, &chat_id) })
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub fn workflow_abort(execution_id: String) -> Value {
     engine::abort_workflow(&execution_id);
@@ -913,8 +949,14 @@ pub fn workflow_abort_flow(workflow_id: String) -> Value {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn workflow_review_response(execution_id: String, node_id: String, approved: bool) -> Value {
-    json!({ "ok": engine::respond_to_review(&execution_id, &node_id, approved) })
+pub fn workflow_review_response(
+    execution_id: String,
+    node_id: String,
+    approved: bool,
+    output: Option<String>,
+) -> Value {
+    let answer = engine::ReviewAnswer { approved, output };
+    json!({ "ok": engine::respond_to_review(&execution_id, &node_id, answer) })
 }
 
 #[tauri::command(rename_all = "camelCase")]

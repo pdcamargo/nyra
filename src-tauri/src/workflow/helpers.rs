@@ -496,6 +496,7 @@ mod tests {
                 cwd: None,
                 tokens: Some(WorkflowTokenUsage { input: 10, output: 5, cache_read: 1, cache_creation: 2 }),
                 triggered_by: None,
+                chat_id: None,
             }
         };
 
@@ -549,7 +550,7 @@ mod tests {
             id: "e1".into(), workflow_id: "wf1".into(), workflow_name: "Test".into(),
             status: ExecutionStatus::Failed, started_at: 0, finished_at: 10,
             input_values: HashMap::new(), final_vars: HashMap::new(), node_states,
-            error: None, cwd: None, tokens: None, triggered_by: None,
+            error: None, cwd: None, tokens: None, triggered_by: None, chat_id: None,
         };
         let m = aggregate_workflow_metrics(&wf, &[rec]);
         assert_eq!(m.top_failing_nodes[0].node_label, "ghost");

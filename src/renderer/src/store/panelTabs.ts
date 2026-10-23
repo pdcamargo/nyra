@@ -89,8 +89,14 @@ export type QuestionnairePanelTab = {
   focus?: { question: string; at: number }
 }
 
+/** A flow run this chat started, or that paused in it. One per chat, retargeted
+ *  like `plan`: a second run is still "the run", and the summary card lists the
+ *  others. The run itself is in `flowRuns`, or on disk once it is over. */
+export type FlowRunPanelTab = { kind: 'flowRun'; id: string; executionId: string }
+
 export type PanelTab =
   | BrowserPanelTab
+  | FlowRunPanelTab
   | FilePanelTab
   | ChangesPanelTab
   | PlanPanelTab
@@ -134,6 +140,7 @@ export const planKey = (id: string): string => `plan:${id}`
 export const subagentsKey = (id: string): string => `subagents:${id}`
 export const designKey = (id: string): string => `design:${id}`
 export const questionnaireKey = (id: string): string => `questionnaire:${id}`
+export const flowRunKey = (id: string): string => `flowRun:${id}`
 
 export function tabKey(tab: PanelTab): string {
   switch (tab.kind) {
@@ -149,6 +156,8 @@ export function tabKey(tab: PanelTab): string {
       return designKey(tab.id)
     case 'questionnaire':
       return questionnaireKey(tab.id)
+    case 'flowRun':
+      return flowRunKey(tab.id)
     default:
       return changesKey(tab.id)
   }
@@ -284,8 +293,15 @@ function sanitizeChatPanelTabs(raw: unknown): ChatPanelTabs | null {
         | SubagentsPanelTab
         | DesignPanelTab
         | QuestionnairePanelTab
+        | FlowRunPanelTab
       >
       if (typeof tab.id !== 'string' || seen.has(tab.id)) return []
+      if (tab.kind === 'flowRun') {
+        const executionId = (tab as Partial<FlowRunPanelTab>).executionId
+        if (typeof executionId !== 'string') return []
+        seen.add(tab.id)
+        return [{ kind: 'flowRun', id: tab.id, executionId }]
+      }
       if (tab.kind === 'changes') {
         seen.add(tab.id)
         return [{ kind: 'changes', id: tab.id }]
@@ -446,6 +462,10 @@ type PanelTabsStore = {
    *  for the list and a `Task` toolId for one agent's stream — the same action
    *  drives the summary row, the "See all" header and the back arrow. */
   openSubagentsTab: (sessionId: string, focus: string | null) => string
+  /** The chat's run tab, pointed at this run. `select` false adds or retargets
+   *  it without taking the strip — a run reporting into a chat you are not
+   *  looking at should not rearrange that chat's panel's focus for later. */
+  openFlowRunTab: (sessionId: string, executionId: string, select?: boolean) => string
   /** Strip-local. Closing a *browser* tab is the sidecar's to report — removing
    *  the row here would let an in-flight broadcast re-append it at the far end. */
   closeTab: (sessionId: string, key: string) => void
@@ -793,6 +813,32 @@ export const usePanelTabsStore = create<PanelTabsStore>()(
             ...ws,
             tabs: [...ws.tabs, tab],
             activeKey: tabKey(tab)
+          }))
+        )
+        return tabKey(tab)
+      },
+
+      openFlowRunTab: (sessionId, executionId, select = true) => {
+        const existing = (get().bySession[sessionId] ?? EMPTY_PANEL_TABS).tabs.find(
+          (t): t is FlowRunPanelTab => t.kind === 'flowRun'
+        )
+        if (existing) {
+          const key = tabKey(existing)
+          set((s) =>
+            patch(s, sessionId, (ws) => ({
+              ...ws,
+              tabs: ws.tabs.map((t) => (t.kind === 'flowRun' ? { ...t, executionId } : t)),
+              activeKey: select ? key : ws.activeKey
+            }))
+          )
+          return key
+        }
+        const tab: FlowRunPanelTab = { kind: 'flowRun', id: nextFileTabId(), executionId }
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: [...ws.tabs, tab],
+            activeKey: select || !ws.activeKey ? tabKey(tab) : ws.activeKey
           }))
         )
         return tabKey(tab)

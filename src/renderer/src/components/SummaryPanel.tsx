@@ -24,7 +24,11 @@ import { IconButton } from './ui/icon-button'
 import { browserKey, usePanelTabsStore } from '../store/panelTabs'
 import { collectAttachments, formatSize } from '../lib/summary'
 import { formatMemory, readChatMemory, type ChatMemory } from '../lib/chatMemory'
-import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
+import { openChangesInPanel, openFlowRunInPanel, openSubagentsInPanel } from '../lib/openFile'
+import { useChatRuns } from './flowRuns/hooks'
+import { RunMark } from './flowRuns/FlowRunCard'
+import { runHeadline } from '../lib/flowRuns'
+import type { FlowRun } from '../store/flowRuns'
 import { catOf } from '../lib/agentCats'
 import CatIcon from './CatIcon'
 import { useChordLabel } from './ui/kbd'
@@ -225,6 +229,35 @@ function ArtifactRow({ artifact }: { artifact: ChatArtifact }): React.JSX.Elemen
   )
 }
 
+/** Runs listed before the rest fold into a count. */
+const FLOW_ROWS = 3
+
+function FlowRow({ run }: { run: FlowRun }): React.JSX.Element {
+  const live = run.status === 'running' || run.status === 'paused'
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => openFlowRunInPanel(run.executionId)}
+          className="-mx-1 flex w-[calc(100%+0.5rem)] items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+        >
+          <span className="flex size-3.5 shrink-0 items-center justify-center pt-px">
+            <RunMark run={run} className="size-3" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[11px] text-foreground/80">{run.workflowName}</span>
+            <span className={`block truncate text-[10px] ${run.status === 'paused' ? 'text-info' : run.status === 'failed' ? 'text-danger' : 'text-muted-foreground'} ${live && run.status === 'running' ? 'italic' : ''}`}>
+              {runHeadline(run)}
+            </span>
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Show this run</TooltipContent>
+    </Tooltip>
+  )
+}
+
 function AgentRow({ agent, index }: { agent: Agent; index: number }): React.JSX.Element {
   return (
     <Tooltip>
@@ -372,6 +405,7 @@ export default function SummaryPanel(): React.JSX.Element | null {
   const [artifactsExpandedFor, setArtifactsExpandedFor] = useState<string | null>(null)
   const messages = session?.messages
   const artifacts = React.useMemo(() => (messages ? chatArtifacts(messages) : []), [messages])
+  const flowRuns = useChatRuns(sessionId)
 
   if (!open || !session) return null
 
@@ -609,6 +643,19 @@ export default function SummaryPanel(): React.JSX.Element | null {
             finished="finished"
             onToggle={() => setAgentsExpandedFor(agentsExpanded ? null : session.id)}
           />
+        </Section>
+      )}
+
+      {/* What this chat set going in Flows: the run on now, and the ones before
+          it. A row opens the run in the side panel. */}
+      {flowRuns.length > 0 && (
+        <Section label="Flows">
+          {flowRuns.slice(0, FLOW_ROWS).map((run) => (
+            <FlowRow key={run.executionId} run={run} />
+          ))}
+          {flowRuns.length > FLOW_ROWS && (
+            <p className="pt-0.5 text-[10px] text-muted-foreground">{flowRuns.length - FLOW_ROWS} earlier</p>
+          )}
         </Section>
       )}
 

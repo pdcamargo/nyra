@@ -1219,8 +1219,9 @@ const BROWSER_CONVENTION: &str = concat!(
 const APP_CONVENTION: &str = concat!(
     "\n\nNyra is not just where this conversation is displayed — you can change it. ",
     "`nyra_ui` reads its state and runs any of its commands; `nyra_flow` reads and ",
-    "writes the flows kept in `~/.nyra/workflows/`; `nyra_update` checks for a newer ",
-    "version. Look before you act: `nyra_ui` with `action: \"state\"` says what is ",
+    "writes the flows kept in `~/.nyra/workflows/`, and starts and follows runs of ",
+    "them — a run you start belongs to this chat, which hears when it pauses or ",
+    "ends; `nyra_update` checks for a newer version. Look before you act: `nyra_ui` with `action: \"state\"` says what is ",
     "already open, and running a toggle without knowing that closes as often as it ",
     "opens — pass `on` when you mean open. Then say what you changed, in one line, ",
     "naming it: \"I opened the terminal\", \"I turned on light mode\", \"I opened your ",

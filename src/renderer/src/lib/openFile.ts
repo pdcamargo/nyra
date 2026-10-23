@@ -171,6 +171,20 @@ export function openPlanInPanel(toolId: string): void {
  * while it runs: it covered the conversation the agent was working on, and
  * there is no reason you should not have two of these open in different chats.
  */
+/**
+ * Show a flow run in a chat's side panel — the active chat's unless told.
+ * Only the chat on screen gets its panel opened; another chat just has the tab
+ * waiting for when you go there.
+ */
+export function openFlowRunInPanel(executionId: string, sessionId?: string): void {
+  const active = useSessionsStore.getState().activeSessionId
+  const target = sessionId ?? active
+  if (!target) return
+  const onScreen = target === active
+  if (onScreen) useUiStore.getState().setRightPanelOpen(true)
+  usePanelTabsStore.getState().openFlowRunTab(target, executionId, onScreen)
+}
+
 export function openSubagentsInPanel(focus: string | null): void {
   const sessionId = useSessionsStore.getState().activeSessionId
   if (!sessionId) return

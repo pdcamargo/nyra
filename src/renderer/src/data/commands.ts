@@ -9,6 +9,7 @@ export const BUILT_IN_COMMANDS = [
   { name: '/cost', description: 'Show token usage and cost' },
   { name: '/doctor', description: 'Check Claude Code health' },
   { name: '/fast', description: 'Toggle fast output mode' },
+  { name: '/flow', description: 'Run a flow tied to this chat, e.g. /flow Retrospective week=2026-W43' },
   { name: '/fork', description: 'Fork this chat into a new one, working in the same files' },
   { name: '/fork worktree', description: 'Fork this chat into a new worktree, with your uncommitted changes' },
   { name: '/goal', description: 'Set the objective for this turn, e.g. /goal every test passes' },

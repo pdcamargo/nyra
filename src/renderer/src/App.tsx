@@ -41,6 +41,7 @@ import { syncBrowserGone, syncSidecarTabs, usePanelTabsStore } from './store/pan
 import { handleBinding } from './store/panelLayout'
 import { usePanelSizesStore } from './store/panelSizes'
 import { startAppControl } from './lib/appControl'
+import { startFlowRunBridge } from './lib/flowRunBridge'
 import { startDesktopEvents } from './lib/desktopControl'
 import { ViewErrorBoundary } from './components/ViewErrorBoundary'
 
@@ -128,6 +129,8 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     const stopControl = startAppControl()
     const stopDesktop = startDesktopEvents()
+    // A run reports into its chat whatever is on screen, the canvas included.
+    const stopFlowRuns = startFlowRunBridge()
     const stopUpdates = window.api.updates.onAvailable(({ version }) => {
       useUpdatesStore.getState().found(version)
     })
@@ -142,6 +145,7 @@ export default function App(): React.JSX.Element {
     return () => {
       stopControl()
       stopDesktop()
+      stopFlowRuns()
       stopUpdates()
       stopProgress()
       stopNotificationClicks()

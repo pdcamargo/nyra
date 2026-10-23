@@ -30,6 +30,9 @@ export default function GeneralTab(): React.JSX.Element {
       </SettingRow>
 
       <SectionLabel>Chats</SectionLabel>
+      <SettingRow label="Task checklist" hint="Claude's to-do list, above the composer and once done">
+        <Toggle checked={settings.showTasks} onChange={(v) => update({ showTasks: v })} />
+      </SettingRow>
       <SettingRow label="While you were away" hint="a recap when a chat worked without you">
         <Toggle checked={settings.awayRecap} onChange={(v) => update({ awayRecap: v })} />
       </SettingRow>

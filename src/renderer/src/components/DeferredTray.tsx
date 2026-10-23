@@ -16,7 +16,8 @@ export default function DeferredTray({
   questions,
   running,
   onAnswer,
-  onKeep
+  onKeep,
+  onIgnoreAll
 }: {
   questions: ToolCallMessage[]
   /** Whether the turn is live: an answer then reaches Claude at its next step,
@@ -24,6 +25,8 @@ export default function DeferredTray({
   running: boolean
   onAnswer: (toolId: string, answer: string) => void
   onKeep: (toolId: string) => void
+  /** Let every assumption stand at once. Nothing is sent. */
+  onIgnoreAll: () => void
 }): React.JSX.Element | null {
   const [expanded, setExpanded] = useState(false)
   const [focused, setFocused] = useState<string | null>(null)
@@ -86,6 +89,7 @@ export default function DeferredTray({
             <CircleHelp className="size-3.5 shrink-0 text-info" />
             <span className="shrink-0 text-c-sm font-medium text-foreground">{questions.length} open questions</span>
             <span className="min-w-0 flex-1 truncate text-c-sm text-muted-foreground">{summary()}</span>
+            <DockButton onClick={onIgnoreAll}>Ignore all</DockButton>
             <CollapseButton onClick={() => setExpanded(false)} />
           </div>
           {questions.map((m) => {

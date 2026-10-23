@@ -61,6 +61,7 @@ import type { AnswerFile, Questionnaire } from './questionnaire'
 import type { CodexModel } from '../store/codexModels'
 import type { DesignComment } from './designComments'
 import type {
+  FlowRunSnapshot,
   MarketplaceIndex,
   WorkflowDefinition,
   WorkflowExecutionRecord,
@@ -875,10 +876,23 @@ export const api = {
         cwd,
         inputValues: inputValues ?? null
       }),
+    /** Start a run and get its id at once; it reports through `onEvent`. */
+    start: (workflowId: string, cwd: string, inputValues?: Record<string, string>, chatId?: string | null) =>
+      call<{ executionId?: string; error?: string }>('workflow_start', {
+        workflowId,
+        cwd,
+        inputValues: inputValues ?? null,
+        chatId: chatId ?? null
+      }),
+    /** Every run in flight, as it stands. */
+    active: () => call<FlowRunSnapshot[]>('workflow_active'),
+    linkChat: (executionId: string, chatId: string) =>
+      call<{ ok: boolean }>('workflow_link_chat', { executionId, chatId }),
     abort: (executionId: string) => call<void>('workflow_abort', { executionId }),
     templates: () => call<WorkflowDefinition[]>('workflow_templates'),
-    reviewResponse: (executionId: string, nodeId: string, approved: boolean) =>
-      call<{ ok: boolean }>('workflow_review_response', { executionId, nodeId, approved }),
+    /** Answer a paused step. `output` replaces what it hands on. */
+    reviewResponse: (executionId: string, nodeId: string, approved: boolean, output?: string) =>
+      call<{ ok: boolean }>('workflow_review_response', { executionId, nodeId, approved, output: output ?? null }),
     listExecutions: (workflowId?: string) =>
       call<WorkflowExecutionRecord[]>('workflow_executions_list', {
         workflowId: workflowId ?? null

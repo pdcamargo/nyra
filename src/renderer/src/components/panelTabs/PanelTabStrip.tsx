@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, Loader2, MessageCircleQuestion, SwatchBook, X } from 'lucide-react'
+import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, Loader2, MessageCircleQuestion, SwatchBook, Workflow, X } from 'lucide-react'
 import NewTabMenu from './NewTabMenu'
 import type { NewTabKind } from './tabs'
 import { tabKey, type PanelTab } from '../../store/panelTabs'
@@ -7,6 +7,7 @@ import type { BrowserPhase } from '../../store/browser'
 import type { BrowserTab } from '../../lib/api-types'
 import { basename as basenameOf } from '../../lib/paths'
 import { systemTabLabel, useSystemNames } from '../design/SystemTab'
+import { useFlowRunsStore } from '../../store/flowRuns'
 
 /**
  * The tab strip Codex's browser does not have.
@@ -55,6 +56,8 @@ export default function PanelTabStrip({
   const [dropAt, setDropAt] = useState<string | null>(null)
   /** A design system's name and its files', learnt where the system loads. */
   const systemNames = useSystemNames()
+  /** A run tab is named after its flow. */
+  const flowRuns = useFlowRunsStore((s) => s.runs)
 
   const endDrag = (): void => {
     setDragKey(null)
@@ -84,7 +87,9 @@ export default function PanelTabStrip({
                       : 'Design'
                     : tab.kind === 'questionnaire'
                       ? 'Questions'
-                      : (basename(tab.path) ?? 'Open file')
+                      : tab.kind === 'flowRun'
+                        ? (flowRuns[tab.executionId]?.workflowName ?? 'Flow run')
+                        : (basename(tab.path) ?? 'Open file')
         const hint =
           tab.kind === 'browser'
             ? live?.url
@@ -100,6 +105,8 @@ export default function PanelTabStrip({
                       : 'The design canvas'
                     : tab.kind === 'questionnaire'
                       ? "Claude's questions. Answers save as you go."
+                    : tab.kind === 'flowRun'
+                      ? 'A flow run this chat started or is answering'
                     : tab.preview
                       ? `${tab.path ?? 'No file open'} — double-click to keep it open`
                       : (tab.path ?? 'No file open')
@@ -194,6 +201,8 @@ export default function PanelTabStrip({
               )
             ) : tab.kind === 'questionnaire' ? (
               <MessageCircleQuestion className="size-3 shrink-0 text-muted-foreground" />
+            ) : tab.kind === 'flowRun' ? (
+              <Workflow className="size-3 shrink-0 text-muted-foreground" />
             ) : (
               <FileText className="size-3 shrink-0 text-muted-foreground" />
             )}

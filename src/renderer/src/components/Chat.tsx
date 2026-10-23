@@ -18,6 +18,10 @@ import MarkdownRenderer from './MarkdownRenderer'
 import ToolCallCard from './ToolCallCard'
 import AskUserQuestionCard from './AskUserQuestionCard'
 import DeferredQuestionMarker from './DeferredQuestionMarker'
+import FlowRunCard from './flowRuns/FlowRunCard'
+import FlowNoticeLine, { isFlowNotice } from './flowRuns/FlowNoticeLine'
+import { FLOW_RUN_TOOL } from '../lib/flowRunBridge'
+import { useFlowRunsStore } from '../store/flowRuns'
 import PlanCard, { splitPlan, type PlanAnswer } from './PlanCard'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
@@ -29,7 +33,7 @@ import {
 } from '../store/subagentTranscripts'
 import { outputFileFromReceipt } from '../lib/agentReport'
 import { withAttachments } from '../lib/promptAttachments'
-import { SEND_TO_CHAT, withContext, type SendToChat } from '../lib/messageContext'
+import { pendingContext, receiveSendToChat, takePendingContext, withContext } from '../lib/messageContext'
 import { isQuestionnaireAsk } from './questionnaire/QuestionnaireChip'
 import MessageContextLines, { QuestionnaireRecord } from './MessageContextLines'
 import { contextFill } from '../lib/contextFill'
@@ -196,7 +200,10 @@ const turnProvider = new Map<string, Provider>()
  * Answers to open questions steered into a running turn and not yet read, by
  * steer id. Outside the component for the same reason as `compacting`.
  */
-const deferredSteers = new Map<number, { sid: string; toolId: string; answer: string; answers: string }>()
+const deferredSteers = new Map<
+  number,
+  { sid: string; toolId: string; answer: string; answers: string; context?: MessageContext[] }
+>()
 
 /** One message per question Claude carried on past, so each is answered or kept
  *  on its own rather than as a set. */
@@ -253,7 +260,7 @@ function finishCompaction(sid: string, toolId: string, status: 'done' | 'failed'
 }
 
 /** Tool calls that are a card to answer, not a line in a trace. */
-const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet', 'Skill', 'Compaction'])
+const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet', 'Skill', 'Compaction', FLOW_RUN_TOOL])
 /** Also standalone: Claude asking questions, which is its own one-line chip. */
 const standsAlone = (m: ToolCallMessage): boolean => STANDALONE_TOOLS.has(m.tool_name) || isQuestionnaireAsk(m)
 
@@ -357,18 +364,19 @@ export default function Chat(): React.JSX.Element {
   // A message from outside the composer — the questionnaire's Send, a comment
   // on a design. Sent now if the chat is idle, queued behind the turn if not,
   // exactly as if it had been typed.
-  useEffect(() => {
-    const handler = (e: Event): void => {
-      const { sessionId, text, context } = (e as CustomEvent<SendToChat>).detail
-      if (isSessionRunning(sessionId)) {
-        useSessionsStore.getState().enqueueMessage(sessionId, { text, context })
-        return
-      }
-      void sendMessageRef.current?.(text, undefined, undefined, sessionId, context)
-    }
-    window.addEventListener(SEND_TO_CHAT, handler)
-    return () => window.removeEventListener(SEND_TO_CHAT, handler)
-  }, [])
+  useEffect(
+    () =>
+      receiveSendToChat(({ sessionId, text, context }) => {
+        // A chat deleted since the message was meant for it has nobody to tell.
+        if (!useSessionsStore.getState().sessions.some((s) => s.id === sessionId)) return
+        if (isSessionRunning(sessionId)) {
+          useSessionsStore.getState().enqueueMessage(sessionId, { text, context })
+          return
+        }
+        void sendMessageRef.current?.(text, undefined, undefined, sessionId, context)
+      }),
+    []
+  )
 
   useEffect(() => {
     const handler = (): void => {
@@ -470,10 +478,16 @@ export default function Chat(): React.JSX.Element {
   const sessionProcesses = useProcessesStore((s) =>
     activeSessionId ? (s.bySession[activeSessionId] ?? EMPTY_PROCESSES) : EMPTY_PROCESSES
   )
-  const waiting = useMemo(
-    () => (roster ? waitingOn(roster, sessionProcesses) : []),
-    [roster, sessionProcesses]
-  )
+  // A flow this chat started is the same kind of thing: work Claude will hear
+  // back from. A paused one is waiting on you instead, and says so in the composer.
+  const flowRuns = useFlowRunsStore((s) => s.runs)
+  const waiting = useMemo(() => {
+    const background = roster ? waitingOn(roster, sessionProcesses) : []
+    const flows: WaitingTask[] = Object.values(flowRuns)
+      .filter((r) => r.chatId === activeSessionId && r.status === 'running')
+      .map((r) => ({ taskId: r.executionId, description: r.workflowName, kind: 'flow' }))
+    return flows.length > 0 ? [...background, ...flows] : background
+  }, [roster, sessionProcesses, flowRuns, activeSessionId])
 
   // Build virtual items: interleave date separators with messages, plus loading indicator
   type VirtualItem =
@@ -783,7 +797,7 @@ export default function Chat(): React.JSX.Element {
       const tc = m as ToolCallMessage
       // One Claude carried on past is the tray's, and never stops anything.
       if (tc.tool_name !== 'AskUserQuestion' || tc.deferred) continue
-      return tc.result === undefined && tc.denied !== true ? tc : null
+      return tc.result === undefined && tc.denied !== true && !tc.ignored ? tc : null
     }
     return null
   }, [messages])
@@ -1620,7 +1634,13 @@ export default function Chat(): React.JSX.Element {
         useSessionsStore.getState().setDeferredState(steer.sid, steer.toolId, 'read')
         // Placed now, not when it was sent: this is the step Claude read it at,
         // and where it reads back between the tool calls around it.
-        addMessage(steer.sid, { id: newMessageId(), role: 'user', text: steer.answer, answers: steer.answers })
+        addMessage(steer.sid, {
+          id: newMessageId(),
+          role: 'user',
+          text: steer.answer,
+          answers: steer.answers,
+          ...(steer.context ? { context: steer.context } : {})
+        })
         return
       }
 
@@ -2207,13 +2227,14 @@ export default function Chat(): React.JSX.Element {
   }, [])
 
 
-  /** Answer a question card: record it on the message, then say it. */
+  /** Answer a question card: record it on the message, then say it, with
+   *  whatever annotations were made to go with it. */
   const handleQuestionAnswer = useCallback(
     (toolId: string, answer: string, images?: ImageAttachment[], files?: FileAttachment[]): void => {
       const sid = useSessionsStore.getState().activeSessionId
       if (!sid) return
       useSessionsStore.getState().updateToolResult(sid, toolId, answer)
-      void sendMessageRef.current?.(answer, images, files, sid)
+      void sendMessageRef.current?.(answer, images, files, sid, takePendingContext(sid))
     },
     []
   )
@@ -2240,14 +2261,17 @@ export default function Chat(): React.JSX.Element {
     const answers = question.header ?? question.question
 
     if (isSessionRunning(sid)) {
+      // Looked at, not taken: a steer that does not land leaves them in the tray.
+      const context = pendingContext(sid)
       let steered: number | null = null
       try {
-        steered = await window.api.claude.steer(prompt, sid)
+        steered = await window.api.claude.steer(withContext(prompt, context), sid)
       } catch {
         steered = null
       }
       if (steered !== null) {
-        deferredSteers.set(steered, { sid, toolId, answer, answers })
+        if (context) takePendingContext(sid)
+        deferredSteers.set(steered, { sid, toolId, answer, answers, ...(context ? { context } : {}) })
         useSessionsStore.getState().setDeferredState(sid, toolId, 'sending', answer)
         return
       }
@@ -2255,7 +2279,7 @@ export default function Chat(): React.JSX.Element {
       if (isSessionRunning(sid)) return
     }
     useSessionsStore.getState().setDeferredState(sid, toolId, 'read', answer)
-    void sendMessageRef.current?.(prompt, undefined, undefined, sid, undefined, { text: answer, answers })
+    void sendMessageRef.current?.(prompt, undefined, undefined, sid, takePendingContext(sid), { text: answer, answers })
   }, [])
 
   /** Let Claude's assumption stand. Nothing is sent: it is already going with it. */
@@ -3135,11 +3159,15 @@ const MessageRow = React.memo(function MessageRow({ message, sessionId, isLoadin
     if (tc.tool_name === 'ExitPlanMode') {
       return <PlanCard message={tc} onAnswer={onPlanAnswer} />
     }
+    if (tc.tool_name === FLOW_RUN_TOOL) return <FlowRunCard message={tc} />
     return <ToolCallCard message={tc} isLoading={isLoading} />
   }
 
   if (message.role === 'user') {
     const textMsg = message as TextMessage
+    // A run reporting in is sent as a message so Claude takes a turn on it,
+    // but the user did not say it.
+    if (isFlowNotice(textMsg.text, textMsg.context)) return <FlowNoticeLine context={textMsg.context ?? []} />
     // Annotations ride under the bubble as a receipt, not inside it as a line.
     const annotated = textMsg.context?.find((c) => c.kind === 'chat-annotation')
     const lines = textMsg.context?.filter((c) => c.kind !== 'chat-annotation') ?? []

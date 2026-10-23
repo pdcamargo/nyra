@@ -44,7 +44,7 @@ export type FileAttachment = {
  * `label`. Stored on the message, so resend, edit and fork send it again.
  */
 export type MessageContext = {
-  kind: 'questionnaire' | 'design-feedback' | 'design-comment' | 'chat-annotation' | 'side-question'
+  kind: 'questionnaire' | 'design-feedback' | 'design-comment' | 'chat-annotation' | 'side-question' | 'flow-run'
   /** The bubble's one line. */
   label: string
   /** What Claude receives. Never rendered in the transcript. */
@@ -63,6 +63,8 @@ export type MessageContext = {
     round?: 'reply'
     /** What a `chat-annotation` carried, in pin order, for the receipt under the bubble. */
     annotations?: SentAnnotation[]
+    /** The flow run a `flow-run` notice is about. */
+    executionId?: string
   }
 }
 
@@ -166,6 +168,9 @@ export type ToolCallMessage = {
   timestamp?: number
   /** Set on an `AskUserQuestion` that did not stop the turn; see `DeferredState`. */
   deferred?: DeferredState
+  /** An `AskUserQuestion` the user waved away unanswered, to say something
+   *  else instead. It stops holding the composer and reads as Ignored. */
+  ignored?: true
 }
 
 export type Message = TextMessage | ToolCallMessage
@@ -590,6 +595,12 @@ type SessionsStore = {
   /** Move an open question along. `answer` sets its result; null clears it, for
    *  an answer that never reached Claude and is open again. */
   setDeferredState: (sessionId: string, toolId: string, state: DeferredState, answer?: string | null) => void
+  /**
+   * Drop every question the chat has open: the one Claude stopped for is
+   * marked ignored, and the ones it carried on past keep their assumption. One
+   * action, because the point is "none of these — let me just tell you".
+   */
+  ignoreQuestions: (sessionId: string) => void
   updateToolInput: (sessionId: string, toolId: string, input: Record<string, unknown>) => void
   markToolDenied: (sessionId: string, toolId: string) => void
   setAutoAcceptEdits: (sessionId: string, value: boolean) => void
@@ -972,10 +983,12 @@ export const useSessionsStore = create<SessionsStore>()(
               ? { ...stamped, id: newMessageId() }
               : stamped
             const messages = [...s.messages, unique]
-            const title =
-              s.title === 'New session' && unique.role === 'user'
-                ? (unique as TextMessage).text.slice(0, 40)
-                : s.title
+            // A message with no words — a flow run reporting in, annotations
+            // sent on their own — names nothing, and an empty title left the
+            // chat a blank row in the sidebar. The next real one, or the AI
+            // title, can name it.
+            const words = unique.role === 'user' ? (unique as TextMessage).text.trim() : ''
+            const title = s.title === 'New session' && words ? words.slice(0, 40) : s.title
             // Your own messages are not news, and neither is anything in the chat
             // you are looking at — it is on screen as it arrives. The active chat
             // behind a minimised window is not being looked at.
@@ -1056,6 +1069,23 @@ export const useSessionsStore = create<SessionsStore>()(
                   : m
               )
             }
+          })
+        }))
+      },
+
+      ignoreQuestions: (sessionId) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s
+            const messages = s.messages.map((m) => {
+              if (m.role !== 'tool_call') return m
+              const tc = m as ToolCallMessage
+              if (tc.tool_name !== 'AskUserQuestion') return m
+              if (tc.deferred === 'open') return { ...tc, deferred: 'kept' as const }
+              if (tc.deferred || tc.result !== undefined || tc.denied || tc.ignored) return m
+              return { ...tc, ignored: true as const }
+            })
+            return { ...s, messages, needsAnswer: false }
           })
         }))
       },

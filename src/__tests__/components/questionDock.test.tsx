@@ -24,8 +24,18 @@ const ask = (multiSelect = false): ToolCallMessage => ({
 beforeEach(() => useQuestionAnswerStore.getState().clear())
 
 describe('QuestionDock', () => {
+  it('can be ignored without answering', async () => {
+    const onIgnore = vi.fn()
+    const onSubmit = vi.fn()
+    render(<QuestionDock message={ask()} text="Do the migration first" onSubmit={onSubmit} onIgnore={onIgnore} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Ignore' }))
+
+    expect(onIgnore).toHaveBeenCalledOnce()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
   it('renders the real options and no "Something else" row', () => {
-    render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} />)
+    render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} onIgnore={vi.fn()} />)
 
     expect(screen.getByText('Postgres')).toBeInTheDocument()
     expect(screen.getByText('Boring and fine')).toBeInTheDocument()
@@ -35,7 +45,7 @@ describe('QuestionDock', () => {
   })
 
   it('ticks what you click, and offers radios for a single-select', async () => {
-    render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} />)
+    render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} onIgnore={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('radio', { name: /Postgres/ }))
 
@@ -44,14 +54,14 @@ describe('QuestionDock', () => {
   })
 
   it('replaces the pick on a single-select and accumulates on a multi', async () => {
-    const { unmount } = render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} />)
+    const { unmount } = render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} onIgnore={vi.fn()} />)
     await userEvent.click(screen.getByRole('radio', { name: /Postgres/ }))
     await userEvent.click(screen.getByRole('radio', { name: /SQLite/ }))
     expect(useQuestionAnswerStore.getState().picks).toEqual({ 0: ['SQLite'] })
     unmount()
 
     useQuestionAnswerStore.getState().clear()
-    render(<QuestionDock message={ask(true)} text="" onSubmit={vi.fn()} />)
+    render(<QuestionDock message={ask(true)} text="" onSubmit={vi.fn()} onIgnore={vi.fn()} />)
     await userEvent.click(screen.getByRole('checkbox', { name: /Postgres/ }))
     await userEvent.click(screen.getByRole('checkbox', { name: /SQLite/ }))
     expect(useQuestionAnswerStore.getState().picks).toEqual({ 0: ['Postgres', 'SQLite'] })
@@ -61,7 +71,7 @@ describe('QuestionDock', () => {
     // Typing is what clears them, and it clears only this question's.
     useQuestionAnswerStore.setState({ picks: {}, typed: { 0: 'Neither, use Redis' } })
 
-    render(<QuestionDock message={ask()} text="Neither, use Redis" onSubmit={vi.fn()} />)
+    render(<QuestionDock message={ask()} text="Neither, use Redis" onSubmit={vi.fn()} onIgnore={vi.fn()} />)
 
     expect(screen.getByRole('radio', { name: /Postgres/ })).not.toBeChecked()
     // And says nothing about it: the hint narrated the box you are typing in.
@@ -71,14 +81,14 @@ describe('QuestionDock', () => {
   it('warns that a tick beats whatever is still sitting in the composer', () => {
     useQuestionAnswerStore.setState({ picks: { 0: ['Postgres'] }, typed: {} })
 
-    render(<QuestionDock message={ask()} text="Neither, use Redis" onSubmit={vi.fn()} />)
+    render(<QuestionDock message={ask()} text="Neither, use Redis" onSubmit={vi.fn()} onIgnore={vi.fn()} />)
 
     expect(screen.getByText(/Picked — your text is ignored/)).toBeInTheDocument()
   })
 
   it('a single-select click is the answer — no Submit press needed', async () => {
     const onSubmit = vi.fn()
-    render(<QuestionDock message={ask()} text="" onSubmit={onSubmit} />)
+    render(<QuestionDock message={ask()} text="" onSubmit={onSubmit} onIgnore={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('radio', { name: /Postgres/ }))
 
@@ -87,7 +97,7 @@ describe('QuestionDock', () => {
 
   it('waits for Submit when there is text to be overridden', async () => {
     const onSubmit = vi.fn()
-    render(<QuestionDock message={ask()} text="Neither, use Redis" onSubmit={onSubmit} />)
+    render(<QuestionDock message={ask()} text="Neither, use Redis" onSubmit={onSubmit} onIgnore={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('radio', { name: /Postgres/ }))
 
@@ -98,7 +108,7 @@ describe('QuestionDock', () => {
 
   it('never fires on its own for a multi-select', async () => {
     const onSubmit = vi.fn()
-    render(<QuestionDock message={ask(true)} text="" onSubmit={onSubmit} />)
+    render(<QuestionDock message={ask(true)} text="" onSubmit={onSubmit} onIgnore={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('checkbox', { name: /Postgres/ }))
 
@@ -107,7 +117,7 @@ describe('QuestionDock', () => {
 
   it('submits the composed answer', async () => {
     const onSubmit = vi.fn()
-    render(<QuestionDock message={ask()} text="" onSubmit={onSubmit} />)
+    render(<QuestionDock message={ask()} text="" onSubmit={onSubmit} onIgnore={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('radio', { name: /SQLite/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Submit' }))
@@ -224,7 +234,7 @@ describe('useQuestionAnswerStore', () => {
 
 describe('QuestionDock collapse', () => {
   it('opens by default and folds down to one line, so the reply above can be read', async () => {
-    render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} />)
+    render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} onIgnore={vi.fn()} />)
     expect(screen.getByRole('radio', { name: /Postgres/ })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Hide question' }))
@@ -236,9 +246,9 @@ describe('QuestionDock collapse', () => {
   })
 
   it('opens again for the next question', async () => {
-    const { rerender } = render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} />)
+    const { rerender } = render(<QuestionDock message={ask()} text="" onSubmit={vi.fn()} onIgnore={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: 'Hide question' }))
-    rerender(<QuestionDock message={{ ...ask(), tool_id: 'q2' }} text="" onSubmit={vi.fn()} />)
+    rerender(<QuestionDock message={{ ...ask(), tool_id: 'q2' }} text="" onSubmit={vi.fn()} onIgnore={vi.fn()} />)
     expect(screen.getByRole('radio', { name: /Postgres/ })).toBeInTheDocument()
   })
 })

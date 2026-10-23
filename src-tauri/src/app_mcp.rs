@@ -232,6 +232,7 @@ fn node_type_name(node: &crate::workflow::types::WorkflowNode) -> &'static str {
         D::Join { .. } => "join",
         D::Loop { .. } => "loop",
         D::HumanReview { .. } => "humanReview",
+        D::Chat { .. } => "chat",
         D::Subworkflow { .. } => "subworkflow",
     }
 }
@@ -307,13 +308,17 @@ fn tool_schemas() -> Value {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["list", "read", "write", "run", "open", "delete"],
-                        "description": "write: create or replace (validated). open: show it on screen. run: execute it and wait — a flow of real Claude turns can take minutes, so prefer open and let the user press Run."
+                        "enum": ["list", "read", "write", "open", "delete", "start", "status", "output", "runs", "continue", "stop", "run"],
+                        "description": "write: create or replace (validated). open: show it. start: run it; the chat hears when it pauses or ends. continue: only once the user says so. run: blocks; prefer start."
                     },
-                    "id": { "type": "string", "description": "Flow id. Omit on write to create a new one." },
-                    "definition": { "type": "object", "description": "The whole flow JSON, for action:\"write\"." },
-                    "cwd": { "type": "string", "description": "Directory to run in, for action:\"run\"." },
-                    "inputs": { "type": "object", "description": "Input values, for action:\"run\"." }
+                    "id": { "type": "string", "description": "Flow id. Omit on write to create one." },
+                    "run": { "type": "string", "description": "Run id. Defaults to this chat's latest." },
+                    "step": { "type": "string" },
+                    "output": { "type": "string", "description": "For continue: what the step hands on, in full." },
+                    "approve": { "type": "boolean", "description": "false rejects or stops." },
+                    "definition": { "type": "object", "description": "The whole flow JSON." },
+                    "cwd": { "type": "string", "description": "Defaults to this chat's folder." },
+                    "inputs": { "type": "object" }
                 },
                 "required": ["action"]
             }
@@ -411,7 +416,7 @@ async fn call_tool(chat_id: &str, name: &str, args: Value) -> Result<String, Str
     match name {
         "nyra_ui" => ui_tool(args).await,
         "nyra_design" => design_tool(chat_id, args).await,
-        "nyra_flow" => flow_tool(args).await,
+        "nyra_flow" => flow_tool(chat_id, args).await,
         "nyra_update" => update_tool().await,
         "nyra_agent" => crate::agent::delegate::tool(chat_id, args).await,
         other => Err(format!(
@@ -982,7 +987,25 @@ fn upgrade_summary(name: &str, answer: &Value) -> String {
     out
 }
 
-async fn flow_tool(args: Value) -> Result<String, String> {
+/// The chat's working directory, asked of the window.
+async fn chat_cwd(chat_id: &str) -> Option<String> {
+    ask_renderer("design.project", json!({ "sessionId": chat_id }))
+        .await
+        .ok()
+        .and_then(|v| v.get("project").and_then(Value::as_str).map(str::to_string))
+}
+
+/// The run a call names, or this chat's latest.
+async fn run_arg(chat_id: &str, args: &Value) -> Result<String, String> {
+    if let Some(run) = arg_str(args, "run") {
+        return Ok(run);
+    }
+    crate::flow_runs::latest_for_chat(chat_id)
+        .await
+        .ok_or_else(|| "This chat has no flow runs. Pass `run`, or start one.".to_string())
+}
+
+async fn flow_tool(chat_id: &str, args: Value) -> Result<String, String> {
     use crate::workflow::store;
 
     let action = arg_str(&args, "action").ok_or("nyra_flow needs an action.")?;
@@ -1082,6 +1105,95 @@ async fn flow_tool(args: Value) -> Result<String, String> {
                 "Finished. Execution {}. The run is in the flow's History panel.",
                 result.get("executionId").and_then(Value::as_str).unwrap_or("?")
             ))
+        }
+        "start" => {
+            let id = arg_str(&args, "id").ok_or("nyra_flow action:\"start\" needs an id.")?;
+            let flow = store::load_workflow_typed(&id)
+                .await
+                .ok_or_else(|| format!("No flow with id '{id}'. Use action:\"list\"."))?;
+            let cwd = match arg_str(&args, "cwd") {
+                Some(cwd) => cwd,
+                None => chat_cwd(chat_id)
+                    .await
+                    .ok_or("Could not tell which folder this chat is in; pass `cwd`.")?,
+            };
+            let inputs: HashMap<String, String> = args
+                .get("inputs")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
+            // Asked for by name rather than left blank: a run whose prompts
+            // read `{{input.week}}` as nothing goes on to do the wrong work.
+            let missing: Vec<String> = flow
+                .inputs
+                .iter()
+                .flatten()
+                .filter(|i| {
+                    inputs.get(&i.key).is_none_or(|v| v.trim().is_empty())
+                        && i.default_value.as_deref().is_none_or(|d| d.trim().is_empty())
+                })
+                .map(|i| format!("{} ({})", i.key, i.label))
+                .collect();
+            if !missing.is_empty() {
+                return Err(format!(
+                    "{} needs inputs: {}. Ask the user, then start again with `inputs`.",
+                    flow.name,
+                    missing.join(", ")
+                ));
+            }
+            // Defaults the caller left out, the way the run dialog fills them.
+            let mut values = inputs;
+            for input in flow.inputs.iter().flatten() {
+                if let Some(default) = &input.default_value {
+                    values.entry(input.key.clone()).or_insert_with(|| default.clone());
+                }
+            }
+            let run = crate::workflow::engine::start_workflow(
+                &id,
+                &cwd,
+                util::settings(),
+                Some(values),
+                Some(crate::workflow::types::TriggerSource::Manual),
+                Some(chat_id.to_string()),
+            )
+            .await
+            .map_err(|e| format!("Could not start it: {e}"))?;
+            Ok(format!(
+                "Started {name} as run {run}. It shows in this chat and its side panel. Don't wait on it: this chat is told when it pauses for the user or ends. action:\"status\" says where it is.",
+                name = flow.name
+            ))
+        }
+        "status" => {
+            let run = run_arg(chat_id, &args).await?;
+            let view = crate::flow_runs::view(&run)
+                .await
+                .ok_or_else(|| format!("No run '{run}'."))?;
+            Ok(crate::flow_runs::describe(&view, chat_id))
+        }
+        "output" => {
+            let run = run_arg(chat_id, &args).await?;
+            let step = arg_str(&args, "step").ok_or("nyra_flow action:\"output\" needs a `step`.")?;
+            let view = crate::flow_runs::view(&run)
+                .await
+                .ok_or_else(|| format!("No run '{run}'."))?;
+            crate::flow_runs::step_output(&view, &step)
+        }
+        "runs" => {
+            let id = arg_str(&args, "id").ok_or("nyra_flow action:\"runs\" needs the flow's id.")?;
+            Ok(crate::flow_runs::history(&id).await)
+        }
+        "continue" => {
+            let run = run_arg(chat_id, &args).await?;
+            let approve = args.get("approve").and_then(Value::as_bool).unwrap_or(true);
+            let output = args.get("output").and_then(Value::as_str).map(str::to_string);
+            crate::flow_runs::continue_run(&run, output, approve)
+        }
+        "stop" => {
+            let run = run_arg(chat_id, &args).await?;
+            if crate::workflow::engine::snapshot(&run).is_none() {
+                return Err(format!("Run {run} is not running."));
+            }
+            crate::workflow::engine::abort_workflow(&run);
+            Ok(format!("Stopped run {run}."))
         }
         "delete" => {
             let id = arg_str(&args, "id").ok_or("nyra_flow action:\"delete\" needs an id.")?;
@@ -1319,10 +1431,12 @@ mod tests {
         // Every one of these rides in every turn, so the schemas stay small on
         // purpose. If this trips, move a catalogue into a result. It was 4000
         // until nyra_agent, which is a fifth tool rather than a catalogue and
-        // costs about 120 tokens a turn on its own.
+        // costs about 120 tokens a turn on its own. 4600 until nyra_flow learnt
+        // to follow its runs — start, status, output, runs, continue, stop —
+        // which is about 50 more.
         let weight = serde_json::to_string(&tool_schemas()).unwrap().len();
         println!("  tool schemas    {weight:>5} chars  ~{:>4} tokens", weight / 4);
-        assert!(weight < 4600, "tool schemas grew to {weight} bytes");
+        assert!(weight < 4800, "tool schemas grew to {weight} bytes");
     }
 
     #[tokio::test]

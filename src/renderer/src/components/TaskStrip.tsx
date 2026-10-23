@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { ChevronDown, ChevronRight, Circle, CircleCheck, CircleDot, ListTodo } from 'lucide-react'
 import { useSessionsStore, type Task } from '../store/sessions'
+import { useSettingsStore } from '../store/settings'
 
 /** A stable empty array — a fresh one per call would re-render forever. */
 const EMPTY_TASKS: Task[] = []
@@ -35,8 +36,9 @@ export default function TaskStrip(): React.JSX.Element | null {
     return session?.tasks ?? EMPTY_TASKS
   })
   const [manual, setManual] = useState<boolean | null>(null)
+  const shown = useSettingsStore((s) => s.showTasks)
 
-  if (tasks.length === 0) return null
+  if (!shown || tasks.length === 0) return null
 
   const done = tasks.filter((t) => t.status === 'completed').length
   const current = tasks.find((t) => t.status === 'in_progress')

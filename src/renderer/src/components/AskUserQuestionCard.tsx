@@ -49,7 +49,8 @@ export default function AskUserQuestionCard({
 }): React.JSX.Element | null {
   const questions = useMemo(() => questionsOf(message.input), [message.input])
   const denied = message.denied === true
-  const answered = message.result !== undefined || denied
+  const ignored = message.ignored === true
+  const answered = message.result !== undefined || denied || ignored
   const prefillInput = useUiStore((s) => s.prefillInput)
   const [submitted, setSubmitted] = useState(false)
   const dockedHere = useQuestionAnswerStore((s) => s.toolId === message.tool_id)
@@ -107,7 +108,7 @@ export default function AskUserQuestionCard({
         <span className="font-medium text-foreground/80">Question</span>
         {denied && <span className="text-c-xs text-danger">denied</span>}
         <span className="ml-auto text-c-xs text-muted-foreground">
-          {submitted ? 'Sent' : interactive ? 'Pick to answer' : 'Answered in chat'}
+          {submitted ? 'Sent' : interactive ? 'Pick to answer' : ignored ? 'Ignored' : 'Answered in chat'}
         </span>
       </div>
 

@@ -61,6 +61,10 @@ export type NyraSettings = {
   /** How long, in minutes, a chat has to have worked without you before the
    *  recap is offered. Counted until the turn finished, not until you returned. */
   awayRecapMinutes: number
+  /** Claude's task checklist: the strip above the composer and the record a
+   *  finished one leaves in the transcript. Some people would rather not see
+   *  it. Renderer-only. */
+  showTasks: boolean
   /** Download new versions in the background and install them on quit. Off by
    *  default: an app that fetches and replaces itself should be asked to.
    *  Renderer-only; Rust installs whatever the renderer staged. */
@@ -214,6 +218,7 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   showChatMemory: false,
   awayRecap: true,
   awayRecapMinutes: 30,
+  showTasks: true,
   autoUpdate: false,
   browserDevice: 'iphone-16-pro',
   zoom: 1,

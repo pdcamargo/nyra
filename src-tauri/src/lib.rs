@@ -5,6 +5,7 @@ mod ai_title;
 mod account_status;
 mod agent;
 mod app_mcp;
+mod flow_runs;
 mod browser;
 mod checkpoints;
 mod claude;
@@ -285,6 +286,9 @@ pub fn run() {
             commands::workflow_delete,
             commands::workflow_templates,
             commands::workflow_run,
+            commands::workflow_start,
+            commands::workflow_active,
+            commands::workflow_link_chat,
             commands::workflow_abort,
             commands::workflow_abort_flow,
             commands::workflow_review_response,

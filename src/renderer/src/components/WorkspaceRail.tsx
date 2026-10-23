@@ -16,6 +16,7 @@ import { DEFAULT_WORKSPACE_ID, useWorkspacesStore, type Workspace } from '../sto
 import { WORKSPACE_RAIL_WIDTH } from '../store/panelSizes'
 import { useUiStore } from '../store/ui'
 import { useRunningStore } from '../store/running'
+import { useBusyChats } from '../lib/backgroundWait'
 import { isArchived, useSessionsStore } from '../store/sessions'
 import { switchWorkspace, workspacesWhereKey } from '../lib/workspaces'
 import type { CommandId } from '../commands/registry'
@@ -31,7 +32,9 @@ export default function WorkspaceRail(): React.JSX.Element {
   const activeId = useWorkspacesStore((s) => s.activeId)
   const openDialog = useUiStore((s) => s.setWorkspaceDialog)
   const running = useRunningStore((s) => s.running)
-  const runningKey = useSessionsStore((s) => workspacesWhereKey(s, (x) => running[x.id] === true))
+  // Waiting on its agents counts, as it does on the chat's own row.
+  const busyChats = useBusyChats()
+  const runningKey = useSessionsStore((s) => workspacesWhereKey(s, (x) => busyChats[x.id] === true))
   // The row's own rule: a chat mid-turn holds its dot back until the turn ends.
   const unreadKey = useSessionsStore((s) =>
     workspacesWhereKey(s, (x) => !isArchived(x) && !running[x.id] && (x.unread ?? 0) > 0)

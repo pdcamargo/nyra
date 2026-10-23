@@ -21,13 +21,16 @@ import type { ToolCallMessage } from '../store/sessions'
 export default function QuestionDock({
   message,
   text,
-  onSubmit
+  onSubmit,
+  onIgnore
 }: {
   message: ToolCallMessage
   /** What is in the composer right now: the free-text answer to the question on
    *  screen. It beats that question's ticks unless one was added after it. */
   text: string
   onSubmit: (answer: string) => void
+  /** Drop this question and any other open one, and give the composer back. */
+  onIgnore: () => void
 }): React.JSX.Element | null {
   const questions = useMemo(() => questionsOf(message.input), [message.input])
   const picks = useQuestionAnswerStore((s) => s.picks)
@@ -102,6 +105,9 @@ export default function QuestionDock({
             ? `${page + 1} of ${questions.length}${answeredCount > 0 ? ` · ${answeredCount} answered` : ''}`
             : hint}
         </span>
+        {/* Not a fold: folding keeps the composer answering. This is "none of
+            these", and what you type next is a message of its own. */}
+        <DockButton onClick={onIgnore}>Ignore</DockButton>
         <button
           type="button"
           onClick={() => setCollapsed(true)}

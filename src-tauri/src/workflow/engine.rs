@@ -44,6 +44,15 @@ fn script_limit(timeout_ms: Option<u64>) -> Duration {
         .min(SCRIPT_TIMEOUT_MAX)
 }
 
+/// How a paused step was answered: a review approved or rejected, a chat step
+/// continued or stopped. `output` replaces what the step hands on — a reviewer
+/// who edited the work, or the version a conversation settled on.
+#[derive(Debug, Clone, Default)]
+pub struct ReviewAnswer {
+    pub approved: bool,
+    pub output: Option<String>,
+}
+
 #[derive(Default)]
 struct ExecState {
     aborted: bool,
@@ -51,7 +60,10 @@ struct ExecState {
     node_states: HashMap<String, WorkflowNodeRunState>,
     node_tokens: HashMap<String, WorkflowTokenUsage>,
     total_tokens: WorkflowTokenUsage,
-    pending_reviews: HashMap<String, oneshot::Sender<bool>>,
+    pending_reviews: HashMap<String, oneshot::Sender<ReviewAnswer>>,
+    /// What each paused step is waiting on, for anyone asking where the run is:
+    /// the event that announced it is gone by the time a tool asks.
+    waits: HashMap<String, Value>,
 }
 
 struct Exec {
@@ -68,6 +80,13 @@ struct Exec {
     state: Mutex<ExecState>,
     /// Shared with sub-workflows so an abort cascades into their Claude sessions.
     active_sessions: Arc<Mutex<HashSet<String>>>,
+    /// The top-level run this belongs to; its own id unless it is a sub-flow.
+    /// A chat step deep in a sub-flow still pauses the run the user started.
+    root_id: String,
+    /// The chat the run belongs to. Shared with sub-flows, and settable after
+    /// the start: a run nobody started from a chat gets one at its first chat
+    /// step.
+    chat_id: Arc<Mutex<Option<String>>>,
 }
 
 type ExecRef = Arc<Exec>;
@@ -485,11 +504,41 @@ async fn execute_subworkflow_node(
     Ok(output)
 }
 
+fn mark_awaiting(exec: &ExecRef, node_id: &str) {
+    exec.state.lock().node_states.insert(
+        node_id.to_string(),
+        WorkflowNodeRunState {
+            node_id: node_id.to_string(),
+            status: WorkflowNodeStatus::AwaitingReview,
+            output: None,
+            error: None,
+            started_at: Some(util::now_ms()),
+            finished_at: None,
+            iteration: None,
+            tokens: None,
+        },
+    );
+}
+
+/// Park until someone answers this node, and record what it is waiting on.
+async fn park(exec: &ExecRef, node_id: &str, wait: Value) -> ReviewAnswer {
+    let (tx, rx) = oneshot::channel();
+    {
+        let mut state = exec.state.lock();
+        state.pending_reviews.insert(node_id.to_string(), tx);
+        state.waits.insert(node_id.to_string(), wait);
+    }
+    // A dropped sender means the run was aborted — treat that as a rejection.
+    let answer = rx.await.unwrap_or_default();
+    exec.state.lock().waits.remove(node_id);
+    answer
+}
+
 async fn wait_for_review(
     node: &WorkflowNode,
     prev_output: &str,
     exec: &ExecRef,
-) -> Result<bool, String> {
+) -> Result<ReviewAnswer, String> {
     let WorkflowNodeData::HumanReview { message } = &node.data else {
         return Err("Not a humanReview node".into());
     };
@@ -509,13 +558,57 @@ async fn wait_for_review(
         "request": request,
     }));
 
-    let (tx, rx) = oneshot::channel();
-    exec.state
-        .lock()
-        .pending_reviews
-        .insert(node.id.clone(), tx);
-    // A dropped sender means the run was aborted — treat that as a rejection.
-    Ok(rx.await.unwrap_or(false))
+    let wait = json!({
+        "kind": "review",
+        "nodeId": node.id,
+        "label": node.label,
+        "message": message,
+        "input": clip(prev_output, 20_000),
+    });
+    Ok(park(exec, &node.id, wait).await)
+}
+
+/// Pause in a chat until it is continued or stopped.
+///
+/// The renderer owns the conversation: it puts the step in front of the chat,
+/// works out the output when the step takes it from the transcript, and
+/// answers through `respond_to_review`. Claude can answer too, with
+/// `nyra_flow continue`, which lands in the same place.
+async fn wait_for_chat(
+    node: &WorkflowNode,
+    prev_output: &str,
+    exec: &ExecRef,
+) -> Result<ReviewAnswer, String> {
+    let WorkflowNodeData::Chat { message, output } = &node.data else {
+        return Err("Not a chat node".into());
+    };
+    let (vars, input_values) = {
+        let state = exec.state.lock();
+        (state.vars.clone(), exec.input_values.clone())
+    };
+    let opening = message
+        .as_deref()
+        .filter(|m| !m.trim().is_empty())
+        .map(|m| interpolate(m, prev_output, &input_values, &vars));
+    let output = output.unwrap_or_default();
+
+    let wait = json!({
+        "kind": "chat",
+        "nodeId": node.id,
+        "label": node.label,
+        "message": opening,
+        "output": output,
+        "input": clip(prev_output, 20_000),
+    });
+    send_event(json!({
+        "type": "node:awaiting-chat",
+        "executionId": exec.root_id,
+        "nodeId": node.id,
+        "chatId": *exec.chat_id.lock(),
+        "workflowName": exec.wf.name,
+        "wait": wait,
+    }));
+    Ok(park(exec, &node.id, wait).await)
 }
 
 // ---- scheduler ----
@@ -670,25 +763,29 @@ async fn execute_one(
         }
 
         WorkflowNodeData::HumanReview { .. } => {
-            exec.state.lock().node_states.insert(
-                node.id.clone(),
-                WorkflowNodeRunState {
-                    node_id: node.id.clone(),
-                    status: WorkflowNodeStatus::AwaitingReview,
-                    output: None,
-                    error: None,
-                    started_at: Some(util::now_ms()),
-                    finished_at: None,
-                    iteration: None,
-                    tokens: None,
-                },
-            );
-            let approved = wait_for_review(node, prev_output, exec).await?;
+            mark_awaiting(exec, &node.id);
+            let answer = wait_for_review(node, prev_output, exec).await?;
             Ok(NodeOutcome {
-                recorded: if approved { "approved" } else { "rejected" }.to_string(),
-                forwarded: prev_output.to_string(),
-                stop: !approved,
+                recorded: if answer.approved { "approved" } else { "rejected" }.to_string(),
+                // Approving with an edited version carries that on instead.
+                forwarded: answer.output.unwrap_or_else(|| prev_output.to_string()),
+                stop: !answer.approved,
             })
+        }
+
+        WorkflowNodeData::Chat { .. } => {
+            mark_awaiting(exec, &node.id);
+            let answer = wait_for_chat(node, prev_output, exec).await?;
+            if !answer.approved {
+                return Ok(NodeOutcome {
+                    recorded: "stopped".into(),
+                    forwarded: prev_output.to_string(),
+                    stop: true,
+                });
+            }
+            Ok(NodeOutcome::from(
+                answer.output.unwrap_or_else(|| prev_output.to_string()),
+            ))
         }
 
         WorkflowNodeData::Loop {
@@ -987,6 +1084,40 @@ pub async fn execute_workflow(
     input_values: Option<HashMap<String, String>>,
     triggered_by: Option<TriggerSource>,
 ) -> Result<String, String> {
+    let exec = prepare(workflow_id, cwd, settings, input_values, triggered_by, None).await?;
+    run_prepared(exec).await
+}
+
+/// Start a run and return its id at once, rather than when it ends.
+///
+/// What a chat needs: the run reports back through events, and the chat that
+/// asked for it should not sit inside a tool call for the length of a flow.
+pub async fn start_workflow(
+    workflow_id: &str,
+    cwd: &str,
+    settings: NyraSettings,
+    input_values: Option<HashMap<String, String>>,
+    triggered_by: Option<TriggerSource>,
+    chat_id: Option<String>,
+) -> Result<String, String> {
+    let exec = prepare(workflow_id, cwd, settings, input_values, triggered_by, chat_id).await?;
+    let id = exec.id.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = run_prepared(exec).await {
+            crate::log!("workflow", "run ended without a record: {e}");
+        }
+    });
+    Ok(id)
+}
+
+async fn prepare(
+    workflow_id: &str,
+    cwd: &str,
+    settings: NyraSettings,
+    input_values: Option<HashMap<String, String>>,
+    triggered_by: Option<TriggerSource>,
+    chat_id: Option<String>,
+) -> Result<ExecRef, String> {
     let triggered_by = triggered_by.unwrap_or(TriggerSource::Manual);
     crate::log!(
         "workflow",
@@ -996,16 +1127,16 @@ pub async fn execute_workflow(
     let wf = store::load_workflow_typed(workflow_id)
         .await
         .ok_or_else(|| format!("Workflow not found: {workflow_id}"))?;
+    if find_start_nodes(&wf).is_empty() {
+        return Err("No start node found in workflow".into());
+    }
 
     let execution_id = format!(
         "exec-{}-{}",
         COUNTER.fetch_add(1, Ordering::SeqCst) + 1,
         util::now_ms()
     );
-    let started_at = util::now_ms();
-    let wf_id = wf.id.clone();
-    let wf_name = wf.name.clone();
-    // Whichever way it started — the canvas, a trigger, `nyra_flow run` — a flow
+    // Whichever way it started — the canvas, a trigger, `nyra_flow` — a flow
     // runs under its project's account, and one with no project under Default.
     let config_dir = crate::workspaces::config_dir_for_project(wf.project_id.as_deref());
 
@@ -1018,29 +1149,36 @@ pub async fn execute_workflow(
         input_values: input_values.unwrap_or_default(),
         depth: 0,
         triggered_by,
-        state: Mutex::new(ExecState {
-            aborted: false,
-            vars: HashMap::new(),
-            node_states: HashMap::new(),
-            node_tokens: HashMap::new(),
-            total_tokens: WorkflowTokenUsage::default(),
-            pending_reviews: HashMap::new(),
-        }),
+        state: Mutex::new(ExecState::default()),
         active_sessions: Arc::new(Mutex::new(HashSet::new())),
+        root_id: execution_id.clone(),
+        chat_id: Arc::new(Mutex::new(chat_id)),
     });
     ACTIVE.lock().insert(execution_id.clone(), exec.clone());
     crate::keep_awake::poke();
-
+    // Before the start returns, so a caller that re-reads the flow straight
+    // after starting it sees where it ran.
     record_recent_cwd(workflow_id, cwd).await;
+
+    send_event(json!({
+        "type": "execution:start",
+        "executionId": execution_id,
+        "run": run_summary(&exec),
+    }));
+    Ok(exec)
+}
+
+async fn run_prepared(exec: ExecRef) -> Result<String, String> {
+    let execution_id = exec.id.clone();
+    let started_at = util::now_ms();
+    let wf_id = exec.wf.id.clone();
+    let wf_name = exec.wf.name.clone();
+    let cwd = exec.cwd.clone();
 
     let start_nodes: Vec<String> = find_start_nodes(&exec.wf)
         .iter()
         .map(|n| n.id.clone())
         .collect();
-    if start_nodes.is_empty() {
-        ACTIVE.lock().remove(&execution_id);
-        return Err("No start node found in workflow".into());
-    }
 
     let collectors: Collectors = Arc::new(Mutex::new(HashMap::new()));
     let visited: Visited = Arc::new(Mutex::new(HashSet::new()));
@@ -1084,10 +1222,19 @@ pub async fn execute_workflow(
         final_vars: vars,
         node_states,
         error: outcome.as_ref().err().cloned(),
-        cwd: Some(cwd.to_string()),
+        cwd: Some(cwd.clone()),
         tokens: Some(total_tokens),
         triggered_by: Some(exec.triggered_by),
+        chat_id: exec.chat_id.lock().clone(),
     };
+
+    // Saved before it is announced, so whoever hears the end and asks for the
+    // record — a chat being told how its run went — finds it on disk.
+    if let Err(e) = store::save_execution_record(&record).await {
+        crate::log!("workflow", "saveExecutionRecord failed: {e}");
+    }
+    ACTIVE.lock().remove(&execution_id);
+    crate::keep_awake::poke();
 
     match (&outcome, aborted) {
         (_, true) => send_event(json!({
@@ -1108,13 +1255,130 @@ pub async fn execute_workflow(
         })),
     }
 
-    ACTIVE.lock().remove(&execution_id);
-    crate::keep_awake::poke();
-    if let Err(e) = store::save_execution_record(&record).await {
-        crate::log!("workflow", "saveExecutionRecord failed: {e}");
-    }
-
     Ok(execution_id)
+}
+
+/// The steps of a flow in the order a person reads them: top to bottom as the
+/// canvas lays them out, left to right across a row.
+pub fn ordered_steps(wf: &WorkflowDefinition) -> Vec<Value> {
+    let mut nodes: Vec<&WorkflowNode> = wf.nodes.iter().collect();
+    nodes.sort_by(|a, b| {
+        a.position
+            .y
+            .partial_cmp(&b.position.y)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                a.position
+                    .x
+                    .partial_cmp(&b.position.x)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+    });
+    nodes
+        .into_iter()
+        .map(|n| json!({ "id": n.id, "label": n.label, "type": node_kind(&n.data) }))
+        .collect()
+}
+
+/// The `type` discriminator as it appears in JSON.
+pub fn node_kind(data: &WorkflowNodeData) -> &'static str {
+    match data {
+        WorkflowNodeData::Prompt { .. } => "prompt",
+        WorkflowNodeData::Condition { .. } => "condition",
+        WorkflowNodeData::Script { .. } => "script",
+        WorkflowNodeData::Parallel { .. } => "parallel",
+        WorkflowNodeData::Join { .. } => "join",
+        WorkflowNodeData::Loop { .. } => "loop",
+        WorkflowNodeData::HumanReview { .. } => "humanReview",
+        WorkflowNodeData::Chat { .. } => "chat",
+        WorkflowNodeData::Subworkflow { .. } => "subworkflow",
+    }
+}
+
+/// What a run is, without where it has got to.
+fn run_summary(exec: &ExecRef) -> Value {
+    json!({
+        "executionId": exec.id,
+        "workflowId": exec.wf.id,
+        "workflowName": exec.wf.name,
+        "chatId": *exec.chat_id.lock(),
+        "cwd": exec.cwd,
+        "inputValues": exec.input_values,
+        "triggeredBy": exec.triggered_by,
+        "startedAt": util::now_ms(),
+        "steps": ordered_steps(&exec.wf),
+    })
+}
+
+/// A live run as it stands: its steps, each one's state, and what any paused
+/// step is waiting on. `None` once the run is over — read its record instead.
+pub fn snapshot(execution_id: &str) -> Option<Value> {
+    let exec = ACTIVE.lock().get(execution_id).cloned()?;
+    if exec.root_id != exec.id {
+        return None;
+    }
+    // A sub-flow's pauses are this run's pauses.
+    let children: Vec<ExecRef> = ACTIVE
+        .lock()
+        .values()
+        .filter(|e| e.root_id == exec.id && e.id != exec.id)
+        .cloned()
+        .collect();
+    let mut out = run_summary(&exec);
+    let (aborted, node_states, vars, mut waits) = {
+        let state = exec.state.lock();
+        (
+            state.aborted,
+            state.node_states.clone(),
+            state.vars.clone(),
+            state.waits.values().cloned().collect::<Vec<Value>>(),
+        )
+    };
+    for child in &children {
+        waits.extend(child.state.lock().waits.values().cloned());
+    }
+    if let Value::Object(map) = &mut out {
+        map.insert("status".into(), json!(if aborted { "aborted" } else { "running" }));
+        map.insert("nodeStates".into(), json!(node_states));
+        map.insert("vars".into(), json!(vars));
+        map.insert("waits".into(), json!(waits));
+    }
+    Some(out)
+}
+
+/// Every top-level run in flight, as `snapshot` reports each.
+pub fn active_runs() -> Vec<Value> {
+    let ids: Vec<String> = ACTIVE
+        .lock()
+        .values()
+        .filter(|e| e.root_id == e.id)
+        .map(|e| e.id.clone())
+        .collect();
+    ids.iter().filter_map(|id| snapshot(id)).collect()
+}
+
+/// Tie a run to a chat after it started — the chat its first chat step opened.
+pub fn link_chat(execution_id: &str, chat_id: &str) -> bool {
+    let Some(exec) = ACTIVE.lock().get(execution_id).cloned() else {
+        return false;
+    };
+    *exec.chat_id.lock() = Some(chat_id.to_string());
+    send_event(json!({
+        "type": "execution:linked",
+        "executionId": execution_id,
+        "chatId": chat_id,
+    }));
+    true
+}
+
+/// Runs in flight that belong to this chat, newest first.
+pub fn runs_of_chat(chat_id: &str) -> Vec<Value> {
+    let mut runs: Vec<Value> = active_runs()
+        .into_iter()
+        .filter(|r| r.get("chatId").and_then(Value::as_str) == Some(chat_id))
+        .collect();
+    runs.sort_by(|a, b| b["startedAt"].as_i64().cmp(&a["startedAt"].as_i64()));
+    runs
 }
 
 /// Push `cwd` to the front of the workflow's recents list (max 8).
@@ -1167,14 +1431,12 @@ async fn run_child_workflow(
         triggered_by: parent.triggered_by,
         state: Mutex::new(ExecState {
             aborted: is_aborted(parent),
-            vars: HashMap::new(),
-            node_states: HashMap::new(),
-            node_tokens: HashMap::new(),
-            total_tokens: WorkflowTokenUsage::default(),
-            pending_reviews: HashMap::new(),
+            ..ExecState::default()
         }),
         // Shared, so aborting the parent reaches the child's Claude sessions.
         active_sessions: parent.active_sessions.clone(),
+        root_id: parent.root_id.clone(),
+        chat_id: parent.chat_id.clone(),
     });
     ACTIVE.lock().insert(execution_id.clone(), child.clone());
 
@@ -1252,7 +1514,7 @@ pub fn abort_workflow(execution_id: &str) {
         return;
     };
     let sessions: Vec<String> = exec.active_sessions.lock().iter().cloned().collect();
-    let reviews: Vec<oneshot::Sender<bool>> = {
+    let reviews: Vec<oneshot::Sender<ReviewAnswer>> = {
         let mut state = exec.state.lock();
         state.aborted = true;
         state.pending_reviews.drain().map(|(_, tx)| tx).collect()
@@ -1261,7 +1523,7 @@ pub fn abort_workflow(execution_id: &str) {
         agent::abort(Some(&session));
     }
     for tx in reviews {
-        let _ = tx.send(false);
+        let _ = tx.send(ReviewAnswer::default());
     }
 }
 
@@ -1283,15 +1545,22 @@ pub fn abort_workflows_of(workflow_id: &str) -> usize {
     ids.len()
 }
 
-pub fn respond_to_review(execution_id: &str, node_id: &str, approved: bool) -> bool {
-    let Some(exec) = ACTIVE.lock().get(execution_id).cloned() else {
-        return false;
-    };
-    let tx = exec.state.lock().pending_reviews.remove(node_id);
-    match tx {
-        Some(tx) => tx.send(approved).is_ok(),
-        None => false,
+/// Answer a paused step — a review, or a chat step — in this run or in any
+/// sub-flow it is running, since a pause anywhere inside is the run's pause.
+pub fn respond_to_review(execution_id: &str, node_id: &str, answer: ReviewAnswer) -> bool {
+    let candidates: Vec<ExecRef> = ACTIVE
+        .lock()
+        .values()
+        .filter(|e| e.id == execution_id || e.root_id == execution_id)
+        .cloned()
+        .collect();
+    for exec in candidates {
+        let tx = exec.state.lock().pending_reviews.remove(node_id);
+        if let Some(tx) = tx {
+            return tx.send(answer).is_ok();
+        }
     }
+    false
 }
 
 #[cfg(test)]
@@ -1374,6 +1643,8 @@ mod tests {
                 ..Default::default()
             }),
             active_sessions: Arc::new(Mutex::new(HashSet::new())),
+            root_id: String::new(),
+            chat_id: Arc::new(Mutex::new(None)),
         });
         ACTIVE.lock().insert("exec-1".into(), exec.clone());
 
@@ -1394,6 +1665,8 @@ mod tests {
                 ..Default::default()
             }),
             active_sessions: Arc::new(Mutex::new(HashSet::new())),
+            root_id: String::new(),
+            chat_id: Arc::new(Mutex::new(None)),
         });
         ACTIVE.lock().insert("exec-2".into(), other.clone());
 
@@ -1406,6 +1679,102 @@ mod tests {
 
         ACTIVE.lock().remove("exec-1");
         ACTIVE.lock().remove("exec-2");
+    }
+
+    /// A flow with a chat step `c` feeding a script `d`, live in `ACTIVE`.
+    fn chat_run(id: &str) -> ExecRef {
+        let mut wf = wf_with_edges(vec![("c", "d", None)], &["c", "d"]);
+        // Its own flow id: `ACTIVE` is shared with tests running alongside, and
+        // one of them aborts every run of the flow called "wf".
+        wf.id = format!("wf-{id}");
+        wf.nodes[0].data = WorkflowNodeData::Chat {
+            message: Some("Draft: {{prev.output}}".into()),
+            output: None,
+        };
+        wf.nodes[1].data = WorkflowNodeData::Script {
+            command: "exit 0".into(),
+            timeout_ms: None,
+        };
+        let exec = Arc::new(Exec {
+            id: id.into(),
+            wf,
+            cwd: std::env::temp_dir().to_string_lossy().into_owned(),
+            settings: Default::default(),
+            config_dir: None,
+            input_values: HashMap::new(),
+            depth: 0,
+            triggered_by: TriggerSource::Manual,
+            state: Mutex::new(ExecState::default()),
+            active_sessions: Arc::new(Mutex::new(HashSet::new())),
+            root_id: id.into(),
+            chat_id: Arc::new(Mutex::new(Some("chat-1".into()))),
+        });
+        ACTIVE.lock().insert(id.into(), exec.clone());
+        exec
+    }
+
+    async fn until_paused(exec: &ExecRef, node: &str) -> Value {
+        for _ in 0..200 {
+            if let Some(wait) = exec.state.lock().waits.get(node).cloned() {
+                return wait;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("{node} never paused");
+    }
+
+    /// The point of a chat step: what the conversation settled on is what the
+    /// next step gets, not what the step was handed.
+    #[tokio::test]
+    async fn a_chat_step_carries_on_with_the_answer_it_was_given() {
+        let exec = chat_run("exec-chat-continue");
+        let run = tokio::spawn(run_from_node(
+            "c".into(),
+            "first draft".into(),
+            exec.clone(),
+            Arc::new(Mutex::new(HashSet::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+        ));
+
+        let wait = until_paused(&exec, "c").await;
+        assert_eq!(wait["kind"], "chat");
+        assert_eq!(wait["message"], "Draft: first draft", "the opening message takes variables");
+        assert_eq!(wait["input"], "first draft");
+        let snap = snapshot("exec-chat-continue").expect("a live run has a snapshot");
+        assert_eq!(snap["chatId"], "chat-1");
+        assert_eq!(snap["waits"].as_array().map(Vec::len), Some(1));
+
+        let answer = ReviewAnswer { approved: true, output: Some("final draft".into()) };
+        assert!(respond_to_review("exec-chat-continue", "c", answer));
+        run.await.unwrap().unwrap();
+
+        let state = exec.state.lock();
+        assert_eq!(state.node_states["c"].output.as_deref(), Some("final draft"));
+        assert_eq!(state.node_states["d"].status, WorkflowNodeStatus::Done);
+        assert!(state.waits.is_empty(), "an answered step is no longer waiting");
+        drop(state);
+        ACTIVE.lock().remove("exec-chat-continue");
+    }
+
+    #[tokio::test]
+    async fn stopping_a_chat_step_ends_the_branch() {
+        let exec = chat_run("exec-chat-stop");
+        let run = tokio::spawn(run_from_node(
+            "c".into(),
+            "first draft".into(),
+            exec.clone(),
+            Arc::new(Mutex::new(HashSet::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+        ));
+        until_paused(&exec, "c").await;
+        assert!(respond_to_review("exec-chat-stop", "c", ReviewAnswer::default()));
+        run.await.unwrap().unwrap();
+
+        assert!(
+            !exec.state.lock().node_states.contains_key("d"),
+            "nothing after a stopped chat step runs"
+        );
+        ACTIVE.lock().remove("exec-chat-stop");
     }
 
     fn wf_with_edges(edges: Vec<(&str, &str, Option<&str>)>, node_ids: &[&str]) -> WorkflowDefinition {
@@ -1473,6 +1842,8 @@ mod tests {
             triggered_by: TriggerSource::Manual,
             state: Mutex::new(ExecState::default()),
             active_sessions: Arc::new(Mutex::new(HashSet::new())),
+            root_id: String::new(),
+            chat_id: Arc::new(Mutex::new(None)),
         });
 
         let result = run_from_node(
@@ -1517,6 +1888,8 @@ mod tests {
             triggered_by: TriggerSource::Manual,
             state: Mutex::new(ExecState::default()),
             active_sessions: Arc::new(Mutex::new(HashSet::new())),
+            root_id: String::new(),
+            chat_id: Arc::new(Mutex::new(None)),
         });
         mark_node_start(&exec, "a", None);
         let started = exec.state.lock().node_states.get("a").unwrap().started_at;

@@ -6,6 +6,9 @@ import { useSettingsStore } from '../store/settings'
 import { inlineLabel, buildGroupSummary, formatToolName } from '../utils/toolSummary'
 import { openFileInPanel } from '../lib/openFile'
 import AskUserQuestionCard from './AskUserQuestionCard'
+import DeferredQuestionMarker from './DeferredQuestionMarker'
+import FlowRunCard from './flowRuns/FlowRunCard'
+import { FLOW_RUN_TOOL } from '../lib/flowRunBridge'
 import PlanCard, { type PlanAnswer } from './PlanCard'
 import FinishedChecklist from './FinishedChecklist'
 import GoalChip from './GoalChip'
@@ -104,6 +107,10 @@ export default function ToolCallGroup({
   if (isSingle) {
     const only = messages[0]
     if (only.tool_name === 'AskUserQuestion') {
+      // One Claude carried on past is answered in the composer's tray. As a
+      // card it was a live questionnaire whose Submit sent a message and left
+      // the tray asking the same thing.
+      if (only.deferred) return <DeferredQuestionMarker message={only} />
       return <AskUserQuestionCard message={only} onAnswer={onQuestionAnswer} />
     }
     if (only.tool_name === 'ExitPlanMode') {
@@ -111,6 +118,9 @@ export default function ToolCallGroup({
     }
     if (only.tool_name === 'TaskChecklist') {
       return <FinishedChecklist message={only} />
+    }
+    if (only.tool_name === FLOW_RUN_TOOL) {
+      return <FlowRunCard message={only} />
     }
     if (only.tool_name === 'GoalSet') {
       return <GoalChip message={only} />

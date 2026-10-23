@@ -19,6 +19,7 @@ import {
   LogIn,
   Maximize2,
   MessageSquare,
+  MessageSquareOff,
   MessagesSquare,
   Mic,
   Minimize2,
@@ -82,6 +83,7 @@ import { openChangesInPanel, openSubagentsInPanel } from '../lib/openFile'
 import { useChangesStore } from '../store/changes'
 import { openSideQuestion } from '../lib/sideAsk'
 import { capabilitiesOf } from '../lib/providers'
+import { hasOpenQuestions, ignoreQuestions } from '../lib/ignoreQuestions'
 
 /**
  * Everything the app can be asked to do, in one list.
@@ -151,6 +153,7 @@ export type CommandId =
   | 'chat.planMode'
   | 'chat.outline'
   | 'chat.side'
+  | 'chat.questions.ignore'
   | 'app.theme.light'
   | 'app.theme.dark'
   | 'app.theme.system'
@@ -498,6 +501,19 @@ export const COMMANDS: Command[] = [
     run: () => {
       const sid = useSessionsStore.getState().activeSessionId
       if (sid) openSideQuestion(sid)
+    }
+  },
+  {
+    id: 'chat.questions.ignore',
+    label: 'Ignore questions',
+    group: 'Session',
+    defaultChord: null,
+    icon: MessageSquareOff,
+    palette: true,
+    available: () => hasOpenQuestions(useSessionsStore.getState().activeSessionId),
+    run: () => {
+      const sid = useSessionsStore.getState().activeSessionId
+      if (sid) ignoreQuestions(sid)
     }
   },
   {

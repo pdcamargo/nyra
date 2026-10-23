@@ -11,12 +11,15 @@ import ComposerBar from './ComposerBar'
 import NewChatEnvironment from './NewChatEnvironment'
 import AttachmentStrip from './AttachmentStrip'
 import AnnotationTray from './annotations/AnnotationTray'
-import { useAnnotationsStore, useSessionAnnotations } from '../store/annotations'
-import { annotationContext } from '../lib/chatAnnotations'
-import { btwQuestion, sideContext } from '../lib/sideQuestions'
+import { useSessionAnnotations } from '../store/annotations'
+import { pendingContext, takePendingContext } from '../lib/messageContext'
+import { ignoreQuestions } from '../lib/ignoreQuestions'
+import { flowArgs, flowQuery, parseFlowCommand } from '../lib/flowRuns'
+import type { WorkflowDefinition } from '../../../shared/workflow-types'
+import { btwQuestion } from '../lib/sideQuestions'
 import { openSideQuestion } from '../lib/sideAsk'
 import { capabilitiesOf, PROVIDER_LABEL } from '../lib/providers'
-import { useKeptSideThreads, useSideQuestionsStore } from '../store/sideQuestions'
+import { useKeptSideThreads } from '../store/sideQuestions'
 import SideAnswerTray from './SideAnswerTray'
 import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
 import { BUILT_IN_COMMANDS } from '../data/commands'
@@ -36,6 +39,7 @@ import { useAttachmentStaging } from '../hooks/useAttachmentStaging'
 import type { Agent, ToolCallMessage } from '../store/sessions'
 import QuestionDock from './QuestionDock'
 import DeferredTray from './DeferredTray'
+import FlowPauseDock from './flowRuns/FlowPauseDock'
 import DesktopAccessDock from './desktop/DesktopAccessDock'
 import DesktopStatus from './desktop/DesktopStatus'
 import PlanCard, { type PlanAnswer } from './PlanCard'
@@ -303,9 +307,43 @@ export default function ChatInput({
   // This chat's account: its skills, commands and agents are that workspace's.
   const configDir = useSessionsStore((s) => configDirForSession(s, s.activeSessionId))
   const chatProvider = useSessionsStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.provider ?? 'claude')
-  const acItems = useSlashItems(slashQuery ?? '', cwd, configDir, chatProvider)
-  // Each CLI's own list: a Codex chat is offered only what it can run.
-  const autocompleteVisible = slashQuery !== null && !isLoading && acItems.length > 0
+  const slashItems = useSlashItems(slashQuery ?? '', cwd, configDir, chatProvider)
+
+  // `/flow <name>`: the same popup, listing flows once the command has a space
+  // after it. Read when the command is typed, so a flow saved a moment ago is
+  // there; the list is small and the read is local.
+  const typingFlow = flowArgs(input) !== null
+  const [flows, setFlows] = useState<WorkflowDefinition[] | null>(null)
+  useEffect(() => {
+    if (!typingFlow) return
+    let gone = false
+    void window.api.workflow.list().then((list) => {
+      if (!gone) setFlows(list.filter((f) => !f.isTemplate))
+    })
+    return () => {
+      gone = true
+    }
+  }, [typingFlow])
+  const flowQ = flows ? flowQuery(input, flows) : null
+  const flowItems = useMemo((): AutocompleteItem[] => {
+    if (flowQ === null || !flows) return []
+    const q = flowQ.toLowerCase()
+    return flows
+      .filter((f) => f.name.toLowerCase().includes(q))
+      .slice(0, 12)
+      .map((f) => ({
+        name: `flow ${f.name}`,
+        description: f.description ?? '',
+        type: 'command' as const,
+        argumentHint: (f.inputs ?? []).map((i) => `${i.key}=`).join(' ') || undefined
+      }))
+  }, [flowQ, flows])
+
+  const acItems = flowQ !== null ? flowItems : slashItems
+  // Each CLI's own list: a Codex chat is offered only what it can run. A flow
+  // starts whether or not a turn is running, so its list shows either way.
+  const autocompleteVisible =
+    flowQ !== null ? flowItems.length > 0 : slashQuery !== null && !isLoading && acItems.length > 0
 
   useEffect(() => {
     setAcSelectedIndex(0)
@@ -611,17 +649,9 @@ export default function ChatInput({
     const images = [...stagedImages]
     const files = [...stagedFiles]
     const annotationsSid = useSessionsStore.getState().activeSessionId
-    const pendingAnnotations = annotationsSid ? useAnnotationsStore.getState().bySession[annotationsSid] ?? [] : []
-    const keptSide = annotationsSid ? useSideQuestionsStore.getState().kept[annotationsSid] ?? [] : []
+    const pending = annotationsSid ? pendingContext(annotationsSid) : undefined
 
-    if (
-      !text.trim() &&
-      images.length === 0 &&
-      files.length === 0 &&
-      pendingAnnotations.length === 0 &&
-      keptSide.length === 0
-    )
-      return
+    if (!text.trim() && images.length === 0 && files.length === 0 && !pending) return
 
     // Intercept /loop <interval> <prompt>
     const loopMatch = text.trim().match(/^\/loop\s+(\d+(?:\.\d+)?)(s|m|h)\s+(.+)$/i)
@@ -640,6 +670,17 @@ export default function ChatInput({
     if (text.trim().toLowerCase() === '/loop stop') {
       setInput('')
       window.dispatchEvent(new CustomEvent('nyra:stop-loop'))
+      return
+    }
+
+    // `/flow`: start a run tied to this chat. Caught before the queue — a run
+    // is not a message, and it can start while a turn is going.
+    if (flowArgs(text) !== null) {
+      const sid = useSessionsStore.getState().activeSessionId
+      if (sid) {
+        setInput('')
+        void startFlowFromComposer(text, sid, cwd)
+      }
       return
     }
 
@@ -700,15 +741,7 @@ export default function ChatInput({
     setStagedFiles([])
     // Taken only now: a command run from the box above is not the message they
     // were waiting for, so they stay in the tray through it.
-    const taken = [
-      ...(annotationsSid && pendingAnnotations.length > 0
-        ? [annotationContext(useAnnotationsStore.getState().take(annotationsSid))]
-        : []),
-      ...(annotationsSid && keptSide.length > 0
-        ? [sideContext(useSideQuestionsStore.getState().take(annotationsSid))]
-        : [])
-    ]
-    const context = taken.length > 0 ? taken : undefined
+    const context = annotationsSid ? takePendingContext(annotationsSid) : undefined
 
     if (isLoading) {
       const sid = useSessionsStore.getState().activeSessionId
@@ -1166,6 +1199,9 @@ export default function ChatInput({
         {/* Claude is waiting on this before it touches another app, so it goes
             where its own questions go. */}
         {activeSessionId && <DesktopAccessDock sessionId={activeSessionId} />}
+        {/* A flow waiting on this conversation. Above the questions: it is the
+            reason the conversation is happening. */}
+        {activeSessionId && <FlowPauseDock sessionId={activeSessionId} />}
         {onDeferredAnswer && onDeferredKeep && (
           <div className="max-h-[min(44vh,380px)] overflow-y-auto">
             <DeferredTray
@@ -1173,6 +1209,7 @@ export default function ChatInput({
               running={!!isLoading}
               onAnswer={onDeferredAnswer}
               onKeep={onDeferredKeep}
+              onIgnoreAll={() => activeSessionId && ignoreQuestions(activeSessionId)}
             />
           </div>
         )}
@@ -1187,6 +1224,7 @@ export default function ChatInput({
                 const { images, files } = takeAttachments()
                 onQuestionAnswer?.(question.tool_id, answer, images, files)
               }}
+              onIgnore={() => activeSessionId && ignoreQuestions(activeSessionId)}
             />
           </div>
         ) : (
@@ -1347,4 +1385,32 @@ function QueuedThumb({ image }: { image: QueuedImage }): React.JSX.Element | nul
       wrapperClassName="shrink-0"
     />
   )
+}
+
+/**
+ * Run `/flow …` and say what went wrong in the chat when it could not start.
+ * The run itself shows up through the bridge: card, side panel, summary.
+ */
+async function startFlowFromComposer(text: string, sid: string, cwd: string): Promise<void> {
+  const note = (body: string): void =>
+    useSessionsStore.getState().addMessage(sid, { id: newMessageId(), role: 'assistant', text: body })
+  const flows = (await window.api.workflow.list()).filter((f) => !f.isTemplate)
+  const command = parseFlowCommand(text, flows)
+  if (!command) return
+  const names = flows.map((f) => f.name).join(', ')
+  if (command.kind === 'empty') {
+    note(flows.length ? `Name the flow to run: ${names}.` : 'There are no flows yet. Make one in the Flows view.')
+    return
+  }
+  if (command.kind === 'unknown') {
+    note(flows.length ? `No flow called "${command.name}". Your flows: ${names}.` : 'There are no flows yet.')
+    return
+  }
+  if (command.missing.length > 0) {
+    const example = command.missing.map((k) => `${k}=…`).join(' ')
+    note(`${command.flow.name} needs ${command.missing.join(', ')}: \`/flow ${command.flow.name} ${example}\``)
+    return
+  }
+  const result = await window.api.workflow.start(command.flow.id, cwd, command.inputs, sid)
+  if (result.error) note(`${command.flow.name} did not start: ${result.error}`)
 }

@@ -19,6 +19,7 @@ import DesignTab from '../design/DesignTab'
 import QuestionnaireTab from '../questionnaire/QuestionnaireTab'
 import PlanTab from '../plan/PlanTab'
 import SubagentsTab from '../subagents/SubagentsTab'
+import FlowRunTab from '../flowRuns/FlowRunTab'
 import { useBrowserStore } from '../../store/browser'
 import type { BrowserTab } from '../../lib/api-types'
 import { useSessionsStore } from '../../store/sessions'
@@ -110,6 +111,8 @@ export default function PanelTabs(): React.JSX.Element {
           <DesignTab sessionId={sessionId} tab={active} />
         ) : active?.kind === 'questionnaire' ? (
           <QuestionnaireTab tab={active} />
+        ) : active?.kind === 'flowRun' ? (
+          <FlowRunTab tab={active} />
         ) : browserPending(phase) ? (
           // No tab, but somebody asked for a browser and it has not produced one
           // — the download prompt lives here rather than taking the whole panel.

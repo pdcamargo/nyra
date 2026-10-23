@@ -84,7 +84,7 @@ let codexSkills: SlashCommand[] = []
 
 /** Nyra's own commands, which work whichever CLI the chat is on. The rest of
  *  the built-ins are Claude Code's, and a Codex chat has nowhere to send them. */
-const ANY_CLI = new Set(['btw', 'clear', 'compact', 'copy', 'fork', 'fork worktree', 'rename', 'release-notes', 'stats', 'tasks'])
+const ANY_CLI = new Set(['btw', 'clear', 'compact', 'copy', 'flow', 'fork', 'fork worktree', 'rename', 'release-notes', 'stats', 'tasks'])
 
 /** Commands contributed by installed plugins, keyed by the plugin that owns
  *  them so one plugin's list replaces its own entry and nobody else's. */

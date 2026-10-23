@@ -25,8 +25,27 @@ const later = (id: string, header: string, assumed: string, state: DeferredState
 })
 
 describe('DeferredTray', () => {
+  it('lets every assumption stand at once from the list', async () => {
+    const onIgnoreAll = vi.fn()
+    const onAnswer = vi.fn()
+    render(
+      <DeferredTray
+        questions={[later('a', 'Auth', 'API key'), later('b', 'Sessions', 'Postgres')]}
+        running
+        onAnswer={onAnswer}
+        onKeep={vi.fn()}
+        onIgnoreAll={onIgnoreAll}
+      />
+    )
+    await userEvent.click(screen.getByText('2 open questions'))
+    await userEvent.click(screen.getByRole('button', { name: 'Ignore all' }))
+
+    expect(onIgnoreAll).toHaveBeenCalledOnce()
+    expect(onAnswer).not.toHaveBeenCalled()
+  })
+
   it('starts as one line that says what Claude is going with', () => {
-    render(<DeferredTray questions={[later('a', 'Auth', 'API key')]} running onAnswer={vi.fn()} onKeep={vi.fn()} />)
+    render(<DeferredTray questions={[later('a', 'Auth', 'API key')]} running onAnswer={vi.fn()} onKeep={vi.fn()} onIgnoreAll={vi.fn()} />)
 
     expect(screen.getByText('1 open question')).toBeInTheDocument()
     expect(screen.getByText('Claude is going with API key until you answer')).toBeInTheDocument()
@@ -35,7 +54,7 @@ describe('DeferredTray', () => {
 
   it('sends only an answer that changes what Claude is doing', async () => {
     const onAnswer = vi.fn()
-    render(<DeferredTray questions={[later('a', 'Auth', 'API key')]} running onAnswer={onAnswer} onKeep={vi.fn()} />)
+    render(<DeferredTray questions={[later('a', 'Auth', 'API key')]} running onAnswer={onAnswer} onKeep={vi.fn()} onIgnoreAll={vi.fn()} />)
     await userEvent.click(screen.getByText('1 open question'))
 
     const send = screen.getByRole('button', { name: 'Send answer' })
@@ -52,7 +71,7 @@ describe('DeferredTray', () => {
   it('keeps the assumption without sending anything', async () => {
     const onKeep = vi.fn()
     const onAnswer = vi.fn()
-    render(<DeferredTray questions={[later('a', 'Auth', 'API key')]} running onAnswer={onAnswer} onKeep={onKeep} />)
+    render(<DeferredTray questions={[later('a', 'Auth', 'API key')]} running onAnswer={onAnswer} onKeep={onKeep} onIgnoreAll={vi.fn()} />)
     await userEvent.click(screen.getByText('1 open question'))
     await userEvent.click(screen.getByRole('button', { name: 'Keep API key' }))
 
@@ -67,6 +86,7 @@ describe('DeferredTray', () => {
         running
         onAnswer={vi.fn()}
         onKeep={vi.fn()}
+        onIgnoreAll={vi.fn()}
       />
     )
     await userEvent.click(screen.getByText('2 open questions'))
@@ -77,7 +97,7 @@ describe('DeferredTray', () => {
   })
 
   it('says an answer starts a new turn once Claude has finished', () => {
-    render(<DeferredTray questions={[later('a', 'Auth', 'API key')]} running={false} onAnswer={vi.fn()} onKeep={vi.fn()} />)
+    render(<DeferredTray questions={[later('a', 'Auth', 'API key')]} running={false} onAnswer={vi.fn()} onKeep={vi.fn()} onIgnoreAll={vi.fn()} />)
     expect(screen.getByText('Claude finished with API key. Answering starts a new turn.')).toBeInTheDocument()
   })
 })

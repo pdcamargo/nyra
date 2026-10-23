@@ -78,6 +78,17 @@ pub enum WorkflowNodeData {
         #[serde(default)]
         message: Option<String>,
     },
+    /// Pause the run in a chat and carry on with what comes out of it.
+    ///
+    /// The run waits in the chat that started it, or in a new one when nothing
+    /// did. `message` is what Claude opens with, and takes the same variables a
+    /// prompt does. `output` says what the step hands on — see `ChatOutput`.
+    Chat {
+        #[serde(default)]
+        message: Option<String>,
+        #[serde(default)]
+        output: Option<ChatOutput>,
+    },
     Subworkflow {
         #[serde(default)]
         workflow_id: String,
@@ -86,6 +97,21 @@ pub enum WorkflowNodeData {
         #[serde(default)]
         capture_vars: Option<Vec<String>>,
     },
+}
+
+/// What a chat step hands on when it continues.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ChatOutput {
+    /// Claude writes the final version and hands it over with `nyra_flow
+    /// continue`. The default: the step exists to change the work, and only
+    /// Claude knows which of its replies was the last word.
+    #[default]
+    Final,
+    /// Claude's last reply, verbatim.
+    LastReply,
+    /// The user's last message.
+    User,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -372,6 +398,10 @@ pub struct WorkflowExecutionRecord {
     pub tokens: Option<WorkflowTokenUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triggered_by: Option<TriggerSource>,
+    /// The chat the run belongs to: the one that started it, or the one its
+    /// first chat step opened. Absent for a run no chat ever saw.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

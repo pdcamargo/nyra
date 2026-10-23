@@ -79,6 +79,7 @@ export const NODE_SIZE: Record<string, { width: number; height: number }> = {
   script: { width: 200, height: 62 },
   subworkflow: { width: 200, height: 62 },
   humanReview: { width: 200, height: 100 },
+  chat: { width: 200, height: 62 },
   condition: { width: 160, height: 34 },
   parallel: { width: 160, height: 34 },
   join: { width: 160, height: 34 },

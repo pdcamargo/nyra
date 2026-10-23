@@ -73,6 +73,22 @@ export type HumanReviewNodeData = {
   message?: string
 }
 
+/**
+ * What a chat step hands on when it continues. `final` has Claude hand over
+ * the final version with `nyra_flow continue`; the others take it straight
+ * from the transcript.
+ */
+export type ChatStepOutput = 'final' | 'lastReply' | 'user'
+
+/** Pause the run in a chat — the one that started it, or a new one — and carry
+ *  on with what comes out of the conversation. */
+export type ChatNodeData = {
+  type: 'chat'
+  /** What Claude opens with. Takes the same variables as a prompt. */
+  message?: string
+  output?: ChatStepOutput
+}
+
 export type SubworkflowNodeData = {
   type: 'subworkflow'
   workflowId: string // target workflow id
@@ -90,6 +106,7 @@ export type WorkflowNodeData =
   | JoinNodeData
   | LoopNodeData
   | HumanReviewNodeData
+  | ChatNodeData
   | SubworkflowNodeData
 
 export type WorkflowNodeType = WorkflowNodeData['type']
@@ -241,6 +258,44 @@ export type WorkflowExecutionRecord = {
   cwd?: string
   tokens?: WorkflowTokenUsage
   triggeredBy?: 'manual' | 'cron' | 'fileWatcher' | 'webhook'
+  /** The chat the run belonged to, if any did. */
+  chatId?: string
+}
+
+/** One step of a run, in reading order. */
+export type FlowRunStep = { id: string; label: string; type: WorkflowNodeType }
+
+/** What a paused step is waiting on. */
+export type FlowRunWait = {
+  kind: 'chat' | 'review'
+  nodeId: string
+  label: string
+  /** For a chat step: what Claude opens with, already interpolated. */
+  message?: string | null
+  output?: ChatStepOutput
+  /** What the previous step handed it. */
+  input: string
+}
+
+/** A run as the engine announces it at the start. */
+export type FlowRunSummary = {
+  executionId: string
+  workflowId: string
+  workflowName: string
+  chatId: string | null
+  cwd: string
+  inputValues: Record<string, string>
+  triggeredBy: WorkflowExecutionRecord['triggeredBy']
+  startedAt: number
+  steps: FlowRunStep[]
+}
+
+/** A live run as `workflow_active` reports it. */
+export type FlowRunSnapshot = FlowRunSummary & {
+  status: 'running' | 'aborted'
+  nodeStates: Record<string, WorkflowNodeRunState>
+  vars: Record<string, string>
+  waits: FlowRunWait[]
 }
 
 // --- Metrics aggregated across executions ---
@@ -271,6 +326,16 @@ export type ReviewRequest = {
 
 // --- Events sent from main → renderer ---
 export type WorkflowEvent =
+  | { type: 'execution:start'; executionId: string; run: FlowRunSummary }
+  | { type: 'execution:linked'; executionId: string; chatId: string }
+  | {
+      type: 'node:awaiting-chat'
+      executionId: string
+      nodeId: string
+      chatId: string | null
+      workflowName: string
+      wait: FlowRunWait
+    }
   | { type: 'node:start'; executionId: string; nodeId: string; iteration?: number }
   | { type: 'node:done'; executionId: string; nodeId: string; output: string; iteration?: number }
   | { type: 'node:failed'; executionId: string; nodeId: string; error: string }

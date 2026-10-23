@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { waitingLabel, waitingOn } from '../../renderer/src/lib/backgroundWait'
+import { busyChats, waitingLabel, waitingOn } from '../../renderer/src/lib/backgroundWait'
 import type { BgProcess } from '../../renderer/src/store/processes'
 
 const proc = (partial: Partial<BgProcess>): BgProcess => ({
@@ -66,5 +66,39 @@ describe('waitingLabel', () => {
         { taskId: 'a1', description: 'y', kind: 'agent' }
       ])
     ).toBe('Waiting on 2 background tasks')
+  })
+})
+
+describe('busyChats', () => {
+  it('counts a chat whose turn ended waiting on its agents', () => {
+    const running = { a: true as const }
+    const busy = busyChats(
+      running,
+      { b: [{ taskId: 'x1', description: 'Map the CLI', kind: 'Explore' }] },
+      {}
+    )
+    expect(busy).toEqual({ a: true, b: true })
+  })
+
+  it('does not count a server, or a chat with nothing out', () => {
+    const running = {}
+    const busy = busyChats(
+      running,
+      { a: [{ taskId: 'b1', description: 'npm run dev', kind: 'local_bash' }], c: [] },
+      { a: [proc({ taskId: 'b1', ports: [5173] })] }
+    )
+    expect(busy).toEqual({})
+    // Unchanged input comes back as itself, so a memo on it holds.
+    expect(busy).toBe(running)
+  })
+})
+
+describe('busyChats and flow runs', () => {
+  const run = (chatId: string, status: 'running' | 'paused') =>
+    ({ executionId: chatId, chatId, status }) as unknown as import('../../renderer/src/store/flowRuns').FlowRun
+
+  it('counts a chat with a run going, not one whose run is waiting on you', () => {
+    const busy = busyChats({}, {}, {}, { a: run('a', 'running'), b: run('b', 'paused') })
+    expect(busy).toEqual({ a: true })
   })
 })

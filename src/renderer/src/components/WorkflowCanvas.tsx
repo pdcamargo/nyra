@@ -65,7 +65,7 @@ import {
 import { homedir } from '../lib/homedir'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
 import { useChordLabel } from './ui/kbd'
-import { ArrowLeft, Braces, ChartNoAxesColumn, ChevronRight, Info, ChevronDown, Download, Ellipsis, FolderGit2, FolderOpen, LayoutGrid, Play, Upload, Lock, LockOpen, Maximize, Minus, Trash2, X, GitBranch, GitFork, GitMerge, History, Plus, Repeat, SlidersHorizontal, Sparkles, Square, Store, Terminal, Timer, TriangleAlert, UserRoundCheck, Workflow, Zap, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, Braces, ChartNoAxesColumn, ChevronRight, Info, ChevronDown, Download, Ellipsis, FolderGit2, FolderOpen, LayoutGrid, Play, Upload, Lock, LockOpen, Maximize, Minus, Trash2, X, GitBranch, GitFork, GitMerge, History, Plus, Repeat, SlidersHorizontal, Sparkles, Square, Store, Terminal, Timer, TriangleAlert, UserRoundCheck, Workflow, Zap, MessagesSquare, type LucideIcon } from 'lucide-react'
 import { FlowSilhouette } from './FlowSilhouette'
 import { VariableField } from './VariableField'
 import {
@@ -90,7 +90,8 @@ import type {
   WorkflowMetrics,
   WorkflowTrigger,
   MarketplaceIndex,
-  MarketplaceEntry
+  MarketplaceEntry,
+  ChatStepOutput
 } from '../../../shared/workflow-types'
 import { shortenPath } from '../lib/paths'
 import { environmentLabel, wslShare } from '../lib/environment'
@@ -473,7 +474,14 @@ const nodeTypes: NodeTypes = {
   parallel: (p: NodeProps) => <RoutingPill {...p} icon={GitFork} meta="fan out" />,
   join: (p: NodeProps) => <RoutingPill {...p} icon={GitMerge} meta="waits for all" />,
   loop: LoopContainer,
-  humanReview: ReviewGate
+  humanReview: ReviewGate,
+  chat: (p: NodeProps) => (
+    <WorkNode
+      {...p}
+      icon={MessagesSquare}
+      meta={(p.data.status as WorkflowNodeStatus) === 'awaiting_review' ? 'waiting in a chat' : 'talks it over in a chat'}
+    />
+  )
 }
 
 // --- Converters between WorkflowDefinition and React Flow format ---
@@ -544,6 +552,7 @@ export function toFlowNodes(
     else if (d.type === 'join') extra = { separator: d.separator }
     else if (d.type === 'loop') extra = { condition: d.condition, maxIterations: d.maxIterations }
     else if (d.type === 'humanReview') extra = { message: d.message }
+    else if (d.type === 'chat') extra = { message: d.message, chatOutput: d.output }
     else if (d.type === 'subworkflow') {
       extra = {
         workflowId: d.workflowId,
@@ -655,6 +664,12 @@ export function fromFlowNodes(nodes: Node[]): WorkflowNode[] {
       }
     } else if (t === 'humanReview') {
       data = { type: 'humanReview', message: (n.data.message as string) || undefined }
+    } else if (t === 'chat') {
+      data = {
+        type: 'chat',
+        message: (n.data.message as string) || undefined,
+        output: (n.data.chatOutput as ChatStepOutput) || undefined
+      }
     } else if (t === 'subworkflow') {
       data = {
         type: 'subworkflow',
@@ -1304,6 +1319,38 @@ function NodeConfigPanel({ onDelete }: { onDelete?: () => void }): React.JSX.Ele
           />
         )}
 
+        {/* Chat step */}
+        {node.data.type === 'chat' && (
+          <>
+            <p className="text-[0.8em] leading-relaxed text-muted-foreground">
+              Pauses the run in the chat that started it — or, for a run no chat started, a new chat in
+              this flow's project — and carries on when it is continued there.
+            </p>
+            <Field label="Opening message" hint="What Claude says first. {{prev.output}}, {{input.key}} and {{vars.name}} work here.">
+              <textarea
+                value={node.data.message ?? ''}
+                onChange={(e) => updateNodeData({ message: e.target.value })}
+                disabled={isRunning}
+                rows={4}
+                placeholder={"Here's the draft:\n{{prev.output}}"}
+                className={`${CTL} resize-none text-[0.85em] leading-relaxed`}
+              />
+            </Field>
+            <Field label="Output" hint="What this step hands to the next one when it continues.">
+              <select
+                value={node.data.output ?? 'final'}
+                onChange={(e) => updateNodeData({ output: e.target.value as ChatStepOutput })}
+                disabled={isRunning}
+                className={CTL}
+              >
+                <option value="final">Claude's final version</option>
+                <option value="lastReply">Claude's last reply</option>
+                <option value="user">Your last message</option>
+              </select>
+            </Field>
+          </>
+        )}
+
         {/* Human review */}
         {node.data.type === 'humanReview' && (
           <Field
@@ -1883,10 +1930,25 @@ export default function WorkflowCanvas(): React.JSX.Element {
       // arrived after the fact — leaving `execution.id` empty for the entire
       // run, and Stop guards on that id. The button was inert for exactly as
       // long as it was the one you wanted.
+      // Only this run's. Runs belong to chats now, and several can be going
+      // at once: applying another run's events painted its progress onto
+      // whichever flow was on screen.
       const id = (e as { executionId?: string }).executionId
-      if (id && store.execution && !store.execution.id) {
-        store.setExecution({ ...store.execution, id })
+      // The engine announces a run before `workflow_start` has answered, so a
+      // fast first step can arrive while the id is still unknown. The start
+      // event says whose run it is: this flow's, from no chat, is this one.
+      if (
+        e.type === 'execution:start' &&
+        store.execution &&
+        !store.execution.id &&
+        e.run.workflowId === store.execution.workflowId &&
+        !e.run.chatId &&
+        e.run.triggeredBy === 'manual'
+      ) {
+        store.setExecution({ ...store.execution, id: e.executionId })
+        return
       }
+      if (!store.execution || !id || id !== store.execution.id) return
       switch (e.type) {
         case 'node:start':
           store.updateNodeState(e.nodeId, {
@@ -1991,7 +2053,7 @@ export default function WorkflowCanvas(): React.JSX.Element {
   }, [nodes, currentWorkflow])
 
   const addNode = (
-    type: 'prompt' | 'condition' | 'script' | 'parallel' | 'join' | 'loop' | 'humanReview' | 'subworkflow'
+    type: AddKind
   ): void => {
     if (!currentWorkflow) return
     const id = `node-${++nodeCounter}-${Date.now()}`
@@ -2003,6 +2065,7 @@ export default function WorkflowCanvas(): React.JSX.Element {
       join: 'Join',
       loop: 'Loop',
       humanReview: 'Human Review',
+      chat: 'Talk it over',
       subworkflow: 'Sub-flow'
     }
     let data: WorkflowNodeData
@@ -2013,6 +2076,7 @@ export default function WorkflowCanvas(): React.JSX.Element {
     else if (type === 'join') data = { type: 'join' }
     else if (type === 'loop') data = { type: 'loop', condition: 'iteration < 3', maxIterations: 10 }
     else if (type === 'subworkflow') data = { type: 'subworkflow', workflowId: '' }
+    else if (type === 'chat') data = { type: 'chat', output: 'final' }
     else data = { type: 'humanReview' }
 
     const newNode: WorkflowNode = {
@@ -2095,10 +2159,14 @@ export default function WorkflowCanvas(): React.JSX.Element {
       vars: {},
       startedAt: Date.now()
     })
-    const result = await window.api.workflow.run(currentWorkflow.id, effective, inputValues)
+    // Started rather than run: the id comes back at once, so every event of
+    // this run can be told apart from another's from the first one on.
+    const result = await window.api.workflow.start(currentWorkflow.id, effective, inputValues)
+    const current = useWorkflowStore.getState().execution
     if (result.executionId) {
-      const current = useWorkflowStore.getState().execution
-      if (current) setExecution({ ...current, id: result.executionId })
+      if (current && !current.id) setExecution({ ...current, id: result.executionId })
+    } else if (current) {
+      setExecution({ ...current, status: 'failed', finishedAt: Date.now() })
     }
     // Only `recentCwds` can have changed — the engine records where it ran.
     //
@@ -2634,7 +2702,7 @@ function useOutsideClose(ref: React.RefObject<HTMLElement | null>, onClose: () =
   }, [ref, onClose])
 }
 
-type AddKind = 'prompt' | 'condition' | 'script' | 'parallel' | 'join' | 'loop' | 'humanReview' | 'subworkflow'
+type AddKind = 'prompt' | 'condition' | 'script' | 'parallel' | 'join' | 'loop' | 'humanReview' | 'chat' | 'subworkflow'
 
 function AddNodeMenu({
   onAdd,
@@ -2676,7 +2744,8 @@ function AddNodeMenu({
     {
       group: 'Waits on you',
       nodes: [
-        { type: 'humanReview', label: 'Review', desc: 'Pause until you approve', icon: UserRoundCheck }
+        { type: 'humanReview', label: 'Review', desc: 'Pause until you approve', icon: UserRoundCheck },
+        { type: 'chat', label: 'Chat step', desc: 'Talk it over in a chat, then carry on', icon: MessagesSquare }
       ]
     }
   ]

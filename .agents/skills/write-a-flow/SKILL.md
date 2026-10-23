@@ -92,9 +92,24 @@ is fine, the app rewrites them on save.
 | `join` | `separator?` | Waits for all incoming, concatenates |
 | `loop` | `condition`, `maxIterations` | Two outputs: `body`, `exit` |
 | `humanReview` | `message?` | Pauses until the user approves |
+| `chat` | `message?`, `output?` | Pauses in a chat to talk the work over, then carries on |
 
 Branching edges carry the handle: `"sourceHandle": "yes"`, `"no"`, `"body"`,
 `"exit"`. Every other edge omits it.
+
+A `chat` node is for work the user wants to discuss before it goes further — a
+draft to refine before it is saved, findings to argue with before fixes are
+applied. The run pauses in the chat that started it (a run nothing started from
+a chat gets a new one), Claude opens with `message` (variables work), and the
+step's output is what goes on:
+
+- `"output": "final"` (the default) — Claude hands over the final version when
+  the user says to carry on. Use this when the step changes the work.
+- `"lastReply"` — Claude's last reply, verbatim.
+- `"user"` — the user's last message, for a step that collects a decision.
+
+Reach for `humanReview` when yes or no is the whole answer, and `chat` when it
+is not.
 
 ## Passing things between nodes
 
