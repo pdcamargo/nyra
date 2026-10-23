@@ -36,7 +36,7 @@ import { contextFill } from '../lib/contextFill'
 import type { CompactionInput } from './CompactionDivider'
 import { historyText } from '../lib/historyText'
 import { planHandoff, resolveHandoff } from '../lib/handoff'
-import { anchorFor, capabilitiesOf } from '../lib/providers'
+import { PROVIDER_LABEL, anchorFor, capabilitiesOf } from '../lib/providers'
 import type { Provider } from '@shared/types'
 import { extractAskBlocks, deferredAnswerPrompt, questionsOf, type AskQuestion } from '../lib/askBlocks'
 import { extractTaskBlocks } from '../lib/taskBlocks'
@@ -130,6 +130,7 @@ type ClaudeEvent = ClaudeEventBase & (
   | { type: 'subagent_reset'; tool_id: string }
   | { type: 'delegate_progress'; agent_id: string; entries: SubagentWireEntry[] }
   | { type: 'delegate_done'; agent_id: string; status: 'completed' | 'failed' | 'cancelled'; duration_ms: number; total_tokens: number; result?: string }
+  | { type: 'delegate_model'; agent_id: string; provider: Provider; model: string; effort: string }
   | { type: 'plan_ready'; tool_id: string; path: string; plan: string }
   | { type: 'session_reset'; reason: string }
   | { type: 'ai_title'; title: string; fresh?: boolean }
@@ -178,6 +179,15 @@ function announceAgentEnd(sid: string, agent: Agent, status: 'done' | 'failed'):
 const compacting = new Map<string, string>()
 /** Nyra's own tool for handing work to another CLI, as either CLI names it. */
 const DELEGATE_TOOL = 'mcp__nyra-app__nyra_agent'
+/** A delegated agent's row: its CLI and effort under the name, the model on the
+ *  badge. `default` is Nyra's word for "not known yet", which is left off. */
+function delegateRow(provider: Provider, model: unknown, effort: unknown): { subagentType: string; model?: string } {
+  const known = (v: unknown): v is string => typeof v === 'string' && v !== '' && v !== 'default'
+  return {
+    subagentType: [PROVIDER_LABEL[provider], known(effort) ? `${effort} effort` : null].filter(Boolean).join(' · '),
+    ...(known(model) ? { model } : {})
+  }
+}
 /** Which CLI is running each chat's turn. The chat can be moved to another
  *  before the turn's end arrives, and what that turn wrote is the first one's. */
 const turnProvider = new Map<string, Provider>()
@@ -1093,10 +1103,12 @@ export default function Chat(): React.JSX.Element {
         // over: against this chat, which is the only thing that can say what
         // the process now running is on, and against the alias, which is how
         // an unopened model gets a version number next to it in the picker.
-        if (event.model) {
-          const requested = spawnSettingsForSession(sid).model
-          noteModelVersion(requested, event.model)
-          useSessionsStore.getState().noteResolvedModel(sid, requested, event.model)
+        // Claude's ids only: Codex names its model here too, and a GPT id
+        // filed against `''` would relabel Claude's Default.
+        const spawned = spawnSettingsForSession(sid)
+        if (event.model && spawned.provider === 'claude') {
+          noteModelVersion(spawned.model, event.model)
+          useSessionsStore.getState().noteResolvedModel(sid, spawned.model, event.model)
         }
         return
       }
@@ -1260,7 +1272,7 @@ export default function Chat(): React.JSX.Element {
           addAgent(sid, {
             toolId: event.tool_id,
             name: (prompt.split('\n')[0] || 'Delegated agent').slice(0, 60),
-            subagentType: [inp.provider === 'codex' ? 'Codex' : 'Claude', inp.model].filter(Boolean).join(' · '),
+            ...delegateRow(inp.provider === 'codex' ? 'codex' : 'claude', inp.model, inp.effort),
             status: 'running',
             startedAt: Date.now()
           })
@@ -1307,9 +1319,13 @@ export default function Chat(): React.JSX.Element {
         // id the agent's progress and end come under.
         if (agent && !agent.delegateId && session?.messages.some((m) => m.role === 'tool_call' && m.tool_id === event.tool_id && m.tool_name === DELEGATE_TOOL)) {
           try {
-            const started = JSON.parse(event.content ?? '') as { agent_id?: string }
+            const started = JSON.parse(event.content ?? '') as { agent_id?: string; model?: string; effort?: string }
             if (started.agent_id && !event.is_error) {
-              updateAgent(sid, event.tool_id, { delegateId: started.agent_id })
+              // The spawn holds until the child's CLI names its model, so the
+              // receipt says what it really runs on.
+              const call = session.messages.find((m) => m.role === 'tool_call' && m.tool_id === event.tool_id)
+              const provider = call?.role === 'tool_call' && call.input.provider === 'codex' ? 'codex' : 'claude'
+              updateAgent(sid, event.tool_id, { delegateId: started.agent_id, ...delegateRow(provider, started.model, started.effort) })
               return
             }
           } catch { /* not a start: the agent never ran */ }
@@ -1375,10 +1391,15 @@ export default function Chat(): React.JSX.Element {
 
       // An agent this chat handed out, at work: what it says and runs, filed
       // under the row its spawn opened.
-      if (event.type === 'delegate_progress' || event.type === 'delegate_done') {
+      if (event.type === 'delegate_progress' || event.type === 'delegate_done' || event.type === 'delegate_model') {
         const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)
         const agent = session?.agents?.find((a) => a.delegateId === event.agent_id)
         if (!agent) return
+        // Its CLI named its model after the spawn had answered.
+        if (event.type === 'delegate_model') {
+          updateAgent(sid, agent.toolId, delegateRow(event.provider, event.model, event.effort))
+          return
+        }
         if (event.type === 'delegate_progress') {
           useSubagentTranscriptsStore.getState().append(sid, agent.toolId, event.entries)
           const tool = [...event.entries].reverse().find((e) => e.kind === 'tool')

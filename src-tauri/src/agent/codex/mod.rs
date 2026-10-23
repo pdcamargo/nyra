@@ -358,6 +358,25 @@ fn approval_policy(settings: &SpawnSettings) -> &'static str {
     }
 }
 
+/// A thread as Codex opened it: its id, and the model and effort it settled
+/// on, which are the account's defaults when the chat named none.
+struct Opened {
+    thread_id: String,
+    model: Option<String>,
+    effort: Option<String>,
+}
+
+impl Opened {
+    fn from_reply(reply: &Value) -> Option<Self> {
+        let text = |key: &str| reply.get(key).and_then(Value::as_str).map(str::to_string);
+        Some(Opened {
+            thread_id: reply.pointer("/thread/id").and_then(Value::as_str)?.to_string(),
+            model: text("model"),
+            effort: text("reasoningEffort"),
+        })
+    }
+}
+
 /// Resume the chat's thread, or start one. A thread Codex no longer has is
 /// replaced with a new one rather than failing the turn.
 #[allow(clippy::too_many_arguments)]
@@ -370,7 +389,7 @@ async fn open_thread(
     instructions: &str,
     config: &Value,
     settings: &SpawnSettings,
-) -> Result<String, String> {
+) -> Result<Opened, String> {
     let mut params = json!({
         "cwd": cwd,
         "approvalPolicy": approval_policy(settings),
@@ -394,11 +413,7 @@ async fn open_thread(
             .request("thread/fork", fork_params)
             .await
             .map_err(|e| format!("Codex could not go back to that point: {e}"))?;
-        return reply
-            .pointer("/thread/id")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .ok_or_else(|| "Codex forked a thread without an id".into());
+        return Opened::from_reply(&reply).ok_or_else(|| "Codex forked a thread without an id".into());
     }
     if let Some(thread_id) = resume {
         let mut resume_params = params.clone();
@@ -406,8 +421,8 @@ async fn open_thread(
         resume_params["excludeTurns"] = json!(true);
         match server.request("thread/resume", resume_params).await {
             Ok(reply) => {
-                if let Some(id) = reply.pointer("/thread/id").and_then(Value::as_str) {
-                    return Ok(id.to_string());
+                if let Some(opened) = Opened::from_reply(&reply) {
+                    return Ok(opened);
                 }
             }
             Err(e) => {
@@ -417,11 +432,7 @@ async fn open_thread(
         }
     }
     let reply = server.request("thread/start", params).await?;
-    reply
-        .pointer("/thread/id")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| "Codex started a thread without an id".into())
+    Opened::from_reply(&reply).ok_or_else(|| "Codex started a thread without an id".into())
 }
 
 /// The prompt as Codex input: the text, plus every image the composer marked
@@ -470,10 +481,14 @@ impl AgentBackend for Codex {
                 THREADS.lock().remove(&old.thread_id);
             }
             let opened = open_thread(&server, &chat_id, resume, resume_at, &cwd, &instructions, &config, &settings).await;
-            let thread_id = match opened {
-                Ok(id) => id,
+            let Opened { thread_id, model, effort } = match opened {
+                Ok(opened) => opened,
                 Err(e) => return fail(e),
             };
+            // What this chat runs on: the turn's own choice, which overrides
+            // the thread's, or what the thread settled on without one.
+            let model = Some(settings.model.clone()).filter(|m| !m.is_empty()).or(model);
+            let effort = Some(settings.effort.clone()).filter(|e| !e.is_empty()).or(effort);
             THREADS.lock().insert(thread_id.clone(), chat_id.clone());
             CHATS.lock().insert(
                 chat_id.clone(),
@@ -491,7 +506,10 @@ impl AgentBackend for Codex {
                 },
             );
             // The id the renderer keeps, so the next process resumes this thread.
-            emit_event(&chat_id, json!({ "type": "system", "subtype": "init", "session_id": thread_id }));
+            emit_event(
+                &chat_id,
+                json!({ "type": "system", "subtype": "init", "session_id": thread_id, "model": model, "effort": effort }),
+            );
             // The account's limits as they stand, before a turn has moved them.
             let (server, chat) = (server.clone(), chat_id.clone());
             tauri::async_runtime::spawn(async move {
@@ -732,6 +750,16 @@ pub async fn models(config_dir: Option<String>) -> Value {
         }
         Err(error) => json!({ "available": false, "error": error }),
     }
+}
+
+/// The model and effort a thread opened with neither gets: what the config
+/// sets, as seen from `cwd`. `model/list` has each model's own default effort,
+/// which a `model_reasoning_effort` in the config overrides for all of them.
+pub async fn configured(config_dir: Option<String>, cwd: &str) -> (Option<String>, Option<String>) {
+    let Ok(server) = server_for(home_for(config_dir.as_deref())).await else { return (None, None) };
+    let Ok(reply) = server.request("config/read", json!({ "cwd": cwd })).await else { return (None, None) };
+    let text = |key: &str| reply.pointer(&format!("/config/{key}")).and_then(Value::as_str).map(str::to_string);
+    (text("model"), text("model_reasoning_effort"))
 }
 
 // ---- accounts ----

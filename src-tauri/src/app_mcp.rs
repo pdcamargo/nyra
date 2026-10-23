@@ -320,13 +320,14 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "nyra_agent",
-            "description": "Hand a task to another agent CLI (Claude or Codex) in this project. spawn returns an agent_id at once; wait until it is done. Its prompt sees none of this chat.",
+            "description": "Hand a task to another agent CLI (Claude or Codex) in this project. spawn returns an agent_id at once; wait until it is done. Its prompt sees none of this chat. models lists the model and effort names.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["spawn", "wait", "reply", "cancel"] },
+                    "action": { "type": "string", "enum": ["models", "spawn", "wait", "reply", "cancel"] },
                     "provider": { "type": "string", "enum": ["claude", "codex"] },
                     "model": { "type": "string" },
+                    "effort": { "type": "string" },
                     "prompt": { "type": "string" },
                     "agent_id": { "type": "string" },
                     "timeout_seconds": { "type": "number" }

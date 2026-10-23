@@ -80,6 +80,15 @@ function blocksOf(entries: SubagentEntry[], toolId: string): Block[] {
   return blocks
 }
 
+/**
+ * What an agent's badge says it ran on. A Claude id is shortened, and an
+ * unfamiliar one dropped; an agent handed to another CLI shows that CLI's id as
+ * it reported it — `gpt-6.1-sol` is a name, not noise.
+ */
+function badgeModel(agent: Agent, model: string | undefined): string | null {
+  return shortModelLabel(model) ?? (agent.delegateId && model ? model : null)
+}
+
 function AgentRow({
   agent,
   index,
@@ -89,7 +98,7 @@ function AgentRow({
   index: number
   onOpen: () => void
 }): React.JSX.Element {
-  const model = shortModelLabel(agent.model)
+  const model = badgeModel(agent, agent.model)
   return (
     <button
       type="button"
@@ -246,7 +255,7 @@ function AgentStream({
     endRef.current?.scrollIntoView({ block: 'end' })
   }, [blocks.length, report, agent.status, agent.activity])
 
-  const model = shortModelLabel(transcript.model ?? agent.model)
+  const model = badgeModel(agent, transcript.model ?? agent.model)
   const running = agent.status === 'running'
   // Only a finished agent can be empty. A running one always has the footer.
   const empty = blocks.length === 0 && !report && !running

@@ -896,6 +896,9 @@ fn handle_event(raw: &Value, nyra_session_id: &str) {
         if let Some(models) = offered_models(raw) {
             emit_event(nyra_session_id, json!({ "type": "models", "models": models }));
         }
+        if let Some(catalog) = model_catalog(raw) {
+            crate::agent::delegate::note_claude_models(nyra_session_id, catalog);
+        }
         if let Some(commands) = offered_commands(raw) {
             emit_event(nyra_session_id, json!({ "type": "commands", "commands": commands }));
         }
@@ -2202,6 +2205,38 @@ fn offered_models(raw: &Value) -> Option<Value> {
     (!trimmed.is_empty()).then_some(Value::Array(trimmed))
 }
 
+/// The same list as `nyra_agent` hands it to a model choosing what to spawn:
+/// what `--model` takes, what it is, and the efforts it takes. Empty efforts
+/// mean the model takes none.
+fn model_catalog(raw: &Value) -> Option<Value> {
+    let response = raw.get("response")?;
+    if response.get("request_id").and_then(Value::as_str) != Some("nyra-initialize") {
+        return None;
+    }
+    let models = response.get("response")?.get("models")?.as_array()?;
+    let rows: Vec<Value> = models
+        .iter()
+        .filter_map(|m| {
+            let value = m.get("value").and_then(Value::as_str)?;
+            let efforts = if m.get("supportsEffort").and_then(Value::as_bool) == Some(true) {
+                m.get("supportedEffortLevels").cloned().unwrap_or_else(|| json!(CLAUDE_EFFORTS))
+            } else {
+                json!([])
+            };
+            Some(json!({
+                "model": value,
+                "is": m.get("resolvedModel").or_else(|| m.get("displayName")).cloned().unwrap_or(Value::Null),
+                "efforts": efforts,
+            }))
+        })
+        .collect();
+    (!rows.is_empty()).then_some(Value::Array(rows))
+}
+
+/// Claude's effort scale, for a model that takes effort without listing its
+/// own. Its default is `high`.
+pub const CLAUDE_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
 /// `commands` from the answer to [`INITIALIZE_REQUEST`]: every slash command
 /// this CLI has, with what it says about each one.
 ///
@@ -3164,6 +3199,12 @@ mod tests {
         assert_eq!(models[0]["resolvedModel"], "claude-opus-4-6");
         // Only what the picker reads crosses to the renderer.
         assert!(models[0].get("supportsEffort").is_none());
+
+        // What nyra_agent offers a model: the efforts each one takes.
+        let catalog = model_catalog(&raw).unwrap();
+        assert_eq!(catalog[0]["model"], "opus");
+        assert_eq!(catalog[0]["efforts"], json!(CLAUDE_EFFORTS));
+        assert_eq!(catalog[1]["efforts"], json!([]));
     }
 
     #[test]
