@@ -208,6 +208,59 @@ pub fn side_close(side_id: &str) {
     Codex.side_close(side_id);
 }
 
+/// Side threads whose answer is for Nyra rather than for the sheet.
+static SIDE_WAITERS: Lazy<Mutex<HashMap<String, oneshot::Sender<Result<String, String>>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// A side thread's event. Every backend's side threads send through here: to
+/// the sheet as `claude:side`, or — for a thread [`side_answer`] is waiting
+/// on — to that, with nothing on screen.
+pub fn side_emit(side_id: &str, mut event: Value) {
+    if SIDE_WAITERS.lock().contains_key(side_id) {
+        let outcome = match event.get("type").and_then(Value::as_str) {
+            Some("done") if event.get("isError").and_then(Value::as_bool) == Some(true) => {
+                Some(Err(event.get("result").and_then(Value::as_str).unwrap_or("The side thread failed.").to_string()))
+            }
+            Some("done") => Some(Ok(event.get("result").and_then(Value::as_str).unwrap_or_default().to_string())),
+            Some("exit") => Some(Err("The side thread stopped before answering.".to_string())),
+            _ => None,
+        };
+        if let Some(outcome) = outcome {
+            if let Some(waiter) = SIDE_WAITERS.lock().remove(side_id) {
+                let _ = waiter.send(outcome);
+            }
+        }
+        return;
+    }
+    if let Value::Object(map) = &mut event {
+        map.insert("sideId".into(), Value::String(side_id.to_string()));
+    }
+    util::emit("claude:side", event);
+}
+
+/// Ask a side question and wait for its answer: a read-only fork of the chat's
+/// conversation that answers once and is gone. What a handoff summary is
+/// written with, by the CLI that holds the conversation being handed over.
+pub async fn side_answer(ask: SideAsk) -> Result<String, String> {
+    let side_id = ask.side_id.clone();
+    let (tx, rx) = oneshot::channel();
+    SIDE_WAITERS.lock().insert(side_id.clone(), tx);
+    if let Err(e) = side_ask(ask).await {
+        SIDE_WAITERS.lock().remove(&side_id);
+        return Err(e);
+    }
+    // A summary of a long chat is a few seconds' work; one that is still going
+    // after two minutes is not coming.
+    let outcome = match tokio::time::timeout(std::time::Duration::from_secs(120), rx).await {
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(_)) => Err("The side thread went away.".to_string()),
+        Err(_) => Err("The side thread took too long.".to_string()),
+    };
+    SIDE_WAITERS.lock().remove(&side_id);
+    side_close(&side_id);
+    outcome
+}
+
 // ---- events ----
 
 /// One of Nyra's events, for the renderer, tagged with the chat it belongs to.

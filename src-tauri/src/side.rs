@@ -38,11 +38,8 @@ struct Side {
 
 static SIDES: Lazy<Mutex<HashMap<String, Arc<Side>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
-fn emit(side_id: &str, mut event: Value) {
-    if let Value::Object(map) = &mut event {
-        map.insert("sideId".into(), Value::String(side_id.to_string()));
-    }
-    util::emit("claude:side", event);
+fn emit(side_id: &str, event: Value) {
+    crate::agent::side_emit(side_id, event);
 }
 
 fn user_line(prompt: &str) -> String {

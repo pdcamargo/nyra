@@ -15,7 +15,8 @@ import {
   ShieldCheck,
   Slash,
   Square,
-  TriangleAlert
+  TriangleAlert,
+  ArrowRightLeft
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -45,6 +46,8 @@ import { CommandKbd } from './ui/kbd'
 import { useSessionsStore, activeSession as activeSessionSelector, configDirForSession } from '../store/sessions'
 import { codexModel, useCodexModelsFor, type CodexModel } from '../store/codexModels'
 import { useCapabilities } from '../hooks/useCapabilities'
+import { planHandoff } from '../lib/handoff'
+import { PROVIDER_LABEL } from '../lib/providers'
 import type { Effort } from '@shared/types'
 import { contextFill } from '../lib/contextFill'
 
@@ -195,6 +198,42 @@ function ContextWarning(): React.JSX.Element | null {
         {fmt(total)}/{fmt(window)}
       </TooltipTrigger>
       <TooltipContent>{`Context ${Math.round(pct)}% full`}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * A chat about to move to another CLI, said before the message that moves it.
+ *
+ * What the new CLI has not seen goes with that message, and it costs tokens,
+ * so the cost is on the pill and what will happen is in its tooltip: the prose
+ * as it is, or a summary the CLI handing over writes first.
+ */
+function HandoffNotice(): React.JSX.Element | null {
+  const session = useSessionsStore(activeSessionSelector)
+  const plan = React.useMemo(
+    () => (session ? planHandoff(session) : null),
+    // What the plan reads; a new draft or a usage update is not a reason to redo it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session?.messages, session?.provider, session?.providerSeenThrough, session?.providerSessionIds]
+  )
+  if (!session || !plan || plan.kind === 'none' || !plan.from) return null
+
+  const to = PROVIDER_LABEL[session.provider]
+  const from = PROVIDER_LABEL[plan.from]
+  const fmt = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n))
+  const detail =
+    plan.kind === 'summary'
+      ? `${to} hasn't seen the last ${plan.missed} messages — about ${fmt(plan.tokens)} tokens as text. ${from} summarises them first, and ${to} gets the summary and the last exchange with your next message.`
+      : `${to} hasn't seen the last ${plan.missed} messages. They go with your next message as they are — about ${fmt(plan.tokens)} tokens.`
+
+  return (
+    <Tooltip>
+      <TooltipTrigger className="mr-1 flex shrink-0 items-center gap-1 rounded-md border border-info/40 bg-info/10 px-2 py-0.5 font-mono text-[11px] text-info">
+        <ArrowRightLeft className="size-3" />
+        {plan.kind === 'summary' ? `${from} summary` : `~${fmt(plan.tokens)}`}
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72">{detail}</TooltipContent>
     </Tooltip>
   )
 }
@@ -614,6 +653,7 @@ export default function ComposerBar({
       <ComposerPortPills compact={compact} />
       <ComposerMonitorPills compact={compact} />
       <div className="flex-1" />
+      <HandoffNotice />
       <ContextWarning />
       <ModelEffort />
       {isLoading && onStop ? (

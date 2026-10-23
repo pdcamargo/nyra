@@ -102,6 +102,21 @@ pub async fn claude_side_ask(
     agent::side_ask(agent::SideAsk { side_id, nyra_session_id, cwd, resume_session_id: session_id, prompt, settings }).await
 }
 
+/// A side question whose answer comes back here rather than to the sheet —
+/// a handoff summary, written by the CLI that holds the conversation.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn agent_side_answer(
+    nyra_session_id: String,
+    cwd: String,
+    session_id: Option<String>,
+    prompt: String,
+    settings: Option<SpawnSettings>,
+) -> Result<String, String> {
+    let settings = settings.unwrap_or_else(|| util::settings().spawn());
+    let side_id = format!("answer-{}", util::rand_hex(8));
+    agent::side_answer(agent::SideAsk { side_id, nyra_session_id, cwd, resume_session_id: session_id, prompt, settings }).await
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub fn claude_side_close(side_id: String) {
     agent::side_close(&side_id);

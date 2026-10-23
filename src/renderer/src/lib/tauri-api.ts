@@ -384,6 +384,15 @@ export const api = {
    * home sits beside it; null is Default and the CLI's own `~/.codex`. Each of
    * these starts that Codex if it is not running.
    */
+  agent: {
+    /**
+     * A side question answered to the caller rather than the sheet: a
+     * read-only fork of `sessionId` under `settings.provider`, asked once.
+     */
+    sideAnswer: (ask: { nyraSessionId: string; cwd: string; sessionId: string | null; prompt: string; settings: SpawnSettings }) =>
+      call<string>('agent_side_answer', ask)
+  },
+
   codex: {
     /** The account's models, or why there are none. */
     models: (configDir: ConfigDir) =>

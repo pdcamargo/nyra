@@ -34,7 +34,8 @@ import { isQuestionnaireAsk } from './questionnaire/QuestionnaireChip'
 import MessageContextLines, { QuestionnaireRecord } from './MessageContextLines'
 import { contextFill } from '../lib/contextFill'
 import type { CompactionInput } from './CompactionDivider'
-import { historyText, recapFor } from '../lib/historyText'
+import { historyText } from '../lib/historyText'
+import { planHandoff, resolveHandoff } from '../lib/handoff'
 import { anchorFor, capabilitiesOf } from '../lib/providers'
 import type { Provider } from '@shared/types'
 import { extractAskBlocks, deferredAnswerPrompt, questionsOf, type AskQuestion } from '../lib/askBlocks'
@@ -1871,12 +1872,12 @@ export default function Chat(): React.JSX.Element {
 
     // A fork whose history predates anchors has nothing to resume, so its first
     // message carries the history as text — and a chat that has moved to another
-    // CLI carries what that one missed. Read before this message is added.
+    // CLI carries what that one missed. Planned before this message is added,
+    // written after: a summary is a few seconds' work, and the message should
+    // be on screen while it is done.
     const before = useSessionsStore.getState().sessions.find((s) => s.id === sid)
-    const recap = before ? recapFor(before) : ''
-
-    // Build the full prompt with attachment data for Claude CLI.
-    prompt = withContext(withAttachments(recap + prompt, imgs, fls), context)
+    const handoff = before ? planHandoff(before) : ({ kind: 'none' } as const)
+    const typed = prompt
     const compact = /^\/compact(\s|$)/.test(text.trim())
     // What the CLI files this turn's checkpoint under. Not for a compaction,
     // which is no turn anything could rewind to.
@@ -1940,6 +1941,9 @@ export default function Chat(): React.JSX.Element {
     const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)!
 
     try {
+      const recap = await resolveHandoff(handoff, { sid: sid!, cwd: session.cwd, settings: spawnSettingsForSession(sid!) })
+      // Build the full prompt with attachment data for the CLI.
+      prompt = withContext(withAttachments(recap + typed, imgs, fls), context)
       // A fork's first message forks its source's conversation at the cut — on
       // a CLI that can, which is the one whose transcript the cut is in.
       const fork = providerSessionId(session) ? null : anchorFor(session, session.resumeFrom)
