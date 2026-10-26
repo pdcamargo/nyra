@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '1.1.2',
+    date: '2026-10-26',
     notes: [
       'A chat whose agents are still working in the background keeps its spinner and elapsed time in the sidebar. It used to look finished the moment Claude handed the work off',
       'Status icons in the sidebar sit centred on the project\'s line, in front of it, in every style'
