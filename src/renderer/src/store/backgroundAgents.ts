@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useRunningStore } from './running'
 
 /**
  * Background work still going after the turn that started it has ended.
@@ -33,6 +34,10 @@ export type BackgroundAgent = {
 interface BackgroundAgentsState {
   /** Session id → the agents it is still waiting on. */
   bySession: Record<string, BackgroundAgent[]>
+  /** Session id → when it started having something out, for the sidebar's
+   *  elapsed time once the turn that launched it has ended. Taken from that
+   *  turn's start when there is one, so the clock does not restart at zero. */
+  since: Record<string, number>
   /** Replace the roster. The CLI sends the whole list, including `[]` when done. */
   setAgents: (sessionId: string, agents: BackgroundAgent[]) => void
   /** Attach a live progress line to the agent it belongs to. */
@@ -47,6 +52,7 @@ const EMPTY: BackgroundAgent[] = []
 
 export const useBackgroundAgentsStore = create<BackgroundAgentsState>((set) => ({
   bySession: {},
+  since: {},
 
   setAgents: (sessionId, agents) =>
     set((state) => {
@@ -59,9 +65,15 @@ export const useBackgroundAgentsStore = create<BackgroundAgentsState>((set) => (
         return before ? { ...a, activity: before.activity, lastTool: before.lastTool } : a
       })
       const next = { ...state.bySession }
-      if (merged.length === 0) delete next[sessionId]
-      else next[sessionId] = merged
-      return { bySession: next }
+      const since = { ...state.since }
+      if (merged.length === 0) {
+        delete next[sessionId]
+        delete since[sessionId]
+      } else {
+        next[sessionId] = merged
+        since[sessionId] ??= useRunningStore.getState().startedAt[sessionId] ?? Date.now()
+      }
+      return { bySession: next, since }
     }),
 
   noteProgress: (sessionId, progress) =>
@@ -88,8 +100,10 @@ export const useBackgroundAgentsStore = create<BackgroundAgentsState>((set) => (
     set((state) => {
       if (!state.bySession[sessionId]) return state
       const next = { ...state.bySession }
+      const since = { ...state.since }
       delete next[sessionId]
-      return { bySession: next }
+      delete since[sessionId]
+      return { bySession: next, since }
     })
 }))
 

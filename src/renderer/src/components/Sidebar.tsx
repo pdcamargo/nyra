@@ -17,6 +17,7 @@ import type { Project, Session } from '../store/sessions'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBrowserStore } from '../store/browser'
 import { useRunningStore } from '../store/running'
+import { useBackgroundAgentsStore } from '../store/backgroundAgents'
 import { usePendingPermissionsStore } from '../store/pendingPermissions'
 import { useSettingsStore } from '../store/settings'
 import { useBusyChats } from '../lib/backgroundWait'
@@ -328,21 +329,30 @@ const VISIBLE_PER_PROJECT = 6
 const FORK_STEP = 14
 
 /**
- * Where each style puts a project's chats: the title's left edge and the status
- * glyph's, both from the row's own left. The glyph is centred under the
- * project's mark — its folder, its tile, or its spine.
+ * Where each style puts a project's chats. `indent` is the title's left edge,
+ * from the row's own left. `mark` is the centre of the project's mark — its
+ * folder or its tile, 8px into the header — from the list's left: the line
+ * down its chats and the status glyph on each row are both centred on it.
+ *
+ * Centres rather than left edges, so a glyph of any width lands on the line.
+ * The cards line used to sit 2px left of the glyph, because each was placed by
+ * its left edge from a different number.
  */
-const STYLE_LAYOUT: Record<SidebarStyle, { indent: number; gutter: number }> = {
-  headings: { indent: 27, gutter: 8 },
-  cards: { indent: 32, gutter: 10 },
-  // Rows start beside the spine rather than across it (`ml-[24px]`), so the
-  // open chat's fill never covers the line. The glyph reaches back onto it.
-  spine: { indent: 8, gutter: -14 }
+const STYLE_LAYOUT: Record<SidebarStyle, { indent: number; mark: number }> = {
+  // A 14px folder.
+  headings: { indent: 27, mark: 15 },
+  // An 18px tile.
+  cards: { indent: 32, mark: 17 },
+  spine: { indent: 8, mark: 17 }
 }
+
+/** Rows on the spine start beside it rather than across it (`ml-[24px]`), so
+ *  the open chat's fill never covers the line. The glyph reaches back onto it. */
+const SPINE_ROW_INSET = 24
 
 /** Where a project's own text lines up with its chats' titles. */
 const textLeft = (style: SidebarStyle): number =>
-  style === 'spine' ? 24 + STYLE_LAYOUT.spine.indent : STYLE_LAYOUT[style].indent
+  style === 'spine' ? SPINE_ROW_INSET + STYLE_LAYOUT.spine.indent : STYLE_LAYOUT[style].indent
 
 /**
  * Another project has the open chat. Only names, titles and marks fade:
@@ -743,6 +753,7 @@ function SessionsList(): React.JSX.Element {
   const permissions = usePendingPermissionsStore((s) => s.bySession)
   const waitCtx = useMemo(() => ({ planPending, permissions }), [planPending, permissions])
   const startedAt = useRunningStore((s) => s.startedAt)
+  const backgroundSince = useBackgroundAgentsStore((s) => s.since)
   const sidebarStyle = useSettingsStore((s) => s.sidebarStyle)
   const showNeedsYou = useSettingsStore((s) => s.needsYouTray)
   const dimOthers = useSettingsStore((s) => s.dimOtherProjects)
@@ -841,9 +852,26 @@ function SessionsList(): React.JSX.Element {
     const indentPx = layout.indent + depth * FORK_STEP
     // On the spine the glyph stays on the line whatever the depth; elsewhere it
     // moves in with the fork, under the title it belongs to.
-    const gutterPx = sidebarStyle === 'spine' ? layout.gutter : layout.gutter + depth * FORK_STEP
+    const glyphCenter =
+      sidebarStyle === 'spine' ? layout.mark - SPINE_ROW_INSET : layout.mark + depth * FORK_STEP
     const onSpine = opts.indented && sidebarStyle === 'spine'
-    const since = isRunning ? startedAt[session.id] : undefined
+    // The glyph sits on the project's line, so it is cut out of it in the
+    // surface's own fill, or the line runs through it. Off the spine the row is
+    // under the glyph too: a selected or hovered row's fill already hides the
+    // line, and a cut-out would put a dot of the wrong colour on that fill.
+    const cutout = onSpine
+      ? 'bg-sidebar'
+      : isActive
+        ? ''
+        : `${sidebarStyle === 'cards' ? 'bg-project-card' : 'bg-sidebar'} group-hover:bg-transparent`
+    // A turn's own start while it runs; after it, for as long as the agents it
+    // launched are out, when they went out — the clock carries on rather than
+    // vanishing with the turn.
+    const since = isRunning
+      ? startedAt[session.id]
+      : isBusy
+        ? backgroundSince[session.id]
+        : undefined
     // A chat's browser keeps running whether or not you are looking at that
     // chat, and a background chat gets no miniature. Without this there would
     // be nothing anywhere saying it has one.
@@ -878,14 +906,12 @@ function SessionsList(): React.JSX.Element {
           <div className="absolute top-[-3.5px] left-1 right-1 h-0.5 rounded-full bg-info" />
         )}
         {/* In the gutter left of the title, where the eye runs down the list,
-            so a title never shifts when its chat starts or stops. On the spine
-            it sits on the line, cut out of it by the rail's own fill. */}
+            so a title never shifts when its chat starts or stops. It sits on
+            the project's line, cut out of it. */}
         {opts.indented && hasGlyph && (
           <span
-            className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 rounded-full p-px ${
-              onSpine ? 'bg-sidebar' : ''
-            }`}
-            style={{ left: gutterPx }}
+            className={`pointer-events-none absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 rounded-full p-px ${cutout}`}
+            style={{ left: glyphCenter }}
           >
             {glyph}
           </span>
@@ -1221,10 +1247,10 @@ function SessionsList(): React.JSX.Element {
                 // still reads as the thing to look at.
                 <span
                   aria-hidden
-                  className={`pointer-events-none absolute top-0.5 bottom-0.5 left-[16px] w-0.5 rounded-full ${
+                  className={`pointer-events-none absolute top-0.5 bottom-0.5 w-0.5 -translate-x-1/2 rounded-full ${
                     dim ? 'opacity-[calc(0.6*var(--project-dim))]' : 'opacity-60'
                   }`}
-                  style={{ background: markTint }}
+                  style={{ background: markTint, left: STYLE_LAYOUT.spine.mark }}
                 />
               ) : (
                 project.rail &&
@@ -1232,8 +1258,8 @@ function SessionsList(): React.JSX.Element {
                 visible.length > 0 && (
                   <span
                     aria-hidden
-                    className="pointer-events-none absolute top-0.5 bottom-0.5 left-[14px] w-0.5 rounded-full"
-                    style={{ background: tint }}
+                    className="pointer-events-none absolute top-0.5 bottom-0.5 w-0.5 -translate-x-1/2 rounded-full"
+                    style={{ background: tint, left: STYLE_LAYOUT[sidebarStyle].mark }}
                   />
                 )
               )}

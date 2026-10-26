@@ -1742,7 +1742,11 @@ export default function Chat(): React.JSX.Element {
         const finished = turnResultRef.current.delete(sid)
         const compactId = compacting.get(sid)
         if (compactId) finishCompaction(sid, compactId, 'failed')
-        useBackgroundAgentsStore.getState().forget(sid)
+        // The roster is left alone. Claude ends a turn the moment it has
+        // launched background agents, and the roster that names them usually
+        // arrives just before this — clearing it here made the chat look done
+        // while they ran. The CLI sends `[]` when they finish, and the backend
+        // sends one when the process goes away.
         useSessionsStore.getState().setExecuting(sid, null)
         useRunningStore.getState().endRun(sid)
         foldTasksAtTurnEnd(sid)
@@ -1763,8 +1767,7 @@ export default function Chat(): React.JSX.Element {
         // "interrupted", only for it to report "finished" minutes later.
         if (finished) return
         // Stopped, or a permission denied: what was running in the foreground
-        // was cut off. A backgrounded agent outlives even that. Read the roster
-        // before `forget` clears it.
+        // was cut off. A backgrounded agent outlives even that.
         const stillOut = new Set(outstandingAtEnd.map((a) => a.description))
         endSession?.agents?.filter((a) => a.status === 'running').forEach((a) => {
           if (stillOut.has(a.name)) return

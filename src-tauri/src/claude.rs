@@ -498,6 +498,9 @@ pub fn dispose_session(nyra_session_id: &str) {
     crate::desktop::forget(nyra_session_id);
     crate::keep_awake::forget(nyra_session_id);
     agent::fail_result(nyra_session_id, "Session disposed");
+    // Here rather than on exit: by then a respawn may own the id and have
+    // reported agents of its own.
+    emit_event(nyra_session_id, json!({ "type": "background_tasks", "tasks": [] }));
 }
 
 /// Dispose a chat and wait for its process to exit before a caller snapshots
@@ -3051,9 +3054,18 @@ async fn on_child_exit(sess: &Arc<Session>, nyra_session_id: &str, exit_code: Op
     // Only if it is still this process's slot: a dispose followed by a spawn —
     // a settings change, a prewarm retired and reused — puts a new session
     // under the same id before the old child gets round to exiting.
-    let mut sessions = SESSIONS.lock();
-    if sessions.get(nyra_session_id).is_some_and(|s| Arc::ptr_eq(s, sess)) {
-        sessions.remove(nyra_session_id);
+    let owned = {
+        let mut sessions = SESSIONS.lock();
+        let owned = sessions.get(nyra_session_id).is_some_and(|s| Arc::ptr_eq(s, sess));
+        if owned {
+            sessions.remove(nyra_session_id);
+        }
+        owned
+    };
+    // Background agents run inside this process and went with it, and it can
+    // no longer send the empty roster that would say so.
+    if owned {
+        emit_event(nyra_session_id, json!({ "type": "background_tasks", "tasks": [] }));
     }
 }
 

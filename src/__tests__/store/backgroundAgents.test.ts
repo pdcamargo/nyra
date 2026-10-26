@@ -4,11 +4,15 @@ import {
   hasBackgroundAgents,
   anyBackgroundAgents
 } from '../../renderer/src/store/backgroundAgents'
+import { useRunningStore } from '../../renderer/src/store/running'
 
 const agent = (taskId: string, description: string) => ({ taskId, description })
 
 describe('backgroundAgents store', () => {
-  beforeEach(() => useBackgroundAgentsStore.setState({ bySession: {} }))
+  beforeEach(() => {
+    useBackgroundAgentsStore.setState({ bySession: {}, since: {} })
+    useRunningStore.setState({ running: {}, startedAt: {}, thinkingSince: {} })
+  })
 
   it('keeps the roster the CLI sends, and clears it on an empty one', () => {
     const { setAgents } = useBackgroundAgentsStore.getState()
@@ -61,5 +65,21 @@ describe('backgroundAgents store', () => {
     setAgents('s1', [agent('t1', 'A')])
     forget('s1')
     expect(hasBackgroundAgents('s1')).toBe(false)
+  })
+
+  it('keeps the launching turn\'s clock running after the turn ends', () => {
+    const { startRun, endRun } = useRunningStore.getState()
+    startRun('s1')
+    const turnStart = useRunningStore.getState().startedAt.s1
+    const { setAgents } = useBackgroundAgentsStore.getState()
+    setAgents('s1', [agent('t1', 'A'), agent('t2', 'B')])
+    endRun('s1')
+
+    // One finishing is not the chat starting over.
+    setAgents('s1', [agent('t1', 'A')])
+    expect(useBackgroundAgentsStore.getState().since.s1).toBe(turnStart)
+
+    setAgents('s1', [])
+    expect(useBackgroundAgentsStore.getState().since.s1).toBeUndefined()
   })
 })
