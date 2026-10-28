@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '1.1.3',
+    date: '2026-10-28',
     notes: [
       'A finished turn folds its commands and the notes between them into one "Worked for 3m 38s" line above the reply. Click it to see the steps. Plans, questions and errors stay in view',
       'Chats can have a background image, with a separate one for dark mode if you like. Set it in Settings → Appearance → Background, with brightness, blur, opacity, a fade at the bottom and an optional dither. Show it on new chats only or on every chat',
