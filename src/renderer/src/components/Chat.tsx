@@ -55,6 +55,8 @@ import { formatMessageTime } from '../lib/messageTime'
 import { extractPlan } from '../utils/permission'
 import { TODO_TOOLS } from '../utils/toolSummary'
 import ToolCallGroup from './ToolCallGroup'
+import WorkedFor from './WorkedFor'
+import { turnFolds, type TurnFold } from '../lib/turnFolds'
 import SubagentChip from './SubagentChip'
 import BackgroundChip from './BackgroundChip'
 import { isBackgroundCall } from '../lib/backgroundCalls'
@@ -98,6 +100,7 @@ import { useAnnotationsStore } from '../store/annotations'
 import { ANNOTATABLE, rangeAt } from '../lib/chatAnnotations'
 import { flashRange } from '../lib/annotationHighlights'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
+import ChatBackdrop, { useChatBackdrop } from './ChatBackdrop'
 
 const EMPTY_MESSAGES: Message[] = []
 type ClaudeEventBase = { nyraSessionId?: string }
@@ -265,6 +268,12 @@ function finishCompaction(sid: string, toolId: string, status: 'done' | 'failed'
 const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet', 'Skill', 'Compaction', FLOW_RUN_TOOL])
 /** Also standalone: Claude asking questions, which is its own one-line chip. */
 const standsAlone = (m: ToolCallMessage): boolean => STANDALONE_TOOLS.has(m.tool_name) || isQuestionnaireAsk(m)
+/** What a finished turn keeps in view when its working folds away: what you
+ *  were asked or answered, and what the turn ran into, rather than what it did. */
+const IN_VIEW_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'GoalSet', 'Compaction', FLOW_RUN_TOOL])
+const staysInView = (m: Message): boolean =>
+  m.role === 'error' ||
+  (m.role === 'tool_call' && (IN_VIEW_TOOLS.has(m.tool_name) || isQuestionnaireAsk(m)))
 
 
 
@@ -272,6 +281,17 @@ const standsAlone = (m: ToolCallMessage): boolean => STANDALONE_TOOLS.has(m.tool
 // toggles now, so threading them back down through App would be a detour.
 /** How long after the last wheel event a swipe counts as over. */
 const GESTURE_SETTLE_MS = 200
+
+/**
+ * Where a virtualised row sits. `top`, not the `translateY` TanStack's examples
+ * use: WebKit — the window Nyra runs in — offsets a `position: sticky`
+ * descendant by any transform between it and the scroller, so a code block's
+ * header in a row translated 3000px down was pushed 3000px past where it should
+ * stick, which is always the bottom of its block.
+ */
+function rowStyle(start: number): React.CSSProperties {
+  return { position: 'absolute', top: start, left: 0, width: '100%' }
+}
 
 export default function Chat(): React.JSX.Element {
   const running = useRunningStore((s) => s.running)
@@ -504,8 +524,34 @@ export default function Chat(): React.JSX.Element {
     | { kind: 'memory'; writes: MemoryWrite[]; calls: ToolCallMessage[]; firstId: string }
     | { kind: 'agents'; messages: ToolCallMessage[]; ended: boolean; firstId: string }
     | { kind: 'background'; message: ToolCallMessage }
+    | { kind: 'worked'; fold: TurnFold; open: boolean }
     | { kind: 'loading' }
     | { kind: 'waiting'; tasks: WaitingTask[] }
+
+  // A finished turn's tool calls and narration, behind one "Worked for" row.
+  // Calls the checklist setting leaves out are not folded: they are not there.
+  const folds = useMemo(
+    () =>
+      turnFolds(
+        messages,
+        isLoading,
+        (m) =>
+          staysInView(m) ||
+          (!showTasks && m.role === 'tool_call' && (m.tool_name === 'TaskChecklist' || TODO_TOOLS.includes(m.tool_name)))
+      ),
+    [messages, isLoading, showTasks]
+  )
+  // Kept here rather than in the row: an open turn is more rows, not a taller one.
+  const [openTurns, setOpenTurns] = useState<ReadonlySet<string>>(() => new Set())
+  const openTurn = useCallback((id: string, open: boolean) => {
+    setOpenTurns((prev) => {
+      if (prev.has(id) === open) return prev
+      const next = new Set(prev)
+      if (open) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }, [])
 
   const virtualItems = useMemo((): VirtualItem[] => {
     const items: VirtualItem[] = []
@@ -525,6 +571,13 @@ export default function Chat(): React.JSX.Element {
           else label = msgDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
           items.push({ kind: 'separator', label, before: msg.id })
         }
+      }
+
+      const fold = folds.get(msg.id)
+      if (fold) {
+        const open = openTurns.has(fold.id)
+        if (fold.first === msg.id) items.push({ kind: 'worked', fold, open })
+        if (!open) continue
       }
 
       // Group consecutive tool_call messages
@@ -618,7 +671,7 @@ export default function Chat(): React.JSX.Element {
     if (isLoading && !compactingNow) items.push({ kind: 'loading' })
     else if (waiting.length > 0) items.push({ kind: 'waiting', tasks: waiting })
     return items
-  }, [messages, isLoading, waiting, showTasks])
+  }, [messages, isLoading, waiting, showTasks, folds, openTurns])
 
   /**
    * The assistant message that closes each turn — the last one before the next
@@ -726,6 +779,7 @@ export default function Chat(): React.JSX.Element {
       if (item.kind === 'memory') return `mem-${item.firstId}`
       if (item.kind === 'agents') return `ag-${item.firstId}`
       if (item.kind === 'background') return `bg-${item.message.id}`
+      if (item.kind === 'worked') return `wk-${item.fold.id}`
       return item.msg.id
     },
   })
@@ -2379,16 +2433,20 @@ export default function Chat(): React.JSX.Element {
 
   /** Scroll back to the first message you missed. */
   const recapIndexOf = useCallback(
-    (messageId: string) =>
-      virtualItems.findIndex(
+    (messageId: string) => {
+      // Folded away, it is under its turn's "Worked for" row.
+      const fold = folds.get(messageId)
+      return virtualItems.findIndex(
         (item) =>
           (item.kind === 'message' && item.msg.id === messageId) ||
           (item.kind === 'tool_group' && item.firstId === messageId) ||
           (item.kind === 'memory' && item.firstId === messageId) ||
           (item.kind === 'agents' && item.firstId === messageId) ||
-          (item.kind === 'background' && item.message.id === messageId)
-      ),
-    [virtualItems]
+          (item.kind === 'background' && item.message.id === messageId) ||
+          (item.kind === 'worked' && !item.open && item.fold === fold)
+      )
+    },
+    [virtualItems, folds]
   )
   const handleRecapJump = useCallback(
     (messageId: string) => {
@@ -2408,6 +2466,9 @@ export default function Chat(): React.JSX.Element {
     if (!annotationJump) return
     const index = recapIndexOf(annotationJump.messageId)
     if (index < 0) return
+    // An annotated line in a folded turn: open the turn so there is a range to land on.
+    const fold = folds.get(annotationJump.messageId)
+    if (fold) openTurn(fold.id, true)
     stuckToBottomRef.current = false
     virtualizer.scrollToIndex(index, { align: 'start' })
     let frames = 0
@@ -2540,19 +2601,37 @@ export default function Chat(): React.JSX.Element {
 
   // Only show permission dialogs for the currently viewed session
   const currentPermission = permissionQueue.find((p) => p.nyraSessionId === activeSessionId) ?? null
+  const isEmptyChat = messages.length === 0 && !isLoading
+  const backdrop = useChatBackdrop(isEmptyChat)
 
   return (
     // The side sheet takes its width from the chat rather than floating over
     // it, so the column recentres in what is left instead of hiding under it.
     <div className="flex h-full min-w-0">
     <div
-      className="flex h-full min-w-0 flex-1 flex-col relative"
-      style={columnGeometry}
+      // `isolate` keeps the backdrop's negative z-index inside this column.
+      className="flex h-full min-w-0 flex-1 flex-col relative isolate"
+      style={
+        backdrop
+          ? ({ ...columnGeometry, '--composer-opacity': `${backdrop.look.composerOpacity}%` } as React.CSSProperties)
+          : columnGeometry
+      }
+      data-backdrop={backdrop ? (backdrop.look.composerOpacity < 100 ? 'glass' : '') : undefined}
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {backdrop && (
+        <ChatBackdrop
+          image={backdrop.image}
+          effect={backdrop.effect}
+          look={backdrop.look}
+          focusX={backdrop.focusX}
+          focusY={backdrop.focusY}
+        />
+      )}
+
       {/* Drop zone overlay */}
       {isDragging && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -2676,10 +2755,18 @@ export default function Chat(): React.JSX.Element {
             )}
           </div>
         )}
-        {messages.length === 0 && !isLoading && (
+        {isEmptyChat && (
           <div className="flex h-full flex-col items-center justify-center gap-3">
-            <p className="text-[32px] font-semibold tracking-tight text-foreground/[0.07]">Nyra</p>
-            <p className="text-xs text-muted-foreground">Start typing or pick a skill from the sidebar</p>
+            {/* At 7% the wordmark is a watermark on a flat page and lost on a
+                photo, and the hint needs a surface of its own to stay legible. */}
+            {!backdrop && <p className="text-[32px] font-semibold tracking-tight text-foreground/[0.07]">Nyra</p>}
+            <p
+              className={`text-xs text-muted-foreground ${
+                backdrop ? 'rounded-full bg-background/75 px-3 py-1 backdrop-blur-sm' : ''
+              }`}
+            >
+              Start typing or pick a skill from the sidebar
+            </p>
           </div>
         )}
 
@@ -2694,7 +2781,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                    style={rowStyle(vItem.start)}
                   >
                     <div className={`flex items-center gap-3 py-2`}>
                       <div className="flex-1 h-px bg-accent/50" />
@@ -2711,7 +2798,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                    style={rowStyle(vItem.start)}
                   >
                     {/* Not the transcript's usual py-2. Top-weighted on
                         purpose: the space belongs above the indicator, between
@@ -2733,7 +2820,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                    style={rowStyle(vItem.start)}
                   >
                     {/* The indicator's slot and spacing: this is the same
                         question — is anything still going? — answered for the
@@ -2751,7 +2838,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                    style={rowStyle(vItem.start)}
                   >
                     <MemoryChip writes={item.writes} calls={item.calls} />
                   </div>
@@ -2764,7 +2851,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                    style={rowStyle(vItem.start)}
                   >
                     <SubagentChip messages={item.messages} ended={item.ended} />
                   </div>
@@ -2777,9 +2864,26 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                    style={rowStyle(vItem.start)}
                   >
                     <BackgroundChip message={item.message} />
+                  </div>
+                )
+              }
+
+              if (item.kind === 'worked') {
+                return (
+                  <div
+                    key={vItem.key}
+                    data-index={vItem.index}
+                    ref={virtualizer.measureElement}
+                    style={rowStyle(vItem.start)}
+                  >
+                    <WorkedFor
+                      durationMs={item.fold.durationMs}
+                      open={item.open}
+                      onToggle={() => openTurn(item.fold.id, !item.open)}
+                    />
                   </div>
                 )
               }
@@ -2790,7 +2894,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                    style={rowStyle(vItem.start)}
                   >
                     <ToolCallGroup
                       messages={item.messages}
@@ -2817,7 +2921,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                    style={rowStyle(vItem.start)}
                   >
                     <div data-message-id={msg.id} className={`flex justify-end ${gap}`}>
                       <div className="max-w-[75%] w-full">
@@ -2841,7 +2945,7 @@ export default function Chat(): React.JSX.Element {
                   key={vItem.key}
                   data-index={vItem.index}
                   ref={virtualizer.measureElement}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}
+                  style={rowStyle(vItem.start)}
                 >
                   <div data-message-id={msg.id} className={gap}>
                     <MessageRow

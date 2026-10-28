@@ -50,4 +50,14 @@ describe('migrateSettings', () => {
     expect(merged.model).toBe('opus')
     expect(merged.autoApproveTools).toEqual(['Bash'])
   })
+
+  // The shallow merge replaces a nested setting whole, so a look saved before
+  // a field existed would otherwise be missing it.
+  it('fills a saved background look with fields it predates', () => {
+    const merged = migrateSettings({ chatBackground: { scope: 'all', light: { image: 'ab.png' } } }, base())
+    expect(merged.chatBackground.scope).toBe('all')
+    expect(merged.chatBackground.light.image).toBe('ab.png')
+    expect(merged.chatBackground.light.composerOpacity).toBe(100)
+    expect(merged.chatBackground.dark.image).toBeNull()
+  })
 })

@@ -55,7 +55,7 @@ pub async fn read_file(file_path: &str) -> Value {
     }
 }
 
-const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
+pub(crate) const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 
 /// What the transcript will display inline. An allowlist rather than a content
 /// sniff, because the path comes out of Claude's prose: `![x](/etc/passwd)` has

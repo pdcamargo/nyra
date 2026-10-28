@@ -5,6 +5,7 @@ mod ai_title;
 mod account_status;
 mod agent;
 mod app_mcp;
+mod backgrounds;
 mod flow_runs;
 mod browser;
 mod checkpoints;
@@ -239,6 +240,9 @@ pub fn run() {
             themes::themes_save,
             themes::themes_delete,
             themes::themes_dir_path,
+            backgrounds::backgrounds_import,
+            backgrounds::backgrounds_read,
+            backgrounds::backgrounds_delete,
             commands::fs_read_file,
             commands::fs_read_image,
             commands::fs_revert_file,

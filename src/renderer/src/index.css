@@ -1652,3 +1652,13 @@ mark.nyra-search-highlight-active {
 [data-zooming] [data-artboard-frame]:has(> [data-artboard-bitmap]) > [data-artboard-host] {
   visibility: hidden;
 }
+
+/* A chat background showing through the composer (see `ChatBackdrop`). Only
+ * the chat's own composer and the environment tab docked on it: an edit box in
+ * the transcript is also a `composer-box`, and stays solid. Unlayered, so it
+ * outranks the `bg-composer` utility. The blur is only paid for when the
+ * composer is actually see-through. */
+[data-backdrop='glass'] :is(.composer-box[data-theme-token='composer'], [data-composer-tab]) {
+  background-color: color-mix(in oklab, var(--color-composer) var(--composer-opacity, 100%), transparent);
+  backdrop-filter: blur(16px) saturate(1.2);
+}

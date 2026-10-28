@@ -111,6 +111,8 @@ export type NyraSettings = {
   chatWidth: ChatWidth
   /** How the rail draws a project and its chats. */
   sidebarStyle: SidebarStyle
+  /** A picture behind the chat column, one look per mode. */
+  chatBackground: ChatBackground
   /** Chats waiting on you, from every project, gathered above Pinned. */
   needsYouTray: boolean
   /** While a chat is open, fade the projects it is not in. Status marks keep
@@ -165,6 +167,45 @@ export type ChatWidth = 'compact' | 'default' | 'wide' | 'full'
 /** `headings`: rules between projects. `cards`: an open project is boxed.
  *  `spine`: a tile per project and a line in its colour down its chats. */
 export type SidebarStyle = 'headings' | 'cards' | 'spine'
+
+export type BackgroundEffect = 'none' | 'dither'
+
+/** One mode's background. Percentages are 0–100 except `brightness`, 0–200. */
+export type BackgroundLook = {
+  /** A file name in `~/.nyra/backgrounds/`. Dark's null borrows light's image,
+   *  and its focus with it; light's null means no background. */
+  image: string | null
+  /** The point of the image that stays in view when it is cropped to fill. */
+  focusX: number
+  focusY: number
+  effect: BackgroundEffect
+  brightness: number
+  /** In px. */
+  blur: number
+  opacity: number
+  /** How much of the height, from the bottom, fades into the page colour. */
+  fade: number
+  composerOpacity: number
+}
+
+export type ChatBackground = {
+  /** `new` is only while a chat has no messages yet. */
+  scope: 'new' | 'all'
+  light: BackgroundLook
+  dark: BackgroundLook
+}
+
+export const DEFAULT_BACKGROUND_LOOK: BackgroundLook = {
+  image: null,
+  focusX: 50,
+  focusY: 50,
+  effect: 'none',
+  brightness: 100,
+  blur: 0,
+  opacity: 100,
+  fade: 50,
+  composerOpacity: 100
+}
 
 /** Fainter than this and a faded project's names stop being readable at all. */
 export const MIN_DIM_OPACITY = 0.3
@@ -257,6 +298,7 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   cornerRadius: 13.44,
   chatWidth: 'wide',
   sidebarStyle: 'spine',
+  chatBackground: { scope: 'new', light: DEFAULT_BACKGROUND_LOOK, dark: DEFAULT_BACKGROUND_LOOK },
   needsYouTray: true,
   dimOtherProjects: true,
   dimOpacity: 0.4,

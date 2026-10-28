@@ -658,6 +658,15 @@ export const api = {
     onChanged: (callback: () => void) => on<unknown>('nyra:themes-changed', () => callback())
   },
 
+  /** Chat background images, copied into `~/.nyra/backgrounds/` and named by
+   *  the file name `import` returns. */
+  backgrounds: {
+    import: (path: string) => call<{ name?: string; error?: string }>('backgrounds_import', { path }),
+    read: (name: string) =>
+      call<{ base64?: string; mediaType?: string; error?: string }>('backgrounds_read', { name }),
+    remove: (name: string) => call<{ success?: boolean; error?: string }>('backgrounds_delete', { name })
+  },
+
   /**
    * The path-only commands take the chat's `cwd` where there is one. A path out
    * of a tool card is named the way the session's environment names it —

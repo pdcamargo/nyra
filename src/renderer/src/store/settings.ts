@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { type NyraSettings, DEFAULT_SETTINGS } from '../../../shared/types'
+import { type NyraSettings, DEFAULT_BACKGROUND_LOOK, DEFAULT_SETTINGS } from '../../../shared/types'
 
 type SettingsStore = NyraSettings & {
   updateSettings: (partial: Partial<NyraSettings>) => void
@@ -38,6 +38,17 @@ export function migrateSettings(
   const legacyFontSize = raw?.fontSize
   if (typeof legacyFontSize === 'string' && raw?.contentFontSize === undefined) {
     merged.contentFontSize = legacyFontSize === 'small' ? 13 : legacyFontSize === 'large' ? 17 : 15
+  }
+
+  // A nested setting is replaced whole by the shallow merge above, so a field
+  // added to a look later would be missing from every saved one.
+  const bg = raw?.chatBackground as Partial<NyraSettings['chatBackground']> | undefined
+  if (bg) {
+    merged.chatBackground = {
+      scope: bg.scope === 'all' ? 'all' : 'new',
+      light: { ...DEFAULT_BACKGROUND_LOOK, ...bg.light },
+      dark: { ...DEFAULT_BACKGROUND_LOOK, ...bg.dark }
+    }
   }
 
   // Drop retired keys so they stop round-tripping through settings_sync.

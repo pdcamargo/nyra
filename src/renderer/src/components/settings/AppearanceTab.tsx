@@ -13,6 +13,7 @@ import { MAX_ZOOM, MIN_ZOOM, nextZoom } from '../../lib/zoom'
 import { type ChatWidth } from '../../../../shared/types'
 import FontPicker from './FontPicker'
 import ThemeSection from './ThemeSection'
+import BackgroundSection from './BackgroundSection'
 import CornersSection from './CornersSection'
 import SidebarSection from './SidebarSection'
 import { SectionLabel, SectionNote, SegmentedControl, Select, SettingRow } from './primitives'
@@ -29,6 +30,8 @@ export default function AppearanceTab(): React.JSX.Element {
   return (
     <>
       <ThemeSection />
+
+      <BackgroundSection />
 
       <SectionLabel>Fonts</SectionLabel>
       <SectionNote>
