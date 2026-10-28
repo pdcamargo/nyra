@@ -1189,8 +1189,11 @@ function SessionsList(): React.JSX.Element {
             {/* One slot, two faces, like a chat row's: what the project's chats
                 add up to at rest, its actions on hover. */}
             <div className="grid items-center justify-items-end *:[grid-area:1/1]">
+              {/* Never under the pointer. Faded out it still took clicks, and an
+                  opacity below 1 paints it above the actions sharing its cell,
+                  so the pencil only worked where the marks did not reach. */}
               <span
-                className={`flex pr-[5px] transition-opacity ${
+                className={`pointer-events-none flex pr-[5px] transition-opacity ${
                   settingsOpen
                     ? 'opacity-0'
                     : 'group-hover:opacity-0 group-has-[:focus-visible]:opacity-0 group-has-[[aria-expanded=true]]:opacity-0'
