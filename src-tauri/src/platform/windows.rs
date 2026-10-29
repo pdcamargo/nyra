@@ -469,6 +469,35 @@ pub fn file_id(_meta: &std::fs::Metadata) -> u64 {
     0
 }
 
+/// `link` pointed at `target`. A symlink needs Developer Mode or an elevated
+/// process, so a directory falls back to a junction, which needs neither. A
+/// file has no such fallback: the error goes back to the caller, which copies.
+pub fn link_to(target: &Path, link: &Path) -> std::io::Result<()> {
+    if !target.is_dir() {
+        return std::os::windows::fs::symlink_file(target, link);
+    }
+    if std::os::windows::fs::symlink_dir(target, link).is_ok() {
+        return Ok(());
+    }
+    let out = super::std_command("cmd.exe")
+        .args(["/C", "mklink", "/J"])
+        .arg(link)
+        .arg(target)
+        .output()?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(String::from_utf8_lossy(&out.stderr).trim().to_string()))
+    }
+}
+
+/// Remove a link `link_to` made: the link only, never what it points at. A
+/// file symlink goes with `remove_file`; a directory symlink or a junction is a
+/// directory entry, and only `remove_dir` takes it.
+pub fn remove_link(link: &Path) -> std::io::Result<()> {
+    std::fs::remove_file(link).or_else(|_| std::fs::remove_dir(link))
+}
+
 pub fn log_dir() -> PathBuf {
     std::env::temp_dir()
 }

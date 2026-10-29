@@ -146,6 +146,23 @@ function ManagedBadge({ status }: { status: BundledSkill['status'] }): React.JSX
   )
 }
 
+/** Marks an entry a workspace has from Default, through a link. */
+function FromDefaultBadge(): React.JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="shrink-0 rounded-at-3 border border-border/70 px-1 py-px text-[0.62em] font-medium uppercase tracking-wide text-muted-foreground">
+          Default
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        Linked from Default, so an edit changes it there and in every workspace that shares it. To remove it here,
+        delete it in Default or turn off sharing in this workspace's settings.
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 const listSkills = (cwd: string, configDir: ConfigDir): Promise<{ global: SkillInfo[]; project: SkillInfo[] }> =>
   window.api.skills.list(cwd, configDir)
 
@@ -177,7 +194,7 @@ function SkillsView(): React.JSX.Element {
         name={`/${skill.name}`}
         description={skill.description}
         Icon={Sparkles}
-        badge={status ? <ManagedBadge status={status} /> : undefined}
+        badge={status ? <ManagedBadge status={status} /> : skill.fromDefault ? <FromDefaultBadge /> : undefined}
         onClick={() => setOpen(skill)}
       />
     )
@@ -292,12 +309,22 @@ function SkillsView(): React.JSX.Element {
           description={open.description}
           filePath={open.filePath}
           kind="Skill"
-          badge={managed(open) ? <ManagedBadge status={managed(open)!} /> : undefined}
-          onDelete={async () => {
-            await window.api.skills.delete(open.filePath)
-            window.dispatchEvent(new Event('nyra:skills-changed'))
-            reload()
-          }}
+          badge={
+            managed(open) ? (
+              <ManagedBadge status={managed(open)!} />
+            ) : open.fromDefault ? (
+              <FromDefaultBadge />
+            ) : undefined
+          }
+          onDelete={
+            open.fromDefault
+              ? undefined
+              : async () => {
+                  await window.api.skills.delete(open.filePath)
+                  window.dispatchEvent(new Event('nyra:skills-changed'))
+                  reload()
+                }
+          }
           actions={
             <>
               <DialogAction
@@ -431,6 +458,7 @@ function CommandsView(): React.JSX.Element {
       name={`/${command.name}`}
       description={command.description}
       Icon={Slash}
+      badge={command.fromDefault ? <FromDefaultBadge /> : undefined}
       onClick={() => setOpen(command)}
     />
   )
@@ -524,11 +552,16 @@ function CommandsView(): React.JSX.Element {
           description={open.description}
           filePath={open.filePath}
           kind="Command"
-          onDelete={async () => {
-            await window.api.commands.delete(open.filePath)
-            window.dispatchEvent(new Event('nyra:commands-changed'))
-            reload()
-          }}
+          badge={open.fromDefault ? <FromDefaultBadge /> : undefined}
+          onDelete={
+            open.fromDefault
+              ? undefined
+              : async () => {
+                  await window.api.commands.delete(open.filePath)
+                  window.dispatchEvent(new Event('nyra:commands-changed'))
+                  reload()
+                }
+          }
           actions={
             <>
               <DialogAction

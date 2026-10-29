@@ -52,16 +52,20 @@ export function SettingRow({
 
 export function Toggle({
   checked,
-  onChange
+  onChange,
+  label
 }: {
   checked: boolean
   onChange: (v: boolean) => void
+  /** Its accessible name, where no `<label>` around it gives one. */
+  label?: string
 }): React.JSX.Element {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)}
       className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? 'bg-info' : 'bg-accent'}`}
     >

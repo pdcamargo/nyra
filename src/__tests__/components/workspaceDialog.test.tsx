@@ -84,3 +84,64 @@ describe('new workspace sign-in', () => {
     window.removeEventListener('nyra:open-login', login)
   })
 })
+
+describe("sharing Default's skills", () => {
+  beforeEach(() => {
+    useWorkspacesStore.setState({
+      workspaces: [
+        { id: DEFAULT_WORKSPACE_ID, name: 'Default', configDir: null },
+        { id: 'work', name: 'Work', configDir: '/h/.nyra/workspaces/work/.claude' }
+      ],
+      activeId: DEFAULT_WORKSPACE_ID,
+      lastSessionById: {}
+    })
+    useAccountsStore.setState({ byWorkspace: {} })
+    vi.spyOn(useAccountsStore.getState(), 'refresh').mockResolvedValue(null)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  const toggle = (): HTMLElement => screen.getByRole('switch', { name: "Use Default's skills and instructions" })
+
+  it('is on for a new workspace, and can start off', async () => {
+    const create = vi.spyOn(window.api.workspace, 'create')
+    useUiStore.setState({ workspaceDialog: { mode: 'create' } as never })
+    mount()
+    expect(toggle().getAttribute('aria-checked')).toBe('true')
+    fireEvent.change(screen.getByPlaceholderText('Work, Personal, a client…'), { target: { value: 'Side' } })
+    fireEvent.click(toggle())
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    expect(create.mock.calls[0][2]).toBe(false)
+  })
+
+  it('shows what an existing workspace has, and saves only a change', async () => {
+    vi.spyOn(window.api.workspace, 'share').mockResolvedValue({ enabled: false })
+    const setShare = vi.spyOn(window.api.workspace, 'setShare')
+    useUiStore.setState({ workspaceDialog: { mode: 'edit', workspaceId: 'work' } as never })
+    mount()
+    await waitFor(() => expect(toggle().getAttribute('aria-checked')).toBe('false'))
+    fireEvent.click(toggle())
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(setShare).toHaveBeenCalledWith('work', true))
+  })
+
+  it('leaves sharing alone when only the name changed', async () => {
+    const setShare = vi.spyOn(window.api.workspace, 'setShare')
+    useUiStore.setState({ workspaceDialog: { mode: 'edit', workspaceId: 'work' } as never })
+    mount()
+    fireEvent.change(screen.getByPlaceholderText('Work, Personal, a client…'), { target: { value: 'Job' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(useWorkspacesStore.getState().workspaces[1].name).toBe('Job'))
+    expect(setShare).not.toHaveBeenCalled()
+  })
+
+  it('is not offered for Default itself', () => {
+    useUiStore.setState({ workspaceDialog: { mode: 'edit', workspaceId: DEFAULT_WORKSPACE_ID } as never })
+    mount()
+    expect(screen.queryByRole('switch')).toBeNull()
+  })
+})

@@ -865,9 +865,20 @@ export const api = {
    */
   workspace: {
     /** `signIn` names workspaces whose Claude and Codex sign-ins this one uses
-     *  rather than signing in itself. */
-    create: (id: string, signIn?: WorkspaceSignInRequest) =>
-      call<{ configDir?: string; error?: string }>('workspace_create', { id, signIn: signIn ?? null }),
+     *  rather than signing in itself. `shareDefault` false starts it without
+     *  Default's skills and instructions. */
+    create: (id: string, signIn?: WorkspaceSignInRequest, shareDefault = true) =>
+      call<{ configDir?: string; error?: string }>('workspace_create', {
+        id,
+        signIn: signIn ?? null,
+        shareDefault
+      }),
+    /** Whether it links in Default's own skills, commands, agents, rules and
+     *  CLAUDE.md. On unless turned off. */
+    share: (id: string) => call<{ enabled: boolean }>('workspace_share', { id }),
+    /** Takes effect at once: the links are made or removed before this returns. */
+    setShare: (id: string, enabled: boolean) =>
+      call<{ ok: boolean; error?: string }>('workspace_set_share', { id, enabled }),
     /** Where its sign-ins come from (a workspace id, or null for its own), and
      *  which workspaces borrow from it. */
     signIn: (id: string) => call<WorkspaceSignIn>('workspace_sign_in', { id }),

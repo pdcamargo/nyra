@@ -254,6 +254,16 @@ pub fn file_id(meta: &std::fs::Metadata) -> u64 {
     std::os::unix::fs::MetadataExt::ino(meta)
 }
 
+/// `link` made a symlink to `target`, a file or a directory alike.
+pub fn link_to(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+/// Remove a link `link_to` made: the link only, never what it points at.
+pub fn remove_link(link: &Path) -> std::io::Result<()> {
+    std::fs::remove_file(link)
+}
+
 /// `/tmp` rather than `$TMPDIR`, which on macOS is a per-user directory under
 /// `/var/folders` that nobody can find — and `scripts/log-gaps.mjs` looks here.
 pub fn log_dir() -> PathBuf {

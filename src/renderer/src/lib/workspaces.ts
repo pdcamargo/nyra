@@ -114,10 +114,11 @@ export function cycleWorkspace(step: 1 | -1): void {
 export async function createWorkspace(
   name: string,
   image?: string,
-  signIn?: WorkspaceSignInRequest
+  signIn?: WorkspaceSignInRequest,
+  shareDefault = true
 ): Promise<Workspace> {
   const id = crypto.randomUUID()
-  const result = await window.api.workspace.create(id, signIn)
+  const result = await window.api.workspace.create(id, signIn, shareDefault)
   if (!result.configDir) throw new Error(result.error ?? 'Could not create the workspace.')
   const workspace: Workspace = { id, name: name.trim(), configDir: result.configDir, ...(image ? { image } : {}) }
   useWorkspacesStore.getState().add(workspace)

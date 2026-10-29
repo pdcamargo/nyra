@@ -137,6 +137,11 @@ static GENERATION: Lazy<Arc<AtomicU64>> = Lazy::new(|| Arc::new(AtomicU64::new(0
 /// moved on a blocking worker, off the IPC thread.
 pub fn set_roots(config_dir: Option<&Path>, projects: &[String]) {
     let mut roots = vec![util::claude_dir(&Environment::Host, config_dir)];
+    // A workspace that shares Default's entries lists them through links, and
+    // an edit made in Default happens at Default's paths, not the links'.
+    if config_dir.is_some_and(crate::default_share::enabled) {
+        roots.push(util::claude_dir(&Environment::Host, None));
+    }
     for project in projects {
         // A WSL project's folders sit behind a network share the OS watcher
         // cannot see into; its lists still refresh when a view opens.

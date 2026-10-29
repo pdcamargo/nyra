@@ -1985,6 +1985,12 @@ async fn spawn_session(
         }
     }
 
+    // Default's own skills and instructions, as they are now, before the CLI
+    // reads its config dir.
+    if let Some(dir) = config_dir.filter(|_| env.is_host()).map(Path::to_path_buf) {
+        let _ = tokio::task::spawn_blocking(move || crate::default_share::sync(&dir)).await;
+    }
+
     let (args, _) = build_spawn_args(
         cwd,
         settings,

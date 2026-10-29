@@ -8,7 +8,9 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      "Workspaces now get your skills, commands, agents, rules and CLAUDE.md from Default. They used to have none of them. They're links, so an edit in Default reaches every workspace. A workspace's own with the same name wins. Turn it off per workspace in Edit workspace"
+    ]
   },
   {
     version: '1.1.3',

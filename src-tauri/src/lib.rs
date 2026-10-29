@@ -11,6 +11,7 @@ mod browser;
 mod checkpoints;
 mod claude;
 mod commands;
+mod default_share;
 mod comments;
 mod design_systems;
 mod designs;
@@ -171,6 +172,9 @@ pub fn run() {
                 // because it touches the user's home directory; nothing waits
                 // on it, and a failure only means a stale or absent skill.
                 managed_skills::sync().await;
+                // After it, so a workspace sees Default's skills beside the
+                // ones Nyra has just brought up to date there.
+                let _ = tokio::task::spawn_blocking(default_share::sync_all).await;
                 webhook_server::start(8787).await;
                 workflow::triggers::start_trigger_runtime().await;
             });
@@ -211,6 +215,8 @@ pub fn run() {
             commands::workspace_logout,
             commands::workspace_delete,
             commands::workspace_sign_in,
+            commands::workspace_share,
+            commands::workspace_set_share,
             commands::workspaces_sync_projects,
             commands::model_alias_targets,
             commands::claude_save_image,

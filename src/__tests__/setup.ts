@@ -217,6 +217,8 @@ Object.defineProperty(globalThis, 'api', {
     workspace: {
       create: (id: string) => Promise.resolve({ configDir: `/home/test/.nyra/workspaces/${id}/.claude` }),
       signIn: () => Promise.resolve({ claude: null, codex: null, borrowers: [] }),
+      share: () => Promise.resolve({ enabled: true }),
+      setShare: () => Promise.resolve({ ok: true }),
       copyTranscripts: () => Promise.resolve({ ok: true, projects: 0 }),
       logout: () => Promise.resolve({ ok: true }),
       delete: () => Promise.resolve({ ok: true }),

@@ -81,6 +81,10 @@ pub fn spawn_terminal(id: &str, cwd: &str, config_dir: Option<&Path>) -> Result<
     // The project's own shell: the host's default one, or for a WSL project the
     // distro's login shell, started in the project directory inside it.
     let env = Environment::of(cwd);
+    // A `claude` typed here sees the same shared skills a chat does.
+    if let Some(dir) = config_dir.filter(|_| env.is_host()) {
+        crate::default_share::sync(dir);
+    }
     let mut cmd = env.shell_command(cwd);
     for (k, v) in terminal_env(&env, config_dir) {
         cmd.env(k, v);

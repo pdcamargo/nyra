@@ -9,7 +9,7 @@ import { accountLabel, useAccountsStore } from '../store/accounts'
 import { createWorkspace, openLogin } from '../lib/workspaces'
 import { squareThumbnail } from '../utils/imageCompression'
 import type { WorkspaceSignIn } from '../lib/tauri-api'
-import { Select } from './settings/primitives'
+import { Select, Toggle } from './settings/primitives'
 
 /**
  * New workspace, and Edit workspace — one dialog, pre-filled for the second.
@@ -23,6 +23,11 @@ import { Select } from './settings/primitives'
  * or both. Nothing is copied: it is pointed at that workspace's credential
  * store (see `workspaces.rs`), so it is signed in from the start and stays
  * signed in when the login refreshes.
+ *
+ * And it uses Default's own skills, commands, agents, rules and CLAUDE.md
+ * unless told not to: links, made in Rust before each chat starts (see
+ * `default_share.rs`). Default itself has nothing to share with, so its Edit
+ * has no such row.
  */
 export default function WorkspaceDialog(): React.JSX.Element | null {
   const dialog = useUiStore((s) => s.workspaceDialog)
@@ -41,6 +46,10 @@ export default function WorkspaceDialog(): React.JSX.Element | null {
   const [codexFrom, setCodexFrom] = useState('')
   // An existing one's: where its sign-ins already come from.
   const [shared, setShared] = useState<WorkspaceSignIn | null>(null)
+  // Default's skills and instructions: what the switch says, and what it said
+  // on open, so Save only writes a change.
+  const [shareDefault, setShareDefault] = useState(true)
+  const [shareWas, setShareWas] = useState(true)
 
   // Fresh on every open: the last edit's picture must not leak into a new one.
   useEffect(() => {
@@ -53,8 +62,19 @@ export default function WorkspaceDialog(): React.JSX.Element | null {
     setClaudeFrom('')
     setCodexFrom('')
     setShared(null)
+    setShareDefault(true)
+    setShareWas(true)
     if (dialog.mode === 'edit') {
       void window.api.workspace.signIn(dialog.workspaceId).then(setShared).catch(() => undefined)
+      if (editing?.configDir) {
+        void window.api.workspace
+          .share(dialog.workspaceId)
+          .then(({ enabled }) => {
+            setShareDefault(enabled)
+            setShareWas(enabled)
+          })
+          .catch(() => undefined)
+      }
     } else {
       // Who each one is signed in as, so the list can say it — and offer only
       // the ones that have a Claude sign-in to share.
@@ -65,6 +85,7 @@ export default function WorkspaceDialog(): React.JSX.Element | null {
   if (!dialog) return null
 
   const editing = dialog.mode === 'edit'
+  const isDefault = editing && configDirOf(dialog.workspaceId) === null
   const signedInAs = accountLabel(account)
   const trimmed = name.trim()
   const nameOf = (id: string | null): string => findWorkspace(id)?.name ?? 'another workspace'
@@ -94,16 +115,33 @@ export default function WorkspaceDialog(): React.JSX.Element | null {
   const save = async (): Promise<void> => {
     if (!trimmed || busy) return
     if (editing) {
+      if (!isDefault && shareDefault !== shareWas) {
+        setBusy(true)
+        const result = await window.api.workspace.setShare(dialog.workspaceId, shareDefault).catch((e) => ({
+          ok: false,
+          error: e instanceof Error ? e.message : String(e)
+        }))
+        if (!result.ok) {
+          setError(result.error ?? 'Could not change sharing.')
+          setBusy(false)
+          return
+        }
+      }
       useWorkspacesStore.getState().update(dialog.workspaceId, { name: trimmed, image })
       close(null)
       return
     }
     setBusy(true)
     try {
-      const created = await createWorkspace(trimmed, image, {
-        ...(claudeFrom ? { claude: claudeFrom } : {}),
-        ...(codexFrom ? { codex: codexFrom } : {})
-      })
+      const created = await createWorkspace(
+        trimmed,
+        image,
+        {
+          ...(claudeFrom ? { claude: claudeFrom } : {}),
+          ...(codexFrom ? { codex: codexFrom } : {})
+        },
+        shareDefault
+      )
       close(null)
       if (claudeFrom) void useAccountsStore.getState().refresh(created.id)
       else openLogin(created.id)
@@ -223,6 +261,20 @@ export default function WorkspaceDialog(): React.JSX.Element | null {
         ) : (
           <CodexAccountRow configDir={configDirOf(dialog.workspaceId)} />
         ))}
+
+      {!isDefault && (
+        <div className="flex flex-col gap-1 border-t border-border/55 px-5 py-3">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Skills</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-foreground/80">Use Default's skills and instructions</span>
+            <Toggle checked={shareDefault} onChange={setShareDefault} label="Use Default's skills and instructions" />
+          </div>
+          <span className="text-[11px] text-muted-foreground">
+            Skills, commands, agents, rules and CLAUDE.md from Default, linked rather than copied. This workspace's
+            own wins where a name is the same.
+          </span>
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-3 border-t border-border/55 bg-muted/40 px-4 py-2.5">
         <span className="min-w-0 truncate text-xs text-danger">{error ?? ''}</span>

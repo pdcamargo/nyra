@@ -12,6 +12,8 @@ export type SkillInfo = {
   description: string
   scope: Scope
   filePath: string
+  /** A link to Default's own, in a workspace that shares Default's skills. */
+  fromDefault?: boolean
 }
 
 /**
@@ -25,6 +27,8 @@ export type CommandInfo = {
   description: string
   scope: Scope
   filePath: string
+  /** A link to Default's own, in a workspace that shares Default's skills. */
+  fromDefault?: boolean
 }
 
 /**

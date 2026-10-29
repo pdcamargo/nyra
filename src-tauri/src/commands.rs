@@ -176,10 +176,15 @@ pub async fn claude_account_status(binary_path: String, config_dir: Option<Strin
 // ---- workspaces ----
 
 /// A new workspace's config dir, created — the `configDir` the renderer keeps.
-/// `sign_in` names workspaces to borrow the Claude and Codex sign-ins from.
+/// `sign_in` names workspaces to borrow the Claude and Codex sign-ins from;
+/// `share_default` is false for one that starts without Default's skills.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn workspace_create(id: String, sign_in: Option<crate::workspaces::SignIn>) -> Value {
-    match crate::workspaces::create(&id, &sign_in.unwrap_or_default()).await {
+pub async fn workspace_create(
+    id: String,
+    sign_in: Option<crate::workspaces::SignIn>,
+    share_default: Option<bool>,
+) -> Value {
+    match crate::workspaces::create(&id, &sign_in.unwrap_or_default(), share_default.unwrap_or(true)).await {
         Ok(dir) => json!({ "configDir": dir.to_string_lossy() }),
         Err(e) => json!({ "error": e }),
     }
@@ -221,6 +226,26 @@ pub fn workspace_sign_in(id: String) -> Value {
         "codex": sign_in.codex,
         "borrowers": crate::workspaces::borrowers_of(&id),
     })
+}
+
+/// Whether a workspace shares Default's skills and instructions.
+#[tauri::command(rename_all = "camelCase")]
+pub fn workspace_share(id: String) -> Value {
+    let enabled = crate::workspaces::config_dir_of(&id).is_some_and(|dir| crate::default_share::enabled(&dir));
+    json!({ "enabled": enabled })
+}
+
+/// Turn that on or off; the links come or go straight away.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn workspace_set_share(id: String, enabled: bool) -> Value {
+    let Some(dir) = crate::workspaces::config_dir_of(&id) else {
+        return json!({ "ok": false, "error": format!("No workspace {id:?}.") });
+    };
+    match tokio::task::spawn_blocking(move || crate::default_share::set_enabled(&dir, enabled)).await {
+        Ok(Ok(())) => json!({ "ok": true }),
+        Ok(Err(e)) => json!({ "ok": false, "error": e }),
+        Err(e) => json!({ "ok": false, "error": e.to_string() }),
+    }
 }
 
 /// Delete, last step. Takes an id, never a path: the directory is worked out

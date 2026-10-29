@@ -120,6 +120,19 @@ fn id_of(root: &Path, config_dir: &Path) -> Option<String> {
     valid_id(&id).then_some(id)
 }
 
+/// Whether `config_dir` is a workspace's, rather than Default's or one someone
+/// exported themselves. Anything that writes into a config dir it was handed
+/// asks this first.
+pub fn is_workspace_dir(config_dir: &Path) -> bool {
+    id_of(&root(), config_dir).is_some()
+}
+
+/// Workspace `id`'s config dir, when it has one on disk. None for Default.
+pub fn config_dir_of(id: &str) -> Option<PathBuf> {
+    let dir = config_dir_in(&root(), id);
+    (id != DEFAULT_ID && valid_id(id) && dir.is_dir()).then_some(dir)
+}
+
 /// A lender's config dir: `Some(None)` for Default, `Some(Some(dir))` for a
 /// workspace that still exists, and None for one that does not — a borrower
 /// whose lender has gone falls back to its own, signed-out store.
@@ -238,7 +251,8 @@ pub fn config_roots() -> Vec<PathBuf> {
 /// the first chat, and lets the path come from one place.
 ///
 /// `sign_in` names workspaces to borrow a sign-in from; see `SignIn`.
-pub async fn create(id: &str, sign_in: &SignIn) -> Result<PathBuf, String> {
+/// `share_default` is whether it starts with Default's skills and instructions.
+pub async fn create(id: &str, sign_in: &SignIn, share_default: bool) -> Result<PathBuf, String> {
     if id == DEFAULT_ID || !valid_id(id) {
         return Err(format!("{id:?} is not a new workspace id."));
     }
@@ -262,6 +276,16 @@ pub async fn create(id: &str, sign_in: &SignIn) -> Result<PathBuf, String> {
     if !crate::passive_dev() {
         crate::managed_skills::sync_into(&dir).await;
     }
+    // Off is recorded before anything is linked, rather than linked and taken back.
+    let shared = dir.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        if share_default {
+            crate::default_share::sync(&shared);
+        } else if let Err(e) = crate::default_share::set_enabled(&shared, false) {
+            crate::logf!("Could not turn off sharing for {}: {e}", shared.display());
+        }
+    })
+    .await;
     Ok(dir)
 }
 

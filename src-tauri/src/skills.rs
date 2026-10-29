@@ -2,7 +2,8 @@
 //! global and per-project.
 
 use serde::Serialize;
-use std::path::Path;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 
 use crate::environment::Environment;
 use crate::util;
@@ -14,6 +15,8 @@ pub struct SkillInfo {
     pub description: String,
     pub scope: String,
     pub file_path: String,
+    /// A link to Default's own, in a workspace that shares it.
+    pub from_default: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -33,6 +36,8 @@ pub struct CommandInfo {
     pub description: String,
     pub scope: String,
     pub file_path: String,
+    /// A link to Default's own, in a workspace that shares it.
+    pub from_default: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -123,7 +128,12 @@ async fn scan_agents_dir(dir: &Path, scope: &str) -> Vec<AgentInfo> {
     agents
 }
 
-async fn scan_skills_dir(dir: &Path, scope: &str) -> Vec<SkillInfo> {
+/// Whether `path` is, or is inside, one of the entries Default shares.
+fn is_from(shared: &BTreeSet<PathBuf>, path: &Path) -> bool {
+    shared.iter().any(|entry| path.starts_with(entry))
+}
+
+async fn scan_skills_dir(dir: &Path, scope: &str, shared: &BTreeSet<PathBuf>) -> Vec<SkillInfo> {
     let mut skills = Vec::new();
     let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
         return skills;
@@ -153,6 +163,7 @@ async fn scan_skills_dir(dir: &Path, scope: &str) -> Vec<SkillInfo> {
             name,
             description,
             scope: scope.to_string(),
+            from_default: is_from(shared, &entry.path()),
             file_path: file_path.to_string_lossy().to_string(),
         });
     }
@@ -165,6 +176,7 @@ fn scan_commands_dir<'a>(
     dir: std::path::PathBuf,
     scope: &'a str,
     prefix: String,
+    shared: &'a BTreeSet<PathBuf>,
     out: &'a mut Vec<CommandInfo>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
     Box::pin(async move {
@@ -173,12 +185,10 @@ fn scan_commands_dir<'a>(
         };
         while let Ok(Some(entry)) = entries.next_entry().await {
             let file_name = entry.file_name().to_string_lossy().to_string();
-            let Ok(file_type) = entry.file_type().await else {
-                continue;
-            };
-            if file_type.is_dir() {
+            // Through a link: a namespace folder shared from Default is one.
+            if follows_to(&entry.path(), true).await {
                 let nested = format!("{prefix}{file_name}:");
-                scan_commands_dir(entry.path(), scope, nested, out).await;
+                scan_commands_dir(entry.path(), scope, nested, shared, out).await;
                 continue;
             }
             if !file_name.ends_with(".md") {
@@ -205,19 +215,37 @@ fn scan_commands_dir<'a>(
                 name: format!("{prefix}{stem}"),
                 description,
                 scope: scope.to_string(),
+                from_default: is_from(shared, &entry.path()),
                 file_path: entry.path().to_string_lossy().to_string(),
             });
         }
     })
 }
 
+/// The entries a host workspace shares from Default, brought up to date first:
+/// a skill just added to Default is listed now, not after the next chat starts.
+/// A WSL project's global dirs are the distro's, which shares nothing.
+async fn shared_for(cwd: &str, config_dir: Option<&Path>) -> BTreeSet<PathBuf> {
+    let Some(dir) = config_dir.filter(|_| Environment::of(cwd).is_host()).map(Path::to_path_buf) else {
+        return BTreeSet::new();
+    };
+    tokio::task::spawn_blocking(move || {
+        crate::default_share::sync(&dir);
+        crate::default_share::shared(Some(&dir))
+    })
+    .await
+    .unwrap_or_default()
+}
+
 pub async fn list_commands(cwd: &str, config_dir: Option<&Path>) -> ScopedList<CommandInfo> {
     let mut global = Vec::new();
     let mut project = Vec::new();
+    let shared = shared_for(cwd, config_dir).await;
     scan_commands_dir(
         util::claude_dir(&Environment::of(cwd), config_dir).join("commands"),
         "global",
         String::new(),
+        &shared,
         &mut global,
     )
     .await;
@@ -225,6 +253,7 @@ pub async fn list_commands(cwd: &str, config_dir: Option<&Path>) -> ScopedList<C
         Path::new(cwd).join(".claude").join("commands"),
         "project",
         String::new(),
+        &BTreeSet::new(),
         &mut project,
     )
     .await;
@@ -238,14 +267,17 @@ pub async fn list_skills(cwd: &str, config_dir: Option<&Path>) -> ScopedList<Ski
     // project lists the distro's whatever its workspace.
     let global_dir = util::claude_dir(&Environment::of(cwd), config_dir).join("skills");
     let project_dir = Path::new(cwd).join(".claude").join("skills");
+    let shared = shared_for(cwd, config_dir).await;
+    let none = BTreeSet::new();
     let (global, project) = tokio::join!(
-        scan_skills_dir(&global_dir, "global"),
-        scan_skills_dir(&project_dir, "project")
+        scan_skills_dir(&global_dir, "global", &shared),
+        scan_skills_dir(&project_dir, "project", &none)
     );
     ScopedList { global, project }
 }
 
 pub async fn list_agents(cwd: &str, config_dir: Option<&Path>) -> ScopedList<AgentInfo> {
+    shared_for(cwd, config_dir).await;
     let global_dir = util::claude_dir(&Environment::of(cwd), config_dir).join("agents");
     let project_dir = Path::new(cwd).join(".claude").join("agents");
     let (global, project) = tokio::join!(
@@ -284,11 +316,19 @@ pub async fn write_skill(
         .map_err(|e| e.to_string())
 }
 
+/// Deleting a shared entry from a workspace would only remove the link, and the
+/// next chat would put it back.
+const FROM_DEFAULT: &str =
+    "This comes from Default. Delete it there, or turn off sharing in the workspace's settings.";
+
 pub async fn delete_skill(file_path: &str) -> Result<(), String> {
     // `file_path` points at SKILL.md; the skill is the directory holding it.
     let dir = Path::new(file_path)
         .parent()
         .ok_or_else(|| "Invalid skill path".to_string())?;
+    if crate::default_share::is_shared_path(dir) {
+        return Err(FROM_DEFAULT.to_string());
+    }
     tokio::fs::remove_dir_all(dir)
         .await
         .map_err(|e| e.to_string())
@@ -307,6 +347,9 @@ pub async fn delete_command(file_path: &str) -> Result<(), String> {
     let under_commands = path.ancestors().any(|a| a.ends_with(".claude/commands"));
     if !under_commands || path.extension().and_then(|e| e.to_str()) != Some("md") {
         return Err("Not a custom command path".to_string());
+    }
+    if crate::default_share::is_shared_path(path) {
+        return Err(FROM_DEFAULT.to_string());
     }
     tokio::fs::remove_file(path).await.map_err(|e| e.to_string())
 }
@@ -350,7 +393,7 @@ mod tests {
         std::fs::write(real.join("SKILL.md"), "---\ndescription: Through a link\n---\n").unwrap();
         std::os::unix::fs::symlink("../../.agents/skills/linked", skills.join("linked")).unwrap();
 
-        let found = scan_skills_dir(&skills, "project").await;
+        let found = scan_skills_dir(&skills, "project", &BTreeSet::new()).await;
 
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "linked");
