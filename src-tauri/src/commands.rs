@@ -1777,6 +1777,14 @@ pub fn app_control_response(request_id: String, result: Value) {
     crate::app_mcp::deliver_response(&request_id, result);
 }
 
+/// One secret the user entered for `nyra_secret`, written where it was asked
+/// to go. Its own command so the value never rides in an app-control reply,
+/// which is what becomes the tool's result.
+#[tauri::command(rename_all = "camelCase")]
+pub fn secret_save(request_id: String, index: usize, value: String) -> Result<(), String> {
+    crate::secrets::save(&request_id, index, &value)
+}
+
 // ---------------------------------------------------------------------------
 // Desktop control
 // ---------------------------------------------------------------------------

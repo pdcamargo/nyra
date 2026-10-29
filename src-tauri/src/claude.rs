@@ -1230,7 +1230,8 @@ const APP_CONVENTION: &str = concat!(
     "naming it: \"I opened the terminal\", \"I turned on light mode\", \"I opened your ",
     "browser at example.com\". The user is watching that window, and a change nobody ",
     "mentions looks like a bug. Only change what was asked for — none of this is for ",
-    "tidying up after yourself."
+    "tidying up after yourself. When a task needs an API key, token or password from ",
+    "the user, ask for it with `nyra_secret` rather than in chat, and never invent one."
 );
 
 /// Taught only when the desktop tools are attached.

@@ -39,6 +39,7 @@ import { loadSystem, projectSkill, systemDigest, upgradeSystemFiles } from './de
 import { dirname } from './paths'
 import type { SystemEntry } from './api-types'
 import { askDesktopAccess } from './desktopControl'
+import { askSecret } from './secretRequest'
 
 type Op = (args: Record<string, unknown>) => unknown | Promise<unknown>
 
@@ -206,6 +207,9 @@ const OPS: Record<string, Op> = {
   // Asked the first time a chat touches an app. Held open until the user
   // answers in that chat's composer; Rust waits up to two minutes.
   'desktop.allow': (args) => askDesktopAccess(args),
+  // `nyra_secret`: held open until the secrets are entered, skipped or
+  // cancelled in that chat's composer. Rust waits up to ten minutes.
+  'secret.request': (args) => askSecret(args),
 
   /**
    * Bring a design to the current format and write it back, original backed

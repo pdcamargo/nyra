@@ -41,6 +41,7 @@ import QuestionDock from './QuestionDock'
 import DeferredTray from './DeferredTray'
 import FlowPauseDock from './flowRuns/FlowPauseDock'
 import DesktopAccessDock from './desktop/DesktopAccessDock'
+import SecretDock from './SecretDock'
 import DesktopStatus from './desktop/DesktopStatus'
 import PlanCard, { type PlanAnswer } from './PlanCard'
 import { useQuestionAnswerStore } from '../store/questionAnswer'
@@ -1214,6 +1215,9 @@ export default function ChatInput({
         {/* Claude is waiting on this before it touches another app, so it goes
             where its own questions go. */}
         {activeSessionId && <DesktopAccessDock sessionId={activeSessionId} />}
+        {/* The same for a key Claude needs: the turn waits on it, and the field
+            has to be what a paste lands in, not the composer below. */}
+        {activeSessionId && <SecretDock sessionId={activeSessionId} running={!!isLoading} />}
         {/* A flow waiting on this conversation. Above the questions: it is the
             reason the conversation is happening. */}
         {activeSessionId && <FlowPauseDock sessionId={activeSessionId} />}

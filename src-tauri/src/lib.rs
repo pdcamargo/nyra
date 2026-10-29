@@ -41,6 +41,7 @@ mod plugin_logos;
 mod platform;
 mod processes;
 mod questionnaires;
+mod secrets;
 mod settings;
 mod side;
 mod skills;
@@ -158,6 +159,7 @@ pub fn run() {
                 // Before the webhook server, so a crashed run's leftovers are gone
                 // by the time anything new is staged.
                 fs_ops::sweep_orphan_dirs();
+                secrets::sweep_now();
 
                 if passive_dev() {
                     crate::log!(
@@ -391,6 +393,7 @@ pub fn run() {
             commands::update_stage,
             commands::app_version,
             commands::app_control_response,
+            commands::secret_save,
             commands::desktop_permissions,
             commands::desktop_fix_permission,
             commands::desktop_stop,

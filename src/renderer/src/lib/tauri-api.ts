@@ -397,6 +397,15 @@ export const api = {
   },
 
   /**
+   * One secret for `nyra_secret`, handed straight to Rust to write. Never part
+   * of an app-control reply: that reply becomes the tool's result.
+   */
+  secrets: {
+    save: (requestId: string, index: number, value: string) =>
+      call<void>('secret_save', { requestId, index, value })
+  },
+
+  /**
    * A workspace's Codex, named by the workspace's Claude config dir — its Codex
    * home sits beside it; null is Default and the CLI's own `~/.codex`. Each of
    * these starts that Codex if it is not running.

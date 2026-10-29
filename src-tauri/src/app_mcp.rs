@@ -344,7 +344,8 @@ fn tool_schemas() -> Value {
             "name": "nyra_update",
             "description": "Check whether a newer Nyra has been released. Reports the version and gives you a link to offer — installing restarts the app, so the user presses it, never you.",
             "inputSchema": { "type": "object", "properties": {} }
-        }
+        },
+        crate::secrets::tool_schema()
     ])
 }
 
@@ -419,8 +420,9 @@ async fn call_tool(chat_id: &str, name: &str, args: Value) -> Result<String, Str
         "nyra_flow" => flow_tool(chat_id, args).await,
         "nyra_update" => update_tool().await,
         "nyra_agent" => crate::agent::delegate::tool(chat_id, args).await,
+        "nyra_secret" => crate::secrets::tool(chat_id, args, chat_cwd(chat_id).await).await,
         other => Err(format!(
-            "Unknown tool '{other}'. This server offers nyra_ui, nyra_design, nyra_flow, nyra_agent and nyra_update."
+            "Unknown tool '{other}'. This server offers nyra_ui, nyra_design, nyra_flow, nyra_agent, nyra_update and nyra_secret."
         )),
     }
 }
@@ -1423,20 +1425,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tools_list_carries_exactly_the_five() {
+    async fn tools_list_carries_exactly_the_six() {
         let listed = handle("chat", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await;
         let tools = listed["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["nyra_ui", "nyra_design", "nyra_flow", "nyra_agent", "nyra_update"]);
+        assert_eq!(names, ["nyra_ui", "nyra_design", "nyra_flow", "nyra_agent", "nyra_update", "nyra_secret"]);
         // Every one of these rides in every turn, so the schemas stay small on
         // purpose. If this trips, move a catalogue into a result. It was 4000
         // until nyra_agent, which is a fifth tool rather than a catalogue and
         // costs about 120 tokens a turn on its own. 4600 until nyra_flow learnt
         // to follow its runs — start, status, output, runs, continue, stop —
-        // which is about 50 more.
+        // which is about 50 more. 4800 until nyra_secret, a sixth tool for the
+        // same reason as nyra_agent, at about 155 tokens.
         let weight = serde_json::to_string(&tool_schemas()).unwrap().len();
         println!("  tool schemas    {weight:>5} chars  ~{:>4} tokens", weight / 4);
-        assert!(weight < 4800, "tool schemas grew to {weight} bytes");
+        assert!(weight < 5500, "tool schemas grew to {weight} bytes");
     }
 
     #[tokio::test]
