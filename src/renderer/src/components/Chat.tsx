@@ -56,7 +56,7 @@ import { formatMessageTime } from '../lib/messageTime'
 import { extractPlan } from '../utils/permission'
 import { TODO_TOOLS } from '../utils/toolSummary'
 import ToolCallGroup from './ToolCallGroup'
-import WorkedFor from './WorkedFor'
+import WorkedFor, { WorkedForEnd } from './WorkedFor'
 import { turnFolds, type TurnFold } from '../lib/turnFolds'
 import SubagentChip from './SubagentChip'
 import BackgroundChip from './BackgroundChip'
@@ -290,8 +290,19 @@ const GESTURE_SETTLE_MS = 200
  * header in a row translated 3000px down was pushed 3000px past where it should
  * stick, which is always the bottom of its block.
  */
-function rowStyle(start: number): React.CSSProperties {
-  return { position: 'absolute', top: start, left: 0, width: '100%' }
+function rowStyle(start: number, railed = false): React.CSSProperties {
+  if (!railed) return { position: 'absolute', top: start, left: 0, width: '100%' }
+  // Inside an opened turn: one segment of the rail that says what the turn
+  // folds. Rows sit flush, so the segments meet into one line; it is centred on
+  // the chevrons above and below it.
+  return {
+    position: 'absolute',
+    top: start,
+    left: 5,
+    width: 'calc(100% - 5px)',
+    borderLeft: '2px solid var(--border)',
+    paddingLeft: 16
+  }
 }
 
 export default function Chat(): React.JSX.Element {
@@ -526,6 +537,7 @@ export default function Chat(): React.JSX.Element {
     | { kind: 'agents'; messages: ToolCallMessage[]; ended: boolean; firstId: string }
     | { kind: 'background'; message: ToolCallMessage }
     | { kind: 'worked'; fold: TurnFold; open: boolean }
+    | { kind: 'worked_end'; fold: TurnFold }
     | { kind: 'loading' }
     | { kind: 'waiting'; tasks: WaitingTask[] }
 
@@ -556,8 +568,15 @@ export default function Chat(): React.JSX.Element {
 
   const virtualItems = useMemo((): VirtualItem[] => {
     const items: VirtualItem[] = []
+    // An opened turn whose last folded message was the one before: it closes
+    // here, after whatever that message joined or started.
+    let closing: TurnFold | null = null
     for (let idx = 0; idx < messages.length; idx++) {
       const msg = messages[idx]
+      if (closing) {
+        items.push({ kind: 'worked_end', fold: closing })
+        closing = null
+      }
       if (msg.timestamp) {
         const msgDate = new Date(msg.timestamp)
         const prevMsg = idx > 0 ? messages[idx - 1] : null
@@ -579,6 +598,7 @@ export default function Chat(): React.JSX.Element {
         const open = openTurns.has(fold.id)
         if (fold.first === msg.id) items.push({ kind: 'worked', fold, open })
         if (!open) continue
+        if (fold.last === msg.id) closing = fold
       }
 
       // Group consecutive tool_call messages
@@ -665,6 +685,7 @@ export default function Chat(): React.JSX.Element {
         items.push({ kind: 'message', msg, idx })
       }
     }
+    if (closing) items.push({ kind: 'worked_end', fold: closing })
     // A compaction's divider is its own progress; a thinking indicator under it
     // would say the same thing twice.
     const last = messages[messages.length - 1] as ToolCallMessage | undefined
@@ -673,6 +694,19 @@ export default function Chat(): React.JSX.Element {
     else if (waiting.length > 0) items.push({ kind: 'waiting', tasks: waiting })
     return items
   }, [messages, isLoading, waiting, showTasks, folds, openTurns])
+
+  // The rows an opened turn puts back, between its "Worked for" row and its end.
+  const railed = useMemo(() => {
+    let inside = false
+    return virtualItems.map((item) => {
+      if (item.kind === 'worked') {
+        inside = item.open
+        return false
+      }
+      if (item.kind === 'worked_end') inside = false
+      return inside
+    })
+  }, [virtualItems])
 
   /**
    * The assistant message that closes each turn — the last one before the next
@@ -781,6 +815,7 @@ export default function Chat(): React.JSX.Element {
       if (item.kind === 'agents') return `ag-${item.firstId}`
       if (item.kind === 'background') return `bg-${item.message.id}`
       if (item.kind === 'worked') return `wk-${item.fold.id}`
+      if (item.kind === 'worked_end') return `wke-${item.fold.id}`
       return item.msg.id
     },
   })
@@ -2782,7 +2817,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={rowStyle(vItem.start)}
+                    style={rowStyle(vItem.start, railed[vItem.index])}
                   >
                     <div className={`flex items-center gap-3 py-2`}>
                       <div className="flex-1 h-px bg-accent/50" />
@@ -2799,7 +2834,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={rowStyle(vItem.start)}
+                    style={rowStyle(vItem.start, railed[vItem.index])}
                   >
                     {/* Not the transcript's usual py-2. Top-weighted on
                         purpose: the space belongs above the indicator, between
@@ -2821,7 +2856,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={rowStyle(vItem.start)}
+                    style={rowStyle(vItem.start, railed[vItem.index])}
                   >
                     {/* The indicator's slot and spacing: this is the same
                         question — is anything still going? — answered for the
@@ -2839,7 +2874,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={rowStyle(vItem.start)}
+                    style={rowStyle(vItem.start, railed[vItem.index])}
                   >
                     <MemoryChip writes={item.writes} calls={item.calls} />
                   </div>
@@ -2852,7 +2887,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={rowStyle(vItem.start)}
+                    style={rowStyle(vItem.start, railed[vItem.index])}
                   >
                     <SubagentChip messages={item.messages} ended={item.ended} />
                   </div>
@@ -2865,7 +2900,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={rowStyle(vItem.start)}
+                    style={rowStyle(vItem.start, railed[vItem.index])}
                   >
                     <BackgroundChip message={item.message} />
                   </div>
@@ -2878,7 +2913,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={rowStyle(vItem.start)}
+                    style={rowStyle(vItem.start, railed[vItem.index])}
                   >
                     <WorkedFor
                       durationMs={item.fold.durationMs}
@@ -2889,13 +2924,26 @@ export default function Chat(): React.JSX.Element {
                 )
               }
 
-              if (item.kind === 'tool_group') {
+              if (item.kind === 'worked_end') {
                 return (
                   <div
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
                     style={rowStyle(vItem.start)}
+                  >
+                    <WorkedForEnd onClose={() => openTurn(item.fold.id, false)} />
+                  </div>
+                )
+              }
+
+              if (item.kind === 'tool_group') {
+                return (
+                  <div
+                    key={vItem.key}
+                    data-index={vItem.index}
+                    ref={virtualizer.measureElement}
+                    style={rowStyle(vItem.start, railed[vItem.index])}
                   >
                     <ToolCallGroup
                       messages={item.messages}
@@ -2922,7 +2970,7 @@ export default function Chat(): React.JSX.Element {
                     key={vItem.key}
                     data-index={vItem.index}
                     ref={virtualizer.measureElement}
-                    style={rowStyle(vItem.start)}
+                    style={rowStyle(vItem.start, railed[vItem.index])}
                   >
                     <div data-message-id={msg.id} className={`flex justify-end ${gap}`}>
                       <div className="max-w-[75%] w-full">
@@ -2946,7 +2994,7 @@ export default function Chat(): React.JSX.Element {
                   key={vItem.key}
                   data-index={vItem.index}
                   ref={virtualizer.measureElement}
-                  style={rowStyle(vItem.start)}
+                  style={rowStyle(vItem.start, railed[vItem.index])}
                 >
                   <div data-message-id={msg.id} className={gap}>
                     <MessageRow

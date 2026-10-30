@@ -11,6 +11,8 @@ export type TurnFold = {
   id: string
   /** The first message folded away: where the row goes. */
   first: string
+  /** The last one: where an opened turn's rail ends. */
+  last: string
   /** Prompt to reply, when both carry a time. */
   durationMs?: number
 }
@@ -46,6 +48,7 @@ export function turnFolds(
         const fold: TurnFold = {
           id: prompt.id,
           first: folded[0].id,
+          last: folded[folded.length - 1].id,
           ...(prompt.timestamp && reply.timestamp ? { durationMs: reply.timestamp - prompt.timestamp } : {})
         }
         for (const m of folded) byMessage.set(m.id, fold)

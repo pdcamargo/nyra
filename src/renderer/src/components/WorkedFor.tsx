@@ -1,5 +1,5 @@
 import React from 'react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, ChevronUp } from 'lucide-react'
 import { formatElapsed } from './ActivityStrip'
 
 /**
@@ -17,7 +17,8 @@ export default function WorkedFor({
   onToggle: () => void
 }): React.JSX.Element {
   return (
-    <div className="py-1">
+    // Closed, the rule is where the working ends and the reply begins.
+    <div className={open ? 'py-1' : 'mb-2 border-b border-border/50 pt-1 pb-1'}>
       <button
         onClick={onToggle}
         aria-expanded={open}
@@ -31,6 +32,24 @@ export default function WorkedFor({
           className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
         />
         <span className="flex-1" />
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Where an opened turn's working ends: the rail stops here, and the turn closes
+ * from the bottom without scrolling back up to its row.
+ */
+export function WorkedForEnd({ onClose }: { onClose: () => void }): React.JSX.Element {
+  return (
+    <div className="pt-1 pb-3">
+      <button
+        onClick={onClose}
+        className="-mx-1 flex items-center gap-2 rounded-sm px-1 py-1 text-left text-muted-foreground transition-colors hover:bg-muted/40"
+      >
+        <ChevronUp className="size-3 shrink-0" />
+        <span className="text-c-sm">Collapse</span>
       </button>
     </div>
   )

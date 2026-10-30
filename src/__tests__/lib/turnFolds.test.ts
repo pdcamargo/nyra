@@ -18,7 +18,7 @@ describe('turnFolds', () => {
   it('folds what came between the prompt and the closing reply, and times it', () => {
     const folds = turnFolds([user('u', 1000), tool('t1'), say('a1'), tool('t2'), say('end', 219_000)], false, never)
     expect([...folds.keys()]).toEqual(['t1', 'a1', 't2'])
-    expect(folds.get('a1')).toEqual({ id: 'u', first: 't1', durationMs: 218_000 })
+    expect(folds.get('a1')).toEqual({ id: 'u', first: 't1', last: 't2', durationMs: 218_000 })
   })
 
   it('leaves the running turn alone, but not the turns before it', () => {
