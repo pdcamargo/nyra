@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '1.1.4',
+    date: '2026-10-30',
     notes: [
       "Workspaces now get your skills, commands, agents, rules and CLAUDE.md from Default. They used to have none of them. They're links, so an edit in Default reaches every workspace. A workspace's own with the same name wins. Turn it off per workspace in Edit workspace",
       'When Claude needs an API key, token or password, it asks for it in a masked field in the composer instead of the chat. Nyra writes it to the project\'s .env, or a private file for a command-line tool, and Claude only hears where it went',
