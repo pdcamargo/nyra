@@ -136,4 +136,63 @@ describe('ImageLightbox', () => {
     })
     expect(useLightboxStore.getState().image).not.toBeNull()
   })
+
+  describe('zoom and pan', () => {
+    const scaleOf = (img: HTMLElement): number => Number(/scale\(([\d.]+)\)/.exec(img.style.transform)?.[1])
+
+    it('zooms in on a double-click and back out on the next', async () => {
+      const user = userEvent.setup()
+      render(<ImageLightbox />)
+      act(() => showImage(PIXEL, 'diagram.png'))
+      const img = screen.getByRole('img', { name: 'diagram.png' })
+
+      await user.dblClick(img)
+      expect(scaleOf(img)).toBe(2)
+      expect(screen.getByRole('button', { name: 'Reset zoom' })).toHaveTextContent('200%')
+      // Zooming is not a click beside the picture.
+      expect(useLightboxStore.getState().image).not.toBeNull()
+
+      await user.dblClick(img)
+      expect(scaleOf(img)).toBe(1)
+      expect(screen.queryByRole('button', { name: 'Reset zoom' })).toBeNull()
+    })
+
+    it('zooms with the wheel, never below fit', () => {
+      render(<ImageLightbox />)
+      act(() => showImage(PIXEL, 'diagram.png'))
+      const img = screen.getByRole('img', { name: 'diagram.png' })
+
+      act(() => void window.dispatchEvent(new WheelEvent('wheel', { deltaY: -400, cancelable: true })))
+      expect(scaleOf(img)).toBeGreaterThan(1)
+
+      act(() => void window.dispatchEvent(new WheelEvent('wheel', { deltaY: 4000, cancelable: true })))
+      expect(scaleOf(img)).toBe(1)
+    })
+
+    it('resets from the keyboard and from the zoom readout', async () => {
+      const user = userEvent.setup()
+      render(<ImageLightbox />)
+      act(() => showImage(PIXEL, 'diagram.png'))
+      const img = screen.getByRole('img', { name: 'diagram.png' })
+
+      act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: '+' })))
+      expect(scaleOf(img)).toBe(1.5)
+      act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: '0' })))
+      expect(scaleOf(img)).toBe(1)
+
+      await user.dblClick(img)
+      await user.click(screen.getByRole('button', { name: 'Reset zoom' }))
+      expect(scaleOf(img)).toBe(1)
+    })
+
+    it('opens the next image at fit', async () => {
+      const user = userEvent.setup()
+      render(<ImageLightbox />)
+      act(() => showImage(PIXEL, 'first.png'))
+      await user.dblClick(screen.getByRole('img', { name: 'first.png' }))
+
+      act(() => showImage('data:image/png;base64,AAAA', 'second.png'))
+      expect(scaleOf(screen.getByRole('img', { name: 'second.png' }))).toBe(1)
+    })
+  })
 })

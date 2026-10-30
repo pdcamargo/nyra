@@ -15,7 +15,9 @@ import {
 } from '../lib/openFile'
 import { useWorkflowStore } from '../store/workflow'
 import { useSettingsStore } from '../store/settings'
-import { Check, Copy, WrapText } from 'lucide-react'
+import { Check, Code, Copy, Maximize2, Workflow, WrapText } from 'lucide-react'
+import { cachedDiagram, diagramImageUrl, renderDiagram } from '../lib/mermaid'
+import { showImage } from '../store/lightbox'
 import { useResolvedTheme } from '../hooks/useResolvedTheme'
 import { useSessionsStore, activeCwd } from '../store/sessions'
 import { useResourceDockStore } from '../store/resourceDock'
@@ -98,7 +100,92 @@ const HIGHLIGHT_CACHE_LIMIT = 500
 const CODE_HEADER_FILL =
   'linear-gradient(color-mix(in oklab, var(--muted) 40%, transparent), color-mix(in oklab, var(--muted) 40%, transparent)), var(--code)'
 
-const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: string; code: string }): React.JSX.Element {
+/**
+ * The bar over a code block or diagram: what it is on the left, its actions on
+ * the right.
+ *
+ * Sticks to the top of the transcript while any of its block is on screen, and
+ * leaves with the block's last line. Opaque, since code scrolls under it: the
+ * muted tint is laid over the block's own fill.
+ */
+function BlockHeader({ label, children }: { label: React.ReactNode; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div
+      className="sticky top-0 z-10 flex items-center justify-between border-b border-border/55 py-1 pl-3 pr-2 select-none"
+      style={{ background: CODE_HEADER_FILL }}
+    >
+      <span className="text-c-xs text-muted-foreground font-mono">{label}</span>
+      {/* Icon-only, and the separation comes from each button's own padding
+          rather than a gap — the hit target and the spacing are then the same
+          thing, so they cannot drift apart. */}
+      <div className="-mr-1.5 flex items-center">{children}</div>
+    </div>
+  )
+}
+
+function HeaderButton({
+  label,
+  tooltip = label,
+  onClick,
+  pressed,
+  tone = 'text-muted-foreground hover:text-foreground',
+  children
+}: {
+  label: string
+  tooltip?: string
+  onClick: () => void
+  pressed?: boolean
+  tone?: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={onClick}
+          aria-pressed={pressed}
+          aria-label={label}
+          className={`rounded-md p-1.5 transition-colors hover:bg-accent/50 ${tone}`}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function CopyButton({ text, label = 'Copy code' }: { text: string; label?: string }): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = (): void => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <HeaderButton
+      label={copied ? 'Copied' : label}
+      onClick={handleCopy}
+      tone={copied ? 'text-success' : 'text-muted-foreground hover:text-foreground'}
+    >
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </HeaderButton>
+  )
+}
+
+const CodeBlock = React.memo(function CodeBlock({
+  language,
+  code,
+  label,
+  actions
+}: {
+  language: string
+  code: string
+  /** Shown in place of the language. */
+  label?: React.ReactNode
+  /** Extra header buttons, ahead of wrap and copy. */
+  actions?: React.ReactNode
+}): React.JSX.Element {
   const resolvedTheme = useResolvedTheme()
   const shikiTheme = resolvedTheme === 'light' ? THEME_LIGHT : THEME_DARK
   const named = language.toLowerCase()
@@ -106,7 +193,6 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
   const lang = ALL_LANGS.includes(wanted) ? wanted : 'text'
   const cacheKey = `${shikiTheme}\0${lang}\0${code}`
   const [html, setHtml] = useState(() => highlighted.get(cacheKey) ?? '')
-  const [copied, setCopied] = useState(false)
   // Every block's toggle sets the same preference. It used to be each block's
   // own state, and the transcript is virtualised: a block scrolled out and back
   // remounted unwrapped, so the choice never outlived a scroll.
@@ -134,60 +220,24 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
     })
   }, [cacheKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleCopy = (): void => {
-    navigator.clipboard.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
   return (
     // `overflow-clip` rather than `hidden`: both round the corners, but hidden
     // makes the block a scroll container, and a sticky header then sticks to
     // the block instead of to the transcript.
     <div data-theme-token="code" className="my-3 rounded-lg overflow-clip border border-border bg-code">
-      {/* Sticks to the top of the transcript while any of its block is on
-          screen, and leaves with the block's last line. Opaque, since code
-          scrolls under it: the muted tint is laid over the block's own fill. */}
-      <div
-        className="sticky top-0 z-10 flex items-center justify-between border-b border-border/55 py-1 pl-3 pr-2 select-none"
-        style={{ background: CODE_HEADER_FILL }}
-      >
-        <span className="text-c-xs text-muted-foreground font-mono">{language || 'code'}</span>
-        {/* Icon-only, and the separation comes from each button's own padding
-            rather than a gap — the hit target and the spacing are then the same
-            thing, so they cannot drift apart. */}
-        <div className="-mr-1.5 flex items-center">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setWrapped(!wrapped)}
-                aria-pressed={wrapped}
-                aria-label={wrapped ? 'Stop wrapping long lines' : 'Wrap long lines'}
-                className={`rounded-md p-1.5 transition-colors hover:bg-accent/50 ${
-                  wrapped ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <WrapText className="size-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{wrapped ? 'Stop wrapping — scroll long lines' : 'Wrap long lines'}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={handleCopy}
-                aria-label={copied ? 'Copied' : 'Copy code'}
-                className={`rounded-md p-1.5 transition-colors hover:bg-accent/50 ${
-                  copied ? 'text-success' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{copied ? 'Copied' : 'Copy code'}</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
+      <BlockHeader label={label ?? (language || 'code')}>
+        {actions}
+        <HeaderButton
+          label={wrapped ? 'Stop wrapping long lines' : 'Wrap long lines'}
+          tooltip={wrapped ? 'Stop wrapping — scroll long lines' : 'Wrap long lines'}
+          onClick={() => setWrapped(!wrapped)}
+          pressed={wrapped}
+          tone={wrapped ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}
+        >
+          <WrapText className="size-3.5" />
+        </HeaderButton>
+        <CopyButton text={code} />
+      </BlockHeader>
       {html ? (
         <div
           className={`[&>pre]:m-0 [&>pre]:p-4 [&>pre]:text-c-lg [&>pre]:leading-relaxed [&_code]:bg-transparent [&_code]:p-0 ${
@@ -210,11 +260,135 @@ const CodeBlock = React.memo(function CodeBlock({ language, code }: { language: 
   )
 })
 
+/**
+ * A ```mermaid fence, drawn as its diagram.
+ *
+ * Until the fence closes it stays source: half a flowchart either fails to parse
+ * or draws a different, smaller diagram, and re-laying it out on every token
+ * would jump the transcript the whole time Claude writes it. Source that never
+ * draws stays source too, labelled as such.
+ */
+const MermaidBlock = React.memo(function MermaidBlock({ code, open }: { code: string; open: boolean }): React.JSX.Element {
+  const theme = useResolvedTheme()
+  const [svg, setSvg] = useState(() => cachedDiagram(code, theme))
+  const [showSource, setShowSource] = useState(false)
+
+  useEffect(() => {
+    if (open) return
+    // Across a theme switch the old drawing stays up until the new one lands,
+    // rather than collapsing to a placeholder in between.
+    const hit = cachedDiagram(code, theme)
+    if (hit !== undefined) {
+      setSvg(hit)
+      return
+    }
+    let alive = true
+    void renderDiagram(code, theme).then((next) => {
+      if (alive) setSvg(next)
+    })
+    return () => {
+      alive = false
+    }
+  }, [code, theme, open])
+
+  if (open) return <CodeBlock language="mermaid" code={code} />
+  if (svg === null) {
+    return (
+      <CodeBlock
+        language="mermaid"
+        code={code}
+        label={
+          <>
+            mermaid <span className="text-warning">· couldn&apos;t draw this diagram</span>
+          </>
+        }
+      />
+    )
+  }
+  if (showSource) {
+    return (
+      <CodeBlock
+        language="mermaid"
+        code={code}
+        actions={
+          <HeaderButton label="Show diagram" onClick={() => setShowSource(false)}>
+            <Workflow className="size-3.5" />
+          </HeaderButton>
+        }
+      />
+    )
+  }
+
+  const enlarge = (): void => {
+    if (svg) showImage(diagramImageUrl(svg), 'Diagram')
+  }
+  return (
+    <div data-theme-token="code" className="my-3 rounded-lg overflow-clip border border-border bg-code">
+      <BlockHeader label="mermaid">
+        <HeaderButton label="Show source" onClick={() => setShowSource(true)}>
+          <Code className="size-3.5" />
+        </HeaderButton>
+        {svg && (
+          <HeaderButton label="Enlarge diagram" onClick={enlarge}>
+            <Maximize2 className="size-3.5" />
+          </HeaderButton>
+        )}
+        <CopyButton text={code} label="Copy source" />
+      </BlockHeader>
+      {svg ? (
+        <button
+          type="button"
+          aria-label="Enlarge diagram"
+          onClick={enlarge}
+          className="flex w-full cursor-zoom-in justify-center p-4 [&>svg]:h-auto"
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      ) : (
+        // Mermaid's first load takes a moment; hold some height meanwhile so
+        // the drawing landing nudges the row rather than snapping it.
+        <div className="h-40 animate-pulse bg-muted/40" />
+      )}
+    </div>
+  )
+})
+
+type MdNode = {
+  type: string
+  lang?: string | null
+  position?: { start: { offset?: number }; end: { offset?: number } }
+  data?: { hProperties?: Record<string, unknown> }
+  children?: MdNode[]
+}
+
+/**
+ * Flags a ```mermaid fence that has not been closed yet, as `data-open` on its
+ * `code` element. Markdown treats an unclosed fence as running to the end of the
+ * text, so from the tree alone a fence still streaming in and a finished one look
+ * the same — only the source shows whether the closing line has arrived.
+ */
+function remarkOpenFences(): (tree: unknown, file: { value: unknown }) => void {
+  return (tree, file) => {
+    const source = String(file.value)
+    const visit = (node: MdNode): void => {
+      if (node.type === 'code' && node.lang === 'mermaid' && node.position) {
+        const lines = source.slice(node.position.start.offset, node.position.end.offset).trimStart().split('\n')
+        const opening = /^(`{3,}|~{3,})/.exec(lines[0])?.[1] ?? '```'
+        // In a quote or a list the closing line keeps its container's prefix.
+        const last = lines[lines.length - 1].replace(/^[\s>]*/, '').trimEnd()
+        const closed = lines.length > 1 && /^(`{3,}|~{3,})$/.test(last) && last[0] === opening[0] && last.length >= opening.length
+        if (!closed) node.data = { ...node.data, hProperties: { ...node.data?.hProperties, dataOpen: true } }
+      }
+      node.children?.forEach(visit)
+    }
+    visit(tree as MdNode)
+  }
+}
+
 type RemarkPlugins = React.ComponentProps<typeof ReactMarkdown>['remarkPlugins']
 
-const remarkPlugins = [remarkGfm] as RemarkPlugins
+const remarkPlugins = [remarkGfm, remarkOpenFences] as RemarkPlugins
 /** What a message you wrote is parsed with. See `promptMarkdown`. */
-const promptPlugins = [remarkGfm, remarkPromptDecorations] as RemarkPlugins
+const promptPlugins = [remarkGfm, remarkOpenFences, remarkPromptDecorations] as RemarkPlugins
 
 // Matches file paths: must contain /, end with .ext, no spaces
 const FILE_PATH_RE = /^\.{0,2}\/\S+\.\w+$/
@@ -624,6 +798,9 @@ function MarkdownRendererInner({
         )
       }
 
+      if (match?.[1] === 'mermaid') {
+        return <MermaidBlock code={code} open={'data-open' in props} />
+      }
       return <CodeBlock language={match?.[1] ?? ''} code={code} />
     },
     h1({ children }: { children: React.ReactNode }) {

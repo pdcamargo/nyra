@@ -1117,6 +1117,20 @@ fn image_convention_for(cwd: &str) -> &'static str {
     }
 }
 
+/// The renderer draws a ```mermaid fence as its diagram; see `lib/mermaid.ts`.
+/// Without this the model rarely reaches for one, and when it does it writes
+/// labels with bare parentheses, which do not parse — the user then sees source.
+///
+/// Narrow for the same reason as the image convention: a diagram drawn where a
+/// list would have done costs a screen of transcript.
+const MERMAID_CONVENTION: &str = concat!(
+    "\n\nNyra draws ```mermaid fenced blocks as diagrams. Use one when the shape is the ",
+    "point — a flow with branches, calls between services in order, a state machine, ",
+    "how tables relate — and not for something a list says as well. Keep labels short, ",
+    "and quote any label holding parentheses, brackets or other punctuation, as in ",
+    "`A[\"Load (cached)\"]`: an unquoted one does not parse, and the user sees the source instead."
+);
+
 /// Also taught to every session, and for the same reason: `TodoWrite`,
 /// `TaskCreate` and the rest do not exist in the headless CLI either, so the
 /// handlers Nyra already had for them could never fire. The renderer parses this
@@ -1295,6 +1309,7 @@ pub(crate) fn compose_system_prompt_for(
     parts.push(&cwd_line);
     parts.push(ASK_CONVENTION);
     parts.push(image_convention_for(cwd));
+    parts.push(MERMAID_CONVENTION);
     parts.push(TASKS_CONVENTION);
     parts.push(CHANGES_CONVENTION);
     if has_browser {
