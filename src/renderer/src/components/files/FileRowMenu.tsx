@@ -27,12 +27,15 @@ export default function FileRowMenu({
   root,
   path,
   isDir,
+  linked = false,
   className,
   children
 }: {
   root: string
   path: string
   isDir: boolean
+  /** Under one of the project's linked folders rather than the chat's own. */
+  linked?: boolean
   className?: string
   children: React.ReactNode
 }): React.JSX.Element {
@@ -82,7 +85,9 @@ export default function FileRowMenu({
             onSelect={() => {
               // The same text the @-mention autocomplete produces, so the
               // composer's existing decoration chips it with no change at all.
-              useUiStore.getState().prefillInput(`@${relative}`)
+              // A linked folder's file goes whole: relative to the chat's own
+              // directory it would name nothing.
+              useUiStore.getState().prefillInput(`@${linked ? path : relative}`)
             }}
           >
             <MessageSquare />

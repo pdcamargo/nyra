@@ -10,7 +10,7 @@ import { DEFAULT_WORKSPACE_ID, activeWorkspaceId, configDirOf } from './workspac
 import type { ConfigDir } from '../lib/api-types'
 import { homedir } from '../lib/homedir'
 import { samePath } from '../lib/paths'
-import type { NyraSettings, Provider } from '../../../shared/types'
+import type { LinkedFolder, NyraSettings, Provider } from '../../../shared/types'
 import { useTerminalsStore } from './terminals'
 import { useResourceDockStore } from './resourceDock'
 import type { ChangeBlock } from '../lib/changeBlocks'
@@ -330,6 +330,10 @@ export type Project = {
   /** The workspace — the Claude account — this project's chats, terminals and
    *  flows run under. Moving a project moves all of them. */
   workspaceId: string
+  /** Folders beyond `path` that belong to the project. Its chats still start
+   *  in `path`; these are added to the agent's reach and to the Files tab,
+   *  quick-open and @. Unset is none. */
+  linkedFolders?: LinkedFolder[]
 }
 
 export type ProjectAppearance = Partial<Pick<Project, 'icon' | 'color' | 'wash' | 'rail'>>
@@ -569,6 +573,8 @@ type SessionsStore = {
   setProjectPath: (projectId: string, path: string) => void
   /** An `undefined` field is removed, so going back to a default leaves nothing behind. */
   setProjectAppearance: (projectId: string, patch: ProjectAppearance) => void
+  /** The whole list, in order. An empty one clears the field. */
+  setProjectLinkedFolders: (projectId: string, folders: LinkedFolder[]) => void
   removeProject: (projectId: string) => void
   setProjectCollapsed: (projectId: string, collapsed: boolean) => void
   setProjectChatSort: (projectId: string, sort: ChatSort) => void
@@ -814,6 +820,16 @@ export const useSessionsStore = create<SessionsStore>()(
             if (s.projectId !== projectId || s.worktree) return s
             const project = state.projects.find((p) => p.id === projectId)
             return project && s.cwd === project.path ? { ...s, cwd: path } : s
+          })
+        }))
+      },
+
+      setProjectLinkedFolders: (projectId: string, folders: LinkedFolder[]) => {
+        set((state) => ({
+          projects: state.projects.map((p) => {
+            if (p.id !== projectId) return p
+            const { linkedFolders: _old, ...rest } = p
+            return folders.length > 0 ? { ...rest, linkedFolders: folders } : rest
           })
         }))
       },
@@ -1908,6 +1924,12 @@ export function findProject(state: SessionsStore, projectId: string | null | und
 
 export function projectForSession(state: SessionsStore, sessionId: string | null | undefined): Project | null {
   return findProject(state, findSession(state, sessionId)?.projectId)
+}
+
+/** The chat's project's linked folders, as stored — a stable reference, so it
+ *  is safe to select directly. */
+export function linkedFoldersForSession(state: SessionsStore, sessionId: string | null | undefined): LinkedFolder[] | undefined {
+  return projectForSession(state, sessionId)?.linkedFolders
 }
 
 export function activeProject(state: SessionsStore): Project | null {

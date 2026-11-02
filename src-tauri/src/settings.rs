@@ -136,6 +136,18 @@ pub struct SpawnSettings {
     /// transcripts. `None` is Default, which sets nothing. Part of the spawn
     /// fingerprint, so a chat whose project moved respawns under the new account.
     pub config_dir: Option<String>,
+    /// The project's other folders, beyond the one the chat runs in. Each is
+    /// passed as `--add-dir` and named in the system prompt with its note.
+    pub linked_folders: Vec<LinkedFolder>,
+}
+
+/// A folder linked to a project, and what the user wants the agent to know
+/// about it. `note` is empty when they said nothing.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LinkedFolder {
+    pub path: String,
+    pub note: String,
 }
 
 impl Default for SpawnSettings {
@@ -151,6 +163,7 @@ impl Default for SpawnSettings {
             skip_permissions: false,
             auto_approve_tools: Vec::new(),
             config_dir: None,
+            linked_folders: Vec::new(),
         }
     }
 }
@@ -171,6 +184,7 @@ impl NyraSettings {
             skip_permissions: self.skip_permissions,
             auto_approve_tools: self.auto_approve_tools.clone(),
             config_dir: None,
+            linked_folders: Vec::new(),
         }
     }
 }

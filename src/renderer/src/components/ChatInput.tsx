@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
-import { useSessionsStore, providerSessionId, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, type MessageContext, queueOf, createSiblingSession, newMessageId } from '../store/sessions'
+import { useSessionsStore, linkedFoldersForSession, providerSessionId, configDirForSession, workspaceIdForSession, type ImageAttachment, type FileAttachment, type TextMessage, type QueuedMessage, type MessageContext, queueOf, createSiblingSession, newMessageId } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { useUiStore } from '../store/ui'
 import { forkChat } from '../lib/fork'
@@ -7,6 +7,7 @@ import SlashAutocomplete, { useSlashItems, type AutocompleteItem } from './Slash
 import { openLogin } from '../lib/workspaces'
 import ZoomableImage from './ZoomableImage'
 import AtMentionAutocomplete, { useAtMentionItems, type MentionItem } from './AtMentionAutocomplete'
+import { folderRoots } from '../lib/folderRoots'
 import ComposerBar from './ComposerBar'
 import NewChatEnvironment from './NewChatEnvironment'
 import AttachmentStrip from './AttachmentStrip'
@@ -373,7 +374,9 @@ export default function ChatInput({
   useEffect(() => {
     if (mentionQuery === null) setMentionEverything(false)
   }, [mentionQuery])
-  const fsMentionItems = useAtMentionItems(mentionQuery, cwd, mentionEverything)
+  const linkedFolders = useSessionsStore((s) => linkedFoldersForSession(s, s.activeSessionId))
+  const linkedRoots = useMemo(() => folderRoots(cwd, linkedFolders).filter((r) => !r.main), [cwd, linkedFolders])
+  const fsMentionItems = useAtMentionItems(mentionQuery, cwd, mentionEverything, linkedRoots)
   const sessionAgents = useSessionsStore((s) => {
     const session = s.sessions.find((sess) => sess.id === s.activeSessionId)
     return session?.agents ?? EMPTY_AGENTS

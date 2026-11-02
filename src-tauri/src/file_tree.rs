@@ -299,14 +299,63 @@ async fn git_listed_files(cwd: &str) -> Option<Vec<u8>> {
     }
 }
 
+/// Past this a folder outside git is not walked any further.
+const WALK_LIMIT: usize = 20_000;
+
+/// Every file under `root` when it is not a repository, in `git ls-files`'s
+/// shape: relative, forward slashes, NUL-separated.
+///
+/// A project's linked folder need not be a checkout — a folder of brand assets
+/// is not — and without this quick-open and the tree's filter find nothing in
+/// it. Hidden entries and `node_modules` are skipped, as .gitignore would
+/// usually have them, and the walk stops at a count and a deadline rather than
+/// trusting whatever folder it was given to be small.
+async fn walked_files(root: &str) -> Vec<u8> {
+    let root = std::path::PathBuf::from(root);
+    tokio::task::spawn_blocking(move || {
+        let deadline = std::time::Instant::now() + GIT_TIMEOUT;
+        let mut out = Vec::new();
+        let mut count = 0;
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(read) = std::fs::read_dir(&dir) else { continue };
+            for entry in read.flatten() {
+                if count >= WALK_LIMIT || std::time::Instant::now() > deadline {
+                    return out;
+                }
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with('.') || name == "node_modules" {
+                    continue;
+                }
+                let path = entry.path();
+                // Not followed through symlinks, so a link to `/` stays a link.
+                let Ok(kind) = entry.file_type() else { continue };
+                if kind.is_dir() {
+                    stack.push(path);
+                } else if let Ok(rel) = path.strip_prefix(&root) {
+                    let rel: Vec<_> = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+                    out.extend_from_slice(rel.join("/").as_bytes());
+                    out.push(0);
+                    count += 1;
+                }
+            }
+        }
+        out
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// Every tracked-or-untracked path under `cwd`, alphabetically.
 ///
 /// Quick-open opens on this rather than on an empty list: before you have typed
 /// anything, "the files in this project" is the most useful answer available,
 /// and it is also how you find out the picker is working at all.
 pub async fn list_files(cwd: &str, limit: usize) -> FileListResult {
-    let Some(listed) = git_listed_files(cwd).await else {
-        return FileListResult { paths: Vec::new(), truncated: false, is_repo: false };
+    let (listed, is_repo) = match git_listed_files(cwd).await {
+        Some(listed) => (listed, true),
+        None => (walked_files(cwd).await, false),
     };
 
     let text = String::from_utf8_lossy(&listed);
@@ -317,7 +366,7 @@ pub async fn list_files(cwd: &str, limit: usize) -> FileListResult {
     FileListResult {
         paths: paths.into_iter().take(limit).map(str::to_string).collect(),
         truncated,
-        is_repo: true,
+        is_repo,
     }
 }
 
@@ -328,8 +377,9 @@ pub async fn search_tree(cwd: &str, query: &str, limit: usize) -> TreeSearchResu
         return TreeSearchResult { paths: Vec::new(), truncated: false };
     }
 
-    let Some(listed) = git_listed_files(cwd).await else {
-        return TreeSearchResult { paths: Vec::new(), truncated: false };
+    let listed = match git_listed_files(cwd).await {
+        Some(listed) => listed,
+        None => walked_files(cwd).await,
     };
 
     let text = String::from_utf8_lossy(&listed);
@@ -679,6 +729,25 @@ mod tests {
 
         assert!(!listed.is_repo);
         assert!(listed.paths.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_folder_outside_git_is_walked_instead() {
+        let dir = std::env::temp_dir().join(format!("nyra-walk-{}", crate::util::rand_suffix(6)));
+        std::fs::create_dir_all(dir.join("logos/final")).unwrap();
+        std::fs::create_dir_all(dir.join("node_modules/x")).unwrap();
+        std::fs::write(dir.join("logos/final/mark.svg"), "x").unwrap();
+        std::fs::write(dir.join("node_modules/x/index.js"), "x").unwrap();
+        std::fs::write(dir.join(".DS_Store"), "x").unwrap();
+
+        let listed = list_files(dir.to_str().unwrap(), 100).await;
+        assert!(!listed.is_repo);
+        assert_eq!(listed.paths, vec!["logos/final/mark.svg".to_string()]);
+
+        let found = search_tree(dir.to_str().unwrap(), "mark", 10).await;
+        assert_eq!(found.paths, vec!["logos/final/mark.svg".to_string()]);
 
         std::fs::remove_dir_all(&dir).ok();
     }

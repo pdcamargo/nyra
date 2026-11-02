@@ -10,10 +10,11 @@ import {
   CommandList
 } from './ui/command'
 import { useUiStore } from '../store/ui'
-import { useSessionsStore, activeCwd, activeProjectCwd } from '../store/sessions'
+import { useSessionsStore, activeCwd, activeProject, activeProjectCwd } from '../store/sessions'
 import { openFileInPanel } from '../lib/openFile'
 import { fuzzyFilter, highlightSegments } from '../lib/fuzzy'
-import { basename } from '../lib/paths'
+import { basename, joinPath } from '../lib/paths'
+import { folderRoots, type FolderRoot } from '../lib/folderRoots'
 
 /**
  * Go to a file by typing part of its name.
@@ -34,6 +35,16 @@ import { basename } from '../lib/paths'
  * in a repository full of files.
  */
 const MAX_ROWS = 50
+
+/** A file and the folder it was listed under; `path` is relative to it. */
+type Entry = { root: FolderRoot; path: string }
+
+/** `design-system/colors` searches only that linked folder, for `colors`. */
+function scopeOf(roots: FolderRoot[], query: string): { root: FolderRoot; query: string } | null {
+  const q = query.trimStart().toLowerCase()
+  const root = roots.find((r) => !r.main && q.startsWith(`${r.name.toLowerCase()}/`))
+  return root ? { root, query: query.trimStart().slice(root.name.length + 1) } : null
+}
 
 /** The filename, bolded where the query hit; the directory stays quiet behind it. */
 function Row({ path, positions }: { path: string; positions: number[] }): React.JSX.Element {
@@ -71,7 +82,8 @@ export default function QuickOpen(): React.JSX.Element {
   const open = useUiStore((s) => s.quickOpenOpen)
   const closeQuickOpen = useUiStore((s) => s.closeQuickOpen)
   const [query, setQuery] = useState('')
-  const [paths, setPaths] = useState<string[]>([])
+  const [roots, setRoots] = useState<FolderRoot[]>([])
+  const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(false)
   const [truncated, setTruncated] = useState(false)
   const [isRepo, setIsRepo] = useState(true)
@@ -88,40 +100,55 @@ export default function QuickOpen(): React.JSX.Element {
     // should still find the project's files rather than nothing at all.
     const state = useSessionsStore.getState()
     const cwd = activeCwd(state) || activeProjectCwd(state)
+    // Every folder of the project, the chat's own first so its files lead
+    // the unfiltered list.
+    const found = folderRoots(cwd, activeProject(state)?.linkedFolders)
+    setRoots(found)
     if (!cwd) {
-      setPaths([])
+      setEntries([])
       setIsRepo(false)
       return
     }
     setLoading(true)
     // `git ls-files --cached --others --exclude-standard`, so .gitignore is
-    // already applied and untracked files are in.
-    void window.api.fs
-      .listProjectFiles(cwd, 20000)
-      .then((res) => {
+    // already applied and untracked files are in. A folder outside git is
+    // walked instead.
+    void Promise.all(
+      found.map((root) =>
+        window.api.fs
+          .listProjectFiles(root.path, 20000)
+          .then((res) => ({ root, res }))
+          .catch(() => ({ root, res: { paths: [], truncated: false, isRepo: false } }))
+      )
+    )
+      .then((lists) => {
         if (run !== runRef.current) return
-        setPaths(res.paths)
-        setTruncated(res.truncated)
-        setIsRepo(res.isRepo)
-      })
-      .catch(() => {
-        if (run === runRef.current) {
-          setPaths([])
-          setIsRepo(false)
-        }
+        setEntries(lists.flatMap(({ root, res }) => res.paths.map((path) => ({ root, path }))))
+        setTruncated(lists.some(({ res }) => res.truncated))
+        setIsRepo(lists[0]?.res.isRepo ?? false)
       })
       .finally(() => {
         if (run === runRef.current) setLoading(false)
       })
   }, [open])
 
+  const scope = useMemo(() => scopeOf(roots, query), [roots, query])
   const results = useMemo(
-    () => fuzzyFilter(paths, query, (p) => p, MAX_ROWS),
-    [paths, query]
+    () =>
+      fuzzyFilter(
+        scope ? entries.filter((e) => e.root === scope.root) : entries,
+        scope ? scope.query : query,
+        (e) => e.path,
+        MAX_ROWS
+      ),
+    [entries, query, scope]
   )
 
-  const choose = (path: string) => (): void => {
+  const choose = (entry: Entry) => (): void => {
     closeQuickOpen()
+    // The chat's own files stay relative, as they always were; a linked
+    // folder's are only meaningful whole.
+    const path = entry.root.main ? entry.path : joinPath(entry.root.path, entry.path)
     // Let the dialog unmount before the panel takes focus.
     setTimeout(() => openFileInPanel(path), 0)
   }
@@ -150,9 +177,9 @@ export default function QuickOpen(): React.JSX.Element {
           <CommandEmpty>
             {loading
               ? 'Reading files…'
-              : !isRepo
+              : entries.length === 0 && !isRepo
                 ? 'Quick-open lists files from git, and this folder is not a repository.'
-                : paths.length === 0
+                : entries.length === 0
                   ? 'This project has no files yet.'
                   : `Nothing matches “${query}”.`}
           </CommandEmpty>
@@ -163,9 +190,18 @@ export default function QuickOpen(): React.JSX.Element {
               and the arrow keys had no current row to move from. */}
           <CommandGroup>
             {results.map(({ item, positions }) => (
-              <CommandItem key={item} value={item} onSelect={choose(item)}>
+              <CommandItem
+                key={`${item.root.path}\0${item.path}`}
+                value={`${item.root.path}\0${item.path}`}
+                onSelect={choose(item)}
+              >
                 <FileText className="size-4 shrink-0 text-muted-foreground" />
-                <Row path={item} positions={positions} />
+                <Row path={item.path} positions={positions} />
+                {!item.root.main && (
+                  <span className="shrink-0 rounded-sm bg-muted px-1.5 font-mono text-c-sm text-muted-foreground">
+                    {item.root.name}
+                  </span>
+                )}
               </CommandItem>
             ))}
           </CommandGroup>
@@ -174,10 +210,23 @@ export default function QuickOpen(): React.JSX.Element {
               the file you want may genuinely not be in the list. */}
           {truncated && (
             <p className="px-3 py-2 text-c-sm text-muted-foreground">
-              Showing the first 20,000 files in this project.
+              Showing the first 20,000 files in each folder.
             </p>
           )}
         </CommandList>
+        {roots.length > 1 && (
+          <p className="border-t border-border/55 px-3 py-2 text-c-sm text-muted-foreground">
+            {scope ? (
+              <>Searching {scope.root.name} only</>
+            ) : (
+              <>
+                Start with{' '}
+                <span className="font-mono text-foreground">{roots.find((r) => !r.main)?.name}/</span> to search one
+                folder
+              </>
+            )}
+          </p>
+        )}
       </Command>
     </CommandDialog>
   )

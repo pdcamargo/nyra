@@ -1,5 +1,5 @@
 import { spawnSettingsFor, type SpawnSettings } from '@shared/types'
-import { configDirForSession, useSessionsStore } from '../store/sessions'
+import { configDirForSession, linkedFoldersForSession, useSessionsStore } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
 import { capabilitiesOf } from './providers'
 
@@ -18,6 +18,7 @@ export function spawnSettingsForSession(sessionId: string): SpawnSettings {
   // so a chat whose project moved respawns under the new account on this send.
   const base = spawnSettingsFor(useSettingsStore.getState(), configDirForSession(useSessionsStore.getState(), sessionId))
   const session = useSessionsStore.getState().sessions.find((s) => s.id === sessionId)
+  const linkedFolders = linkedFoldersForSession(useSessionsStore.getState(), sessionId)
 
   // Plan mode, model and effort are per-conversation, falling back to the
   // defaults in Settings. They used to be global, so changing one in a chat
@@ -28,7 +29,9 @@ export function spawnSettingsForSession(sessionId: string): SpawnSettings {
     // Plan mode is Claude's; a chat that moved off it does not carry it along.
     planMode: capabilitiesOf(session).planMode && (session?.planMode ?? base.planMode),
     model: session?.model ?? base.model,
-    effort: session?.effort ?? base.effort
+    effort: session?.effort ?? base.effort,
+    // The project's, so linking a folder reaches its chats on their next send.
+    ...(linkedFolders?.length ? { linkedFolders } : {})
   }
 
   if (!session?.autoAcceptEdits) return resolved

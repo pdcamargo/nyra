@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react'
-import { Folder, FolderOpen, Plus, Slash } from 'lucide-react'
+import { FolderOpen, Plus, Slash } from 'lucide-react'
 import { useSessionsStore, type Project, type ProjectAppearance } from '../store/sessions'
 import {
   PROJECT_ICONS,
@@ -9,6 +9,7 @@ import {
   tintColor
 } from '../lib/project-appearance'
 import { Input } from './ui/input'
+import ProjectFolders from './ProjectFolders'
 import { Toggle } from './settings/primitives'
 import { useSettingsStore } from '../store/settings'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
@@ -44,7 +45,7 @@ const ICON_LABELS: Record<string, string> = {
 const CUSTOM_SEED = '#b45309'
 
 /**
- * A project's name, folder and look, opened from Settings… in its menu.
+ * A project's name, folders and look, opened from Settings… in its menu.
  *
  * Every change applies as it is made — there is no Save. The name is the one
  * exception to "as it is made": an empty one is not committed, and blurring the
@@ -89,23 +90,9 @@ export default function ProjectSettings({ project }: { project: Project }): Reac
         />
       </div>
 
-      <div className="flex items-center gap-2 px-1">
-        <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[0.85em] text-muted-foreground" title={project.path}>
-          {project.path}
-        </span>
-        <button
-          type="button"
-          className="shrink-0 text-[0.92em] font-medium text-info hover:underline"
-          onClick={() =>
-            void window.api.dialog.pickFolder().then((folder) => {
-              if (folder) store().setProjectPath(project.id, folder)
-            })
-          }
-        >
-          Change…
-        </button>
-      </div>
+      <Divider />
+
+      <ProjectFolders project={project} />
 
       <Divider />
 

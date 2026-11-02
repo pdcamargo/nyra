@@ -31,7 +31,7 @@ use crate::environment::Environment;
 use crate::notify_user::notify;
 use crate::platform;
 use crate::processes;
-use crate::settings::SpawnSettings;
+use crate::settings::{LinkedFolder, SpawnSettings};
 use crate::subagents;
 use crate::util;
 
@@ -1276,8 +1276,9 @@ fn compose_system_prompt(
     has_browser: bool,
     has_app: bool,
     has_desktop: bool,
+    linked: &[LinkedFolder],
 ) -> String {
-    compose_system_prompt_for(agent::Provider::Claude, cwd, user_prompt, has_browser, has_app, has_desktop)
+    compose_system_prompt_for(agent::Provider::Claude, cwd, user_prompt, has_browser, has_app, has_desktop, linked)
 }
 
 /// What Nyra teaches whichever CLI runs the chat: the same conventions for
@@ -1289,6 +1290,7 @@ pub(crate) fn compose_system_prompt_for(
     has_browser: bool,
     has_app: bool,
     has_desktop: bool,
+    linked: &[LinkedFolder],
 ) -> String {
     let host = format!(
         "You are running inside Nyra, a desktop GUI for {}.",
@@ -1307,6 +1309,10 @@ pub(crate) fn compose_system_prompt_for(
         "The current working directory is: {cwd}. When the user says \"your directory\" or \"this directory\", they mean this path."
     );
     parts.push(&cwd_line);
+    let linked_note = linked_folders_note(linked);
+    if let Some(note) = &linked_note {
+        parts.push(note);
+    }
     parts.push(ASK_CONVENTION);
     parts.push(image_convention_for(cwd));
     parts.push(MERMAID_CONVENTION);
@@ -1334,6 +1340,32 @@ pub(crate) fn compose_system_prompt_for(
     } else {
         format!("{nyra}\n\n{user_prompt}")
     }
+}
+
+/// The project's other folders, each with the note the user left for it.
+///
+/// Right after the working directory, because it qualifies it: without this a
+/// session told about one directory treats a path in another as somewhere it
+/// has no business, even when `--add-dir` let it in.
+fn linked_folders_note(linked: &[LinkedFolder]) -> Option<String> {
+    if linked.is_empty() {
+        return None;
+    }
+    let lines = linked
+        .iter()
+        .map(|f| {
+            let note = f.note.trim();
+            if note.is_empty() {
+                format!("- {}", f.path)
+            } else {
+                format!("- {}: {}", f.path, note.split_whitespace().collect::<Vec<_>>().join(" "))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(format!(
+        "\n\nThis project spans more than one folder. You were started in the working directory above, and these linked folders are part of the project too; you can read and work in them, and paths the user mentions may point into them:\n{lines}\n"
+    ))
 }
 
 /// One line naming the project's design systems, so Claude designs and builds
@@ -1411,15 +1443,29 @@ fn build_spawn_args(
 
     // The directory as the session itself sees it — `/home/me/repo` in WSL,
     // which is what every path it prints will be relative to.
+    // Linked folders as the session sees them, for the same reason as the cwd.
+    // One that has gone missing is left out rather than handed to the CLI,
+    // which would refuse it, and to the model, which would go looking.
+    let linked: Vec<LinkedFolder> = settings
+        .linked_folders
+        .iter()
+        .filter(|f| std::path::Path::new(&f.path).is_dir())
+        .map(|f| LinkedFolder { path: env.cwd_in_env(&f.path), note: f.note.clone() })
+        .collect();
     let full_system_prompt = compose_system_prompt(
         &env.cwd_in_env(cwd),
         &settings.system_prompt,
         browser_mcp.is_some(),
         app_mcp.is_some(),
         desktop_mcp.is_some(),
+        &linked,
     );
     args.push("--append-system-prompt".into());
     args.push(full_system_prompt);
+    for folder in &linked {
+        args.push("--add-dir".into());
+        args.push(folder.path.clone());
+    }
 
     if !settings.effort.is_empty() {
         args.push("--effort".into());
@@ -1500,7 +1546,8 @@ fn build_spawn_args(
         settings.plan_mode,
         settings.system_prompt,
         worktree_name,
-        settings.config_dir
+        settings.config_dir,
+        settings.linked_folders
     ])
     .to_string();
 
@@ -3644,6 +3691,42 @@ mod tests {
     }
 
     #[test]
+    fn linked_folders_are_added_dirs_named_in_the_prompt_with_their_notes() {
+        let base = std::env::temp_dir().join(format!("nyra-linked-{}", util::rand_suffix(6)));
+        let design = base.join("design");
+        let docs = base.join("docs");
+        std::fs::create_dir_all(&design).unwrap();
+        std::fs::create_dir_all(&docs).unwrap();
+        let (design, docs) = (design.to_string_lossy().into_owned(), docs.to_string_lossy().into_owned());
+        let gone = base.join("gone").to_string_lossy().into_owned();
+        let s = SpawnSettings {
+            linked_folders: vec![
+                LinkedFolder { path: design.clone(), note: "Read only.\n  Another team owns it.".into() },
+                LinkedFolder { path: docs.clone(), note: String::new() },
+                LinkedFolder { path: gone.clone(), note: String::new() },
+            ],
+            ..SpawnSettings::default()
+        };
+        let (args, fp) = build_spawn_args("/tmp/x", &s, None, None, None, None);
+        assert!(args.windows(2).any(|w| w == ["--add-dir", design.as_str()]));
+        assert!(args.windows(2).any(|w| w == ["--add-dir", docs.as_str()]));
+        let prompt = args.windows(2).find(|w| w[0] == "--append-system-prompt").unwrap()[1].clone();
+        assert!(prompt.contains(&format!("- {design}: Read only. Another team owns it.\n")), "{prompt}");
+        assert!(prompt.contains(&format!("- {docs}\n")), "{prompt}");
+        // A folder that has gone is neither added nor mentioned.
+        assert!(!args.iter().any(|a| a == &gone));
+        assert!(!prompt.contains(&gone), "{prompt}");
+        std::fs::remove_dir_all(&base).ok();
+
+        // Linking or unlinking one respawns the chat, so its next turn knows.
+        let (plain_args, plain_fp) = build_spawn_args("/tmp/x", &SpawnSettings::default(), None, None, None, None);
+        assert_ne!(fp, plain_fp);
+        assert!(!plain_args.iter().any(|a| a == "--add-dir"));
+        let plain_prompt = plain_args.windows(2).find(|w| w[0] == "--append-system-prompt").unwrap()[1].clone();
+        assert!(!plain_prompt.contains("more than one folder"));
+    }
+
+    #[test]
     fn a_wsl_session_is_told_its_linux_directory_on_the_same_argv_shape() {
         let s = SpawnSettings::default();
         let cwd = r"\\wsl.localhost\Ubuntu\home\me\repo";
@@ -4123,8 +4206,8 @@ mod tests {
 
     #[test]
     fn the_browser_is_only_taught_to_a_session_that_has_one() {
-        let with = compose_system_prompt("/tmp/x", "", true, false, false);
-        let without = compose_system_prompt("/tmp/x", "", false, false, false);
+        let with = compose_system_prompt("/tmp/x", "", true, false, false, &[]);
+        let without = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
 
         assert!(with.contains("This conversation has a real browser"));
         // The failure that matters: a session with no browser tools must not be
@@ -4158,9 +4241,9 @@ mod tests {
 
     #[test]
     fn a_windows_session_is_shown_a_drive_letter_image_path() {
-        let windows = compose_system_prompt(r"C:\Users\me\repo", "", false, false, false);
-        let forward = compose_system_prompt("C:/Users/me/repo", "", false, false, false);
-        let wsl = compose_system_prompt("/home/me/repo", "", false, false, false);
+        let windows = compose_system_prompt(r"C:\Users\me\repo", "", false, false, false, &[]);
+        let forward = compose_system_prompt("C:/Users/me/repo", "", false, false, false, &[]);
+        let wsl = compose_system_prompt("/home/me/repo", "", false, false, false, &[]);
 
         for prompt in [&windows, &forward] {
             assert!(prompt.contains("![alt](C:/absolute/path.png)"));
@@ -4176,8 +4259,8 @@ mod tests {
     /// tools that do not exist and report changes that never happened.
     #[test]
     fn the_app_tools_are_only_taught_to_a_session_that_has_them() {
-        let with = compose_system_prompt("/tmp/x", "", false, true, false);
-        let without = compose_system_prompt("/tmp/x", "", false, false, false);
+        let with = compose_system_prompt("/tmp/x", "", false, true, false, &[]);
+        let without = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
 
         for name in ["nyra_ui", "nyra_flow", "nyra_update"] {
             assert!(with.contains(name), "{name} missing when attached");
@@ -4226,9 +4309,9 @@ mod tests {
 
     #[test]
     fn the_app_convention_stays_inside_its_budget() {
-        let base = compose_system_prompt("/tmp/x", "", false, false, false);
-        let with_app = compose_system_prompt("/tmp/x", "", false, true, false);
-        let with_both = compose_system_prompt("/tmp/x", "", true, true, false);
+        let base = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
+        let with_app = compose_system_prompt("/tmp/x", "", false, true, false, &[]);
+        let with_both = compose_system_prompt("/tmp/x", "", true, true, false, &[]);
 
         let added = with_app.len() - base.len();
         // ~4 chars a token is close enough for a budget, and stable.
@@ -4247,8 +4330,8 @@ mod tests {
     /// off silently takes the app tools with it.
     #[test]
     fn the_browser_and_the_app_are_taught_independently() {
-        let app_only = compose_system_prompt("/tmp/x", "", false, true, false);
-        let browser_only = compose_system_prompt("/tmp/x", "", true, false, false);
+        let app_only = compose_system_prompt("/tmp/x", "", false, true, false, &[]);
+        let browser_only = compose_system_prompt("/tmp/x", "", true, false, false, &[]);
 
         assert!(app_only.contains("nyra_ui"));
         assert!(!app_only.contains("browser_device"));
@@ -4261,8 +4344,8 @@ mod tests {
     /// never think to. And the shared conventions must survive either way.
     #[test]
     fn the_desktop_tools_are_only_taught_to_a_session_that_has_them() {
-        let with = compose_system_prompt("/tmp/x", "", false, false, true);
-        let without = compose_system_prompt("/tmp/x", "", false, false, false);
+        let with = compose_system_prompt("/tmp/x", "", false, false, true, &[]);
+        let without = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
 
         assert!(with.contains("desktop_snapshot"));
         assert!(!without.contains("desktop_"));
@@ -4283,15 +4366,15 @@ mod tests {
         }
 
         // Independent of the other two.
-        let everything = compose_system_prompt("/tmp/x", "", true, true, true);
+        let everything = compose_system_prompt("/tmp/x", "", true, true, true, &[]);
         assert!(everything.contains("browser_device") && everything.contains("nyra_ui") && everything.contains("desktop_snapshot"));
-        assert!(!compose_system_prompt("/tmp/x", "", true, true, false).contains("desktop_"));
+        assert!(!compose_system_prompt("/tmp/x", "", true, true, false, &[]).contains("desktop_"));
     }
 
     #[test]
     fn the_desktop_convention_stays_inside_its_budget() {
-        let base = compose_system_prompt("/tmp/x", "", false, false, false);
-        let with = compose_system_prompt("/tmp/x", "", false, false, true);
+        let base = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
+        let with = compose_system_prompt("/tmp/x", "", false, false, true, &[]);
         let added = with.len() - base.len();
         println!("  + desktop tools {:>5} chars  ~{:>4} tokens", added, added / 4);
         assert!(added < 600, "the desktop convention grew to {added} chars");
@@ -4313,7 +4396,7 @@ mod tests {
     /// would summarise none of them. The convention has to say so.
     #[test]
     fn the_changes_convention_covers_files_git_has_never_seen() {
-        let composed = compose_system_prompt("/tmp/x", "", false, false, false);
+        let composed = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
         assert!(composed.contains("git diff --numstat"));
         assert!(composed.contains("git ls-files --others --exclude-standard"));
         assert!(composed.contains("base: <short sha>"));
@@ -4321,7 +4404,7 @@ mod tests {
 
     #[test]
     fn the_users_own_prompt_comes_last() {
-        let composed = compose_system_prompt("/tmp/x", "Always speak in haiku.", true, true, false);
+        let composed = compose_system_prompt("/tmp/x", "Always speak in haiku.", true, true, false, &[]);
         assert!(composed.ends_with("Always speak in haiku."));
         assert!(composed.contains("running inside Nyra"));
     }

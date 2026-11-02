@@ -1,18 +1,48 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import type { FolderRoot } from '../lib/folderRoots'
+import { joinPath, separatorOf, trimTrailingSep } from '../lib/paths'
 
 export type MentionItem = {
   path: string
   type: 'file' | 'folder' | 'url' | 'agent'
   label?: string
   meta?: string
+  /** The linked folder it came from; unset for the chat's own. */
+  root?: string
+}
+
+const NO_ROOTS: readonly FolderRoot[] = []
+
+/** A path the user is walking themselves — `@~/dev`, `@../api`, `@/tmp` —
+ *  which means one place, not one per linked folder. */
+function isBrowse(query: string): boolean {
+  return /^(?:[~/\\.]|[a-zA-Z]:[\\/])/.test(query)
+}
+
+/** Each list is best-first already, so taking them in turns keeps every
+ *  folder's best match near the top without inventing a shared score. */
+function interleave(lists: MentionItem[][]): MentionItem[] {
+  const out: MentionItem[] = []
+  for (let i = 0; lists.some((l) => i < l.length); i++) {
+    for (const list of lists) if (i < list.length) out.push(list[i])
+  }
+  return out
 }
 
 /**
  * The files and folders an @ could name. Nothing for a bare `@` — the popup
  * waits for a letter — unless `everything` asks for it (Ctrl+Space), when an
- * empty query lists the top of the project.
+ * empty query lists the top of the project, and each linked folder.
+ *
+ * A linked folder's matches are inserted whole: relative to the chat's own
+ * directory they would name nothing.
  */
-export function useAtMentionItems(query: string | null, cwd: string, everything = false): MentionItem[] {
+export function useAtMentionItems(
+  query: string | null,
+  cwd: string,
+  everything = false,
+  linked: readonly FolderRoot[] = NO_ROOTS
+): MentionItem[] {
   const [items, setItems] = useState<MentionItem[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -29,14 +59,38 @@ export function useAtMentionItems(query: string | null, cwd: string, everything 
     }
 
     clearTimeout(debounceRef.current)
+    let cancelled = false
     debounceRef.current = setTimeout(() => {
-      window.api.fs.listFiles(cwd, query).then((results) => {
-        setItems(results.map((r) => ({ path: r.path, type: r.type })))
+      const own = window.api.fs
+        .listFiles(cwd, query)
+        .then((results) => results.map((r): MentionItem => ({ path: r.path, type: r.type })))
+      const others = isBrowse(query)
+        ? []
+        : linked.map((root) =>
+            query === ''
+              ? Promise.resolve<MentionItem[]>([
+                  { path: `${trimTrailingSep(root.path)}${separatorOf(root.path)}`, type: 'folder', label: root.name, root: root.name }
+                ])
+              : window.api.fs
+                  .listFiles(root.path, query)
+                  .then((results) =>
+                    results.map((r): MentionItem => ({ path: joinPath(root.path, r.path), type: r.type, label: r.path, root: root.name }))
+                  )
+                  .catch(() => [] as MentionItem[])
+          )
+      void Promise.all([own, ...others]).then((lists) => {
+        if (cancelled) return
+        // Ctrl+Space on a bare `@`: the chat's own top level, then each linked
+        // folder as one more place to browse into.
+        setItems(query === '' ? lists.flat() : interleave(lists))
       })
     }, 80)
 
-    return () => clearTimeout(debounceRef.current)
-  }, [query, cwd, everything])
+    return () => {
+      cancelled = true
+      clearTimeout(debounceRef.current)
+    }
+  }, [query, cwd, everything, linked])
 
   return items
 }
@@ -92,7 +146,14 @@ export default function AtMentionAutocomplete({
               i === selectedIndex ? 'bg-accent' : 'hover:bg-muted/40'
             }`}
           >
-            <span className="text-xs text-foreground font-mono truncate flex-1">{item.label ?? item.path}</span>
+            <span className="text-xs text-foreground font-mono truncate flex-1" title={item.root ? item.path : undefined}>
+              {item.label ?? item.path}
+            </span>
+            {item.root && (
+              <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                {item.root}
+              </span>
+            )}
             <span
               className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-sm shrink-0 ${TYPE_STYLES[item.type] ?? ''}`}
             >

@@ -236,6 +236,16 @@ export type SpawnSettings = Pick<
   /** The workspace's `CLAUDE_CONFIG_DIR`; null is Default. Part of the spawn
    *  fingerprint, so a changed account respawns the chat. */
   configDir: string | null
+  /** The chat's project's other folders. Passed as `--add-dir` and named in
+   *  the system prompt; part of the fingerprint, so a change respawns. */
+  linkedFolders?: LinkedFolder[]
+}
+
+/** A folder linked to a project, beyond the one its chats start in. */
+export type LinkedFolder = {
+  path: string
+  /** What the agent should know about it. Absent when the user said nothing. */
+  note?: string
 }
 
 export function spawnSettingsFor(settings: NyraSettings, configDir: string | null): SpawnSettings {

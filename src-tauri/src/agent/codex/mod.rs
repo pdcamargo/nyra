@@ -341,6 +341,13 @@ async fn thread_config(chat_id: &str, cwd: &str, settings: &SpawnSettings) -> (S
             );
         }
     }
+    // As for Claude: a linked folder that has gone missing is not mentioned.
+    let linked: Vec<_> = settings
+        .linked_folders
+        .iter()
+        .filter(|f| std::path::Path::new(&f.path).is_dir())
+        .cloned()
+        .collect();
     let instructions = crate::claude::compose_system_prompt_for(
         Provider::Codex,
         cwd,
@@ -348,6 +355,7 @@ async fn thread_config(chat_id: &str, cwd: &str, settings: &SpawnSettings) -> (S
         has("nyra-browser"),
         has("nyra-app"),
         has("nyra-desktop"),
+        &linked,
     ) + &skills::project_note(cwd).await;
     (instructions, Value::Object(config))
 }

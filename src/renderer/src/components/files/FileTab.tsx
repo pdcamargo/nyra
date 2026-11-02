@@ -17,7 +17,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { useChordLabel } from '../ui/kbd'
 import { usePanelLayoutStore } from '../../store/panelLayout'
 import { useSettingsStore } from '../../store/settings'
-import { cwdForSession, useSessionsStore } from '../../store/sessions'
+import { useFolderRoots } from '../../lib/useFolderRoots'
+import { rootOf } from '../../lib/folderRoots'
 import {
   fileKey,
   usePanelTabsStore,
@@ -33,8 +34,11 @@ export default function FileTab({
   tab: FilePanelTab
 }): React.JSX.Element {
   // The chat's directory, which for a worktree chat is the worktree — not the
-  // project it was cut from, whose files are a different checkout.
-  const root = useSessionsStore((s) => cwdForSession(s, sessionId))
+  // project it was cut from, whose files are a different checkout. Then the
+  // project's linked folders.
+  const roots = useFolderRoots(sessionId)
+  // The breadcrumb starts at whichever of them holds the file.
+  const root = (tab.path ? rootOf(roots, tab.path)?.path : undefined) ?? roots[0]?.path ?? ''
   const ws = usePanelTabsStore((s) => panelTabsFor(s, sessionId))
   const panelWidth = usePanelLayoutStore((s) => s.rightPanelWidth)
   const treeKeys = useChordLabel('panel.right.tree')
@@ -167,7 +171,7 @@ export default function FileTab({
             >
               <FileTree
                 sessionId={sessionId}
-                root={root}
+                roots={roots}
                 selectedPath={tab.path}
                 expanded={ws.treeExpanded}
                 onOpen={openFile}
