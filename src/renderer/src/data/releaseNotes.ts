@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '1.1.5',
+    date: '2026-11-03',
     notes: [
       'A project can link more folders than its main one, in Project settings → Folders. Each can carry a note telling Claude what the folder is and what it may do there. Chats still start in the main folder. The Files tab, quick open and @ mentions search all of them',
       "Claude can read claude.ai artifact links you paste into a chat. Claude Code's Artifact tools used to be off in every Nyra chat"
