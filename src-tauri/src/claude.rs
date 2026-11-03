@@ -1987,7 +1987,15 @@ fn missing_folder(cwd: &str) -> String {
 /// set; the `fileCheckpointingEnabled` setting is ignored under `-p`. Without
 /// it `rewind_files` answers "File rewinding is not enabled", and a version's
 /// files could never come back. See `checkpoints.rs`.
-const CLI_ENV: &[(&str, &str)] = &[("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "true")];
+///
+/// `-p` also makes the CLI call itself `sdk-cli`, and under that entrypoint the
+/// `Artifact` tools are off by default (`sdk_default_off`). Without them Claude
+/// can neither publish an artifact nor read a claude.ai artifact link it is
+/// handed; the Claude Docs connector only reaches Docs.
+const CLI_ENV: &[(&str, &str)] = &[
+    ("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "true"),
+    ("CLAUDE_CODE_ARTIFACT", "1"),
+];
 
 /// The CLI, in `cwd`, with Nyra's environment for it.
 pub(crate) fn cli_command(env: &Environment, claude_bin: &str, cwd: &str, config_dir: Option<&Path>) -> tokio::process::Command {
