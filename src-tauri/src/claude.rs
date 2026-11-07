@@ -1151,6 +1151,30 @@ const TASKS_CONVENTION: &str = concat!(
     "or anything conversational: a checklist of one item is noise."
 );
 
+/// Taught only while planning. The CLI's own plan-mode reminder ends with "call
+/// ExitPlanMode" and says to ask with AskUserQuestion, and the headless CLI has
+/// neither. Left to that reminder the model goes looking with ToolSearch, finds
+/// nothing, and tells the user it cannot show the plan, while the card it says it
+/// cannot show is already on screen. Or it asks for approval in a nyra-ask block,
+/// where a "yes" leaves the CLI in plan mode and every edit after it refused.
+/// The card actually comes from the plan-file write; see `emit_plan_ready`.
+const PLAN_CONVENTION: &str = concat!(
+    "\n\nPlan mode is on, and in Nyra it ends differently from what plan mode's own ",
+    "instructions say. They tell you to finish by calling ExitPlanMode and to ask ",
+    "questions with AskUserQuestion. Neither tool exists in this session. Do not search ",
+    "for them, because ToolSearch will not find them, and never tell the user you cannot ",
+    "present the plan. Writing the plan file is how you present it: when your turn ends, ",
+    "Nyra shows the plan file you wrote or edited during that turn as a plan card with ",
+    "Approve buttons. So wherever those instructions say to call ExitPlanMode, make sure ",
+    "the finished plan is in the plan file, written or edited in this turn (if it is ",
+    "already complete and unchanged, Write it again), and end your turn with a short ",
+    "summary of it. Do not ask for approval any other way, neither in prose nor in a ",
+    "nyra-ask block. Only the card's buttons take this session out of plan mode, so an ",
+    "approval typed in chat leaves you still unable to edit anything. If the user replies ",
+    "with changes instead, revise the plan file and Nyra shows the new version. Where ",
+    "those instructions say AskUserQuestion, use a nyra-ask block."
+);
+
 /// Third of the fenced conventions, and taught for the same reason as the
 /// checklist: nothing in the headless CLI reports a turn's file changes, so the
 /// model has to say it. The renderer draws it as a card that links into the
@@ -1277,8 +1301,9 @@ fn compose_system_prompt(
     has_app: bool,
     has_desktop: bool,
     linked: &[LinkedFolder],
+    plan_mode: bool,
 ) -> String {
-    compose_system_prompt_for(agent::Provider::Claude, cwd, user_prompt, has_browser, has_app, has_desktop, linked)
+    compose_system_prompt_for(agent::Provider::Claude, cwd, user_prompt, has_browser, has_app, has_desktop, linked, plan_mode)
 }
 
 /// What Nyra teaches whichever CLI runs the chat: the same conventions for
@@ -1291,6 +1316,7 @@ pub(crate) fn compose_system_prompt_for(
     has_app: bool,
     has_desktop: bool,
     linked: &[LinkedFolder],
+    plan_mode: bool,
 ) -> String {
     let host = format!(
         "You are running inside Nyra, a desktop GUI for {}.",
@@ -1318,6 +1344,9 @@ pub(crate) fn compose_system_prompt_for(
     parts.push(MERMAID_CONVENTION);
     parts.push(TASKS_CONVENTION);
     parts.push(CHANGES_CONVENTION);
+    if plan_mode {
+        parts.push(PLAN_CONVENTION);
+    }
     if has_browser {
         parts.push(BROWSER_CONVENTION);
     }
@@ -1459,6 +1488,7 @@ fn build_spawn_args(
         app_mcp.is_some(),
         desktop_mcp.is_some(),
         &linked,
+        settings.plan_mode,
     );
     args.push("--append-system-prompt".into());
     args.push(full_system_prompt);
@@ -4214,8 +4244,8 @@ mod tests {
 
     #[test]
     fn the_browser_is_only_taught_to_a_session_that_has_one() {
-        let with = compose_system_prompt("/tmp/x", "", true, false, false, &[]);
-        let without = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
+        let with = compose_system_prompt("/tmp/x", "", true, false, false, &[], false);
+        let without = compose_system_prompt("/tmp/x", "", false, false, false, &[], false);
 
         assert!(with.contains("This conversation has a real browser"));
         // The failure that matters: a session with no browser tools must not be
@@ -4249,9 +4279,9 @@ mod tests {
 
     #[test]
     fn a_windows_session_is_shown_a_drive_letter_image_path() {
-        let windows = compose_system_prompt(r"C:\Users\me\repo", "", false, false, false, &[]);
-        let forward = compose_system_prompt("C:/Users/me/repo", "", false, false, false, &[]);
-        let wsl = compose_system_prompt("/home/me/repo", "", false, false, false, &[]);
+        let windows = compose_system_prompt(r"C:\Users\me\repo", "", false, false, false, &[], false);
+        let forward = compose_system_prompt("C:/Users/me/repo", "", false, false, false, &[], false);
+        let wsl = compose_system_prompt("/home/me/repo", "", false, false, false, &[], false);
 
         for prompt in [&windows, &forward] {
             assert!(prompt.contains("![alt](C:/absolute/path.png)"));
@@ -4267,8 +4297,8 @@ mod tests {
     /// tools that do not exist and report changes that never happened.
     #[test]
     fn the_app_tools_are_only_taught_to_a_session_that_has_them() {
-        let with = compose_system_prompt("/tmp/x", "", false, true, false, &[]);
-        let without = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
+        let with = compose_system_prompt("/tmp/x", "", false, true, false, &[], false);
+        let without = compose_system_prompt("/tmp/x", "", false, false, false, &[], false);
 
         for name in ["nyra_ui", "nyra_flow", "nyra_update"] {
             assert!(with.contains(name), "{name} missing when attached");
@@ -4317,9 +4347,9 @@ mod tests {
 
     #[test]
     fn the_app_convention_stays_inside_its_budget() {
-        let base = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
-        let with_app = compose_system_prompt("/tmp/x", "", false, true, false, &[]);
-        let with_both = compose_system_prompt("/tmp/x", "", true, true, false, &[]);
+        let base = compose_system_prompt("/tmp/x", "", false, false, false, &[], false);
+        let with_app = compose_system_prompt("/tmp/x", "", false, true, false, &[], false);
+        let with_both = compose_system_prompt("/tmp/x", "", true, true, false, &[], false);
 
         let added = with_app.len() - base.len();
         // ~4 chars a token is close enough for a budget, and stable.
@@ -4338,8 +4368,8 @@ mod tests {
     /// off silently takes the app tools with it.
     #[test]
     fn the_browser_and_the_app_are_taught_independently() {
-        let app_only = compose_system_prompt("/tmp/x", "", false, true, false, &[]);
-        let browser_only = compose_system_prompt("/tmp/x", "", true, false, false, &[]);
+        let app_only = compose_system_prompt("/tmp/x", "", false, true, false, &[], false);
+        let browser_only = compose_system_prompt("/tmp/x", "", true, false, false, &[], false);
 
         assert!(app_only.contains("nyra_ui"));
         assert!(!app_only.contains("browser_device"));
@@ -4352,8 +4382,8 @@ mod tests {
     /// never think to. And the shared conventions must survive either way.
     #[test]
     fn the_desktop_tools_are_only_taught_to_a_session_that_has_them() {
-        let with = compose_system_prompt("/tmp/x", "", false, false, true, &[]);
-        let without = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
+        let with = compose_system_prompt("/tmp/x", "", false, false, true, &[], false);
+        let without = compose_system_prompt("/tmp/x", "", false, false, false, &[], false);
 
         assert!(with.contains("desktop_snapshot"));
         assert!(!without.contains("desktop_"));
@@ -4374,15 +4404,15 @@ mod tests {
         }
 
         // Independent of the other two.
-        let everything = compose_system_prompt("/tmp/x", "", true, true, true, &[]);
+        let everything = compose_system_prompt("/tmp/x", "", true, true, true, &[], false);
         assert!(everything.contains("browser_device") && everything.contains("nyra_ui") && everything.contains("desktop_snapshot"));
-        assert!(!compose_system_prompt("/tmp/x", "", true, true, false, &[]).contains("desktop_"));
+        assert!(!compose_system_prompt("/tmp/x", "", true, true, false, &[], false).contains("desktop_"));
     }
 
     #[test]
     fn the_desktop_convention_stays_inside_its_budget() {
-        let base = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
-        let with = compose_system_prompt("/tmp/x", "", false, false, true, &[]);
+        let base = compose_system_prompt("/tmp/x", "", false, false, false, &[], false);
+        let with = compose_system_prompt("/tmp/x", "", false, false, true, &[], false);
         let added = with.len() - base.len();
         println!("  + desktop tools {:>5} chars  ~{:>4} tokens", added, added / 4);
         assert!(added < 600, "the desktop convention grew to {added} chars");
@@ -4404,15 +4434,34 @@ mod tests {
     /// would summarise none of them. The convention has to say so.
     #[test]
     fn the_changes_convention_covers_files_git_has_never_seen() {
-        let composed = compose_system_prompt("/tmp/x", "", false, false, false, &[]);
+        let composed = compose_system_prompt("/tmp/x", "", false, false, false, &[], false);
         assert!(composed.contains("git diff --numstat"));
         assert!(composed.contains("git ls-files --others --exclude-standard"));
         assert!(composed.contains("base: <short sha>"));
     }
 
+    /// The headless CLI's plan reminder says to finish with ExitPlanMode, which it
+    /// does not have. Untold, the model searched for it and told the user it
+    /// could not show the plan, or asked for approval in a nyra-ask block that
+    /// leaves the session in plan mode.
+    #[test]
+    fn only_a_planning_session_is_told_the_plan_file_is_the_card() {
+        let planning = compose_system_prompt("/tmp/x", "Be brief.", false, false, false, &[], true);
+        let working = compose_system_prompt("/tmp/x", "", false, false, false, &[], false);
+
+        assert!(planning.contains("Writing the plan file is how you present it"));
+        assert!(planning.contains("ExitPlanMode"));
+        assert!(planning.ends_with("Be brief."));
+        assert!(!working.contains("ExitPlanMode"));
+
+        let s = SpawnSettings { plan_mode: true, ..SpawnSettings::default() };
+        let (args, _) = build_spawn_args("/tmp/x", &s, None, None, None, None);
+        assert!(args.iter().any(|a| a.contains("Writing the plan file is how you present it")));
+    }
+
     #[test]
     fn the_users_own_prompt_comes_last() {
-        let composed = compose_system_prompt("/tmp/x", "Always speak in haiku.", true, true, false, &[]);
+        let composed = compose_system_prompt("/tmp/x", "Always speak in haiku.", true, true, false, &[], false);
         assert!(composed.ends_with("Always speak in haiku."));
         assert!(composed.contains("running inside Nyra"));
     }

@@ -356,7 +356,8 @@ async fn thread_config(chat_id: &str, cwd: &str, settings: &SpawnSettings) -> (S
         has("nyra-app"),
         has("nyra-desktop"),
         &linked,
-    ) + &skills::project_note(cwd).await;
+        false,
+    ) +&skills::project_note(cwd).await;
     (instructions, Value::Object(config))
 }
 
