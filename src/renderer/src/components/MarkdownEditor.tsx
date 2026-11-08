@@ -126,7 +126,17 @@ const theme = EditorView.theme({
     border: '1px solid color-mix(in oklab, var(--border) 55%, transparent)',
     borderRadius: 'var(--radius-md, 6px)'
   },
-  '.cm-md-table table': { width: '100%', borderCollapse: 'collapse' },
+  // The widget sits inside `.cm-lineWrapping`, whose `overflow-wrap: anywhere`
+  // shrinks every cell's minimum width to one letter — the table layout then
+  // starves the short columns until "Brush" stacks one letter per line. Wrap
+  // at spaces only; a word too long for the panel scrolls the table instead.
+  '.cm-md-table table': {
+    width: '100%',
+    borderCollapse: 'collapse',
+    whiteSpace: 'normal',
+    wordBreak: 'normal',
+    overflowWrap: 'normal'
+  },
   '.cm-md-table thead': { borderBottom: '1px solid var(--border-strong)' },
   '.cm-md-table th': {
     textAlign: 'left',

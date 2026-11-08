@@ -852,10 +852,12 @@ function MarkdownRendererInner({
       // md-scroll-x draws the scrollbar track, which `overflow-x: auto` only
       // paints when there is something to scroll — so the groove appears exactly
       // when the table runs past the column, and the border makes the clipping
-      // edge read as intentional rather than as a layout bug.
+      // edge read as intentional rather than as a layout bug. The wrap reset
+      // undoes the prompt bubble's `wrap-anywhere`, which otherwise squeezes
+      // short columns down to one letter wide.
       return (
         <div className="md-scroll-x my-3 overflow-x-auto rounded-md border border-border/55">
-          <table className="w-full text-c-lg border-collapse">{children}</table>
+          <table className="w-full text-c-lg border-collapse wrap-normal break-normal">{children}</table>
         </div>
       )
     },
