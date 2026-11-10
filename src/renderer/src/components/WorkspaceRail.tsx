@@ -1,6 +1,6 @@
 import React from 'react'
 import { cn } from 'cn'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Timer, Trash2 } from 'lucide-react'
 import WorkspaceAvatar from './WorkspaceAvatar'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { IconButton } from './ui/icon-button'
@@ -16,7 +16,7 @@ import { DEFAULT_WORKSPACE_ID, useWorkspacesStore, type Workspace } from '../sto
 import { WORKSPACE_RAIL_WIDTH } from '../store/panelSizes'
 import { useUiStore } from '../store/ui'
 import { useRunningStore } from '../store/running'
-import { useBusyChats } from '../lib/backgroundWait'
+import { nextWakeAt, useBusyChats, useExpiry, wakesAt } from '../lib/backgroundWait'
 import { isArchived, useSessionsStore } from '../store/sessions'
 import { switchWorkspace, workspacesWhereKey } from '../lib/workspaces'
 import type { CommandId } from '../commands/registry'
@@ -39,7 +39,14 @@ export default function WorkspaceRail(): React.JSX.Element {
   const unreadKey = useSessionsStore((s) =>
     workspacesWhereKey(s, (x) => !isArchived(x) && !running[x.id] && (x.unread ?? 0) > 0)
   )
+  // A /loop between rounds: no turn going, but one will start by itself. Read
+  // against the clock, so the soonest wake-up re-renders the rail as it passes.
+  useExpiry(useSessionsStore((s) => nextWakeAt(s.sessions.filter((x) => !isArchived(x)), Date.now())))
+  const loopingKey = useSessionsStore((s) =>
+    workspacesWhereKey(s, (x) => !isArchived(x) && !busyChats[x.id] && wakesAt(x, Date.now()) !== null)
+  )
   const busy = React.useMemo(() => new Set(runningKey.split('\n')), [runningKey])
+  const looping = React.useMemo(() => new Set(loopingKey.split('\n')), [loopingKey])
   const unread = React.useMemo(() => new Set(unreadKey.split('\n')), [unreadKey])
 
   return (
@@ -55,6 +62,7 @@ export default function WorkspaceRail(): React.JSX.Element {
           workspace={workspace}
           active={workspace.id === activeId}
           running={busy.has(workspace.id)}
+          looping={!busy.has(workspace.id) && looping.has(workspace.id)}
           unread={unread.has(workspace.id)}
           command={index < 9 ? (`workspace.switch.${index + 1}` as CommandId) : undefined}
         />
@@ -88,6 +96,9 @@ export default function WorkspaceRail(): React.JSX.Element {
  * say it is still going. Laid over the tile rather than behind it, so it shows
  * on a picture as well as on initials.
  *
+ * One with a /loop between rounds, and nothing running, gets the list's timer
+ * on the top-right corner, cut out the same way as the dot.
+ *
  * One with an unread chat gets the list's dot, on the tile's bottom-right
  * corner. Ringed in the rail's own colour, so it is cut out of whatever it sits
  * on — a picture of any colour, the selection ring — rather than depending on
@@ -97,12 +108,14 @@ function RailItem({
   workspace,
   active,
   running,
+  looping,
   unread,
   command
 }: {
   workspace: Workspace
   active: boolean
   running: boolean
+  looping: boolean
   unread: boolean
   command?: CommandId
 }): React.JSX.Element {
@@ -116,7 +129,7 @@ function RailItem({
           <TooltipTrigger asChild>
             <button
               type="button"
-              aria-label={unread ? `${workspace.name}, unread chats` : workspace.name}
+              aria-label={[workspace.name, looping && 'loop scheduled', unread && 'unread chats'].filter(Boolean).join(', ')}
               aria-current={active ? 'true' : undefined}
               onClick={() => switchWorkspace(workspace.id)}
               className={cn(
@@ -142,6 +155,14 @@ function RailItem({
                   aria-hidden
                   className="nyra-shimmer-bg pointer-events-none absolute inset-[2px] rounded-at-8"
                 />
+              )}
+              {looping && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute top-0 right-0 flex rounded-full bg-workspace-rail p-px"
+                >
+                  <Timer className="size-2.5 text-info" />
+                </span>
               )}
               {unread && (
                 <span

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { busyChats, waitingLabel, waitingOn } from '../../renderer/src/lib/backgroundWait'
+import { busyChats, waitingLabel, waitingOn, wakesAt } from '../../renderer/src/lib/backgroundWait'
+import type { Session } from '../../renderer/src/store/sessions'
 import type { BgProcess } from '../../renderer/src/store/processes'
 
 const proc = (partial: Partial<BgProcess>): BgProcess => ({
@@ -100,5 +101,27 @@ describe('busyChats and flow runs', () => {
   it('counts a chat with a run going, not one whose run is waiting on you', () => {
     const busy = busyChats({}, {}, {}, { a: run('a', 'running'), b: run('b', 'paused') })
     expect(busy).toEqual({ a: true })
+  })
+})
+
+describe('wakesAt', () => {
+  const wake = (timestamp: number, input: Record<string, unknown>) => ({
+    id: `w${timestamp}`,
+    role: 'tool_call',
+    tool_name: 'ScheduleWakeup',
+    input,
+    timestamp
+  })
+  const chat = (...messages: unknown[]) => ({ messages }) as unknown as Pick<Session, 'messages'>
+
+  it('is when the last round asked to be woken, while that is still ahead', () => {
+    const session = chat({ role: 'user', text: '/loop' }, wake(1_000, { delaySeconds: 240 }))
+    expect(wakesAt(session, 2_000)).toBe(241_000)
+    expect(wakesAt(session, 241_000)).toBeNull()
+  })
+
+  it('is nothing once you have said something since, or the loop was stopped', () => {
+    expect(wakesAt(chat(wake(1_000, { delaySeconds: 240 }), { role: 'user', text: 'stop' }), 2_000)).toBeNull()
+    expect(wakesAt(chat(wake(1_000, { stop: true })), 2_000)).toBeNull()
   })
 })

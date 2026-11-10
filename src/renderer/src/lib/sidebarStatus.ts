@@ -56,6 +56,8 @@ export function chatWait(session: Pick<Session, 'id' | 'needsAnswer'>, ctx: Wait
 /** A project's chats, summed. Every count includes chats under Show more. */
 export type ProjectRollup = {
   busy: number
+  /** A /loop between rounds: not running, but coming back by itself. */
+  looping: number
   waiting: number
   /** Open and draft PRs: both are still waiting to land. */
   open: number
@@ -64,14 +66,15 @@ export type ProjectRollup = {
 
 export function projectRollup(
   sessions: readonly Pick<Session, 'id' | 'needsAnswer' | 'pullRequests'>[],
-  ctx: WaitContext & { busy: Readonly<Record<string, true>> }
+  ctx: WaitContext & { busy: Readonly<Record<string, true>>; wakeups?: Readonly<Record<string, number>> }
 ): ProjectRollup {
-  const out: ProjectRollup = { busy: 0, waiting: 0, open: 0, merged: 0 }
+  const out: ProjectRollup = { busy: 0, looping: 0, waiting: 0, open: 0, merged: 0 }
   // By URL: two chats can touch the same PR, and one PR counted twice reads
   // as two pieces of work.
   const seen = new Set<string>()
   for (const s of sessions) {
     if (ctx.busy[s.id]) out.busy++
+    else if (ctx.wakeups?.[s.id] !== undefined) out.looping++
     if (chatWait(s, ctx)) out.waiting++
     for (const pr of s.pullRequests ?? []) {
       if (seen.has(pr.url)) continue
@@ -84,13 +87,14 @@ export function projectRollup(
 }
 
 export function isEmptyRollup(r: ProjectRollup): boolean {
-  return r.busy === 0 && r.waiting === 0 && r.open === 0 && r.merged === 0
+  return r.busy === 0 && r.looping === 0 && r.waiting === 0 && r.open === 0 && r.merged === 0
 }
 
-/** `2 running · 1 waiting on you · 1 open PR · 5 merged`, for the tooltip. */
+/** `2 running · 1 looping · 1 waiting on you · 1 open PR · 5 merged`, for the tooltip. */
 export function describeRollup(r: ProjectRollup): string {
   const parts: string[] = []
   if (r.busy) parts.push(`${r.busy} running`)
+  if (r.looping) parts.push(`${r.looping} looping`)
   if (r.waiting) parts.push(`${r.waiting} waiting on you`)
   if (r.open) parts.push(`${r.open} open PR${r.open === 1 ? '' : 's'}`)
   if (r.merged) parts.push(`${r.merged} merged`)

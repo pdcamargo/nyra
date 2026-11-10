@@ -67,7 +67,16 @@ describe('projectRollup', () => {
       ...none,
       busy: { a: true, c: true }
     })
-    expect(r).toEqual({ busy: 2, waiting: 1, open: 0, merged: 0 })
+    expect(r).toEqual({ busy: 2, looping: 0, waiting: 1, open: 0, merged: 0 })
+  })
+
+  it('counts a loop between rounds, unless the chat is already running', () => {
+    const r = projectRollup([{ id: 'a' }, { id: 'b' }, { id: 'c' }], {
+      ...none,
+      busy: { a: true },
+      wakeups: { a: 1_000, b: 2_000 }
+    })
+    expect(r).toMatchObject({ busy: 1, looping: 1 })
   })
 
   it('counts drafts as open, and leaves closed out', () => {
@@ -90,8 +99,10 @@ describe('projectRollup', () => {
   })
 
   it('describes itself, leaving zeros out', () => {
-    expect(describeRollup({ busy: 1, waiting: 0, open: 1, merged: 5 })).toBe('1 running · 1 open PR · 5 merged')
-    expect(isEmptyRollup({ busy: 0, waiting: 0, open: 0, merged: 0 })).toBe(true)
+    expect(describeRollup({ busy: 1, looping: 1, waiting: 0, open: 1, merged: 5 })).toBe(
+      '1 running · 1 looping · 1 open PR · 5 merged'
+    )
+    expect(isEmptyRollup({ busy: 0, looping: 0, waiting: 0, open: 0, merged: 0 })).toBe(true)
   })
 })
 

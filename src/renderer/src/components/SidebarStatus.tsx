@@ -17,11 +17,13 @@ import {
   MessageSquarePlus,
   MessageSquare,
   ShieldAlert,
+  Timer,
   type LucideIcon
 } from 'lucide-react'
 import { DotSpinner } from './ui/dot-spinner'
 import type { Project, Session } from '../store/sessions'
 import { projectIcon } from '../lib/project-appearance'
+import { minutes } from '../lib/backgroundWait'
 import {
   describeRollup,
   formatElapsed,
@@ -43,15 +45,18 @@ const WAIT_ICONS: Record<ChatWaitKind, LucideIcon> = {
  * The mark in a row's gutter: amber for what it is waiting on, otherwise the
  * app's spinner while it works. Waiting wins — a chat stopped on a prompt is
  * still "running" as far as the CLI is concerned, and the spinner would say
- * the opposite of what is true.
+ * the opposite of what is true. A timer, last, for a /loop between rounds:
+ * not working this second, but not done either.
  */
 export function ChatStatusGlyph({
   wait,
   busy,
+  waking = false,
   className = ''
 }: {
   wait: ChatWait | null
   busy: boolean
+  waking?: boolean
   className?: string
 }): React.JSX.Element | null {
   if (wait) {
@@ -59,6 +64,7 @@ export function ChatStatusGlyph({
     return <Icon className={`size-3 shrink-0 text-warning ${className}`} aria-label={wait.label} />
   }
   if (busy) return <DotSpinner className={`text-info ${className}`} />
+  if (waking) return <Timer className={`size-3 shrink-0 text-info ${className}`} aria-label="Next loop round scheduled" />
   return null
 }
 
@@ -67,6 +73,21 @@ export function WaitChip({ wait }: { wait: ChatWait }): React.JSX.Element {
   return (
     <span className="max-w-[8rem] shrink-0 truncate rounded-sm bg-warning/15 px-1 py-px text-[0.72em] font-medium text-warning">
       {wait.label}
+    </span>
+  )
+}
+
+/** How long until a /loop's next round. Ticks every 15s while mounted. */
+export function WakeIn({ at }: { at: number }): React.JSX.Element {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(id)
+  }, [])
+  const left = at - now
+  return (
+    <span className="shrink-0 font-mono text-[0.72em] tabular-nums text-muted-foreground" title="Next loop round">
+      {left < 60_000 ? '<1 min' : minutes(left)}
     </span>
   )
 }
@@ -105,6 +126,12 @@ export function ProjectRollupMarks({ rollup }: { rollup: ProjectRollup }): React
         <span className="flex items-center gap-0.5 text-info">
           <DotSpinner className="size-2.5" />
           {rollup.busy}
+        </span>
+      )}
+      {rollup.looping > 0 && (
+        <span className="flex items-center gap-0.5 text-info">
+          <Timer className="size-2.5" aria-hidden="true" />
+          {rollup.looping}
         </span>
       )}
       {rollup.waiting > 0 && (

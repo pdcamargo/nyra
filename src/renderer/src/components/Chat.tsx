@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Check, ChevronDown, Copy, CornerDownRight, FileText, GitFork, GitMerge, Info, LoaderCircle, SquarePen, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, Copy, CornerDownRight, FileText, GitFork, GitMerge, Info, LoaderCircle, SquarePen, Timer, Trash2 } from 'lucide-react'
 import { useSessionsStore, providerSessionId, activeCwd, cwdForSession, configDirForSession, createSiblingSession, openFolderAsProject, workspaceIdForSession, type Message, type TextMessage, type ToolCallMessage, type ImageAttachment, type FileAttachment, type TaskStatus, type Task, type ForkMode, type Agent, type AgentStatus, type QueuedMessage, type MessageContext, type Anchor, newMessageId, versionKeys } from '../store/sessions'
 import { noteDesignCall, noteDesignResult } from '../store/designActivity'
 import { useSettingsStore } from '../store/settings'
@@ -26,7 +26,7 @@ import PlanCard, { splitPlan, type PlanAnswer } from './PlanCard'
 import { usePlanApprovalStore } from '../store/planApprovals'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
 import { EMPTY_PROCESSES, useProcessesStore } from '../store/processes'
-import { waitingLabel, waitingOn, type WaitingTask } from '../lib/backgroundWait'
+import { minutes, useWakeAt, waitingLabel, waitingOn, type WaitingTask } from '../lib/backgroundWait'
 import {
   useSubagentTranscriptsStore,
   type SubagentWireEntry
@@ -528,6 +528,9 @@ export default function Chat(): React.JSX.Element {
       .map((r) => ({ taskId: r.executionId, description: r.workflowName, kind: 'flow' }))
     return flows.length > 0 ? [...background, ...flows] : background
   }, [roster, sessionProcesses, flowRuns, activeSessionId])
+  // A self-paced /loop between rounds: the turn ended on a ScheduleWakeup, and
+  // the CLI starts the next round by itself.
+  const wakeAt = useWakeAt(activeSession)
 
   // Build virtual items: interleave date separators with messages, plus loading indicator
   type VirtualItem =
@@ -540,7 +543,7 @@ export default function Chat(): React.JSX.Element {
     | { kind: 'worked'; fold: TurnFold; open: boolean }
     | { kind: 'worked_end'; fold: TurnFold }
     | { kind: 'loading' }
-    | { kind: 'waiting'; tasks: WaitingTask[] }
+    | { kind: 'waiting'; tasks: WaitingTask[]; wakeAt: number | null }
 
   // A finished turn's tool calls and narration, behind one "Worked for" row.
   // Calls the checklist setting leaves out are not folded: they are not there.
@@ -692,9 +695,9 @@ export default function Chat(): React.JSX.Element {
     const last = messages[messages.length - 1] as ToolCallMessage | undefined
     const compactingNow = last?.role === 'tool_call' && last.tool_name === 'Compaction' && last.input.status === 'running'
     if (isLoading && !compactingNow) items.push({ kind: 'loading' })
-    else if (waiting.length > 0) items.push({ kind: 'waiting', tasks: waiting })
+    else if (waiting.length > 0 || wakeAt !== null) items.push({ kind: 'waiting', tasks: waiting, wakeAt })
     return items
-  }, [messages, isLoading, waiting, showTasks, folds, openTurns])
+  }, [messages, isLoading, waiting, wakeAt, showTasks, folds, openTurns])
 
   // The rows an opened turn puts back, between its "Worked for" row and its end.
   const railed = useMemo(() => {
@@ -2876,7 +2879,7 @@ export default function Chat(): React.JSX.Element {
                         question — is anything still going? — answered for the
                         time between turns. */}
                     <div className="flex justify-start pt-5 pb-2">
-                      <WaitingIndicator tasks={item.tasks} />
+                      <WaitingIndicator tasks={item.tasks} wakeAt={item.wakeAt} />
                     </div>
                   </div>
                 )
@@ -3294,21 +3297,43 @@ function ThinkingIndicator({ startTime }: { startTime?: number }): React.JSX.Ele
  * The turn is over, but Claude is not done.
  *
  * A background shell, monitor or subagent will start the next turn when it
- * reports back. Quieter than the working indicator on purpose — nothing is
+ * reports back, and a self-paced /loop when its wake-up comes due. Quieter than the working indicator on purpose — nothing is
  * happening this second — but present, because the alternative was a finished-
  * looking chat that suddenly started talking again.
  */
-function WaitingIndicator({ tasks }: { tasks: WaitingTask[] }): React.JSX.Element {
+function WaitingIndicator({ tasks, wakeAt }: { tasks: WaitingTask[]; wakeAt: number | null }): React.JSX.Element {
   const names = tasks.map((t) => t.description).join(' · ')
+  // The countdown is in minutes, so a tick every 15s keeps it honest.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (wakeAt === null) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [wakeAt])
+  const round = wakeAt !== null ? `next loop round in ${minutes(Math.max(0, wakeAt - now))}` : ''
+  const label = !tasks.length
+    ? round.charAt(0).toUpperCase() + round.slice(1)
+    : round
+      ? `${waitingLabel(tasks)} · ${round}`
+      : waitingLabel(tasks)
+  // With a task out as well as a wake-up, the label already says both.
+  const tail = !tasks.length
+    ? `· Claude continues on its own at ${new Date(wakeAt ?? now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+    : wakeAt === null
+      ? `· Claude continues when ${tasks.length === 1 ? 'it reports' : 'they report'} back`
+      : null
   return (
     <span className="flex min-w-0 max-w-full items-center gap-2 text-c-md">
-      <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-info" aria-hidden="true" />
-      <span className="min-w-0 truncate text-foreground/80" title={names}>
-        {waitingLabel(tasks)}
+      {wakeAt !== null ? (
+        <Timer className="size-3.5 shrink-0 text-info" aria-hidden="true" />
+      ) : (
+        <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-info" aria-hidden="true" />
+      )}
+      <span className="min-w-0 truncate text-foreground/80" title={names || undefined}>
+        {label}
       </span>
-      <span className="shrink-0 text-c-sm text-muted-foreground">
-        · Claude continues when {tasks.length === 1 ? 'it reports' : 'they report'} back
-      </span>
+      {tail && <span className="shrink-0 text-c-sm text-muted-foreground">{tail}</span>}
     </span>
   )
 }

@@ -21,7 +21,7 @@ import { useBackgroundAgentsStore } from '../store/backgroundAgents'
 import { usePendingPermissionsStore } from '../store/pendingPermissions'
 import { useChatRequestsStore } from '../store/chatRequests'
 import { useSettingsStore } from '../store/settings'
-import { useBusyChats } from '../lib/backgroundWait'
+import { useBusyChats, useWakeups } from '../lib/backgroundWait'
 import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
@@ -52,6 +52,7 @@ import { projectIcon, tintColor } from '../lib/project-appearance'
 import { autoTint, chatWait, projectRollup, type ChatWait } from '../lib/sidebarStatus'
 import {
   ChatStatusGlyph,
+  WakeIn,
   Elapsed,
   NeedsYouTray,
   ProjectRollupMarks,
@@ -754,6 +755,8 @@ function SessionsList(): React.JSX.Element {
   // Running, or waiting on agents and tasks it will come back from: either way
   // the chat is not done, and its row and project say so.
   const busy = useBusyChats()
+  // A self-paced /loop between rounds: idle this second, back on its own.
+  const wakeups = useWakeups(railSessions)
   const browsers = useBrowserStore((s) => s.bySession)
   const pendingPlans = usePlanApprovalStore((s) => s.pending)
   const planPending = useMemo(() => new Set(Object.values(pendingPlans)), [pendingPlans])
@@ -893,8 +896,9 @@ function SessionsList(): React.JSX.Element {
     // be nothing anywhere saying it has one.
     const hasBrowser = (browsers[session.id]?.tabs.length ?? 0) > 0
     const waiting: ChatWait | null = chatWait(session, waitCtx)
-    const glyph = <ChatStatusGlyph wait={waiting} busy={isBusy} />
-    const hasGlyph = !!waiting || isBusy
+    const wakeAt = wakeups[session.id]
+    const glyph = <ChatStatusGlyph wait={waiting} busy={isBusy} waking={wakeAt !== undefined} />
+    const hasGlyph = !!waiting || isBusy || wakeAt !== undefined
     return (
       <ContextMenu key={session.id}>
       <ContextMenuTrigger
@@ -1021,6 +1025,7 @@ function SessionsList(): React.JSX.Element {
           <span className="flex items-center gap-1.5 pr-[5px] group-hover:invisible group-has-[:focus-visible]:invisible">
             {waiting && <WaitChip wait={waiting} />}
             {!waiting && since !== undefined && <Elapsed since={since} />}
+            {!waiting && since === undefined && wakeAt !== undefined && <WakeIn at={wakeAt} />}
             {/* Held back until the turn ends: a dot on a running chat invites
                 a click that lands on half a thought. */}
             {!waiting && !isRunning && unread > 0 && (
@@ -1159,7 +1164,7 @@ function SessionsList(): React.JSX.Element {
     const markTint = sidebarStyle === 'spine' ? (tint ?? tintColor(autoTint(project.id))) : tint
     // Counted over every chat, so a spinner or a wait under Show more or inside
     // a collapsed project still reaches the header.
-    const rollup = projectRollup(children, { ...waitCtx, busy })
+    const rollup = projectRollup(children, { ...waitCtx, busy, wakeups })
     const dim = dimmed && project.id !== focusProjectId
     const boxed = sidebarStyle === 'cards' && !collapsed
     const strong = sidebarStyle === 'headings' || !collapsed

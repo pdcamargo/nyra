@@ -38,7 +38,7 @@ import { useSecretsStore } from '../store/secrets'
 import { useDesktopStore } from '../store/desktop'
 import { useLoopsStore } from '../store/loops'
 import { useFlowRunsStore } from '../store/flowRuns'
-import { waitingOn } from './backgroundWait'
+import { minutes, waitingOn, wakesAt } from './backgroundWait'
 import { shortToolName } from './sidebarStatus'
 import { lastActivityOf } from './chatSort'
 import { sendToChat } from './messageContext'
@@ -280,15 +280,6 @@ function resolveTarget(args: Record<string, unknown>): { asker: Session; target:
   return { asker, target }
 }
 
-const minutes = (ms: number): string => {
-  const m = Math.round(ms / 60_000)
-  if (m < 1) return 'under a minute'
-  if (m < 60) return `${m} min`
-  const h = Math.floor(m / 60)
-  if (h >= 48) return `${Math.round(h / 24)} days`
-  return m % 60 ? `${h} h ${m % 60} min` : `${h} h`
-}
-
 const clip = (text: string, max = 80): string => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 
 /** What a running tool is doing, in a few words, for a status line. */
@@ -297,21 +288,6 @@ function toolDetail(call: ToolCallMessage): string {
   const what =
     str(input.description) || str(input.command) || str(input.file_path) || str(input.pattern) || str(input.url)
   return what ? `${shortToolName(call.tool_name)}: ${clip(what.split('\n')[0])}` : shortToolName(call.tool_name)
-}
-
-/** When a `ScheduleWakeup` from this chat's last turn will fire, if it still will. */
-function wakesAt(session: Session, now: number): number | null {
-  for (let i = session.messages.length - 1; i >= 0; i--) {
-    const m = session.messages[i]
-    // A message of yours since then means the wake-up is not what it is waiting on.
-    if (m.role === 'user') return null
-    if (m.role !== 'tool_call' || m.tool_name !== 'ScheduleWakeup') continue
-    const delay = Number(m.input.delaySeconds)
-    if (!m.timestamp || !Number.isFinite(delay) || m.input.stop === true) return null
-    const at = m.timestamp + delay * 1000
-    return at > now ? at : null
-  }
-  return null
 }
 
 /** Why a chat is stopped on you, in words, or null. */
