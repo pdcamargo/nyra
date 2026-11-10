@@ -79,6 +79,8 @@ Object.defineProperty(globalThis, 'api', {
     },
     git: {
       branch: () => Promise.resolve(''),
+      branchRename: () => Promise.resolve({ success: true }),
+      branchList: () => Promise.resolve([]),
       isRepo: () => Promise.resolve(false),
       mainWorktreeRoot: () => Promise.resolve(null),
       worktreeList: () => Promise.resolve([]),

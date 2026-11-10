@@ -7,7 +7,7 @@ import { useSettingsStore } from '../store/settings'
 import { wslShare } from '../lib/environment'
 import { useEnvironmentInfo } from '../hooks/useEnvironmentInfo'
 import { spawnSettingsForSession } from '../lib/spawnSettings'
-import { materializeWorktree, restoreWorktree } from '../lib/worktrees'
+import { materializeWorktree, nameWorktreeAfterTitle, restoreWorktree } from '../lib/worktrees'
 import { forkChat, forkMarks, type ForkMarkSpec, type ForkPoint } from '../lib/fork'
 import { ForkMark, ForkMenu } from './ForkMenu'
 import { RegenerateButton, VersionSwitch, DiskNote, RestoreNote, shownPath } from './MessageVersions'
@@ -1140,13 +1140,23 @@ export default function Chat(): React.JSX.Element {
   // Start the chat's process while the user is still reading or typing, so the
   // first send skips the CLI's cold start. Rust does nothing for a chat that
   // already has one. Not for a worktree still to be made — the send creates it
-  // and runs there — or a fork's first message, which spawns rewound.
+  // and runs there — or a fork's first message, which spawns rewound. Nor for a
+  // new chat the worktree default is still deciding about, which would warm a
+  // process in the checkout only to replace it.
   useEffect(() => {
     if (!activeSessionId || isSessionRunning(activeSessionId)) return
     const s = useSessionsStore.getState().sessions.find((x) => x.id === activeSessionId)
     if (!s?.cwd || s.pendingWorktree || (!providerSessionId(s) && anchorFor(s, s.resumeFrom))) return
+    const deciding =
+      useSettingsStore.getState().worktreeByDefault &&
+      !!s.projectId &&
+      s.pendingWorktree === undefined &&
+      !s.worktree &&
+      !s.forkOf &&
+      s.messages.length === 0
+    if (deciding) return
     window.api.claude
-      .prewarm(s.cwd, providerSessionId(s), activeSessionId, s.worktree?.name, spawnSettingsForSession(activeSessionId))
+      .prewarm(s.cwd, providerSessionId(s), activeSessionId, spawnSettingsForSession(activeSessionId))
       .catch(() => {})
   }, [activeSessionId])
 
@@ -1202,7 +1212,12 @@ export default function Chat(): React.JSX.Element {
       }
 
       if (event.type === 'ai_title') {
+        const before = useSessionsStore.getState().sessions.find((s) => s.id === sid)?.title
         useSessionsStore.getState().applyAiTitle(sid, event.title, event.fresh === true)
+        // Only a title the chat actually took: a fork turns its source's away.
+        if (useSessionsStore.getState().sessions.find((s) => s.id === sid)?.title !== before) {
+          void nameWorktreeAfterTitle(sid)
+        }
         return
       }
 
@@ -2107,7 +2122,6 @@ export default function Chat(): React.JSX.Element {
         session.cwd,
         fork?.sessionId ?? providerSessionId(session),
         sid,
-        session.worktree?.name,
         spawnSettingsForSession(sid),
         fork?.uuid,
         checkpoint
@@ -2211,7 +2225,6 @@ export default function Chat(): React.JSX.Element {
         session.cwd,
         anchor?.sessionId ?? null,
         sid,
-        session.worktree?.name,
         spawnSettingsForSession(sid),
         anchor?.uuid,
         checkpoint

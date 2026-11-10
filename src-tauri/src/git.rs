@@ -101,6 +101,22 @@ pub async fn checkout(cwd: &str, branch_name: &str, create: bool) -> Value {
     }
 }
 
+/// Rename a branch, from `cwd` in the repo it belongs to.
+///
+/// Fine while the branch is checked out in a worktree, even one a chat is
+/// running in: git moves that worktree's HEAD along with the ref. The directory
+/// keeps its name. A name already taken is git's refusal to report.
+pub async fn branch_rename(cwd: &str, from: &str, to: &str) -> Value {
+    match git(cwd, &["branch", "-m", from, to], 5000).await {
+        Ok(out) if out.status.success() => json!({ "success": true }),
+        Ok(out) => json!({
+            "success": false,
+            "error": String::from_utf8_lossy(&out.stderr).trim(),
+        }),
+        Err(e) => json!({ "success": false, "error": e }),
+    }
+}
+
 /// Files in the repo at `cwd` matching `patterns` — tracked, plus untracked
 /// ones git is not ignoring — as absolute host paths. Empty outside a repo.
 ///

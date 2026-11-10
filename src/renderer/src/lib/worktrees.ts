@@ -21,7 +21,70 @@ export function defaultBranchName(now: Date = new Date()): string {
 }
 
 export function newPendingWorktree(): PendingWorktree {
-  return { branch: defaultBranchName(), baseRef: '', seed: true }
+  return { branch: defaultBranchName(), baseRef: '', seed: true, autoNamed: true }
+}
+
+/**
+ * A branch name from a chat's title: `Fix login redirect` → `nyra/fix-login-redirect`.
+ *
+ * Null when the title has nothing a branch can carry. Cut at a word, so a long
+ * title does not end mid-word.
+ */
+export function branchFromTitle(title: string): string | null {
+  const words = title
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+  let slug = ''
+  for (const word of words) {
+    const next = slug ? `${slug}-${word}` : word
+    if (next.length > 40) break
+    slug = next
+  }
+  if (!slug && words.length) slug = words[0].slice(0, 40)
+  return slug ? `nyra/${slug}` : null
+}
+
+/**
+ * Give a chat's generated worktree branch the chat's name, once Claude has
+ * titled it.
+ *
+ * Only the branch moves: the directory keeps its generated name, because the
+ * chat's process is running in it. A name already taken gets the generated
+ * name's suffix, and failing that the branch is left as it was. Every chat
+ * sharing the worktree (a fork) is updated with it.
+ */
+export async function nameWorktreeAfterTitle(sessionId: string): Promise<void> {
+  if (!useSettingsStore.getState().worktreeNameFromTitle) return
+  const session = useSessionsStore.getState().sessions.find((s) => s.id === sessionId)
+  const wt = session?.worktree
+  if (!session || !wt?.autoNamed || wt.permanent) return
+
+  const wanted = branchFromTitle(session.title)
+  if (!wanted || wanted === wt.branch) return
+  const suffix = wt.branch.match(/-([a-z0-9]{4})$/)?.[1]
+  let renamed: string | null = null
+  for (const to of suffix ? [wanted, `${wanted}-${suffix}`] : [wanted]) {
+    const res = await window.api.git.branchRename(wt.path, wt.branch, to).catch(() => null)
+    if (res?.success) {
+      renamed = to
+      break
+    }
+  }
+
+  const store = useSessionsStore.getState()
+  for (const s of store.sessions) {
+    if (s.worktree?.path !== wt.path) continue
+    // Tried once either way: a title that arrives again on every turn must
+    // not have git refuse the same rename each time.
+    store.setWorktree(s.id, {
+      ...s.worktree,
+      ...(renamed ? { name: renamed, branch: renamed } : {}),
+      autoNamed: false
+    })
+  }
 }
 
 /** Managed worktree chats, oldest first — the order the cap prunes in. */
@@ -121,7 +184,12 @@ export async function materializeWorktree(sessionId: string): Promise<Materializ
     }
 
     const store = useSessionsStore.getState()
-    store.setWorktree(sessionId, { name: branch, branch: result.branch, path: result.path })
+    store.setWorktree(sessionId, {
+      name: branch,
+      branch: result.branch,
+      path: result.path,
+      ...(pending.autoNamed || !pending.branch.trim() ? { autoNamed: true } : {})
+    })
     store.updateSessionCwd(sessionId, result.path)
     store.setGitInfo(sessionId, { isGitRepo: true, branch: result.branch })
     store.setPendingWorktree(sessionId, null)

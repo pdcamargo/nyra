@@ -346,7 +346,6 @@ async fn execute_prompt_node(
         resume_at: None,
         nyra_session_id: nyra_session_id.clone(),
         settings: spawn,
-        worktree_name: None,
         checkpoint: None,
     }));
 

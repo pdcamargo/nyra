@@ -21,6 +21,10 @@ export type NyraSettings = {
   worktreeLimit: number
   /** Off means worktrees are only ever removed by hand. */
   worktreeAutoDelete: boolean
+  /** New chats in a git project start with a worktree picked. */
+  worktreeByDefault: boolean
+  /** Rename a worktree's generated branch after the chat once it is titled. */
+  worktreeNameFromTitle: boolean
   /** Whether Claude gets the browser tools. Every chat carries their
    *  definitions whether or not it ever browses, so this is a switch. */
   browserTools: boolean
@@ -278,6 +282,8 @@ export const DEFAULT_SETTINGS: NyraSettings = {
   autoApproveTools: [],
   worktreeLimit: 15,
   worktreeAutoDelete: true,
+  worktreeByDefault: false,
+  worktreeNameFromTitle: true,
   browserTools: true,
   appTools: true,
   desktopTools: false,

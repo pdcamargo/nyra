@@ -55,7 +55,6 @@ pub struct Turn {
     pub resume_at: Option<String>,
     pub nyra_session_id: String,
     pub settings: SpawnSettings,
-    pub worktree_name: Option<String>,
     /// Names the user message, for restoring the files a turn changed.
     pub checkpoint: Option<String>,
 }
@@ -66,7 +65,6 @@ pub struct Prewarm {
     pub resume_session_id: Option<String>,
     pub nyra_session_id: String,
     pub settings: SpawnSettings,
-    pub worktree_name: Option<String>,
 }
 
 /// A side question: forked off the chat, read-only, gone on close.
@@ -124,7 +122,7 @@ async fn claim(nyra_session_id: &str, provider: Provider) {
 
 pub async fn run(turn: Turn) -> Result<Option<String>, String> {
     let provider = turn.settings.provider;
-    delegate::remember(&turn.nyra_session_id, &turn.cwd, &turn.settings, turn.worktree_name.as_ref());
+    delegate::remember(&turn.nyra_session_id, &turn.cwd, &turn.settings);
     claim(&turn.nyra_session_id, provider).await;
     match provider {
         Provider::Claude => Claude.run(turn).await,
@@ -134,7 +132,7 @@ pub async fn run(turn: Turn) -> Result<Option<String>, String> {
 
 pub async fn prewarm(warm: Prewarm) {
     let provider = warm.settings.provider;
-    delegate::remember(&warm.nyra_session_id, &warm.cwd, &warm.settings, warm.worktree_name.as_ref());
+    delegate::remember(&warm.nyra_session_id, &warm.cwd, &warm.settings);
     claim(&warm.nyra_session_id, provider).await;
     match provider {
         Provider::Claude => Claude.prewarm(warm).await,

@@ -29,7 +29,6 @@ pub async fn claude_query(
     cwd: String,
     session_id: Option<String>,
     nyra_session_id: String,
-    worktree_name: Option<String>,
     settings: Option<SpawnSettings>,
     resume_at: Option<String>,
     checkpoint: Option<String>,
@@ -45,7 +44,6 @@ pub async fn claude_query(
         resume_at,
         nyra_session_id,
         settings,
-        worktree_name,
         checkpoint,
     };
     match agent::run(turn).await {
@@ -60,11 +58,10 @@ pub async fn claude_prewarm(
     cwd: String,
     session_id: Option<String>,
     nyra_session_id: String,
-    worktree_name: Option<String>,
     settings: Option<SpawnSettings>,
 ) {
     let settings = settings.unwrap_or_else(|| util::settings().spawn());
-    agent::prewarm(agent::Prewarm { cwd, resume_session_id: session_id, nyra_session_id, settings, worktree_name }).await;
+    agent::prewarm(agent::Prewarm { cwd, resume_session_id: session_id, nyra_session_id, settings }).await;
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -703,6 +700,11 @@ pub async fn git_branch(cwd: String) -> String {
 #[tauri::command]
 pub async fn git_checkout(cwd: String, branch: String, create: bool) -> serde_json::Value {
     git::checkout(&cwd, &branch, create).await
+}
+
+#[tauri::command]
+pub async fn git_branch_rename(cwd: String, from: String, to: String) -> serde_json::Value {
+    git::branch_rename(&cwd, &from, &to).await
 }
 
 #[tauri::command]

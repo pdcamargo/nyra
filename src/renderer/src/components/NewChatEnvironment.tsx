@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger
 } from './ui/dropdown-menu'
 import { useSessionsStore, findProject } from '../store/sessions'
+import { useSettingsStore } from '../store/settings'
 import { newPendingWorktree } from '../lib/worktrees'
 import { environmentLabel } from '../lib/environment'
 
@@ -61,6 +62,8 @@ export default function NewChatEnvironment({
   const [error, setError] = useState<string | null>(null)
 
   const pending = session?.pendingWorktree ?? null
+  const worktreeByDefault = useSettingsStore((s) => s.worktreeByDefault)
+  const nameFromTitle = useSettingsStore((s) => s.worktreeNameFromTitle)
 
   useEffect(() => {
     let cancelled = false
@@ -81,6 +84,21 @@ export default function NewChatEnvironment({
       cancelled = true
     }
   }, [project?.path])
+
+  // The setting picks Worktree for a chat nobody has chosen for yet. Undefined
+  // is "not chosen": picking Local stores null, which this leaves alone. A fork
+  // has its own answer, made where it was forked.
+  const undecided =
+    !!session &&
+    session.pendingWorktree === undefined &&
+    !session.worktree &&
+    !session.forkOf &&
+    session.messages.length === 0
+  useEffect(() => {
+    if (worktreeByDefault && isRepo && undecided) {
+      useSessionsStore.getState().setPendingWorktree(sessionId, newPendingWorktree())
+    }
+  }, [worktreeByDefault, isRepo, undecided, sessionId])
 
   // Only a git project can offer isolation, and only before the chat has run.
   if (!session || !project || !isRepo || session.worktree || session.messages.length > 0) return null
@@ -164,11 +182,17 @@ export default function NewChatEnvironment({
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Worktree branch</DropdownMenuLabel>
               <div className="px-1 pb-1">
+                {/* A generated name that is going to be replaced by the title's
+                    is not worth showing; typing one keeps it. */}
                 <input
-                  value={pending.branch}
-                  onChange={(e) => setPending(sessionId, { ...pending, branch: e.target.value })}
+                  value={nameFromTitle && pending.autoNamed ? '' : pending.branch}
+                  placeholder={nameFromTitle ? 'Named after the chat' : undefined}
+                  onChange={(e) => {
+                    const branch = e.target.value
+                    setPending(sessionId, { ...pending, branch, autoNamed: !branch.trim() })
+                  }}
                   onKeyDown={(e) => e.stopPropagation()}
-                  className="w-full rounded-md border border-input bg-transparent px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
+                  className="w-full rounded-md border border-input bg-transparent px-2 py-1 font-mono text-xs text-foreground outline-none placeholder:font-sans placeholder:text-muted-foreground focus:border-ring"
                 />
               </div>
               <DropdownMenuCheckboxItem

@@ -441,7 +441,6 @@ export const api = {
       cwd: string,
       sessionId: string | null,
       nyraSessionId: string,
-      worktreeName?: string,
       settings?: SpawnSettings,
       /** Rewind `sessionId` to this assistant line and fork from there. */
       resumeAt?: string,
@@ -454,7 +453,6 @@ export const api = {
         cwd,
         sessionId,
         nyraSessionId,
-        worktreeName: worktreeName ?? null,
         // Omitted means "use whatever settings_sync last pushed" — the backend
         // falls back to the global so workflow and trigger runs keep working.
         settings: settings ?? null,
@@ -467,14 +465,12 @@ export const api = {
       cwd: string,
       sessionId: string | null,
       nyraSessionId: string,
-      worktreeName?: string,
       settings?: SpawnSettings
     ) =>
       call<void>('claude_prewarm', {
         cwd,
         sessionId,
         nyraSessionId,
-        worktreeName: worktreeName ?? null,
         settings: settings ?? null
       }),
 
@@ -754,6 +750,8 @@ export const api = {
     branchList: (cwd: string) => call<string[]>('git_branch_list', { cwd }),
     checkout: (cwd: string, branch: string, create = false) =>
       call<{ success: boolean; error?: string }>('git_checkout', { cwd, branch, create }),
+    branchRename: (cwd: string, from: string, to: string) =>
+      call<{ success: boolean; error?: string }>('git_branch_rename', { cwd, from, to }),
     isRepo: (cwd: string) => call<boolean>('git_is_repo', { cwd }),
     mainWorktreeRoot: (cwd: string) => call<string | null>('git_main_worktree_root', { cwd }),
     worktreeCreate: (cwd: string, branch: string) =>

@@ -251,7 +251,6 @@ struct SessionInner {
     alive: bool,
     pid: Option<u32>,
     cwd: String,
-    worktree_name: Option<String>,
     spawn_fingerprint: String,
     resume_session_id: Option<String>,
     settings: SpawnSettings,
@@ -326,7 +325,6 @@ impl SessionInner {
             alive: true,
             pid: None,
             cwd: "/tmp".into(),
-            worktree_name: None,
             spawn_fingerprint: String::new(),
             resume_session_id: None,
             settings: SpawnSettings::default(),
@@ -1418,7 +1416,6 @@ fn design_system_pointer(systems: &[crate::design_systems::SystemEntry]) -> Opti
 fn build_spawn_args(
     cwd: &str,
     settings: &SpawnSettings,
-    worktree_name: Option<&str>,
     resume_session_id: Option<&str>,
     resume_at: Option<&str>,
     nyra_session_id: Option<&str>,
@@ -1513,11 +1510,6 @@ fn build_spawn_args(
     } else {
         "bypassPermissions".into()
     });
-    if let Some(name) = worktree_name {
-        args.push("--worktree".into());
-        args.push(name.to_string());
-    }
-
     // Carrying the conversation across a respawn. Every spawn-relevant setting is
     // in the fingerprint below, so changing one — plan mode, the model, the
     // effort — tears the child down and starts another. Without this the new
@@ -1577,7 +1569,6 @@ fn build_spawn_args(
         settings.allowed_tools,
         settings.plan_mode,
         settings.system_prompt,
-        worktree_name,
         settings.config_dir,
         settings.linked_folders
     ])
@@ -1605,7 +1596,7 @@ pub(crate) fn side_spawn_args(
     resume_session_id: Option<&str>,
     nyra_session_id: &str,
 ) -> Vec<String> {
-    let (args, _) = build_spawn_args(cwd, settings, None, resume_session_id, None, Some(nyra_session_id));
+    let (args, _) = build_spawn_args(cwd, settings, resume_session_id, None, Some(nyra_session_id));
     let mut out: Vec<String> = Vec::with_capacity(args.len() + 6);
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
@@ -1853,7 +1844,6 @@ async fn run_claude(
     resume_at: Option<String>,
     nyra_session_id: String,
     settings: SpawnSettings,
-    worktree_name: Option<String>,
     checkpoint: Option<String>,
 ) -> Result<Option<String>, String> {
     if prompt.trim().is_empty() {
@@ -1863,7 +1853,7 @@ async fn run_claude(
 
     let settings = settings_for_spawn(&cwd, settings);
     let (_, fingerprint) =
-        build_spawn_args(&cwd, &settings, worktree_name.as_deref(), None, None, None);
+        build_spawn_args(&cwd, &settings, None, None, None);
 
     // Held from the lookup to the insert, so a prewarm still spawning cannot
     // land its process on top of this one — this waits for it and reuses it.
@@ -1891,7 +1881,6 @@ async fn run_claude(
             resume_at.as_deref(),
             &nyra_session_id,
             &settings,
-            worktree_name.as_deref(),
             fingerprint,
         )
         .await
@@ -1968,7 +1957,6 @@ async fn prewarm(
     resume_session_id: Option<String>,
     nyra_session_id: String,
     settings: SpawnSettings,
-    worktree_name: Option<String>,
 ) {
     let spawn_lock = spawn_lock(&nyra_session_id);
     let _guard = spawn_lock.lock().await;
@@ -1989,14 +1977,13 @@ async fn prewarm(
 
     let settings = settings_for_spawn(&cwd, settings);
     let (_, fingerprint) =
-        build_spawn_args(&cwd, &settings, worktree_name.as_deref(), None, None, None);
+        build_spawn_args(&cwd, &settings, None, None, None);
     match spawn_session(
         &cwd,
         resume_session_id,
         None,
         &nyra_session_id,
         &settings,
-        worktree_name.as_deref(),
         fingerprint,
     )
     .await
@@ -2044,7 +2031,6 @@ async fn spawn_session(
     resume_at: Option<&str>,
     nyra_session_id: &str,
     settings: &SpawnSettings,
-    worktree_name: Option<&str>,
     fingerprint: String,
 ) -> Result<Arc<Session>, String> {
     let env = Environment::of(cwd);
@@ -2097,7 +2083,6 @@ async fn spawn_session(
     let (args, _) = build_spawn_args(
         cwd,
         settings,
-        worktree_name,
         resume_session_id.as_deref(),
         resume_at,
         Some(nyra_session_id),
@@ -2136,7 +2121,6 @@ async fn spawn_session(
             alive: true,
             pid,
             cwd: cwd.to_string(),
-            worktree_name: worktree_name.map(str::to_string),
             spawn_fingerprint: fingerprint,
             resume_session_id,
             settings: settings.clone(),
@@ -3046,7 +3030,7 @@ async fn process_tool_blocks(
 /// A `--resume` pointing at a session Claude no longer has. Kill, respawn without
 /// it, and replay the prompt so the user never sees the failure.
 fn retry_without_resume(sess: &Arc<Session>, nyra_session_id: &str) {
-    let (saved_turn, prompt, checkpoint, cwd, worktree, settings) = {
+    let (saved_turn, prompt, checkpoint, cwd, settings) = {
         let mut inner = sess.inner.lock();
         if inner.retry_in_flight {
             return;
@@ -3057,7 +3041,6 @@ fn retry_without_resume(sess: &Arc<Session>, nyra_session_id: &str) {
             inner.turn_prompt.clone(),
             inner.turn_checkpoint.clone(),
             inner.cwd.clone(),
-            inner.worktree_name.clone(),
             inner.settings.clone(),
         )
     };
@@ -3078,7 +3061,7 @@ fn retry_without_resume(sess: &Arc<Session>, nyra_session_id: &str) {
     if let Some(turn) = saved_turn {
         let session_id = nyra_session_id.to_string();
         tauri::async_runtime::spawn(async move {
-            let result = run_claude(prompt, cwd, None, None, session_id, settings, worktree, checkpoint).await;
+            let result = run_claude(prompt, cwd, None, None, session_id, settings, checkpoint).await;
             let _ = turn.send(result);
         });
     }
@@ -3202,14 +3185,13 @@ impl AgentBackend for Claude {
             turn.resume_at,
             turn.nyra_session_id,
             turn.settings,
-            turn.worktree_name,
             turn.checkpoint,
         )
         .await
     }
 
     async fn prewarm(&self, warm: Prewarm) {
-        prewarm(warm.cwd, warm.resume_session_id, warm.nyra_session_id, warm.settings, warm.worktree_name).await;
+        prewarm(warm.cwd, warm.resume_session_id, warm.nyra_session_id, warm.settings).await;
     }
 
     fn abort(&self, nyra_session_id: &str) {
@@ -3263,7 +3245,6 @@ mod tests {
             None,
             "missing-folder-test",
             &crate::settings::SpawnSettings::default(),
-            None,
             String::new(),
         )
         .await;
@@ -3714,7 +3695,7 @@ mod tests {
             allowed_tools: Some(vec!["Bash".into(), "Edit".into()]),
             ..Default::default()
         };
-        let main = build_spawn_args("/tmp", &settings, Some("wt"), Some("abc"), None, Some("chat")).0;
+        let main = build_spawn_args("/tmp", &settings, Some("abc"), None, Some("chat")).0;
         let side = side_spawn_args("/tmp", &settings, Some("abc"), "chat");
         let pair = |args: &[String], flag: &str| {
             args.windows(2).find(|w| w[0] == flag).map(|w| w[1].clone())
@@ -3742,7 +3723,7 @@ mod tests {
             plan_mode: true,
             ..SpawnSettings::default()
         };
-        let (args, fp) = build_spawn_args("/tmp/x", &s, None, None, None, None);
+        let (args, fp) = build_spawn_args("/tmp/x", &s, None, None, None);
         assert!(args.windows(2).any(|w| w == ["--model", "opus"]));
         assert!(args.windows(2).any(|w| w == ["--permission-mode", "plan"]));
         assert!(fp.contains("/tmp/x"));
@@ -3765,7 +3746,7 @@ mod tests {
             ],
             ..SpawnSettings::default()
         };
-        let (args, fp) = build_spawn_args("/tmp/x", &s, None, None, None, None);
+        let (args, fp) = build_spawn_args("/tmp/x", &s, None, None, None);
         assert!(args.windows(2).any(|w| w == ["--add-dir", design.as_str()]));
         assert!(args.windows(2).any(|w| w == ["--add-dir", docs.as_str()]));
         let prompt = args.windows(2).find(|w| w[0] == "--append-system-prompt").unwrap()[1].clone();
@@ -3777,7 +3758,7 @@ mod tests {
         std::fs::remove_dir_all(&base).ok();
 
         // Linking or unlinking one respawns the chat, so its next turn knows.
-        let (plain_args, plain_fp) = build_spawn_args("/tmp/x", &SpawnSettings::default(), None, None, None, None);
+        let (plain_args, plain_fp) = build_spawn_args("/tmp/x", &SpawnSettings::default(), None, None, None);
         assert_ne!(fp, plain_fp);
         assert!(!plain_args.iter().any(|a| a == "--add-dir"));
         let plain_prompt = plain_args.windows(2).find(|w| w[0] == "--append-system-prompt").unwrap()[1].clone();
@@ -3788,7 +3769,7 @@ mod tests {
     fn a_wsl_session_is_told_its_linux_directory_on_the_same_argv_shape() {
         let s = SpawnSettings::default();
         let cwd = r"\\wsl.localhost\Ubuntu\home\me\repo";
-        let (args, fp) = build_spawn_args(cwd, &s, None, None, None, None);
+        let (args, fp) = build_spawn_args(cwd, &s, None, None, None);
         let prompt = args
             .windows(2)
             .find(|w| w[0] == "--append-system-prompt")
@@ -3799,7 +3780,7 @@ mod tests {
         // The fingerprint names the project the way Nyra does.
         assert!(fp.contains(r"\\\\wsl.localhost\\Ubuntu"), "{fp}");
 
-        let (host_args, _) = build_spawn_args(r"C:\Users\me\repo", &s, None, None, None, None);
+        let (host_args, _) = build_spawn_args(r"C:\Users\me\repo", &s, None, None, None);
         let host_prompt = host_args.windows(2).find(|w| w[0] == "--append-system-prompt").unwrap()[1].clone();
         assert!(host_prompt.contains(r"The current working directory is: C:\Users\me\repo."));
     }
@@ -3821,7 +3802,7 @@ mod tests {
             system_prompt: format!("Line one of {marker}.\nLine \"two\" with $HOME, `ticks` and a \\ backslash.\n\nDone."),
             ..SpawnSettings::default()
         };
-        let (args, _) = build_spawn_args(&cwd, &settings, None, None, None, None);
+        let (args, _) = build_spawn_args(&cwd, &settings, None, None, None);
         let mut child = env
             .command(&claude, &cwd)
             .args(&args)
@@ -4012,7 +3993,7 @@ mod tests {
 
     #[test]
     fn steered_messages_are_echoed_back() {
-        let (args, _) = build_spawn_args("/tmp", &SpawnSettings::default(), None, None, None, None);
+        let (args, _) = build_spawn_args("/tmp", &SpawnSettings::default(), None, None, None);
         assert!(args.iter().any(|a| a == "--replay-user-messages"));
     }
 
@@ -4114,10 +4095,10 @@ mod tests {
         // *caused* by it — two spawns that differ only in resume id are the
         // same process shape and must reuse the live child.
         let s = SpawnSettings::default();
-        let (args, fp) = build_spawn_args("/tmp/x", &s, None, Some("abc-123"), None, None);
+        let (args, fp) = build_spawn_args("/tmp/x", &s, Some("abc-123"), None, None);
         assert!(args.windows(2).any(|w| w == ["--resume", "abc-123"]));
 
-        let (bare, bare_fp) = build_spawn_args("/tmp/x", &s, None, None, None, None);
+        let (bare, bare_fp) = build_spawn_args("/tmp/x", &s, None, None, None);
         assert!(!bare.iter().any(|a| a == "--resume"));
         assert_eq!(fp, bare_fp);
     }
@@ -4126,13 +4107,13 @@ mod tests {
     fn a_rewind_forks_at_the_anchor_and_leaves_the_original_alone() {
         let s = SpawnSettings::default();
         let (args, fp) =
-            build_spawn_args("/tmp/x", &s, None, Some("abc-123"), Some("uuid-7"), None);
+            build_spawn_args("/tmp/x", &s, Some("abc-123"), Some("uuid-7"), None);
         assert!(args.windows(2).any(|w| w == ["--resume", "abc-123"]));
         assert!(args.windows(2).any(|w| w == ["--resume-session-at", "uuid-7"]));
         assert!(args.iter().any(|a| a == "--fork-session"));
 
         // Nothing to rewind into without a conversation to resume.
-        let (orphan, orphan_fp) = build_spawn_args("/tmp/x", &s, None, None, Some("uuid-7"), None);
+        let (orphan, orphan_fp) = build_spawn_args("/tmp/x", &s, None, Some("uuid-7"), None);
         assert!(!orphan.iter().any(|a| a == "--resume-session-at" || a == "--fork-session"));
         assert_eq!(fp, orphan_fp);
     }
@@ -4179,11 +4160,15 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_ignores_prompt_but_tracks_worktree() {
+    fn a_worktree_chat_is_told_apart_by_its_cwd_alone() {
+        // Nyra creates the worktree and spawns inside it. Asking the CLI for one
+        // as well made it create a second, under the main checkout, and work
+        // there instead of in the directory the Changes tab is reading.
         let s = SpawnSettings::default();
-        let (_, a) = build_spawn_args("/tmp/x", &s, None, None, None, None);
-        let (_, b) = build_spawn_args("/tmp/x", &s, Some("feat"), None, None, None);
+        let (args, a) = build_spawn_args("/tmp/x", &s, None, None, None);
+        let (_, b) = build_spawn_args("/tmp/wt", &s, None, None, None);
         assert_ne!(a, b);
+        assert!(!args.iter().any(|a| a == "--worktree"));
     }
 
     #[test]
@@ -4192,8 +4177,8 @@ mod tests {
         // model must not reuse the live process.
         let a = SpawnSettings { model: "opus".into(), ..SpawnSettings::default() };
         let b = SpawnSettings { model: "haiku".into(), ..SpawnSettings::default() };
-        let (_, fa) = build_spawn_args("/tmp/x", &a, None, None, None, None);
-        let (_, fb) = build_spawn_args("/tmp/x", &b, None, None, None, None);
+        let (_, fa) = build_spawn_args("/tmp/x", &a, None, None, None);
+        let (_, fb) = build_spawn_args("/tmp/x", &b, None, None, None);
         assert_ne!(fa, fb);
     }
 
@@ -4203,9 +4188,9 @@ mod tests {
         // its next send, and one that stayed must not.
         let default = SpawnSettings::default();
         let work = SpawnSettings { config_dir: Some("/h/.nyra/workspaces/w1/.claude".into()), ..SpawnSettings::default() };
-        let (_, f_default) = build_spawn_args("/tmp/x", &default, None, None, None, None);
-        let (_, f_work) = build_spawn_args("/tmp/x", &work, None, None, None, None);
-        let (_, f_work_again) = build_spawn_args("/tmp/x", &work.clone(), None, None, None, None);
+        let (_, f_default) = build_spawn_args("/tmp/x", &default, None, None, None);
+        let (_, f_work) = build_spawn_args("/tmp/x", &work, None, None, None);
+        let (_, f_work_again) = build_spawn_args("/tmp/x", &work.clone(), None, None, None);
         assert_ne!(f_default, f_work);
         assert_eq!(f_work, f_work_again);
     }
@@ -4214,7 +4199,7 @@ mod tests {
     fn the_workspace_is_not_on_the_command_line() {
         // It travels as CLAUDE_CONFIG_DIR, never as an argument.
         let work = SpawnSettings { config_dir: Some("/h/.nyra/workspaces/w1/.claude".into()), ..SpawnSettings::default() };
-        let (args, _) = build_spawn_args("/tmp/x", &work, None, None, None, None);
+        let (args, _) = build_spawn_args("/tmp/x", &work, None, None, None);
         assert!(!args.iter().any(|a| a.contains("workspaces")), "{args:?}");
     }
 
@@ -4475,7 +4460,7 @@ mod tests {
         assert!(!working.contains("ExitPlanMode"));
 
         let s = SpawnSettings { plan_mode: true, ..SpawnSettings::default() };
-        let (args, _) = build_spawn_args("/tmp/x", &s, None, None, None, None);
+        let (args, _) = build_spawn_args("/tmp/x", &s, None, None, None);
         assert!(args.iter().any(|a| a.contains("Writing the plan file is how you present it")));
     }
 

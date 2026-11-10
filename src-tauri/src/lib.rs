@@ -271,6 +271,7 @@ pub fn run() {
             commands::git_branch,
             commands::git_branch_list,
             commands::git_checkout,
+            commands::git_branch_rename,
             commands::git_is_repo,
             commands::git_main_worktree_root,
             commands::git_worktree_create,

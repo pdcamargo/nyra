@@ -1,6 +1,6 @@
 import React from 'react'
 import { useSettingsStore } from '../../store/settings'
-import { NumberField, SectionLabel, SettingRow, Toggle } from './primitives'
+import { NumberField, SectionLabel, SegmentedControl, SettingRow, Toggle } from './primitives'
 import DictationSection from './DictationSection'
 import DesktopSection from './DesktopSection'
 
@@ -59,6 +59,22 @@ export default function GeneralTab(): React.JSX.Element {
       <DictationSection />
 
       <SectionLabel>Worktrees</SectionLabel>
+      <SettingRow label="Start new chats in" hint="git projects only">
+        <SegmentedControl
+          value={settings.worktreeByDefault ? 'worktree' : 'local'}
+          onChange={(v) => update({ worktreeByDefault: v === 'worktree' })}
+          options={[
+            { value: 'local', label: 'Local' },
+            { value: 'worktree', label: 'Worktree' }
+          ]}
+        />
+      </SettingRow>
+      <SettingRow label="Name branches after the chat" hint="once Claude titles it">
+        <Toggle
+          checked={settings.worktreeNameFromTitle}
+          onChange={(v) => update({ worktreeNameFromTitle: v })}
+        />
+      </SettingRow>
       <SettingRow label="Clean up worktrees">
         <Toggle
           checked={settings.worktreeAutoDelete}

@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest'
-import { defaultBranchName, managedCount, prunableSessions } from '@renderer/lib/worktrees'
-import type { Session, WorktreeInfo } from '@renderer/store/sessions'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  branchFromTitle,
+  defaultBranchName,
+  managedCount,
+  nameWorktreeAfterTitle,
+  prunableSessions
+} from '@renderer/lib/worktrees'
+import { useSessionsStore, type Session, type WorktreeInfo } from '@renderer/store/sessions'
+import { useSettingsStore } from '@renderer/store/settings'
+import { DEFAULT_SETTINGS } from '../../shared/types'
 
 const wt = (over: Partial<WorktreeInfo> = {}): WorktreeInfo => ({
   name: 'feat',
@@ -75,5 +83,84 @@ describe('prunableSessions', () => {
 
   it('ignores chats with no worktree at all', () => {
     expect(prunableSessions([session({ id: 'a', worktree: null })], {})).toEqual([])
+  })
+})
+
+describe('branchFromTitle', () => {
+  it('slugs the title under nyra/', () => {
+    expect(branchFromTitle('Fix login redirect')).toBe('nyra/fix-login-redirect')
+    expect(branchFromTitle('Café: "décor" & v2.1')).toBe('nyra/cafe-decor-v2-1')
+  })
+
+  it('cuts a long title at a word', () => {
+    const name = branchFromTitle('Make the worktree the default for new chats in every git project')!
+    expect(name).toBe('nyra/make-the-worktree-the-default-for-new')
+    expect(name.length).toBeLessThanOrEqual('nyra/'.length + 40)
+  })
+
+  it('gives up on a title with nothing a branch can carry', () => {
+    expect(branchFromTitle('🚀 — ?')).toBeNull()
+  })
+})
+
+describe('nameWorktreeAfterTitle', () => {
+  const generated = 'nyra/2026-11-10-ab12'
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useSettingsStore.setState(DEFAULT_SETTINGS)
+  })
+
+  const seed = (over: Partial<WorktreeInfo> = {}, title = 'Fix login redirect'): void => {
+    const worktree = wt({ name: generated, branch: generated, autoNamed: true, ...over })
+    useSessionsStore.setState({
+      sessions: [
+        session({ id: 'a', title, worktree }),
+        // A fork working in the same worktree.
+        session({ id: 'b', title: 'fork', worktree })
+      ]
+    })
+  }
+  const worktreeOf = (id: string): WorktreeInfo | null | undefined =>
+    useSessionsStore.getState().sessions.find((s) => s.id === id)?.worktree
+
+  it('renames a generated branch, for every chat in the worktree', async () => {
+    seed()
+    const rename = vi.spyOn(window.api.git, 'branchRename')
+    await nameWorktreeAfterTitle('a')
+    expect(rename).toHaveBeenCalledWith('/wt/feat', generated, 'nyra/fix-login-redirect')
+    for (const id of ['a', 'b']) {
+      expect(worktreeOf(id)).toMatchObject({ branch: 'nyra/fix-login-redirect', path: '/wt/feat', autoNamed: false })
+    }
+  })
+
+  it('falls back to the generated suffix when the name is taken', async () => {
+    seed()
+    vi.spyOn(window.api.git, 'branchRename')
+      .mockResolvedValueOnce({ success: false, error: 'already exists' })
+      .mockResolvedValueOnce({ success: true })
+    await nameWorktreeAfterTitle('a')
+    expect(worktreeOf('a')?.branch).toBe('nyra/fix-login-redirect-ab12')
+  })
+
+  it('tries once, keeping the branch when git refuses', async () => {
+    seed()
+    const rename = vi.spyOn(window.api.git, 'branchRename').mockResolvedValue({ success: false })
+    await nameWorktreeAfterTitle('a')
+    await nameWorktreeAfterTitle('a')
+    expect(rename).toHaveBeenCalledTimes(2)
+    expect(worktreeOf('a')).toMatchObject({ branch: generated, autoNamed: false })
+  })
+
+  it('leaves a name the user chose, a permanent worktree, and the setting off alone', async () => {
+    const rename = vi.spyOn(window.api.git, 'branchRename')
+    seed({ autoNamed: false })
+    await nameWorktreeAfterTitle('a')
+    seed({ permanent: true })
+    await nameWorktreeAfterTitle('a')
+    seed()
+    useSettingsStore.setState({ worktreeNameFromTitle: false })
+    await nameWorktreeAfterTitle('a')
+    expect(rename).not.toHaveBeenCalled()
   })
 })

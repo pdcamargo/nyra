@@ -257,6 +257,9 @@ export type WorktreeInfo = {
   /** Managed worktrees belong to one chat and are auto-pruned; permanent ones are
    *  created from the project menu, shared by several chats, and never pruned. */
   permanent?: boolean
+  /** The branch is one Nyra generated, so it may be renamed after the chat's
+   *  title. Cleared once it has been, or when the name came from the user. */
+  autoNamed?: boolean
 }
 
 /** A Worktree choice made in the composer but not yet materialised on disk. */
@@ -267,6 +270,8 @@ export type PendingWorktree = {
   /** The checkout to branch from, when it is not the project's own. A fork of
    *  a worktree chat branches from that worktree, and carries its changes. */
   from?: string
+  /** `branch` is generated, not typed. See `WorktreeInfo.autoNamed`. */
+  autoNamed?: boolean
 }
 
 /** Where a fork runs: the source's own checkout, or a new worktree of its own. */

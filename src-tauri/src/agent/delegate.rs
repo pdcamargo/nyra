@@ -92,7 +92,6 @@ struct RunningOn {
 struct Context {
     cwd: String,
     settings: SpawnSettings,
-    worktree_name: Option<String>,
 }
 
 /// Children by their id, which is also their chat id.
@@ -132,10 +131,10 @@ fn shown(d: &Delegate) -> (String, String) {
 }
 
 /// Note what a chat runs with: every turn of every chat, and every prewarm.
-pub fn remember(chat_id: &str, cwd: &str, settings: &SpawnSettings, worktree_name: Option<&String>) {
+pub fn remember(chat_id: &str, cwd: &str, settings: &SpawnSettings) {
     CONTEXTS.lock().insert(
         chat_id.to_string(),
-        Context { cwd: cwd.to_string(), settings: settings.clone(), worktree_name: worktree_name.cloned() },
+        Context { cwd: cwd.to_string(), settings: settings.clone() },
     );
 }
 
@@ -401,7 +400,6 @@ fn run_turn(child: &str, prompt: String, context: Context) {
             resume_at: None,
             nyra_session_id: child.clone(),
             settings: context.settings.clone(),
-            worktree_name: context.worktree_name.clone(),
             checkpoint: None,
         })
         .await;

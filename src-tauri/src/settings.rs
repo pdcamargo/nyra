@@ -48,6 +48,11 @@ pub struct NyraSettings {
     pub worktree_limit: u32,
     /// Off means worktrees are only ever removed by hand.
     pub worktree_auto_delete: bool,
+    /// New chats in a git project start with a worktree picked, rather than
+    /// in the checkout. Only a default: the composer can still switch it.
+    pub worktree_by_default: bool,
+    /// Rename a worktree's generated branch after the chat once it is titled.
+    pub worktree_name_from_title: bool,
     /// Whether Claude gets the browser tools. On by default, but every chat
     /// carries their definitions whether or not it browses, so it is a switch
     /// rather than a given.
@@ -98,6 +103,8 @@ impl Default for NyraSettings {
             auto_approve_tools: Vec::new(),
             worktree_limit: default_worktree_limit(),
             worktree_auto_delete: default_true(),
+            worktree_by_default: false,
+            worktree_name_from_title: default_true(),
             browser_tools: default_true(),
             app_tools: default_true(),
             desktop_tools: false,
