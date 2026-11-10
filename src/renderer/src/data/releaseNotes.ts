@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '1.1.6',
+    date: '2026-11-10',
     notes: [
       "Claude can start a new chat for you. It asks in the composer first, with the title, why it wants it, and the project, model, effort and plan mode it picked. You start it, decline, or send back a note. It can also see whether your other chats are running or waiting, but not what's in them. Seeing another project's chats needs your OK, once or always, which you can take back in Project settings",
       "In plan mode, the plan card shows up when Claude writes its plan. Claude used to say it couldn't show the plan, or ask for approval in the chat and stay stuck in plan mode",
