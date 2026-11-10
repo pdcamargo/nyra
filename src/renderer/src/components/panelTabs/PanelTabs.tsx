@@ -17,6 +17,7 @@ import FileTab from '../files/FileTab'
 import ChangesTab from '../changes/ChangesTab'
 import DesignTab from '../design/DesignTab'
 import QuestionnaireTab from '../questionnaire/QuestionnaireTab'
+import ChatRequestTab from '../ChatRequestTab'
 import PlanTab from '../plan/PlanTab'
 import SubagentsTab from '../subagents/SubagentsTab'
 import FlowRunTab from '../flowRuns/FlowRunTab'
@@ -113,6 +114,8 @@ export default function PanelTabs(): React.JSX.Element {
           <QuestionnaireTab tab={active} />
         ) : active?.kind === 'flowRun' ? (
           <FlowRunTab tab={active} />
+        ) : active?.kind === 'chatRequest' ? (
+          <ChatRequestTab sessionId={sessionId} tab={active} />
         ) : browserPending(phase) ? (
           // No tab, but somebody asked for a browser and it has not produced one
           // — the download prompt lives here rather than taking the whole panel.

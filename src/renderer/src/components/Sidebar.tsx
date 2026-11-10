@@ -19,12 +19,13 @@ import { useBrowserStore } from '../store/browser'
 import { useRunningStore } from '../store/running'
 import { useBackgroundAgentsStore } from '../store/backgroundAgents'
 import { usePendingPermissionsStore } from '../store/pendingPermissions'
+import { useChatRequestsStore } from '../store/chatRequests'
 import { useSettingsStore } from '../store/settings'
 import { useBusyChats } from '../lib/backgroundWait'
 import { useAutoHideScrollbar } from '../hooks/useAutoHideScrollbar'
 import { useWorkflowStore } from '../store/workflow'
 import { usePanelLayoutStore } from '../store/panelLayout'
-import { ALargeSmall, Archive, ArrowDown, ArrowUpDown, ArrowDownWideNarrow, ArrowUp, Brain, CalendarPlus, Check, CircleDot, CopyCheck, GitPullRequest, MessageSquare, RotateCcw, type LucideIcon, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, FolderGit2, GitBranch, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, Settings2, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
+import { ALargeSmall, Archive, ArrowDown, ArrowUpDown, ArrowDownWideNarrow, ArrowUp, Brain, CalendarPlus, Check, CircleDot, CopyCheck, GitPullRequest, MessageSquare, RotateCcw, type LucideIcon, Copy, Folder, FolderInput, Slash, Sparkles, Store, Terminal, FolderOpen, FolderGit2, GitBranch, GitBranchPlus, GitFork, Globe, GripVertical, MoreHorizontal, Pencil, Plus, Settings2, SquarePen, Star, Timer, Trash2, Workflow } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -414,6 +415,12 @@ function ChatCard({
           <span className="truncate">Forked from “{session.forkOf.title}”</span>
         </span>
       )}
+      {session.spawnedBy && (
+        <span className="flex items-center gap-1.5 text-[0.85em] text-muted-foreground">
+          <GitBranchPlus className="size-3 shrink-0" />
+          <span className="truncate">Started by Claude from “{session.spawnedBy.title}”</span>
+        </span>
+      )}
     </div>
   )
 }
@@ -751,7 +758,16 @@ function SessionsList(): React.JSX.Element {
   const pendingPlans = usePlanApprovalStore((s) => s.pending)
   const planPending = useMemo(() => new Set(Object.values(pendingPlans)), [pendingPlans])
   const permissions = usePendingPermissionsStore((s) => s.bySession)
-  const waitCtx = useMemo(() => ({ planPending, permissions }), [planPending, permissions])
+  const chatAsks = useChatRequestsStore((s) => s.bySession)
+  const requests = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const [sid, asks] of Object.entries(chatAsks)) {
+      if (asks.starts.length) out[sid] = 'New chat?'
+      else if (asks.peeks.length) out[sid] = 'Allow status'
+    }
+    return out
+  }, [chatAsks])
+  const waitCtx = useMemo(() => ({ planPending, permissions, requests }), [planPending, permissions, requests])
   const startedAt = useRunningStore((s) => s.startedAt)
   const backgroundSince = useBackgroundAgentsStore((s) => s.since)
   const sidebarStyle = useSettingsStore((s) => s.sidebarStyle)

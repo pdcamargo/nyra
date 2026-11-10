@@ -43,6 +43,9 @@ import DeferredTray from './DeferredTray'
 import FlowPauseDock from './flowRuns/FlowPauseDock'
 import DesktopAccessDock from './desktop/DesktopAccessDock'
 import SecretDock from './SecretDock'
+import { ChatRequestDock, StatusAccessDock } from './ChatRequestDock'
+import { startRequestOf, useChatRequestsStore } from '../store/chatRequests'
+import { answerChatStart } from '../lib/chatControl'
 import DesktopStatus from './desktop/DesktopStatus'
 import PlanCard, { type PlanAnswer } from './PlanCard'
 import { useQuestionAnswerStore } from '../store/questionAnswer'
@@ -623,6 +626,8 @@ export default function ChatInput({
     [queuedList, legacyQueued]
   )
 
+  const chatRequest = useChatRequestsStore((s) => startRequestOf(s, activeSessionId))
+
   const activeLoop = useLoopsStore((s) => activeSessionId ? s.loops.get(activeSessionId) ?? null : null)
 
   // Send handler: if loading, queue the message; otherwise send immediately
@@ -634,9 +639,17 @@ export default function ChatInput({
       plan: pendingPlan,
       picks: qs.picks,
       typed: qs.typed,
-      page: qs.page
+      page: qs.page,
+      chatRequest: chatRequest?.requestId ?? null
     })
     if (intent.kind === 'none') return
+    if (intent.kind === 'decline-chat') {
+      setInput('')
+      if (activeSessionId) {
+        answerChatStart(activeSessionId, intent.requestId, { outcome: 'declined', message: intent.note })
+      }
+      return
+    }
     if (intent.kind === 'next-question') {
       // The box then shows whatever the next question was last answered with,
       // which is usually nothing.
@@ -796,6 +809,8 @@ export default function ChatInput({
     executeCommand,
     question,
     pendingPlan,
+    chatRequest,
+    activeSessionId,
     onQuestionAnswer,
     onPlanAnswer,
     takeAttachments
@@ -1221,6 +1236,18 @@ export default function ChatInput({
         {/* The same for a key Claude needs: the turn waits on it, and the field
             has to be what a paste lands in, not the composer below. */}
         {activeSessionId && <SecretDock sessionId={activeSessionId} running={!!isLoading} />}
+        {/* A chat Claude wants to start, and a project it wants to look at:
+            both hold the turn, and the first one takes the composer's words
+            as its "no, because". */}
+        {activeSessionId && (
+          <ChatRequestDock
+            sessionId={activeSessionId}
+            text={input}
+            running={!!isLoading}
+            onDeclined={() => setInput('')}
+          />
+        )}
+        {activeSessionId && <StatusAccessDock sessionId={activeSessionId} running={!!isLoading} />}
         {/* A flow waiting on this conversation. Above the questions: it is the
             reason the conversation is happening. */}
         {activeSessionId && <FlowPauseDock sessionId={activeSessionId} />}
@@ -1296,7 +1323,9 @@ export default function ChatInput({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={
-            question
+            chatRequest
+              ? 'Or tell Claude why not…'
+              : question
               ? 'I want something else…'
               : pendingPlan
                 ? 'Keep planning — what should change?'

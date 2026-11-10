@@ -1269,7 +1269,9 @@ const APP_CONVENTION: &str = concat!(
     "browser at example.com\". The user is watching that window, and a change nobody ",
     "mentions looks like a bug. Only change what was asked for — none of this is for ",
     "tidying up after yourself. When a task needs an API key, token or password from ",
-    "the user, ask for it with `nyra_secret` rather than in chat, and never invent one."
+    "the user, ask for it with `nyra_secret` rather than in chat, and never invent one. ",
+    "`nyra_chat` starts a separate chat for work that should go on beside this one, ",
+    "once the user agrees; a subtask you will wait on is a subagent's job, not a chat's."
 );
 
 /// Taught only when the desktop tools are attached.

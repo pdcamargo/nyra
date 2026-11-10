@@ -21,6 +21,8 @@ export type ComposerIntent =
    */
   | { kind: 'next-question'; toolId: string; page: number }
   | { kind: 'keep-planning'; toolId: string; path?: string; note: string }
+  /** A chat Claude wants to start, and what you typed is why not. */
+  | { kind: 'decline-chat'; requestId: string; note: string }
   /** A question is live but nothing has been said yet — Enter does nothing. */
   | { kind: 'none' }
 
@@ -34,9 +36,18 @@ export function composerIntent(opts: {
   typed?: Record<number, string>
   /** Which question is on screen. */
   page?: number
+  /** A chat Claude is waiting to be allowed to start, by request id. */
+  chatRequest?: string | null
 }): ComposerIntent {
-  const { text, question, plan, picks, typed = {}, page = 0 } = opts
+  const { text, question, plan, picks, typed = {}, page = 0, chatRequest = null } = opts
   const typedNow = text.trim()
+
+  // First: the request is a tool call holding this turn open right now, which
+  // a question or a plan cannot be at the same time. Like a plan, words here
+  // mean "no, because".
+  if (chatRequest && typedNow.length > 0) {
+    return { kind: 'decline-chat', requestId: chatRequest, note: typedNow }
+  }
 
   // A question outranks a plan. They cannot both be live — a turn that ends by
   // asking something does not promote its plan — but if they ever were, the

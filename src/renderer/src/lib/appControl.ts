@@ -40,6 +40,7 @@ import { dirname } from './paths'
 import type { SystemEntry } from './api-types'
 import { askDesktopAccess } from './desktopControl'
 import { askSecret } from './secretRequest'
+import { askChatStart, listChats, listProjects, readChat, statusOfChat } from './chatControl'
 
 type Op = (args: Record<string, unknown>) => unknown | Promise<unknown>
 
@@ -210,6 +211,14 @@ const OPS: Record<string, Op> = {
   // `nyra_secret`: held open until the secrets are entered, skipped or
   // cancelled in that chat's composer. Rust waits up to ten minutes.
   'secret.request': (args) => askSecret(args),
+  // `nyra_chat`. A start is held open until it is answered in the asking
+  // chat's composer; Rust waits up to ten minutes. A read answers at once,
+  // unless it has to ask about another project first.
+  'chat.start': (args) => askChatStart(args),
+  'chat.list': (args) => listChats(args),
+  'chat.status': (args) => statusOfChat(args),
+  'chat.read': (args) => readChat(args),
+  'chat.projects': (args) => listProjects(args),
 
   /**
    * Bring a design to the current format and write it back, original backed

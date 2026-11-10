@@ -181,3 +181,17 @@ describe('composerIntent', () => {
     })
   })
 })
+
+describe('a chat Claude wants to start', () => {
+  it('takes what is typed as the reason for no, ahead of a question', () => {
+    expect(
+      composerIntent({ text: '  Not yet  ', question: question(), plan: null, picks: {}, chatRequest: 'r1' })
+    ).toEqual({ kind: 'decline-chat', requestId: 'r1', note: 'Not yet' })
+  })
+
+  it('leaves an empty composer to the buttons', () => {
+    expect(composerIntent({ text: ' ', question: null, plan: null, picks: {}, chatRequest: 'r1' })).toEqual({
+      kind: 'message'
+    })
+  })
+})

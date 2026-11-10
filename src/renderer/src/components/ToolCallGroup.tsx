@@ -2,6 +2,8 @@ import React from 'react'
 import QuestionnaireChip, { isQuestionnaireAsk } from './questionnaire/QuestionnaireChip'
 import SecretCard from './SecretCard'
 import { SECRET_TOOL } from '../lib/secretRequest'
+import { CHAT_TOOL } from '../lib/chatControl'
+import ChatToolCard from './ChatToolCard'
 import { ChevronRight } from 'lucide-react'
 import type { ToolCallMessage } from '../store/sessions'
 import { useSettingsStore } from '../store/settings'
@@ -138,6 +140,9 @@ export default function ToolCallGroup({
     }
     if (only.tool_name === SECRET_TOOL) {
       return <SecretCard message={only} />
+    }
+    if (only.tool_name === CHAT_TOOL) {
+      return <ChatToolCard message={only} />
     }
     return (
       <div className="py-1">

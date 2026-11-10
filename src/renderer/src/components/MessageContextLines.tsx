@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronUp, CircleCheck, ListChecks, PanelRightOpen, PenLine, Sparkles } from 'lucide-react'
-import type { MessageContext } from '../store/sessions'
+import { ChevronDown, ChevronUp, CircleCheck, GitBranchPlus, ListChecks, PanelRightOpen, PenLine, Sparkles } from 'lucide-react'
+import { useSessionsStore, type MessageContext } from '../store/sessions'
 import { openDesignInPanel, openQuestionnaireInPanel } from '../lib/openFile'
 import { basename, isAbsolute } from '../lib/paths'
 
@@ -37,11 +37,30 @@ export default function MessageContextLines({
             <span className="nyra-design-chip-icon" aria-hidden="true" />
             {c.label}
           </button>
+        ) : c.kind === 'spawned-by' ? (
+          <SpawnedByLine key={i} context={c} />
         ) : (
           <CommentLine key={i} context={c} />
         )
       )}
     </div>
+  )
+}
+
+/** "Started by Claude from “Migrate settings”", opening that chat while it exists. */
+function SpawnedByLine({ context: c }: { context: MessageContext }): React.JSX.Element {
+  const from = c.ref?.sessionId
+  const exists = useSessionsStore((s) => !!from && s.sessions.some((x) => x.id === from))
+  return (
+    <button
+      type="button"
+      disabled={!exists}
+      onClick={() => from && useSessionsStore.getState().setActiveSession(from)}
+      className="flex items-center gap-1.5 self-start text-left text-c-sm text-muted-foreground enabled:hover:text-foreground"
+    >
+      <GitBranchPlus className="size-3.5 shrink-0" />
+      <span className="min-w-0 truncate">{c.label}</span>
+    </button>
   )
 }
 

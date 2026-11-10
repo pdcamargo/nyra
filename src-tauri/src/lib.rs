@@ -8,6 +8,7 @@ mod app_mcp;
 mod backgrounds;
 mod flow_runs;
 mod browser;
+mod chat_tool;
 mod checkpoints;
 mod claude;
 mod commands;

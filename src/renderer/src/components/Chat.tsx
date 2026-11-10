@@ -36,6 +36,7 @@ import { withAttachments } from '../lib/promptAttachments'
 import { pendingContext, receiveSendToChat, takePendingContext, withContext } from '../lib/messageContext'
 import { isQuestionnaireAsk } from './questionnaire/QuestionnaireChip'
 import { SECRET_TOOL } from '../lib/secretRequest'
+import { CHAT_TOOL } from '../lib/chatControl'
 import MessageContextLines, { QuestionnaireRecord } from './MessageContextLines'
 import { contextFill } from '../lib/contextFill'
 import type { CompactionInput } from './CompactionDivider'
@@ -266,12 +267,12 @@ function finishCompaction(sid: string, toolId: string, status: 'done' | 'failed'
 }
 
 /** Tool calls that are a card to answer, not a line in a trace. */
-const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet', 'Skill', 'Compaction', FLOW_RUN_TOOL, SECRET_TOOL])
+const STANDALONE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'TaskChecklist', 'GoalSet', 'Skill', 'Compaction', FLOW_RUN_TOOL, SECRET_TOOL, CHAT_TOOL])
 /** Also standalone: Claude asking questions, which is its own one-line chip. */
 const standsAlone = (m: ToolCallMessage): boolean => STANDALONE_TOOLS.has(m.tool_name) || isQuestionnaireAsk(m)
 /** What a finished turn keeps in view when its working folds away: what you
  *  were asked or answered, and what the turn ran into, rather than what it did. */
-const IN_VIEW_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'GoalSet', 'Compaction', FLOW_RUN_TOOL, SECRET_TOOL])
+const IN_VIEW_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'GoalSet', 'Compaction', FLOW_RUN_TOOL, SECRET_TOOL, CHAT_TOOL])
 const staysInView = (m: Message): boolean =>
   m.role === 'error' ||
   (m.role === 'tool_call' && (IN_VIEW_TOOLS.has(m.tool_name) || isQuestionnaireAsk(m)))

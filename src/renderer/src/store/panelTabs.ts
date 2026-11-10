@@ -94,6 +94,11 @@ export type QuestionnairePanelTab = {
  *  others. The run itself is in `flowRuns`, or on disk once it is over. */
 export type FlowRunPanelTab = { kind: 'flowRun'; id: string; executionId: string }
 
+/** A chat Claude wants to start, with its whole prompt. Like `plan`, opened from
+ *  the request in the composer and by nothing else, one per chat. Not restored:
+ *  the request is a tool call held open, and does not survive a restart. */
+export type ChatRequestPanelTab = { kind: 'chatRequest'; id: string; requestId: string }
+
 export type PanelTab =
   | BrowserPanelTab
   | FlowRunPanelTab
@@ -103,6 +108,7 @@ export type PanelTab =
   | SubagentsPanelTab
   | DesignPanelTab
   | QuestionnairePanelTab
+  | ChatRequestPanelTab
 
 export type ChatPanelTabs = {
   /** The strip, in the order it is drawn. Ours, not the sidecar's. */
@@ -141,6 +147,7 @@ export const subagentsKey = (id: string): string => `subagents:${id}`
 export const designKey = (id: string): string => `design:${id}`
 export const questionnaireKey = (id: string): string => `questionnaire:${id}`
 export const flowRunKey = (id: string): string => `flowRun:${id}`
+export const chatRequestKey = (id: string): string => `chatRequest:${id}`
 
 export function tabKey(tab: PanelTab): string {
   switch (tab.kind) {
@@ -158,6 +165,8 @@ export function tabKey(tab: PanelTab): string {
       return questionnaireKey(tab.id)
     case 'flowRun':
       return flowRunKey(tab.id)
+    case 'chatRequest':
+      return chatRequestKey(tab.id)
     default:
       return changesKey(tab.id)
   }
@@ -458,6 +467,8 @@ type PanelTabsStore = {
    *  at `toolId`. One per chat: opening a second plan is still reviewing a plan,
    *  and two rows would just be two places to close. */
   openPlanTab: (sessionId: string, toolId: string) => string
+  /** A chat request's prompt, retargeting the row already in the strip. */
+  openChatRequestTab: (sessionId: string, requestId: string) => string
   /** This chat's subagents, reusing the row already in the strip. `focus` is null
    *  for the list and a `Task` toolId for one agent's stream — the same action
    *  drives the summary row, the "See all" header and the back arrow. */
@@ -808,6 +819,32 @@ export const usePanelTabsStore = create<PanelTabsStore>()(
           return key
         }
         const tab: PlanPanelTab = { kind: 'plan', id: nextFileTabId(), toolId }
+        set((s) =>
+          patch(s, sessionId, (ws) => ({
+            ...ws,
+            tabs: [...ws.tabs, tab],
+            activeKey: tabKey(tab)
+          }))
+        )
+        return tabKey(tab)
+      },
+
+      openChatRequestTab: (sessionId, requestId) => {
+        const existing = (get().bySession[sessionId] ?? EMPTY_PANEL_TABS).tabs.find(
+          (t): t is ChatRequestPanelTab => t.kind === 'chatRequest'
+        )
+        if (existing) {
+          const key = tabKey(existing)
+          set((s) =>
+            patch(s, sessionId, (ws) => ({
+              ...ws,
+              tabs: ws.tabs.map((t) => (t.kind === 'chatRequest' ? { ...t, requestId } : t)),
+              activeKey: key
+            }))
+          )
+          return key
+        }
+        const tab: ChatRequestPanelTab = { kind: 'chatRequest', id: nextFileTabId(), requestId }
         set((s) =>
           patch(s, sessionId, (ws) => ({
             ...ws,

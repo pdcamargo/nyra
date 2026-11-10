@@ -14,6 +14,7 @@ import {
   GitPullRequest,
   ListChecks,
   MessageCircleQuestion,
+  MessageSquarePlus,
   MessageSquare,
   ShieldAlert,
   type LucideIcon
@@ -34,7 +35,8 @@ import {
 const WAIT_ICONS: Record<ChatWaitKind, LucideIcon> = {
   permission: ShieldAlert,
   plan: ListChecks,
-  question: MessageCircleQuestion
+  question: MessageCircleQuestion,
+  request: MessageSquarePlus
 }
 
 /**

@@ -160,6 +160,19 @@ export function openPlanInPanel(toolId: string): void {
 }
 
 /**
+ * Show the whole prompt of a chat Claude wants to start, in the asking chat's
+ * side panel. The same terms as a plan: read here, answered in the composer.
+ */
+export function openChatRequestInPanel(sessionId: string, requestId: string): void {
+  useUiStore.getState().setRightPanelOpen(true)
+  const sizes = usePanelSizesStore.getState()
+  if (sizes.rightPanelWidth < PLAN_MIN_WIDTH) {
+    sizes.setSize('rightPanelWidth', PLAN_MIN_WIDTH)
+  }
+  usePanelTabsStore.getState().openChatRequestTab(sessionId, requestId)
+}
+
+/**
  * Show this chat's subagents in the side panel.
  *
  * `focus` is null for the list and a `Task` toolId for one agent's stream. Both

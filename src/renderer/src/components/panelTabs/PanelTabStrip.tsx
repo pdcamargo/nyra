@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, Loader2, MessageCircleQuestion, SwatchBook, Workflow, X } from 'lucide-react'
+import { Bot, FileDiff, FileText, Frame, Globe, ListChecks, Loader2, MessageCircleQuestion, MessageSquarePlus, SwatchBook, Workflow, X } from 'lucide-react'
 import NewTabMenu from './NewTabMenu'
 import type { NewTabKind } from './tabs'
 import { tabKey, type PanelTab } from '../../store/panelTabs'
@@ -89,7 +89,9 @@ export default function PanelTabStrip({
                       ? 'Questions'
                       : tab.kind === 'flowRun'
                         ? (flowRuns[tab.executionId]?.workflowName ?? 'Flow run')
-                        : (basename(tab.path) ?? 'Open file')
+                        : tab.kind === 'chatRequest'
+                          ? 'New chat request'
+                          : (basename(tab.path) ?? 'Open file')
         const hint =
           tab.kind === 'browser'
             ? live?.url
@@ -107,6 +109,8 @@ export default function PanelTabStrip({
                       ? "Claude's questions. Answers save as you go."
                     : tab.kind === 'flowRun'
                       ? 'A flow run this chat started or is answering'
+                    : tab.kind === 'chatRequest'
+                      ? 'The chat Claude wants to start, word for word'
                     : tab.preview
                       ? `${tab.path ?? 'No file open'} — double-click to keep it open`
                       : (tab.path ?? 'No file open')
@@ -203,6 +207,8 @@ export default function PanelTabStrip({
               <MessageCircleQuestion className="size-3 shrink-0 text-muted-foreground" />
             ) : tab.kind === 'flowRun' ? (
               <Workflow className="size-3 shrink-0 text-muted-foreground" />
+            ) : tab.kind === 'chatRequest' ? (
+              <MessageSquarePlus className="size-3 shrink-0 text-info" />
             ) : (
               <FileText className="size-3 shrink-0 text-muted-foreground" />
             )}

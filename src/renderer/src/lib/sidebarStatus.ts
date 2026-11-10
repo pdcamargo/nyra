@@ -11,7 +11,7 @@ import type { Session } from '../store/sessions'
 import { PROJECT_TINTS, type ProjectTint } from './project-appearance'
 
 /** Why a chat is waiting on you. */
-export type ChatWaitKind = 'permission' | 'plan' | 'question'
+export type ChatWaitKind = 'permission' | 'plan' | 'question' | 'request'
 
 export type ChatWait = { kind: ChatWaitKind; label: string }
 
@@ -21,6 +21,9 @@ export type WaitContext = {
   planPending: ReadonlySet<string | undefined>
   /** Session id → the tool whose permission prompt is open. */
   permissions: Readonly<Record<string, string>>
+  /** Session id → what `nyra_chat` is asking it: a chat to start, or a project
+   *  to look at. Absent where nothing asks. */
+  requests?: Readonly<Record<string, string>>
 }
 
 /**
@@ -43,6 +46,8 @@ export function shortToolName(tool: string): string {
 export function chatWait(session: Pick<Session, 'id' | 'needsAnswer'>, ctx: WaitContext): ChatWait | null {
   const tool = ctx.permissions[session.id]
   if (tool) return { kind: 'permission', label: `Allow ${shortToolName(tool)}` }
+  const request = ctx.requests?.[session.id]
+  if (request) return { kind: 'request', label: request }
   if (ctx.planPending.has(session.id)) return { kind: 'plan', label: 'Plan' }
   if (session.needsAnswer) return { kind: 'question', label: 'Question' }
   return null

@@ -44,7 +44,7 @@ export type FileAttachment = {
  * `label`. Stored on the message, so resend, edit and fork send it again.
  */
 export type MessageContext = {
-  kind: 'questionnaire' | 'design-feedback' | 'design-comment' | 'chat-annotation' | 'side-question' | 'flow-run'
+  kind: 'questionnaire' | 'design-feedback' | 'design-comment' | 'chat-annotation' | 'side-question' | 'flow-run' | 'spawned-by'
   /** The bubble's one line. */
   label: string
   /** What Claude receives. Never rendered in the transcript. */
@@ -63,6 +63,8 @@ export type MessageContext = {
     round?: 'reply'
     /** What a `chat-annotation` carried, in pin order, for the receipt under the bubble. */
     annotations?: SentAnnotation[]
+    /** The chat a `spawned-by` line opens: the one that asked for this chat. */
+    sessionId?: string
     /** The flow run a `flow-run` notice is about. */
     executionId?: string
   }
@@ -334,6 +336,11 @@ export type Project = {
    *  in `path`; these are added to the agent's reach and to the Files tab,
    *  quick-open and @. Unset is none. */
   linkedFolders?: LinkedFolder[]
+  /** Other projects in this workspace whose chats this project's chats may see
+   *  the status of through `nyra_chat` — answered "Always" when one asked.
+   *  Directional: it says nothing about what they may see of this one. `''` is
+   *  the workspace's chats outside any project. Unset is none. */
+  statusAccess?: { projectId: string; at: number }[]
 }
 
 export type ProjectAppearance = Partial<Pick<Project, 'icon' | 'color' | 'wash' | 'rail'>>
@@ -553,6 +560,13 @@ export type Session = {
    *  full width for. Undefined means "whatever you last used", so a new chat
    *  inherits rather than starting from a fixed default. */
   panels?: { right?: boolean; summary?: boolean; rightWidth?: number }
+  /** Started by Claude from another chat, with your yes. Besides the line on
+   *  its first message, this is what lets that chat read its last reply: a
+   *  chat can read what it started and nothing else. */
+  spawnedBy?: { sessionId: string; title: string; at: number }
+  /** Projects this one chat may see the status of, answered "In this chat".
+   *  The same keys as `Project.statusAccess`. */
+  statusGrants?: string[]
 }
 
 export type PendingAction = { type: 'send' | 'insert'; text: string }
@@ -575,6 +589,8 @@ type SessionsStore = {
   setProjectAppearance: (projectId: string, patch: ProjectAppearance) => void
   /** The whole list, in order. An empty one clears the field. */
   setProjectLinkedFolders: (projectId: string, folders: LinkedFolder[]) => void
+  /** The whole list. An empty one clears the field. */
+  setProjectStatusAccess: (projectId: string, access: NonNullable<Project['statusAccess']>) => void
   removeProject: (projectId: string) => void
   setProjectCollapsed: (projectId: string, collapsed: boolean) => void
   setProjectChatSort: (projectId: string, sort: ChatSort) => void
@@ -616,6 +632,11 @@ type SessionsStore = {
     partial: Partial<Pick<Session, 'provider' | 'planMode' | 'model' | 'effort'>>
   ) => void
   setSessionPanels: (sessionId: string, partial: NonNullable<Session['panels']>) => void
+  /** Who asked for this chat, and the workspace it runs under when it has no
+   *  project to follow — the asker's, not whichever one is on screen. */
+  setSpawnedBy: (sessionId: string, spawnedBy: NonNullable<Session['spawnedBy']>, workspaceId?: string) => void
+  /** Let this chat see the status of another project's chats. */
+  grantStatusInChat: (sessionId: string, projectKey: string) => void
   /** Record what `system/init` said this chat's process actually resolved to. */
   noteResolvedModel: (sessionId: string, requested: string, id: string) => void
   setExecuting: (sessionId: string, executing: { title: string; startedAt: number } | null) => void
@@ -830,6 +851,16 @@ export const useSessionsStore = create<SessionsStore>()(
             if (p.id !== projectId) return p
             const { linkedFolders: _old, ...rest } = p
             return folders.length > 0 ? { ...rest, linkedFolders: folders } : rest
+          })
+        }))
+      },
+
+      setProjectStatusAccess: (projectId, access) => {
+        set((state) => ({
+          projects: state.projects.map((p) => {
+            if (p.id !== projectId) return p
+            const { statusAccess: _old, ...rest } = p
+            return access.length > 0 ? { ...rest, statusAccess: access } : rest
           })
         }))
       },
@@ -1131,6 +1162,26 @@ export const useSessionsStore = create<SessionsStore>()(
       setSessionSettings: (sessionId, partial) => {
         set((state) => ({
           sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, ...partial } : s))
+        }))
+      },
+
+      setSpawnedBy: (sessionId, spawnedBy, workspaceId) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? { ...s, spawnedBy, ...(workspaceId && !s.projectId ? { workspaceId } : {}) }
+              : s
+          )
+        }))
+      },
+
+      grantStatusInChat: (sessionId, projectKey) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId && !(s.statusGrants ?? []).includes(projectKey)
+              ? { ...s, statusGrants: [...(s.statusGrants ?? []), projectKey] }
+              : s
+          )
         }))
       },
 

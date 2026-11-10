@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react'
-import { FolderOpen, Plus, Slash } from 'lucide-react'
+import { Folder, FolderOpen, Plus, Slash } from 'lucide-react'
 import { useSessionsStore, type Project, type ProjectAppearance } from '../store/sessions'
 import {
   PROJECT_ICONS,
@@ -95,6 +95,13 @@ export default function ProjectSettings({ project }: { project: Project }): Reac
       <ProjectFolders project={project} />
 
       <Divider />
+
+      {(project.statusAccess?.length ?? 0) > 0 && (
+        <>
+          <StatusAccess project={project} />
+          <Divider />
+        </>
+      )}
 
       <SectionLabel>Icon</SectionLabel>
       <div className="grid grid-cols-8 gap-1">
@@ -195,6 +202,42 @@ function Divider(): React.JSX.Element {
 
 function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
   return <p className="pt-1 text-[0.85em] text-muted-foreground">{children}</p>
+}
+
+/**
+ * The projects this one's chats may see the status of — what was answered
+ * "Always" when Claude asked. Only there once something has been, and
+ * revoking is the whole of what there is to do with it.
+ */
+function StatusAccess({ project }: { project: Project }): React.JSX.Element {
+  const projects = useSessionsStore((s) => s.projects)
+  const access = project.statusAccess ?? []
+  const revoke = (key: string): void =>
+    useSessionsStore.getState().setProjectStatusAccess(
+      project.id,
+      access.filter((a) => a.projectId !== key)
+    )
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="px-1 pt-1 text-[0.85em] text-muted-foreground">Chats here can see what’s running in</p>
+      {access.map((a) => (
+        <div key={a.projectId} className="flex items-center gap-2 rounded-md px-1 py-0.5">
+          <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate text-[0.92em] text-foreground">
+            {a.projectId ? (projects.find((p) => p.id === a.projectId)?.name ?? 'A removed project') : 'Chats outside any project'}
+          </span>
+          <button
+            type="button"
+            onClick={() => revoke(a.projectId)}
+            className="shrink-0 text-[0.92em] font-medium text-info hover:underline"
+          >
+            Revoke
+          </button>
+        </div>
+      ))}
+      <p className="px-1 text-[0.8em] text-muted-foreground">Titles and states only, never messages.</p>
+    </div>
+  )
 }
 
 function Swatch({
