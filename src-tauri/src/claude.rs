@@ -2406,8 +2406,17 @@ fn offered_commands(raw: &Value) -> Option<Value> {
 /// a new one — so it is asked unpersisted, which titles the description alone,
 /// under its own id so the renderer can tell the fork's own name from its
 /// source's.
+///
+/// A prompt that opens with a slash command is described without its slash. A
+/// persisted request whose description starts with a command the CLI knows
+/// answers with no title at all, and this is only asked once — so a chat begun
+/// with `/qa-feedback <url>` stayed named after the first forty characters of
+/// it. Without the slash the command name and its arguments still say what the
+/// chat is about.
 fn title_request(prompt: &str, fresh: bool) -> String {
-    let description: String = prompt.chars().take(1000).collect();
+    let trimmed = prompt.trim_start();
+    let described = trimmed.strip_prefix('/').unwrap_or(trimmed);
+    let description: String = described.chars().take(1000).collect();
     format!(
         "{}\n",
         json!({
@@ -3378,6 +3387,15 @@ mod tests {
         let value: Value = serde_json::from_str(title_request("Rust haiku", true).trim()).unwrap();
         assert_eq!(value["request_id"], FRESH_TITLE_REQUEST_ID);
         assert_eq!(value["request"]["persist"], false);
+    }
+
+    // The CLI gives no title to a description that starts with a command it
+    // knows, so a chat begun with a skill would never get one.
+    #[test]
+    fn describes_a_slash_command_without_its_slash() {
+        let value: Value =
+            serde_json::from_str(title_request("  /qa-feedback https://example.com/PF-5031", false).trim()).unwrap();
+        assert_eq!(value["request"]["description"], "qa-feedback https://example.com/PF-5031");
     }
 
     #[test]
