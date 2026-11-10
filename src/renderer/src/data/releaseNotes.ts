@@ -8,7 +8,10 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      'New chats can start in a worktree by default. Turn it on in Settings › General › Worktrees and a new chat in a git project gets its own worktree instead of working in your checkout. Once Claude titles the chat, its branch is renamed to match, like nyra/fix-login-redirect',
+      "Worktree chats now run Claude in the worktree Nyra made. They used to start a second one under the repo's .claude/worktrees, so the Changes tab and Merge showed nothing. You can remove the leftover folders with git worktree remove -f -f"
+    ]
   },
   {
     version: '1.1.7',
