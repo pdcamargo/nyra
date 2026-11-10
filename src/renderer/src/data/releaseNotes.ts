@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '1.1.7',
+    date: '2026-11-10',
     notes: [
       'Chats you start with a skill or slash command, like /qa-feedback with a link, now get a title from Claude. They used to keep the first 40 characters of what you typed as their name'
     ]
