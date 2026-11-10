@@ -8,6 +8,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
+    notes: []
+  },
+  {
+    version: '1.1.9',
+    date: '2026-11-10',
     notes: [
       'A self-paced /loop no longer looks finished between rounds. The chat shows when the next round starts, like Next loop round in 4 min, and its sidebar row gets a timer with the time left. Projects and workspaces with a loop waiting show the timer too'
     ]
