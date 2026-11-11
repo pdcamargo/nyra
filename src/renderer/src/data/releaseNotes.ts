@@ -8,7 +8,10 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: 'next',
     date: '',
-    notes: []
+    notes: [
+      "Projects can have a Setup script that runs in each new worktree before Claude starts, like npm install. Set it in Project settings, or commit a .nyra/scripts.json to the repo, which takes priority. $NYRA_ROOT_PATH points at the project's own folder, so setup can copy your .env. If setup fails, you can retry or start Claude anyway",
+      "A Run button in the title bar starts the project's Run script in the chat's folder, so each worktree chat gets its own dev server. Its port shows up as a pill that opens in the browser, and the server keeps running when you close the terminal. The first time, Run offers the dev script from your package.json"
+    ]
   },
   {
     version: '1.1.9',
