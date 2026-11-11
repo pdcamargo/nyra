@@ -5,8 +5,11 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useTerminalsStore, type TerminalTab } from '../store/terminals'
 import { configDirOf } from '../store/workspaces'
+import { useScriptsStore } from '../store/scripts'
 
-type Entry = { term: Terminal; fitAddon: FitAddon; wrapper: HTMLDivElement }
+/** `attach`: a view onto a PTY this panel did not start — a chat's Run — so
+ *  disposing of it leaves the process alone. */
+type Entry = { term: Terminal; fitAddon: FitAddon; wrapper: HTMLDivElement; attach: boolean }
 
 /** Every open tab, in every project and workspace — one string, so the
  *  selector hands back something stable. */
@@ -100,12 +103,19 @@ export default function TerminalPanel({ cwd, tabs, activeTabId, visible, onTabsC
     term.open(wrapper)
     fitAddon.fit()
 
-    terminalsRef.current.set(activeTabId, { term, fitAddon, wrapper })
-
     const termId = activeTabId
-    // Under the workspace the tab was opened in, fixed for the shell's life.
-    const startedUnder = tabsRef.current.find((t) => t.id === termId)?.workspaceId
-    window.api.terminal.spawn(termId, cwd, configDirOf(startedUnder))
+    const tab = tabsRef.current.find((t) => t.id === termId)
+    const attach = !!tab?.attach
+    terminalsRef.current.set(activeTabId, { term, fitAddon, wrapper, attach })
+
+    if (attach) {
+      // Already running: show what it has printed so far, then follow it.
+      const run = Object.values(useScriptsStore.getState().runs).find((r) => r.id === termId)
+      if (run?.output) term.write(run.output)
+    } else {
+      // Under the workspace the tab was opened in, fixed for the shell's life.
+      window.api.terminal.spawn(termId, cwd, configDirOf(tab?.workspaceId))
+    }
 
     term.onData((data) => {
       window.api.terminal.write(termId, data)
@@ -175,7 +185,7 @@ export default function TerminalPanel({ cwd, tabs, activeTabId, visible, onTabsC
         entry.term.dispose()
         entry.wrapper.remove()
         terminalsRef.current.delete(id)
-        window.api.terminal.kill(id)
+        if (!entry.attach) window.api.terminal.kill(id)
       }
     }
   }, [openIds])
@@ -194,7 +204,7 @@ export default function TerminalPanel({ cwd, tabs, activeTabId, visible, onTabsC
       for (const [id, entry] of terminals) {
         entry.term.dispose()
         entry.wrapper.remove()
-        window.api.terminal.kill(id)
+        if (!entry.attach) window.api.terminal.kill(id)
       }
       terminals.clear()
     }

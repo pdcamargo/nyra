@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react'
-import { Activity, SquareTerminal, TriangleAlert, X } from 'lucide-react'
+import { Activity, Play, SquareTerminal, TriangleAlert, X } from 'lucide-react'
 import TerminalPanel from './TerminalPanel'
 import ProcessesView from './ProcessesView'
 import { useUiStore } from '../store/ui'
@@ -49,8 +49,10 @@ export default function BottomPanel({
 
   const closeTerminal = useCallback(
     (id: string) => {
+      const attach = panelFor(useTerminalsStore.getState(), key).tabs.find((t) => t.id === id)?.attach
       useTerminalsStore.getState().closeTerminal(key, id)
-      void window.api.terminal.kill(id)
+      // A Run's tab is a view onto it; Stop is what ends the Run.
+      if (!attach) void window.api.terminal.kill(id)
     },
     [key]
   )
@@ -98,7 +100,7 @@ export default function BottomPanel({
               }`}
               onClick={() => useTerminalsStore.getState().setActiveTab(key, tab.id)}
             >
-              <SquareTerminal className="size-3" />
+              {tab.attach ? <Play className="size-3" /> : <SquareTerminal className="size-3" />}
               <span>{tab.title}</span>
               {tab.workspaceId !== workspaceId && (
                 <Tooltip>

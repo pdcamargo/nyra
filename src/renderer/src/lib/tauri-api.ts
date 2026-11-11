@@ -1186,6 +1186,25 @@ export const api = {
   },
 
   /**
+   * A project's Setup or Run script, in a PTY. Its output and exit arrive as
+   * `terminal.onData` / `onExit` under `id`. `trackFor` is the chat whose Run
+   * it is, which puts its ports on that chat's pills.
+   */
+  scripts: {
+    spawn: (
+      id: string,
+      cwd: string,
+      script: string,
+      rootPath: string,
+      configDir: ConfigDir,
+      trackFor: string | null
+    ) =>
+      call<{ pid?: number; error?: string }>('script_spawn', { id, cwd, script, rootPath, configDir, trackFor }),
+    /** The script and everything it started — a dev server under `npm` too. */
+    stop: (id: string) => call<void>('script_stop', { id })
+  },
+
+  /**
    * Skills, commands, agents and plugins that change on disk, and installing
    * them from a pasted command. An install is a terminal like any other — drive
    * it with `terminal.write`, `resize`, `kill`, `onData` and `onExit` by its id.

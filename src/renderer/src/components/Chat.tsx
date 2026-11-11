@@ -8,6 +8,8 @@ import { wslShare } from '../lib/environment'
 import { useEnvironmentInfo } from '../hooks/useEnvironmentInfo'
 import { spawnSettingsForSession } from '../lib/spawnSettings'
 import { materializeWorktree, nameWorktreeAfterTitle, restoreWorktree } from '../lib/worktrees'
+import { useScriptsStore, runWorktreeSetup, cancelSetup } from '../store/scripts'
+import SetupCard from './SetupCard'
 import { forkChat, forkMarks, type ForkMarkSpec, type ForkPoint } from '../lib/fork'
 import { ForkMark, ForkMenu } from './ForkMenu'
 import { RegenerateButton, VersionSwitch, DiskNote, RestoreNote, shownPath } from './MessageVersions'
@@ -504,6 +506,8 @@ export default function Chat(): React.JSX.Element {
   const usage = activeSession?.usage ?? null
 
   const isLoading = activeSessionId ? running[activeSessionId] === true : false
+  // A new or restored worktree's Setup takes the indicator's place until it is done.
+  const settingUp = useScriptsStore((s) => (activeSessionId ? !!s.setups[activeSessionId] : false))
   // A file restore holds the chat still the way a turn does: the versions it is
   // moving between must not move under it.
   const restoring = useRestoresStore((s) => (activeSessionId ? s.busy[activeSessionId] : undefined))
@@ -694,10 +698,10 @@ export default function Chat(): React.JSX.Element {
     // would say the same thing twice.
     const last = messages[messages.length - 1] as ToolCallMessage | undefined
     const compactingNow = last?.role === 'tool_call' && last.tool_name === 'Compaction' && last.input.status === 'running'
-    if (isLoading && !compactingNow) items.push({ kind: 'loading' })
+    if ((isLoading || settingUp) && !compactingNow) items.push({ kind: 'loading' })
     else if (waiting.length > 0 || wakeAt !== null) items.push({ kind: 'waiting', tasks: waiting, wakeAt })
     return items
-  }, [messages, isLoading, waiting, wakeAt, showTasks, folds, openTurns])
+  }, [messages, isLoading, settingUp, waiting, wakeAt, showTasks, folds, openTurns])
 
   // The rows an opened turn puts back, between its "Worked for" row and its end.
   const railed = useMemo(() => {
@@ -2102,6 +2106,13 @@ export default function Chat(): React.JSX.Element {
         useRunningStore.getState().endRun(sid!)
         return
       }
+      // The project's Setup — `npm install`, copying `.env` — before Claude
+      // starts in a worktree that has neither.
+      const branch = useSessionsStore.getState().sessions.find((s) => s.id === sid)?.worktree?.branch
+      if ((await runWorktreeSetup(sid!, { blocking: true, branch })) === 'abort') {
+        useRunningStore.getState().endRun(sid!)
+        return
+      }
     }
 
     const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)!
@@ -2464,6 +2475,8 @@ export default function Chat(): React.JSX.Element {
 
   /** Abort the running turn. Also drops any permission prompts still queued for it. */
   const handleStopTurn = useCallback(() => {
+    // Stopped while its worktree's Setup ran: there is no turn yet to abort.
+    if (activeSessionId && cancelSetup(activeSessionId)) return
     window.api.claude.abort(activeSessionId ?? undefined)
     if (activeSessionId) {
       useBackgroundAgentsStore.getState().forget(activeSessionId)
@@ -2858,11 +2871,17 @@ export default function Chat(): React.JSX.Element {
                         what is finished and what is still going, rather than
                         under it where the composer already provides some. */}
                     {activeSessionId && <StreamingDraft sessionId={activeSessionId} />}
-                    <div className="flex justify-start pt-5 pb-2">
-                      <ThinkingIndicator
-                        startTime={activeSessionId ? thinkingSince[activeSessionId] : undefined}
-                      />
-                    </div>
+                    {settingUp && activeSessionId ? (
+                      <div className="pt-5 pb-2">
+                        <SetupCard sessionId={activeSessionId} />
+                      </div>
+                    ) : (
+                      <div className="flex justify-start pt-5 pb-2">
+                        <ThinkingIndicator
+                          startTime={activeSessionId ? thinkingSince[activeSessionId] : undefined}
+                        />
+                      </div>
+                    )}
                   </div>
                 )
               }
@@ -3163,6 +3182,10 @@ function RestoreWorktreeBanner({ sessionId }: { sessionId: string }): React.JSX.
           setError(null)
           const result = await restoreWorktree(sessionId)
           if (!result.ok) setError(result.error)
+          else {
+            const branch = useSessionsStore.getState().sessions.find((s) => s.id === sessionId)?.worktree?.branch
+            void runWorktreeSetup(sessionId, { blocking: false, branch })
+          }
           setBusy(false)
         }}
         className="rounded-sm border border-warning/30 px-2 py-0.5 text-[11px] font-medium text-warning/80 hover:bg-warning/10 transition-colors disabled:opacity-40"

@@ -129,6 +129,7 @@ Object.defineProperty(globalThis, 'api', {
       onResized: () => Promise.resolve(() => {})
     },
     terminal: { spawn: noop, write: noop, resize: noop, kill: noop, onData: unsub, onExit: unsub },
+    scripts: { spawn: async () => ({ pid: 1 }), stop: noop },
     browser: {
       // A test machine has no Chromium, and saying so is the honest default —
       // `noop` resolved undefined, which every caller then read `.ok` off.

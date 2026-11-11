@@ -123,6 +123,10 @@ pub(super) fn script_command(script: &str) -> std::process::Command {
     cmd
 }
 
+pub(super) fn script_argv(script: &str) -> (OsString, Vec<OsString>) {
+    ("sh".into(), vec!["-e".into(), "-c".into(), script.into()])
+}
+
 /// The user's own shell. `$SHELL` is set for any login session, GUI included.
 pub fn default_shell() -> (OsString, Vec<OsString>) {
     let shell = std::env::var_os("SHELL")

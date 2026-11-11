@@ -17,6 +17,7 @@ import { platform, type PlatformTraits } from '../lib/platform'
 import { useKeepAwakeStore } from '../store/keepAwake'
 import { awakeReasons } from '../lib/keepAwake'
 import WindowControls from './WindowControls'
+import RunButton from './RunButton'
 
 /**
  * The window's own title bar.
@@ -169,6 +170,7 @@ export default function TitleBar(): React.JSX.Element {
 
       <div className="flex shrink-0 items-center gap-1">
         <AwakeChip />
+        <RunButton />
         <TitleBarButton label={withKeys('Search', paletteKeys)} onClick={() => openPalette('all')}>
           <Search className="size-4" />
         </TitleBarButton>

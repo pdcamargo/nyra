@@ -346,7 +346,12 @@ export type Project = {
    *  Directional: it says nothing about what they may see of this one. `''` is
    *  the workspace's chats outside any project. Unset is none. */
   statusAccess?: { projectId: string; at: number }[]
+  /** Setup, run in each new worktree, and Run, what the title bar's Run button
+   *  starts. A `.nyra/scripts.json` in the repo overrides both. Unset is none. */
+  scripts?: ProjectScripts
 }
+
+export type ProjectScripts = { setup?: string; run?: string }
 
 export type ProjectAppearance = Partial<Pick<Project, 'icon' | 'color' | 'wash' | 'rail'>>
 
@@ -596,6 +601,8 @@ type SessionsStore = {
   setProjectLinkedFolders: (projectId: string, folders: LinkedFolder[]) => void
   /** The whole list. An empty one clears the field. */
   setProjectStatusAccess: (projectId: string, access: NonNullable<Project['statusAccess']>) => void
+  /** A blank script is removed, and with both gone so is the field. */
+  setProjectScripts: (projectId: string, patch: ProjectScripts) => void
   removeProject: (projectId: string) => void
   setProjectCollapsed: (projectId: string, collapsed: boolean) => void
   setProjectChatSort: (projectId: string, sort: ChatSort) => void
@@ -866,6 +873,20 @@ export const useSessionsStore = create<SessionsStore>()(
             if (p.id !== projectId) return p
             const { statusAccess: _old, ...rest } = p
             return access.length > 0 ? { ...rest, statusAccess: access } : rest
+          })
+        }))
+      },
+
+      setProjectScripts: (projectId: string, patch: ProjectScripts) => {
+        set((state) => ({
+          projects: state.projects.map((p) => {
+            if (p.id !== projectId) return p
+            const merged: ProjectScripts = { ...p.scripts, ...patch }
+            const scripts: ProjectScripts = {}
+            if (merged.setup?.trim()) scripts.setup = merged.setup
+            if (merged.run?.trim()) scripts.run = merged.run
+            const { scripts: _old, ...rest } = p
+            return scripts.setup || scripts.run ? { ...rest, scripts } : rest
           })
         }))
       },

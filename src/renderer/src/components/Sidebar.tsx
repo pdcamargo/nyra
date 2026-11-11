@@ -1255,7 +1255,7 @@ function SessionsList(): React.JSX.Element {
           side="right"
           align="start"
           sideOffset={10}
-          className="w-[316px] gap-0 p-3"
+          className="max-h-[var(--radix-popover-content-available-height)] w-[316px] gap-0 overflow-y-auto p-3"
           onClick={(e) => e.stopPropagation()}
         >
           <ProjectSettings project={project} />

@@ -151,6 +151,7 @@ export type CommandId =
   | 'flow.panel.triggers'
   | 'flow.stop'
   | 'chat.planMode'
+  | 'chat.run'
   | 'chat.outline'
   | 'chat.side'
   | 'chat.questions.ignore'
@@ -480,6 +481,16 @@ export const COMMANDS: Command[] = [
       const { activeSessionId, clearMessages } = useSessionsStore.getState()
       if (activeSessionId) clearMessages(activeSessionId)
     }
+  },
+  {
+    id: 'chat.run',
+    label: 'Run project',
+    group: 'Session',
+    defaultChord: null,
+    icon: Play,
+    palette: true,
+    available: hasSession,
+    run: () => window.dispatchEvent(new Event('nyra:run-toggle'))
   },
   {
     id: 'chat.outline',

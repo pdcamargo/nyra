@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Folder, FolderOpen, Plus, Slash } from 'lucide-react'
 import { useSessionsStore, type Project, type ProjectAppearance } from '../store/sessions'
 import {
@@ -9,6 +9,8 @@ import {
   tintColor
 } from '../lib/project-appearance'
 import { Input } from './ui/input'
+import { Textarea } from './ui/textarea'
+import { readRepoScripts, REPO_SCRIPTS_FILE } from '../lib/projectScripts'
 import ProjectFolders from './ProjectFolders'
 import { Toggle } from './settings/primitives'
 import { useSettingsStore } from '../store/settings'
@@ -192,6 +194,122 @@ export default function ProjectSettings({ project }: { project: Project }): Reac
           onChange={(on) => set({ rail: on })}
         />
       </div>
+
+      <div className="py-2">
+        <Divider />
+      </div>
+
+      <Scripts project={project} />
+    </div>
+  )
+}
+
+/**
+ * Setup, run in each new worktree before Claude starts, and Run, what the
+ * title bar's Run button starts. A `.nyra/scripts.json` in the repo wins over
+ * both, and is shown here read-only so it is clear why an edit would not take.
+ */
+function Scripts({ project }: { project: Project }): React.JSX.Element {
+  const [repo, setRepo] = useState<Awaited<ReturnType<typeof readRepoScripts>> | undefined>(undefined)
+  const [setup, setSetup] = useState(project.scripts?.setup ?? '')
+  const [run, setRun] = useState(project.scripts?.run ?? '')
+  useEffect(() => {
+    let live = true
+    void readRepoScripts(project.path).then((r) => live && setRepo(r))
+    return () => {
+      live = false
+    }
+  }, [project.path])
+  const save = (patch: { setup?: string; run?: string }): void =>
+    useSessionsStore.getState().setProjectScripts(project.id, patch)
+  const fromRepo = !!repo
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <SectionLabel>Scripts</SectionLabel>
+        <span className="pt-1 text-[0.8em] text-muted-foreground">
+          {fromRepo ? (
+            <>
+              From <code className="font-mono">{REPO_SCRIPTS_FILE}</code>
+            </>
+          ) : (
+            'Saved in Nyra, not the repo'
+          )}
+        </span>
+      </div>
+      <ScriptField
+        label="Setup"
+        hint="Runs in each new worktree before Claude starts."
+        value={fromRepo ? (repo.setup ?? '') : setup}
+        readOnly={fromRepo}
+        multiline
+        placeholder={'npm install\ncp $NYRA_ROOT_PATH/.env .env'}
+        onChange={(v) => {
+          setSetup(v)
+          save({ setup: v })
+        }}
+      />
+      <ScriptField
+        label="Run"
+        hint="What the Run button starts, in the chat’s folder."
+        value={fromRepo ? (repo.run ?? '') : run}
+        readOnly={fromRepo}
+        placeholder="npm run dev"
+        onChange={(v) => {
+          setRun(v)
+          save({ run: v })
+        }}
+      />
+      <p className="text-[0.8em] text-muted-foreground">
+        {fromRepo ? (
+          'Edit the file to change them; it is shared with everyone who clones the repo.'
+        ) : (
+          <>
+            <code className="font-mono">$NYRA_ROOT_PATH</code> is the project’s own folder, so setup can copy files
+            git doesn’t track.
+          </>
+        )}
+      </p>
+    </div>
+  )
+}
+
+function ScriptField({
+  label,
+  hint,
+  value,
+  readOnly,
+  multiline,
+  placeholder,
+  onChange
+}: {
+  label: string
+  hint: string
+  value: string
+  readOnly: boolean
+  multiline?: boolean
+  placeholder: string
+  onChange: (value: string) => void
+}): React.JSX.Element {
+  const common = {
+    'aria-label': `${label} script`,
+    value,
+    readOnly,
+    placeholder: readOnly ? 'Not set' : placeholder,
+    spellCheck: false,
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange(e.target.value),
+    // The sidebar's own shortcuts must not fire while typing a script.
+    onKeyDown: (e: React.KeyboardEvent) => e.stopPropagation(),
+    className: `font-mono text-[0.85em] ${readOnly ? 'bg-muted/40' : ''}`
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col">
+        <span className="text-[0.92em] font-medium text-foreground">{label}</span>
+        <span className="text-[0.8em] text-muted-foreground">{hint}</span>
+      </div>
+      {multiline ? <Textarea rows={2} {...common} className={`min-h-0 ${common.className}`} /> : <Input {...common} className={`h-8 ${common.className}`} />}
     </div>
   )
 }

@@ -341,6 +341,8 @@ pub fn run() {
             commands::terminal_write,
             commands::terminal_resize,
             commands::terminal_kill,
+            commands::script_spawn,
+            commands::script_stop,
             commands::library_install_start,
             commands::library_watch,
             commands::browser_status,

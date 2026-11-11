@@ -7,6 +7,9 @@ export type TerminalTab = {
    *  account a `claude` typed in it uses — was fixed then, so after its project
    *  moves this is how the tab knows it is still on the old one. */
   workspaceId: string
+  /** A view onto a PTY something else owns — a chat's Run. The tab neither
+   *  starts it nor kills it on closing. */
+  attach?: boolean
 }
 
 /**

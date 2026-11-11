@@ -116,6 +116,25 @@ impl Environment {
         }
     }
 
+    /// A project script — Setup or Run — in a PTY, in `cwd`: `sh -e -c` on the
+    /// host (Git Bash on Windows) and inside the distro for WSL.
+    pub fn pty_script(&self, script: &str, cwd: &str) -> portable_pty::CommandBuilder {
+        match self {
+            Environment::Host => {
+                let (program, args) = crate::platform::script_argv(script);
+                let mut cmd = crate::platform::pty_command(&program);
+                cmd.args(args);
+                cmd.cwd(if cwd.is_empty() { crate::util::home_dir() } else { PathBuf::from(cwd) });
+                cmd
+            }
+            Environment::Wsl { .. } => {
+                let mut cmd = self.pty_program("sh", cwd);
+                cmd.args(["-e", "-c", script]);
+                cmd
+            }
+        }
+    }
+
     /// [`Environment::std_command`], as a tokio command.
     pub fn command(&self, program: &str, cwd: &str) -> tokio::process::Command {
         tokio::process::Command::from(self.std_command(program, cwd))

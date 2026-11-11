@@ -78,8 +78,9 @@ export type MemoryListResult = {
 
 export type ProcStatus = 'running' | 'exited' | 'killed' | 'orphaned' | 'untracked' | 'stopped'
 
-/** A shell is doing work; a monitor is watching for something. */
-export type ProcKind = 'shell' | 'monitor'
+/** A shell is doing work; a monitor is watching for something; a run is the
+ *  project's Run script, started from the title bar rather than by Claude. */
+export type ProcKind = 'shell' | 'monitor' | 'run'
 
 export type BgProcessRow = {
   /** Claude's `tool_use_id` for the originating Bash call. */

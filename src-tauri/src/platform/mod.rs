@@ -74,6 +74,14 @@ pub fn script_command(script: &str) -> tokio::process::Command {
     tokio::process::Command::from(imp::script_command(script))
 }
 
+/// The same shell as [`script_command`], as a program and its arguments for a
+/// PTY, with `-e` so a multi-line script stops at the first line that fails —
+/// otherwise a setup whose `npm install` broke would report the exit of
+/// whatever ran last.
+pub fn script_argv(script: &str) -> (OsString, Vec<OsString>) {
+    imp::script_argv(script)
+}
+
 // ---------------------------------------------------------------------------
 // Stopping
 // ---------------------------------------------------------------------------

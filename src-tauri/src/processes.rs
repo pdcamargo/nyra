@@ -38,6 +38,10 @@ pub enum ProcStatus {
 pub enum ProcKind {
     Shell,
     Monitor,
+    /// The project's Run script, started from the title bar rather than by
+    /// Claude. Here so its ports reach the same pills; its `shell_id` is the
+    /// PTY id it runs under.
+    Run,
 }
 
 impl Default for ProcKind {
@@ -104,6 +108,39 @@ pub fn attach_claude_pid(nyra_session_id: &str, pid: Option<u32>) {
             .claude_pid = pid;
     }
     ensure_poll_timer();
+}
+
+/// The project's Run script started under `shell_id` (its PTY id) as `pid`.
+///
+/// Unlike Claude's shells there is no pid to hunt for: the PTY handed it over.
+/// A restart reuses the id, so the new row replaces the old one.
+pub fn register_run(nyra_session_id: &str, shell_id: &str, pid: u32, command: &str) {
+    let proc = BgProcess {
+        shell_id: shell_id.to_string(),
+        kind: ProcKind::Run,
+        task_id: None,
+        description: Some("Run".to_string()),
+        command: command.to_string(),
+        output_file: None,
+        started_at: util::now_ms(),
+        ended_at: None,
+        pid: i32::try_from(pid).ok().filter(|p| *p > 0),
+        status: ProcStatus::Running,
+        exit_code: None,
+        last_output: None,
+        last_output_at: None,
+        last_output_size: None,
+        ports: Vec::new(),
+        listeners: HashMap::new(),
+    };
+    SESSIONS
+        .lock()
+        .entry(nyra_session_id.to_string())
+        .or_default()
+        .by_shell_id
+        .insert(shell_id.to_string(), proc);
+    ensure_poll_timer();
+    broadcast(nyra_session_id);
 }
 
 /// Claude finished its turn. The bash children keep running independently, so we
@@ -411,7 +448,8 @@ pub fn live_background() -> Vec<ProcKind> {
         .lock()
         .values()
         .flat_map(|s| s.by_shell_id.values())
-        .filter(|p| is_live(p.status) && p.ports.is_empty())
+        // A dev server you started is not work in flight, bound port or not.
+        .filter(|p| is_live(p.status) && p.ports.is_empty() && p.kind != ProcKind::Run)
         .map(|p| p.kind)
         .collect()
 }
@@ -539,7 +577,7 @@ pub fn kill_by_pid(pid: i32) -> Result<(), String> {
 }
 
 pub fn kill_shell(nyra_session_id: &str, shell_id: &str) -> Result<(), String> {
-    let pid = {
+    let (pid, kind) = {
         let sessions = SESSIONS.lock();
         let s = sessions
             .get(nyra_session_id)
@@ -548,9 +586,15 @@ pub fn kill_shell(nyra_session_id: &str, shell_id: &str) -> Result<(), String> {
             .by_shell_id
             .get(shell_id)
             .ok_or_else(|| "unknown shell".to_string())?;
-        p.pid.ok_or_else(|| "pid not resolved".to_string())?
+        (p.pid.ok_or_else(|| "pid not resolved".to_string())?, p.kind)
     };
-    kill_by_pid(pid)?;
+    // A Run script is a PTY of ours: stop its whole process group, or the
+    // server it started keeps the port.
+    if kind == ProcKind::Run {
+        crate::terminal::stop_script(shell_id);
+    } else {
+        kill_by_pid(pid)?;
+    }
     {
         let mut sessions = SESSIONS.lock();
         if let Some(p) = sessions
@@ -1183,6 +1227,23 @@ mod tests {
             .into_iter()
             .map(|(root, listeners)| (root, ports_of(&listeners)))
             .collect()
+    }
+
+    // A dev server started from the Run button is not work in flight: it
+    // must not hold the machine awake, port or no port. A restart reuses the
+    // PTY id, so it replaces the row rather than adding one.
+    #[test]
+    fn a_run_script_is_tracked_but_keeps_nothing_awake() {
+        let sid = "s-run-script";
+        register_run(sid, "run:s-run-script", 999_991, "npm run dev");
+        register_run(sid, "run:s-run-script", 999_992, "npm run dev");
+
+        let rows = rows(sid);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].kind, ProcKind::Run);
+        assert_eq!(rows[0].pid, Some(999_992));
+        assert!(!live_background().contains(&ProcKind::Run));
+        SESSIONS.lock().remove(sid);
     }
 
     // The bug: `task_started`, `task_updated` and `task_notification` all key on

@@ -332,6 +332,16 @@ pub(super) fn script_command(script: &str) -> std::process::Command {
     }
 }
 
+/// [`script_command`]'s shell, as argv for a PTY. The `cmd` fallback cannot
+/// take the raw quoting above, so a script with quotes in it may not survive
+/// it; Git Bash is the expected case.
+pub(super) fn script_argv(script: &str) -> (OsString, Vec<OsString>) {
+    match git_bash() {
+        Some(bash) => (bash.into_os_string(), vec!["-e".into(), "-c".into(), script.into()]),
+        None => ("cmd.exe".into(), vec!["/D".into(), "/C".into(), script.into()]),
+    }
+}
+
 fn git_bash() -> Option<PathBuf> {
     let env_dir = |key: &str, rest: &str| std::env::var_os(key).map(|d| PathBuf::from(d).join(rest));
     let mut candidates: Vec<PathBuf> = Vec::new();

@@ -1308,6 +1308,38 @@ pub fn terminal_kill(id: String) {
     terminal::kill_terminal(&id);
 }
 
+// ---- project scripts ----
+
+/// A project's Setup or Run script, in a PTY under `id`. Driven afterwards
+/// with the `terminal_*` commands, and stopped with `script_stop`. With
+/// `track_for`, the chat whose Run it is: it joins that chat's process
+/// registry, which is what puts its ports on the pills.
+#[tauri::command(rename_all = "camelCase")]
+pub fn script_spawn(
+    id: String,
+    cwd: String,
+    script: String,
+    root_path: String,
+    config_dir: Option<String>,
+    track_for: Option<String>,
+) -> Value {
+    let config_dir = util::config_dir_arg(config_dir);
+    match terminal::spawn_script(&id, &cwd, &script, &root_path, config_dir.as_deref()) {
+        Ok(pid) => {
+            if let Some(session) = track_for.filter(|s| !s.is_empty()) {
+                processes::register_run(&session, &id, pid, &script);
+            }
+            json!({ "pid": pid })
+        }
+        Err(e) => json!({ "error": e }),
+    }
+}
+
+#[tauri::command]
+pub fn script_stop(id: String) {
+    terminal::stop_script(&id);
+}
+
 // ---- library: installs from a pasted command, and noticing them ----
 
 /// `npx skills add …` or `claude plugin …`, parsed by the renderer into an

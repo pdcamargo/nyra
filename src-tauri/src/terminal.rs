@@ -144,6 +144,66 @@ pub fn spawn_program(
     start(id, cmd)
 }
 
+/// A project's Setup or Run script in a PTY, under `id`, in `cwd`.
+///
+/// `root_path` is the project's main checkout, handed over as
+/// `NYRA_ROOT_PATH` so a worktree's setup can copy what git does not track —
+/// `.env`, mostly. WSL gets it as an `export` at the top of the script, since
+/// nothing of Nyra's environment crosses into the distro.
+pub fn spawn_script(
+    id: &str,
+    cwd: &str,
+    script: &str,
+    root_path: &str,
+    config_dir: Option<&Path>,
+) -> Result<u32, String> {
+    let env = Environment::of(cwd);
+    let root = env.to_env(Path::new(root_path));
+    let script = if env.is_host() {
+        script.to_string()
+    } else {
+        format!("export NYRA_ROOT_PATH='{}'\n{script}", root.replace('\'', r"'\''"))
+    };
+    let mut cmd = env.pty_script(&script, cwd);
+    for (k, v) in terminal_env(&env, config_dir) {
+        cmd.env(k, v);
+    }
+    cmd.env("NYRA_ROOT_PATH", root);
+    start(id, cmd)
+}
+
+/// Stop a script and everything it started.
+///
+/// `kill_terminal` hangs up on the shell, and a dev server the shell started —
+/// `sh` → `npm` → `node` — can outlive that with the port still bound. The PTY
+/// made the shell a session leader, so its children share its process group,
+/// and the group is what gets the signal: SIGTERM, then SIGKILL if anything is
+/// left after the grace.
+pub fn stop_script(id: &str) {
+    #[cfg(unix)]
+    {
+        let pid = TERMINALS
+            .lock()
+            .get(id)
+            .and_then(|e| e.child.lock().process_id())
+            .and_then(|p| i32::try_from(p).ok())
+            .filter(|p| *p > 1);
+        if let Some(pid) = pid {
+            // SAFETY: plain signal syscalls on a process group we started.
+            unsafe { libc::kill(-pid, libc::SIGTERM) };
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                // SAFETY: as above; signal 0 only asks whether the group exists.
+                if unsafe { libc::kill(-pid, 0) } == 0 {
+                    unsafe { libc::kill(-pid, libc::SIGKILL) };
+                }
+            });
+            return;
+        }
+    }
+    kill_terminal(id);
+}
+
 /// What tells a CLI it is being run by an agent rather than a person.
 fn agent_markers() -> Vec<String> {
     std::env::vars()
